@@ -28,6 +28,15 @@ Clear identity evidence already follows the automatic review policy. Company
 labels alone cannot resolve an exact investment vehicle. Production records were
 not recaptured or accepted as part of this presentation change.
 
+Company-only holding labels also do not create legal review tasks when the only
+gaps are missing legal names or company mappings, with no agreement or specific
+document failure. The same evidence rule applies to owner groupings. Named
+vehicles, existing legal decisions, agreements, conflicting identities,
+participation exceptions and failed or blocked document checks remain eligible.
+Filtering triage never accepts, excludes, merges or reclassifies a holding;
+unresolved sources remain available through their existing deep links and
+exports. This repair reuses the approved queue and existing detail workspace.
+
 ## Interaction and verification
 
 Reuse the existing details and editor as the sole editing owner. Opening an

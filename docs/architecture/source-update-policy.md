@@ -66,6 +66,13 @@ Holdings position workspace; Legal entities links to that exact position. Source
 commitment corrections remain a distinct secondary action because they do not
 change cash paid or funded capital.
 
+A company or owner label alone does not create a legal-entity review task when
+only its legal name or company citation is missing. Named vehicles, existing
+legal decisions, agreements, specific document failures and other legal
+exceptions remain eligible. This triage filter preserves the source, stored
+policy issues, position classification and export; it never accepts a company
+name as a vehicle or links investments by company alone.
+
 Until a position has a unified Investment details review, current
 single-purchase notices can supply management and carry evidence. Disagreement
 with provider or agreement terms remains an exception. Underlying purchase fees

@@ -322,6 +322,156 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
+test("company-only holding labels stay out of triage but remain available in source details and export", async ({
+  page,
+}) => {
+  const companyOnly: LegalEntitySourceSummary[] = [
+    "Demo Orchard",
+    "Demo Harbor",
+    "Demo Circuit",
+  ].map((name, index) => ({
+    ...positionSource,
+    source: { kind: "holding_position", id: `synthetic_company_${index}` },
+    sourceDisplayName: name,
+    suggestedEntityType: null,
+    sourceLabel: "Demo provider",
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+      problem: "missing",
+    },
+    automaticReview: {
+      id: "33333333-3333-4333-8333-333333333333",
+      policyVersion: "investment-review-auto-v1",
+      snapshotId: `synthetic_snapshot_${index}`,
+      evaluatedAt: "2026-09-01T12:00:00.000Z",
+      resolved: [],
+      issues: [
+        { section: "identity", code: "missing", message: "No legal name." },
+        {
+          section: "company",
+          code: "missing",
+          message: "No company citation.",
+        },
+        { section: "economics", code: "missing", message: "No fee evidence." },
+      ],
+    },
+  }));
+  const conflict: LegalEntitySourceSummary = {
+    ...companyOnly[0]!,
+    source: { kind: "holding_position", id: "synthetic_identity_conflict" },
+    sourceDisplayName: "Demo Identity Conflict",
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+      problem: "conflicting",
+    },
+    automaticReview: {
+      ...companyOnly[0]!.automaticReview!,
+      issues: [
+        {
+          section: "identity",
+          code: "conflicting",
+          message: "Source identity evidence disagrees.",
+        },
+      ],
+    },
+  };
+  let inventory: LegalEntityInventory = {
+    ...initialInventory,
+    candidates: [...companyOnly, positionSource, conflict],
+    exactBatch: {
+      ...initialInventory.exactBatch,
+      sourceCount: 1,
+      entityCount: 1,
+      newEntityCount: 1,
+      llcEntityCount: 1,
+      limitedPartnershipEntityCount: 0,
+      remainingCandidateCount: 4,
+    },
+  };
+  const writes: string[] = [];
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings: [],
+    investmentHoldings: emptyInvestmentHoldingsView,
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await routeInvestmentReview(page, companyOnly[0]!);
+  await routeInvestmentReview(page, positionSource);
+  await routeInvestmentReview(page, conflict);
+  await page.route("**/api/legal-entities", (route) => {
+    if (route.request().method() !== "GET")
+      writes.push(route.request().method());
+    return route.fulfill({ json: inventory });
+  });
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
+  await page.goto("/holdings/entities");
+  await page.getByRole("button", { name: "Needs your review · 2" }).click();
+  const queue = page.locator(".legal-entities__candidate-list");
+  await expect(queue.locator(".legal-entity-candidate")).toHaveCount(2);
+  await expect(queue).toContainText("Demo Venture SPV LLC");
+  await expect(queue).toContainText("Demo Identity Conflict");
+  for (const source of companyOnly)
+    await expect(queue).not.toContainText(source.sourceDisplayName);
+  await expectNoHorizontalOverflow(page);
+  await expect(queue).toHaveScreenshot("legal-entities-evidence-triage.png");
+
+  // Search must not manufacture a task from the raw source inventory.
+  await page
+    .getByRole("searchbox", { name: "Search legal entities" })
+    .fill("Demo Orchard");
+  await expect(
+    page.getByRole("button", { name: /^Needs your review/u }),
+  ).toHaveCount(0);
+  await page.getByRole("searchbox", { name: "Search legal entities" }).fill("");
+  await page.getByRole("button", { name: "Needs your review · 2" }).click();
+  await queue.getByRole("button", { name: "Review details" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Demo Robotics", exact: true }),
+  ).toBeVisible();
+  // Both navigation controls stay within genuine legal tasks.
+  await page.getByRole("button", { name: "Next needing review" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Demo Identity Conflict", exact: true }),
+  ).toBeVisible();
+
+  const table = legalEntityExportTable(inventory, {
+    fields: ["source_record", "legal_name"],
+    includeNeedsReview: true,
+    includeHistorical: false,
+    includeOtherEntityTypes: true,
+  });
+  for (const source of companyOnly)
+    expect(table.rows).toContainEqual([source.sourceDisplayName, ""]);
+
+  await page.goto(
+    `/holdings/entities?review=holding_position%3A${companyOnly[0]!.source.id}&tab=documents`,
+  );
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Demo Orchard" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "No agreement was available for this investment. Request the subscription or operating agreement from the provider.",
+    ),
+  ).toBeVisible();
+  inventory = { ...inventory, candidates: companyOnly };
+  await page.goto("/holdings/entities");
+  await expect(
+    page.getByRole("heading", { name: "Known legal entities · 2" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^Needs your review/u }),
+  ).toHaveCount(0);
+  expect(writes).toEqual([]);
+});
+
 test("reads the complete saved entity profile and refreshes it after edits", async ({
   page,
 }) => {
@@ -1099,14 +1249,12 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.getByText("Needs review", { exact: true }).first(),
   ).toBeVisible();
   await expect(page.getByText("Name unavailable", { exact: true })).toHaveCount(
-    2,
+    1,
   );
   const unresolvedSydecar = page
     .locator(".legal-entity-candidate")
     .filter({ hasText: "Demo Climate" });
-  await expect(unresolvedSydecar).toContainText(
-    "The source does not identify the exact legal vehicle. Add a supporting agreement or check the available evidence.",
-  );
+  await expect(unresolvedSydecar).toHaveCount(0);
   await expect(
     unresolvedSydecar.getByRole("button", { name: "Review details" }),
   ).toHaveCount(0);
@@ -1319,7 +1467,9 @@ test("reviews legal entities and exports selected counsel fields", async ({
   ).toBeVisible();
   expect(exactBatchBody).toEqual({ expectedRevision: "b".repeat(64) });
   await expect(
-    page.locator(".legal-entity-candidate").filter({ hasText: "Demo Climate" }),
+    page
+      .locator(".legal-entity-candidate")
+      .filter({ hasText: "Demo Pharmacy" }),
   ).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");
