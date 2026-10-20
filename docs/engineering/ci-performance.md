@@ -74,21 +74,22 @@ servers, ports and cleanup; each partition remains serial internally.
 The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks; PDF probes depend on both integrity and
-the successful image build. Browser fixture preparation also becomes ready after
-the integrity checks and enters the three-flow schedule when a slot opens. Build
-depends on source checks and migration completion. Unit/D1 tests become ready
-after integrity checks and the PDF image build, and take the first available
-slot before migration and fixture preparation. They own isolated D1 fixtures and
-consume TypeScript sources, so source checks, the shared scenario seed and build
-output are not inputs to this flow. Source checks and migration remain required
-for the complete gate. The exact real-reader name/page assertions now belong to
-mandatory PDF isolation, outside Vitest’s unit pool. Browser tests depend on the
-sealed fixture, build and PDF isolation. This keeps generated outputs stable
-before their browser consumers start and avoids running browser document
-processing before the sandbox boundary passes. Formatting and linting exclude
-the Git-ignored runtime, fixture and cache directories, so concurrent integrity
-tests cannot change files under the source checkers. Repository source and test
-files remain in scope.
+the successful image build. PDF isolation is first in map order, so it takes the
+next available slot once those prerequisites pass. Browser fixture preparation
+also becomes ready after integrity checks. Build depends on source checks and
+migration completion. Unit/D1 tests become ready after integrity checks and take
+a slot before Compose validation, migration and fixture preparation. They own
+isolated D1 fixtures and consume TypeScript sources; their sandbox tests use
+mocks or fail-closed inputs. PDF images, source checks, the shared scenario seed
+and build output are not inputs to this flow. Source checks and migration remain
+required for the complete gate. The exact real-reader name/page assertions
+belong to mandatory PDF isolation, outside Vitest’s unit pool. Browser tests
+depend on the sealed fixture, build and PDF isolation. This keeps generated
+outputs stable before their browser consumers start and avoids running browser
+document processing before the sandbox boundary passes. Formatting and linting
+exclude the Git-ignored runtime, fixture and cache directories, so concurrent
+integrity tests cannot change files under the source checkers. Repository source
+and test files remain in scope.
 
 The declared prerequisites are:
 
@@ -99,8 +100,7 @@ flowchart LR
   integrity --> migrations[Migrations and seed]
   integrity --> pdf[PDF isolation]
   pdfBuild[PDF security-image build] --> pdf
-  pdfBuild --> unit[Unit and D1 tests]
-  integrity --> unit
+  integrity --> unit[Unit and D1 tests]
   integrity --> browserFixture[Browser fixture]
   migrations --> build
   build --> browser[Browser suite]
@@ -298,6 +298,24 @@ exception, query-plan and read/write ceilings remain. Review workflow and
 stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
+
+PR run `39363608558` exhausted the unchanged 900-second gate with unit and
+browser work incomplete. Unit work started at 138.7 seconds after waiting for
+PDF images; PDF isolation waited for a slot until 195.2 seconds and finished at
+464.2 seconds, although the build and browser fixture were ready by 269.3
+seconds. The revised map removes only the unit image dependency and prioritizes
+ready PDF isolation within the existing three-flow cap. It preserves the
+required image build, real isolation proof, browser prerequisites and all
+individual cases. The existing scheduling contract rejects restoring the unit
+image dependency, delaying PDF priority or raising the gate budget.
+
+These observed admission delays are not guaranteed wall-time savings: moving
+work changes contention on the shared host. A complete exact-revision Linux
+receipt must still finish within 900 seconds. Record active duration, remaining
+headroom, all flow timings, native case accounting and resource pressure. One
+successful run establishes that attempt, not a recurrence guarantee; robustness
+needs matched coverage under representative host load and the daily image
+security refresh. Preserve earlier failed attempts when comparing results.
 
 PR run `37951901830` exposed contention across independent native and browser
 fixtures: one attempt timed out an unchanged cash cost case at 60 seconds; the

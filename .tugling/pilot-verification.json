@@ -2,6 +2,33 @@
   "schema_version": 1,
   "flows": [
     {
+      "id": "pdf-isolation",
+      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
+      "argv": ["make", "pdf-sandbox-verify"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "scripts/pdf-sandbox-verify.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox-owner.ts",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/pdf-sandbox-error.ts",
+        "scripts/test-support/pdf-sandbox-caller.ts",
+        "scripts/test-support/pdf-orphan-client.ts",
+        "scripts/legal-document-extraction.ts",
+        "scripts/test-support/legal-documents.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
+        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
+        "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
+      },
+      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+    },
+    {
       "id": "source-quality",
       "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
       "argv": ["make", "-j2", "data-scan", "format-check", "lint", "typecheck"],
@@ -84,11 +111,11 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts expensive fixtures first, immediately after integrity and PDF-image provisioning; two workers leave CPU capacity for browser lanes and measured priorities schedule costly files first after early admission. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state.",
+        "launch": "Vitest starts expensive fixtures first after integrity checks, without waiting for PDF images; its sandbox tests use mocks or fail-closed inputs, while real reader/scanner proof remains in mandatory PDF isolation. Two workers bound contention and measured priorities schedule costly files first. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "compose-configuration",
@@ -173,33 +200,6 @@
         "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
       },
       "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
-      "id": "pdf-isolation",
-      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
-      "argv": ["make", "pdf-sandbox-verify"],
-      "timeout_seconds": 600,
-      "sources": [
-        "Makefile",
-        "scripts/pdf-sandbox-verify.ts",
-        "scripts/pdf-sandbox.ts",
-        "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/boundary.py",
-        "scripts/pdf-sandbox-owner.ts",
-        "scripts/pdf-sandbox-owner.py",
-        "scripts/pdf-sandbox-error.ts",
-        "scripts/test-support/pdf-sandbox-caller.ts",
-        "scripts/test-support/pdf-orphan-client.ts",
-        "scripts/legal-document-extraction.ts",
-        "scripts/test-support/legal-documents.ts"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
-        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
-        "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
-      },
-      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
     },
     {
       "id": "browser-fixture-preparation",

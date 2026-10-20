@@ -853,13 +853,21 @@ class NativeAccountingTests(unittest.TestCase):
         )
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["gate-and-artifact-integrity", "pdf-sandbox-build"],
+            ["gate-and-artifact-integrity"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
-        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
+        # The pinned scheduler admits ready flows in map order. Keep PDF
+        # proof first once its real prerequisites pass; units can use the
+        # earlier integrity-completion slot without waiting for those images.
+        self.assertEqual(flow_order[0], "pdf-isolation")
+        for later in ("compose-configuration", "migration-and-seed", "browser-fixture-preparation"):
+            with self.subTest(later=later):
+                self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index(later))
         self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["source-quality", "migration-and-seed"])
         self.assertIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
         self.assertEqual(plan["execution"]["max_parallel"], 3)
+        config = json.loads((pilot.ROOT / ".tugling/pilot.json").read_text())
+        self.assertEqual(config["project"]["verification_budget_seconds"], 900)
         self.assertLessEqual(
             sum(flow["timeout_seconds"] for flow in flows.values()), 7200
         )

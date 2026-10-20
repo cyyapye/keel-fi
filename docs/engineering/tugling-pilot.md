@@ -56,12 +56,14 @@ Compose validation, local scenario verification and the existing Python
 temporary-run tests. Each suite runs once. No required inventory refresh,
 snapshot update, test filtering or model judging happens during execution.
 
-Native unit and cost verification uses three CI workers and two local workers to
-bound workerd and GPG contention. Its overall watchdog remains 25 minutes; the
-independent active-verification performance budget is 15 minutes for the
-complete gate. Individual test deadlines, case accounting, and resource and D1
-cost assertions remain unchanged. The combined flow watchdogs stay within the
-pinned harness's two-hour cap.
+Native unit and cost verification uses two workers in CI and locally to bound
+workerd and GPG contention. It becomes ready after integrity checks; mandatory
+PDF isolation has priority once its integrity and image prerequisites pass. Its
+overall watchdog remains 25 minutes; the independent active-verification
+performance budget is 15 minutes for the complete gate. Individual test
+deadlines, case accounting, and resource and D1 cost assertions remain
+unchanged. The combined flow watchdogs stay within the pinned harness's two-hour
+cap.
 
 ## Accepted rules and native proof
 
