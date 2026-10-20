@@ -3,7 +3,8 @@
   "data_policy": "synthetic-only",
   "case": {
     "id": "keel-projection-read-scale",
-    "skill": "scale-cost-review",
+    "skill": "architect",
+    "legacy_skill": "scale-cost-review",
     "project_type": "typescript-worker",
     "sandbox": "read-only",
     "minimum_score": 0.8,

@@ -2,9 +2,22 @@
 
 The native gate is the single CI execution owner for Keel's full verification
 suite. The project-approved source is pinned in `.tugling/pilot.json`; the
-accepted released adapter in `.tugling/project.json` remains separate. The pilot
-pin is an explicitly reviewed source integration, not a new stable plugin
-release. Learning stays local and is never a CI input or artifact.
+accepted released adapter in `.tugling/project.json` remains separate. Both
+adapters now accept Tugling `0.8.0` at
+`01af7eda080d3ef49d9fabcb7dfdf40e949a693c`, the commit identified by the
+annotated `v0.8.0` tag and `stable` branch when reviewed on 2026-10-20. The
+[protected promotion and fresh-install canary](https://github.com/cyyapye/tugling/actions/runs/39139730998)
+passed for that exact commit. The contract helper is unchanged from the prior
+`0.7.0` pin; the existing required map, receipt checks and native assertions
+remain authoritative.
+
+Tugling 0.8 replaces its former skill names with the Pstack catalog. The
+synthetic projection-read dogfood case now invokes `architect`, following the
+upstream
+[migration map](https://github.com/cyyapye/tugling/blob/01af7eda080d3ef49d9fabcb7dfdf40e949a693c/docs/lineage.md).
+Its `legacy_skill` preserves `scale-cost-review` for comparisons against older
+releases; its five decisions and readiness criteria are unchanged. Learning
+stays local and is never a CI input or artifact.
 
 ## First setup and required execution
 

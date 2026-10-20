@@ -90,10 +90,31 @@ describe("post-merge preview deployment workflow", () => {
     const tugling = workflow.slice(tuglingStart, deploymentStart);
     expect(tugling).toContain("ref: ${{ github.sha }}");
     expect(tugling).toContain("repository: cyyapye/tugling");
-    expect(tugling).toContain("ref: def00814d412546ae9885d9a32584ec161b6e3f7");
+    expect(tugling).toContain("ref: 01af7eda080d3ef49d9fabcb7dfdf40e949a693c");
     expect(tugling).toContain("persist-credentials: false");
     expect(tugling).toContain("project_contract.py");
     expect(tugling).toContain("--source-mode pinned");
+
+    const accepted = JSON.parse(
+      await readFile(".tugling/project.json", "utf8"),
+    );
+    const pilot = JSON.parse(await readFile(".tugling/pilot.json", "utf8"));
+    expect(accepted.tugling).toMatchObject({
+      channel: "pinned",
+      revision: "01af7eda080d3ef49d9fabcb7dfdf40e949a693c",
+      version: "0.8.0",
+    });
+    expect(pilot.tugling).toEqual(accepted.tugling);
+    for (const path of [
+      ".github/workflows/tugling.yml",
+      ".github/workflows/native-verification.yml",
+      ".github/workflows/tugling-pilot.yml",
+      ".github/actions/verify-native-receipt/action.yml",
+    ]) {
+      expect(await readFile(path, "utf8")).toContain(
+        `ref: ${accepted.tugling.revision}`,
+      );
+    }
 
     const backup = deployment.indexOf("wrangler d1 export");
     const backupVerification = deployment.indexOf("cmp --silent");
