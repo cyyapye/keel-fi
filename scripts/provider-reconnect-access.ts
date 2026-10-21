@@ -252,7 +252,7 @@ export async function startReconnectAccessGateway(options: {
             "Cache-Control": "no-store",
             "Referrer-Policy": "no-referrer",
             "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": `default-src 'self'; script-src 'self' 'nonce-${options.scriptNonce}'; style-src 'unsafe-inline'; connect-src 'self' ${origin.origin.replace("https:", "wss:")}; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
+            "Content-Security-Policy": `default-src 'self'; script-src 'self' 'nonce-${options.scriptNonce}'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${origin.origin.replace("https:", "wss:")}; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
           });
           result.pipe(response);
         },
