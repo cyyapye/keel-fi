@@ -103,6 +103,7 @@ class NativeAccountingTests(unittest.TestCase):
     def test_native_suite_leases_allow_independent_suites_but_reject_same_suite(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(native, "ARTIFACTS", Path(temporary)):
             self.assertEqual(native.native_lease_name("browser-fixture"), "playwright")
+            self.assertEqual(native.native_lease_name("migration-seed"), "playwright")
             self.assertEqual(native.native_lease_name("playwright-prepared"), "playwright")
             with native.native_lease("vitest"), native.native_lease("playwright"):
                 with self.assertRaises(BlockingIOError):
@@ -630,6 +631,9 @@ class NativeAccountingTests(unittest.TestCase):
             seed = repository / ".keel-local" / "e2e"
             seed.mkdir(parents=True)
             (seed / "seed.sqlite").write_text("synthetic")
+            canonical = repository / ".keel-local" / "scenarios" / "default" / "v3" / "d1"
+            canonical.mkdir(parents=True)
+            (canonical / "seed.sqlite").write_text("canonical synthetic")
             prepared_seed = repository / ".keel-local" / "pilot-browser-seed"
             prepared_seal = repository / ".keel-local" / "pilot-browser-seed.json"
             runtime = repository / ".keel-local" / "e2e-lanes"
@@ -651,13 +655,17 @@ class NativeAccountingTests(unittest.TestCase):
                 patch.object(native.subprocess, "run") as run,
             ):
                 native.prepare_browser_seed()
-                run.assert_called_once_with(
-                    ["make", "db-verify-e2e"], cwd=repository, check=True
-                )
+                self.assertEqual(run.call_args_list, [
+                    unittest.mock.call(["make", "db-verify", "SCENARIO=default"], cwd=repository, check=True),
+                    unittest.mock.call(["make", "db-check-e2e", "E2E_PERSIST_TO=.keel-local/e2e"], cwd=repository, check=True),
+                ])
                 self.assertFalse(seed.exists())
                 native.validate_browser_seed_seal()
+                self.assertFalse((prepared_seed / "seed.sqlite").exists())
+                self.assertEqual((canonical / "seed.sqlite").read_text(), "canonical synthetic")
 
                 run.reset_mock()
+                native.run_suite("browser-fixture")
                 native.prepare_browser_profiles(execution, prepared=True)
                 run.assert_not_called()
                 self.assertFalse(prepared_seed.exists())
@@ -669,8 +677,11 @@ class NativeAccountingTests(unittest.TestCase):
                     self.assertEqual(list((runtime / lane).iterdir()), [])
                 for lane in ("stateful-development", "stateful-a", "stateful-b"):
                     self.assertEqual(
-                        (runtime / lane / "seed.sqlite").read_text(), "synthetic"
+                        (runtime / lane / "v3/d1/seed.sqlite").read_text(), "canonical synthetic"
                     )
+                (runtime / "stateful-a/v3/d1/seed.sqlite").write_text("changed")
+                self.assertEqual((canonical / "seed.sqlite").read_text(), "canonical synthetic")
+                self.assertEqual((runtime / "stateful-b/v3/d1/seed.sqlite").read_text(), "canonical synthetic")
 
                 prepared_seed.mkdir()
                 (prepared_seed / "seed.sqlite").write_text("synthetic")
@@ -696,6 +707,11 @@ class NativeAccountingTests(unittest.TestCase):
                     native.prepare_browser_seed()
                 self.assertFalse(prepared_seed.exists())
                 self.assertFalse(prepared_seal.exists())
+                run.side_effect = [None, subprocess.CalledProcessError(1, ["make", "db-check-e2e"])]
+                with self.assertRaises(subprocess.CalledProcessError):
+                    native.prepare_browser_seed()
+                self.assertFalse(prepared_seed.exists())
+                self.assertFalse(prepared_seal.exists())
                 run.side_effect = None
                 run.reset_mock()
 
@@ -710,7 +726,7 @@ class NativeAccountingTests(unittest.TestCase):
 
                 prepared_seal.unlink()
                 native.remove_browser_seed()
-                seed.mkdir()
+                seed.mkdir(exist_ok=True)
                 (seed / "seed.sqlite").write_text("standalone")
                 native.prepare_browser_profiles(execution)
                 run.assert_called_once_with(
@@ -896,6 +912,8 @@ with native.cost_seed_directory() as seed:
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
         self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["source-quality", "migration-and-seed"])
+        self.assertEqual(flows["migration-and-seed"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "migration-seed"])
+        self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])
         self.assertIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         self.assertLessEqual(

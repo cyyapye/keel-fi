@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { D1InvestmentConnectionsRepository } from "../../packages/database/src/investment-connections";
+import { D1ProviderPortfolioAgentRepository } from "../../packages/database/src/provider-portfolio-agent";
 import { measureD1 } from "./d1-meter";
 import {
   COST_SUBJECT,
@@ -28,6 +29,7 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
     nextCheckAt: z.string().datetime(),
   }),
   z.object({ operation: z.literal("read-budgets") }).strict(),
+  z.object({ operation: z.literal("provider-reconnect") }).strict(),
 ]);
 export type CostFixtureSetupOperation = z.input<typeof setupOperationSchema>;
 
@@ -76,6 +78,22 @@ export default {
         .bind(operation.nextCheckAt)
         .run();
       result = { operation: operation.operation, importId };
+    } else if (operation.operation === "provider-reconnect") {
+      const agents = new D1ProviderPortfolioAgentRepository(
+        bindings.DB,
+        () => new Date("2026-10-01T12:00:00.000Z"),
+      );
+      await agents.register("synthetic-access-subject", "tokenfolio");
+      await bindings.DB.batch([
+        bindings.DB.prepare(
+          "INSERT INTO users VALUES ('usr_foreign', 'synthetic-foreign', 'foreign@example.com', 'Synthetic foreign user', '2026-01-01T00:00:00Z')",
+        ),
+        bindings.DB.prepare(
+          "INSERT INTO households VALUES ('hh_foreign', 'usr_foreign', 'Synthetic foreign household', 'USD', '2026-01-01T00:00:00Z')",
+        ),
+      ]);
+      await agents.register("synthetic-foreign", "tokenfolio");
+      result = { operation: operation.operation };
     } else {
       const measured = measureD1(bindings.DB);
       await seedCostHoldings(measured.database, COST_SUBJECT, 1, true);

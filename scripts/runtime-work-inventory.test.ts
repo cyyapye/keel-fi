@@ -27,6 +27,11 @@ const options = ts.parseJsonConfigFileContent(
 ).options;
 
 it("accounts for every runtime timer, network and queue call in the entrypoint graph", () => {
+  const resolutionCache = ts.createModuleResolutionCache(
+    process.cwd(),
+    (file) => (ts.sys.useCaseSensitiveFileNames ? file : file.toLowerCase()),
+    options,
+  );
   const visited = new Set<string>();
   const entries: string[] = [];
   function visitFile(file: string) {
@@ -50,6 +55,7 @@ it("accounts for every runtime timer, network and queue call in the entrypoint g
           file,
           options,
           ts.sys,
+          resolutionCache,
         ).resolvedModule?.resolvedFileName;
         if (target && /\.tsx?$/u.test(target)) visitFile(target);
       }
@@ -64,6 +70,7 @@ it("accounts for every runtime timer, network and queue call in the entrypoint g
             file,
             options,
             ts.sys,
+            resolutionCache,
           ).resolvedModule?.resolvedFileName;
           if (target && /\.tsx?$/u.test(target)) visitFile(target);
         }

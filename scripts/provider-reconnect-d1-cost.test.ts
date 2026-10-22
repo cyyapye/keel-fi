@@ -1,22 +1,14 @@
 import { expect, it } from "vitest";
 import { D1ProviderBrowserSessionRepository } from "../packages/database/src/provider-browser-sessions";
-import { D1ProviderPortfolioAgentRepository } from "../packages/database/src/provider-portfolio-agent";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
+import { measureD1 } from "./test-support/d1-cost";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
 
 it("keeps reconnect subject binding indexed across positive, empty, foreign and growing history", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createCostFixtureDatabase({
+    operation: "provider-reconnect",
+  });
   const now = () => new Date("2026-10-01T12:00:00.000Z");
   try {
-    await new D1ProviderPortfolioAgentRepository(
-      fixture.database,
-      now,
-    ).register("synthetic-access-subject", "tokenfolio");
-    await fixture.execute(`INSERT INTO users VALUES ('usr_foreign', 'synthetic-foreign', 'foreign@example.com', 'Synthetic foreign user', '2026-01-01T00:00:00Z');
-      INSERT INTO households VALUES ('hh_foreign', 'usr_foreign', 'Synthetic foreign household', 'USD', '2026-01-01T00:00:00Z');`);
-    await new D1ProviderPortfolioAgentRepository(
-      fixture.database,
-      now,
-    ).register("synthetic-foreign", "tokenfolio");
     const costs: number[] = [];
     for (const history of [120, 1200]) {
       await fixture.database

@@ -74,8 +74,8 @@ servers, ports and cleanup; each partition remains serial internally.
 The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks; PDF probes depend on both integrity and
-the successful image build. Browser fixture preparation also becomes ready after
-the integrity checks and enters the three-flow schedule when a slot opens. Build
+the successful image build. The migration flow also seals a private copy for
+browser tests; fixture validation becomes ready after that flow succeeds. Build
 depends on source checks and migration completion. Unit/D1 tests become ready
 after integrity checks and the PDF image build, and take the first available
 slot before migration and fixture preparation. They own isolated D1 fixtures and
@@ -101,7 +101,7 @@ flowchart LR
   pdfBuild[PDF security-image build] --> pdf
   pdfBuild --> unit[Unit and D1 tests]
   integrity --> unit
-  integrity --> browserFixture[Browser fixture]
+  migrations --> browserFixture[Browser fixture]
   migrations --> build
   build --> browser[Browser suite]
   pdf --> browser
@@ -116,7 +116,7 @@ confirmed cleanup; all original probes remain required. The fixture uses a slot
 released by an earlier flow and can overlap remaining source/PDF work. No
 browser consumer starts before its fixture, PDF isolation and build succeed.
 
-The unit suite uses two workers in CI and locally, and starts historically
+The unit suite uses three workers in CI and locally, and starts historically
 expensive files first. Its early admission reduces overlap between expensive D1
 fixtures and browser startup. The reviewed-rename cost fixture runs its
 synthetic import and 240 company-review operations inside its existing workerd
@@ -149,15 +149,14 @@ holdings-page projection through the web proxy, with one bounded probe in flight
 and a cached successful result for the development server. A simpler health
 endpoint cannot hide a cold first read or module load.
 
-Fixture preparation runs the unchanged browser reset, every migration, the
-synthetic seed and invariant readback early in the bounded flow graph. It moves
-the closed result into a dedicated allowlisted path and seals both the source
+The migration flow runs every migration, the canonical synthetic seed and
+invariant readback, then copies the closed D1 tree into a dedicated allowlisted
+browser path. It verifies the browser binding/readback and seals both source
 inputs and complete fixture contents. The required browser command only accepts
 that seal, clones three profiles and consumes the seed; it never falls back to a
 reset on the browser critical path. The standalone `pilot_native.py playwright`
-command retains its reset-and-verify behavior and uses a separate seed path.
-Both commands share the Playwright lease while touching browser runtime/report
-paths.
+command retains its reset-and-verify behavior and uses a separate seed path. All
+commands share the Playwright lease while touching browser runtime/report paths.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
@@ -507,4 +506,25 @@ Unmeasured `*-d1-cost.test.ts` files now receive early admission ahead of the
 historical duration hints. The complete local suite exposed a 16.8-second
 share-price scale case at the very end; it had no historical hint. This rule
 prevents newly added scale fixtures from silently becoming a long serial tail.
-It preserves discovery, within-file order and the two-worker limit.
+It preserves discovery and within-file order.
+
+The second candidate, run `39863437995`, completed 1,280 unit cases but failed
+two unchanged five-second deadlines: reconnect setup and TypeScript runtime
+inventory scanning. Unit execution took 746.8 seconds; provider-day tests took
+149.7 seconds. Browser work was cancelled on that failure. This is diagnostic
+evidence, not a passing full-gate benchmark. The minimum available memory was
+2.9 GiB, CPU busy averaged 81.4%, and steal averaged 4.3%.
+
+The next candidate moves only unmeasured reconnect fixture registration into its
+existing workerd runtime and caches repeated TypeScript module resolution within
+the inventory scan. Both five-second deadlines and all assertions remain. It
+evaluates three unit workers, while retaining three concurrent native flows and
+four browser workers. The canonical migration flow now performs the complete
+default scenario replay and invariant readback once, copies its closed owned
+`v3` D1 tree, and runs the independent browser binding/readback on that copy.
+All lanes still receive separate mutable databases. The source and complete-tree
+seal, exclusive lease, fail-closed stale/missing/mutated input checks, and
+standalone browser reset remain. A failed migration or browser readback cannot
+produce a valid seal. This removes a duplicate migration pass, not a migration
+or browser assertion. Full Linux execution must establish the resulting
+headroom.

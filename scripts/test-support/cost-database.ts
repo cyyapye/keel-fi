@@ -24,6 +24,7 @@ const d1CostSchema = z
   })
   .strict();
 const setupResultSchema = z.discriminatedUnion("operation", [
+  z.object({ operation: z.literal("provider-reconnect") }).strict(),
   z
     .object({
       operation: z.literal("holdings"),

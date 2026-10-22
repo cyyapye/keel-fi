@@ -49,7 +49,7 @@ def native_lease(runner):
 
 
 def native_lease_name(runner):
-    if runner in ("browser-fixture", "playwright", "playwright-prepared"):
+    if runner in ("migration-seed", "browser-fixture", "playwright", "playwright-prepared"):
         return "playwright"
     return runner
 
@@ -227,6 +227,7 @@ def browser_seed_input_digest():
         ROOT / "pnpm-lock.yaml",
         ROOT / "apps/api/wrangler.jsonc",
         ROOT / "scripts/reset-e2e-state.mjs",
+        ROOT / "scripts/local-seed-scenarios.ts",
         ROOT / "packages/database/seed/synthetic.sql",
         *sorted((ROOT / "packages/database/migrations").glob("*.sql")),
     ]
@@ -308,11 +309,23 @@ def validate_browser_seed_seal():
 def prepare_browser_seed():
     local = ROOT / ".keel-local"
     base = local / "e2e"
+    canonical = local / "scenarios" / "default" / "v3"
     validate_owned_browser_path(local, "browser profile parent", allow_missing=True)
     validate_owned_browser_path(base, "verified browser seed", recursive=True, allow_missing=True)
     remove_browser_seed()
-    subprocess.run(["make", "db-verify-e2e"], cwd=ROOT, check=True)
+    # Replay every migration and the canonical synthetic readback once. Wrangler
+    # has exited before copying; browser lanes receive independent mutable state.
+    subprocess.run(["make", "db-verify", "SCENARIO=default"], cwd=ROOT, check=True)
     validate_owned_browser_path(local, "browser profile parent")
+    validate_owned_browser_path(canonical, "canonical verified D1 seed", recursive=True)
+    validate_owned_browser_path(canonical / "d1", "canonical verified D1 state", recursive=True)
+    if base.exists():
+        shutil.rmtree(base)
+    base.mkdir(mode=0o700)
+    shutil.copytree(canonical, base / "v3")
+    # Keep the independent browser binding/readback check, without replaying the
+    # same migrations a second time. Explicit persistence cannot inherit an override.
+    subprocess.run(["make", "db-check-e2e", "E2E_PERSIST_TO=.keel-local/e2e"], cwd=ROOT, check=True)
     validate_owned_browser_path(base, "verified browser seed", recursive=True)
     base.rename(BROWSER_SEED)
     write_browser_seed_seal()
@@ -632,8 +645,11 @@ def cost_seed_directory():
 
 
 def run_suite(runner):
-    if runner == "browser-fixture":
+    if runner == "migration-seed":
         prepare_browser_seed()
+        return
+    if runner == "browser-fixture":
+        validate_browser_seed_seal()
         return
     inventory = json.loads(INVENTORY.read_text())
     if runner == "python":
@@ -674,7 +690,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "runner",
-        choices=("browser-fixture", "vitest", "playwright", "playwright-prepared", "python"),
+        choices=("migration-seed", "browser-fixture", "vitest", "playwright", "playwright-prepared", "python"),
     )
     args = parser.parse_args()
     load_module("tugling-pilot").require_unfiltered_environment()
