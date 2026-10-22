@@ -1331,11 +1331,11 @@ async function captureTokenfolio(
     listCurrentText = listCurrentText.trim();
     const listCurrent = parseOptionalUsdMinor(listCurrentText);
     onStage("status");
-    const status = await cells
-      .nth(6)
-      .locator(":scope > span")
-      .last()
-      .innerText();
+    // Read the badge independently of its element type and optional column label.
+    const status = normalizedText(await cells.nth(6).innerText()).replace(
+      /^Status(?:\s*:\s*|\s+)/iu,
+      "",
+    );
     if (!tokenfolioActiveHoldingStatus(status)) {
       throw new AgentFailure("page_not_supported");
     }
