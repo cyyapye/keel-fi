@@ -329,6 +329,7 @@ describe("provider portfolio Mac agent", () => {
     expect(tokenfolioActiveHoldingStatus("Active")).toBe(true);
     expect(tokenfolioActiveHoldingStatus("Funds Received")).toBe(true);
     expect(tokenfolioActiveHoldingStatus("Completed")).toBe(true);
+    expect(tokenfolioActiveHoldingStatus("Partially Exited")).toBe(true);
     expect(tokenfolioActiveHoldingStatus("Exited")).toBe(false);
   });
 

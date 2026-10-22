@@ -1157,7 +1157,9 @@ async function waitForTokenfolioTabCount(activeTab: Locator): Promise<number> {
 }
 
 function tokenfolioActiveHoldingStatus(value: string): boolean {
-  return ["active", "completed", "funds received"].includes(
+  // Active Holdings includes remaining shares after partial exits. Retain live
+  // participation; this label does not establish investor cash or vehicle closure.
+  return ["active", "completed", "funds received", "partially exited"].includes(
     normalizedText(value).toLowerCase(),
   );
 }
@@ -1331,11 +1333,11 @@ async function captureTokenfolio(
     listCurrentText = listCurrentText.trim();
     const listCurrent = parseOptionalUsdMinor(listCurrentText);
     onStage("status");
-    // Read the badge independently of its element type and optional column label.
-    const status = normalizedText(await cells.nth(6).innerText()).replace(
-      /^Status(?:\s*:\s*|\s+)/iu,
-      "",
-    );
+    const status = await cells
+      .nth(6)
+      .locator(":scope > span")
+      .last()
+      .innerText();
     if (!tokenfolioActiveHoldingStatus(status)) {
       throw new AgentFailure("page_not_supported");
     }

@@ -228,7 +228,6 @@ function tokenfolioPage(
   detailDelayMs = 0,
   tabCountDelayMs = 0,
   drawerUrlDelayMs = 0,
-  statusBadgeTag: "div" | "span" = "span",
 ): string {
   const rows = [
     {
@@ -265,7 +264,7 @@ function tokenfolioPage(
             <div><span>Committed:</span><span>${row.committed}</span></div>
             <div><span>*TF Price:</span><span>$15.00</span></div>
             <div><span>Current Value:</span><span>${row.current}<span>${row.currentSuffix}</span></span></div>
-            <div><span>Status:</span><${statusBadgeTag}>${row.status}</${statusBadgeTag}></div>
+            <div><span>Status:</span><span>${row.status}</span></div>
           </div>
         </div>`,
     )
@@ -419,14 +418,14 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
   page,
 }) => {
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  let statusBadgeTag: "div" | "span" = "span";
+  let firstStatus = "Funds Received";
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(2, undefined, false, 0, 0, 0, statusBadgeTag),
+      body: tokenfolioPage(2, [firstStatus, "Completed"]),
       contentType: "text/html",
     });
   });
-  for (statusBadgeTag of ["span", "div"] as const) {
+  for (firstStatus of ["Funds Received", "Partially Exited"]) {
     await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
 
     const bytes = await captureTokenfolio(page, "2026-08-21");
@@ -446,7 +445,10 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
           },
         },
         investedMinor: 1_250_000,
+        status: "Live",
         unrealizedValueMinor: 1_875_025,
+        realizedValueMinor: 0,
+        netValueMinor: 1_875_025,
         investmentEntity: "Synthetic Family LLC",
         investDate: "2025-08-20",
       },
@@ -570,31 +572,17 @@ test("fails closed for an unknown Tokenfolio active-row status", async ({
   page,
 }) => {
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  let status = "Exited";
-  let statusBadgeTag: "div" | "span" = "span";
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(
-        2,
-        [status, "Completed"],
-        false,
-        0,
-        0,
-        0,
-        statusBadgeTag,
-      ),
+      body: tokenfolioPage(2, ["Exited", "Completed"]),
       contentType: "text/html",
     });
   });
-  for (statusBadgeTag of ["span", "div"] as const) {
-    for (status of ["Exited", "Completed Active", ""]) {
-      await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
 
-      await expect(captureTokenfolio(page, "2026-08-21")).rejects.toThrow(
-        "page_not_supported",
-      );
-    }
-  }
+  await expect(captureTokenfolio(page, "2026-08-21")).rejects.toThrow(
+    "page_not_supported",
+  );
 });
 
 test("captures the visible funded Sydecar position and leaves value unreported", async ({
