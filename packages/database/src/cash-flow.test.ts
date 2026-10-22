@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { NormalizedCashFlowDelta } from "@keel/connectors";
@@ -194,10 +193,7 @@ describe("reviewed observed cash flow", () => {
   let repository: D1CashFlowRepository;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    migrationFiles.forEach((file) => {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    });
+    sqlite = createSqliteFixture(migrationFiles);
     installAcceptedCashAccount(sqlite);
     testD1 = new TestD1Database(sqlite);
     d1 = testD1 as unknown as D1Database;

@@ -433,3 +433,38 @@ boundary, and even zero-time lint cannot remove the remaining typecheck work.
 Ordinary per-file lint caching is unsafe for type-aware rules when imported
 types change. Keep the full checks; removing repeated parsing would require a
 separately measured design that preserves every workspace's type environment.
+
+## October 22 fixture and critical-path optimization
+
+PR #323 exhausted the unchanged 900-second budget twice (900.884 and 900.459
+seconds). Both full attempts left unit work incomplete, with browser work
+cancelled at the deadline. These are failed baselines, not accepted benchmarks.
+The repeated results rule out relying on another unchanged retry.
+
+The SQLite behavior fixtures now build an immutable, process-local snapshot once
+per ordered migration/seed content digest. Every case opens its own database
+copy and removes its owned temporary directory on close. No mutable database,
+transaction, connection, application state or test outcome is shared. Changed
+input bytes or order invalidate the snapshot; a failed migration cannot populate
+it. Disposable memory journals retain rollback, triggers, foreign keys and
+unique constraints without adding disk durability absent from the old in-memory
+fixtures. Independent migration tests and the real D1 migration/seed gate still
+execute migrations directly. D1 billing fixtures are unchanged.
+
+The complete SQL trace also reuses prepared SQLite statements within one owned
+trace. Every invocation, binding, result, production round trip, transaction and
+real D1 replay remains required. No virtual day is shortened or sampled.
+
+A local 20-fixture comparison, including every table and schema definition,
+produced identical SHA-256 digests. Setup and complete readback took 3,357 ms
+before and 381 ms after (88.7% less elapsed time). This is a focused local
+measurement; only the complete exact-revision Linux receipt establishes overall
+CI speed or headroom.
+
+PDF isolation is admitted before migration setup when a native slot opens. Its
+real image prerequisite, all probes and one-container ownership limit remain.
+The provider portfolio browser contract moves from stateful-a to stateful-b to
+balance measured lane work. Both lanes retain one worker, independent seed
+copies, identical projects/cases and unchanged snapshots. All five reports and
+the strict union inventory remain mandatory. No watchdog, retry, budget,
+security refresh, production boundary or assertion has been relaxed.

@@ -1278,7 +1278,9 @@
     "scripts/sql-replay.test.ts :: rejects D1 result divergence instead of trusting the SQLite behavior oracle",
     "scripts/sql-replay.test.ts :: rejects incomplete replay, missing billing metadata and failed SQL traces",
     "scripts/sql-replay.test.ts :: replays setup, atomic batches, bindings and reads with actual D1 index-write costs",
-    "scripts/test-support/d1-cost.test.ts :: creates isolated complete D1 fixtures and fails closed between bootstrap batches"
+    "scripts/test-support/d1-cost.test.ts :: creates isolated complete D1 fixtures and fails closed between bootstrap batches",
+    "scripts/test-support/sqlite-fixture.test.ts :: invalidates changed or reordered inputs and rejects incomplete migrations",
+    "scripts/test-support/sqlite-fixture.test.ts :: isolates copied rows, schema and transactions while preserving constraints and cleanup"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",

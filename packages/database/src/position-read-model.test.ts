@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
@@ -663,11 +662,7 @@ describe("canonical investment position view", () => {
   const demoHousehold = { id: "hh_demo", userId: "usr_demo" } as const;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    sqlite.exec("PRAGMA foreign_keys = ON");
-    for (const file of migrationFiles) {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    }
+    sqlite = createSqliteFixture(migrationFiles);
     database = new TestD1Database(sqlite);
     repository = new D1InvestmentPositionViewRepository(
       database as unknown as D1Database,

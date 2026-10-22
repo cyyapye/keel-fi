@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { NormalizedLiabilities } from "@keel/connectors";
@@ -129,10 +128,7 @@ describe("reviewed liabilities", () => {
   let repository: D1LiabilitiesRepository;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    migrationFiles.forEach((file) => {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    });
+    sqlite = createSqliteFixture(migrationFiles);
     repository = new D1LiabilitiesRepository(
       new TestD1Database(sqlite) as unknown as D1Database,
     );

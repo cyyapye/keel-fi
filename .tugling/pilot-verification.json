@@ -80,7 +80,9 @@
         "scripts/test-support/automatic-investment-cost-worker.ts",
         "scripts/test-support/purchase-cost-database.ts",
         "scripts/test-support/purchase-cost-worker.ts",
-        "scripts/purchase-details-d1-cost.test.ts"
+        "scripts/purchase-details-d1-cost.test.ts",
+        "scripts/test-support/sqlite-fixture.ts",
+        "scripts/test-support/sqlite-fixture.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -157,24 +159,6 @@
       "depends_on": []
     },
     {
-      "id": "migration-and-seed",
-      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["make", "db-verify"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
-        "health": "Scenario readback assertions check migrations, seeds and relationships.",
-        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
-      },
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
       "id": "pdf-isolation",
       "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
       "argv": ["make", "pdf-sandbox-verify"],
@@ -200,6 +184,24 @@
         "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
       },
       "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+    },
+    {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["make", "db-verify"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "browser-fixture-preparation",

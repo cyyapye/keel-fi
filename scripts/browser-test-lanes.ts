@@ -27,7 +27,6 @@ export const BROWSER_TEST_LANES = {
     "position-links.visual.spec.ts",
     "provider-browser-lifecycle.spec.ts",
     "provider-legal-documents.spec.ts",
-    "provider-portfolio-mac-agent.spec.ts",
   ],
   "stateful-b": [
     "obligations.visual.spec.ts",
@@ -36,6 +35,7 @@ export const BROWSER_TEST_LANES = {
     "portfolio-baseline.visual.spec.ts",
     "portfolio-dashboard.visual.spec.ts",
     "private-alpha.spec.ts",
+    "provider-portfolio-mac-agent.spec.ts",
     "provider-reconnect-access.spec.ts",
     "provider-session.spec.ts",
     "sydecar-session-renewal.spec.ts",

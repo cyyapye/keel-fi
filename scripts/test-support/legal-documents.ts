@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import { createSqliteFixture } from "./sqlite-fixture";
 import type {
   LegalDocumentScan,
   ProviderLegalDocumentCapture,
@@ -145,12 +146,13 @@ export class LegalDocumentTestD1 {
   }
 }
 export function legalDocumentTestDatabase() {
-  const sqlite = new DatabaseSync(":memory:");
   const root = resolve(process.cwd(), "packages/database");
-  for (const file of readdirSync(resolve(root, "migrations"))
-    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
-    .sort())
-    sqlite.exec(readFileSync(resolve(root, "migrations", file), "utf8"));
-  sqlite.exec(readFileSync(resolve(root, "seed/synthetic.sql"), "utf8"));
+  const sqlite = createSqliteFixture([
+    ...readdirSync(resolve(root, "migrations"))
+      .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+      .sort()
+      .map((file) => resolve(root, "migrations", file)),
+    resolve(root, "seed/synthetic.sql"),
+  ]);
   return new LegalDocumentTestD1(sqlite);
 }
