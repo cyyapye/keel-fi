@@ -900,11 +900,16 @@ test("legacy Tokenfolio detail pages are checked and restored without guessing a
 }) => {
   const sourceUrl =
     "https://app.tokenfolio.co/portfolio?tab=active&investmentId=11111111-1111-4111-8111-111111111111";
+  const portfolioUrl = "https://app.tokenfolio.co/portfolio?tab=active";
+  let portfolioLoads = 0;
   await page.route("https://app.tokenfolio.co/**", (route) =>
     route.fulfill({
       contentType: "text/html",
       body: route.request().url().includes("/portfolio")
-        ? '<div role="dialog"><h2>Synthetic Atlas</h2><a href="https://app.sydecar.io/login">Investment managed through Sydecar</a><button>Close drawer</button><button onclick="location.href=\'/investments/11111111-1111-4111-8111-111111111111\'">Deal Snapshot</button></div>'
+        ? '<button id="portfolio-tab-active" role="tab" aria-selected="true">Active Holdings 1</button>' +
+          (portfolioLoads++ === 0
+            ? '<div role="dialog"><h2>Synthetic Atlas</h2><a href="https://app.sydecar.io/login">Investment managed through Sydecar</a><button>Close drawer</button><button onclick="location.href=\'/investments/11111111-1111-4111-8111-111111111111\'">Deal Snapshot</button></div>'
+            : "")
         : '<section data-testid="card"><header data-testid="card-header">Deal Documents</header><div data-testid="card-content"><div></div></div></section>',
     }),
   );
@@ -919,8 +924,23 @@ test("legacy Tokenfolio detail pages are checked and restored without guessing a
       return Promise.resolve();
     },
   });
-  await collector.collect(page, position);
+  await collector.collect(page, {
+    ...position,
+    providerInvestmentId: "11111111-1111-4111-8111-111111111111",
+  });
   await collector.flush();
-  expect(page.url()).toBe(sourceUrl);
-  expect(saved[0]).toMatchObject({ problem: "missing", documents: [] });
+  expect(page.url()).toBe(portfolioUrl);
+  await expect(
+    page.getByRole("tab", { name: "Active Holdings 1" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close drawer" })).toBeHidden();
+  expect(portfolioLoads).toBe(2);
+  expect(saved[0]).toMatchObject({
+    problem: "missing",
+    documents: [],
+    sourceInvestment: {
+      id: "11111111-1111-4111-8111-111111111111",
+      association: "investment_page",
+    },
+  });
 });

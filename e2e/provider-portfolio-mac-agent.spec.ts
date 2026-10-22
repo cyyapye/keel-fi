@@ -468,20 +468,32 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
   page,
 }) => {
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", (route) =>
-    route.fulfill({
+  let firstLoad = true;
+  await page.route("https://app.tokenfolio.co/**", (route) => {
+    const body = tokenfolioPage(
+      2,
+      ["Funds Received", "Completed"],
+      firstLoad,
+      0,
+      0,
+      300,
+    );
+    firstLoad = false;
+    return route.fulfill({
       contentType: "text/html",
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], true, 0, 0, 300),
-    }),
-  );
+      body,
+    });
+  });
   await page.goto(
     "https://app.tokenfolio.co/portfolio?tab=active&investmentId=33333333-3333-4333-8333-333333333333",
   );
   const ids: Array<string | null> = [];
   const agreements: AgreementCollector = {
-    collect: (sourcePage) => {
+    collect: async (sourcePage) => {
       ids.push(new URL(sourcePage.url()).searchParams.get("investmentId"));
-      return Promise.resolve();
+      if (ids.length === 1) {
+        await sourcePage.goto("https://app.tokenfolio.co/portfolio?tab=active");
+      }
     },
     collectSydecarDocuments: () =>
       Promise.reject(new Error("Unexpected provider")),

@@ -1453,8 +1453,11 @@ async function captureTokenfolio(
       await agreements.collect(page, capturedRow);
     }
     onStage("drawer_close");
-    await activateHtmlElement(close);
-    await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
+    // Legacy document capture returns to the list with the drawer already closed.
+    if (await close.isVisible()) {
+      await activateHtmlElement(close);
+      await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
+    }
     await waitForTokenfolioDrawerUrl(page, false);
   }
 
