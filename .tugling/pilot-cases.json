@@ -1275,10 +1275,14 @@
     "scripts/shared-ui-usage.test.ts :: shared UI usage > uses Base UI measured-height motion for shared disclosures",
     "scripts/shared-ui-usage.test.ts :: shared UI usage > uses DisclosureIndicator for the shared select popup",
     "scripts/sql-replay.test.ts :: batches only adjacent standalone reads without changing real billing or production round trips",
+    "scripts/sql-replay.test.ts :: coalesces proven zero-write updates while retaining actual writes, triggers and billing",
     "scripts/sql-replay.test.ts :: rejects D1 result divergence instead of trusting the SQLite behavior oracle",
     "scripts/sql-replay.test.ts :: rejects incomplete replay, missing billing metadata and failed SQL traces",
     "scripts/sql-replay.test.ts :: replays setup, atomic batches, bindings and reads with actual D1 index-write costs",
-    "scripts/test-support/d1-cost.test.ts :: creates isolated complete D1 fixtures and fails closed between bootstrap batches"
+    "scripts/test-support/d1-cost.test.ts :: creates isolated complete D1 fixtures and fails closed between bootstrap batches",
+    "scripts/test-support/d1-cost.test.ts :: reuses a closed sealed D1 seed with fresh state and rejects altered inputs or files",
+    "scripts/test-support/sqlite-fixture.test.ts :: invalidates changed or reordered inputs and rejects incomplete migrations",
+    "scripts/test-support/sqlite-fixture.test.ts :: isolates copied rows, schema and transactions while preserving constraints and cleanup"
   ],
   "playwright": [
     "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",
@@ -1573,6 +1577,7 @@
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: rechecks only the selected agreement among 120 positions and preserves sibling evidence",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in",
+    "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio waits for all holdings after document return before continuing and reconciling",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures and reconciles the supported Tokenfolio page contract",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures the visible funded Sydecar position and leaves value unreported",
@@ -1589,6 +1594,7 @@
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: waits for the Tokenfolio active count after navigation",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in",
+    "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for all holdings after document return before continuing and reconciling",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures and reconciles the supported Tokenfolio page contract",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures the visible funded Sydecar position and leaves value unreported",
@@ -1694,6 +1700,7 @@
     "test_tugling_pilot.NativeAccountingTests.test_browser_lane_reports_preserve_errors_and_require_complete_union",
     "test_tugling_pilot.NativeAccountingTests.test_browser_profiles_reject_symlinked_parent_and_unowned_entries",
     "test_tugling_pilot.NativeAccountingTests.test_ci_selects_pr_head_and_keeps_privileged_actions_out",
+    "test_tugling_pilot.NativeAccountingTests.test_cost_seed_cleanup_on_success_failure_and_cancellation",
     "test_tugling_pilot.NativeAccountingTests.test_mocked_browser_guard_rejects_unknown_reads_and_unexpected_writes",
     "test_tugling_pilot.NativeAccountingTests.test_native_playwright_removed_skipped_and_filtered_cases_fail_accounting",
     "test_tugling_pilot.NativeAccountingTests.test_native_suite_leases_allow_independent_suites_but_reject_same_suite",
@@ -1820,6 +1827,12 @@
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements",
       "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
+    },
+    {
+      "runner": "playwright",
+      "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for all holdings after document return before continuing and reconciling",
+      "platforms": ["darwin", "linux"],
+      "reason": "Desktop-only provider capture contract; the worker fixes its viewport at 1440 by 1000 and the chromium counterpart is required."
     },
     {
       "runner": "playwright",

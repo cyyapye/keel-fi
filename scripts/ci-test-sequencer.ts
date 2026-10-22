@@ -25,13 +25,18 @@ const seconds: Readonly<Record<string, number>> = {
   "d1-query-cost.test.ts": 24,
 };
 
+function priority(moduleId: string): number {
+  const name = path.basename(moduleId);
+  // New D1 scale cases can dominate the tail before an OVH timing exists.
+  // Admit unmeasured cost fixtures first; never rely on a complete hint list.
+  return seconds[name] ?? (name.endsWith("-d1-cost.test.ts") ? 1_000 : 0);
+}
+
 export function prioritizeCostFiles<T extends { readonly moduleId: string }>(
   files: readonly T[],
 ): T[] {
   return [...files].sort(
-    (left, right) =>
-      (seconds[path.basename(right.moduleId)] ?? 0) -
-      (seconds[path.basename(left.moduleId)] ?? 0),
+    (left, right) => priority(right.moduleId) - priority(left.moduleId),
   );
 }
 

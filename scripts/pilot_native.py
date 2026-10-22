@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import time
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,7 +49,7 @@ def native_lease(runner):
 
 
 def native_lease_name(runner):
-    if runner in ("browser-fixture", "playwright", "playwright-prepared"):
+    if runner in ("migration-seed", "browser-fixture", "playwright", "playwright-prepared"):
         return "playwright"
     return runner
 
@@ -226,7 +227,9 @@ def browser_seed_input_digest():
         ROOT / "pnpm-lock.yaml",
         ROOT / "apps/api/wrangler.jsonc",
         ROOT / "scripts/reset-e2e-state.mjs",
+        ROOT / "scripts/local-seed-scenarios.ts",
         ROOT / "packages/database/seed/synthetic.sql",
+        ROOT / "packages/database/seed/scenarios/default.sql",
         *sorted((ROOT / "packages/database/migrations").glob("*.sql")),
     ]
     digest = hashlib.sha256()
@@ -310,8 +313,17 @@ def prepare_browser_seed():
     validate_owned_browser_path(local, "browser profile parent", allow_missing=True)
     validate_owned_browser_path(base, "verified browser seed", recursive=True, allow_missing=True)
     remove_browser_seed()
-    subprocess.run(["make", "db-verify-e2e"], cwd=ROOT, check=True)
+    if base.exists():
+        shutil.rmtree(base)
+    base.mkdir(parents=True, mode=0o700)
+    # Replay every migration and the canonical synthetic readback once. Wrangler
+    # has exited before copying; browser lanes receive independent mutable state.
+    subprocess.run(["node", "--import", "tsx", "scripts/local-seed-scenarios.ts", "verify-ci", "default"], cwd=ROOT, check=True)
     validate_owned_browser_path(local, "browser profile parent")
+    validate_owned_browser_path(base / "v3" / "d1", "verified base D1 state", recursive=True)
+    # Keep the independent browser binding/readback check, without replaying the
+    # same migrations a second time. Explicit persistence cannot inherit an override.
+    subprocess.run(["make", "db-check-e2e", "E2E_PERSIST_TO=.keel-local/e2e"], cwd=ROOT, check=True)
     validate_owned_browser_path(base, "verified browser seed", recursive=True)
     base.rename(BROWSER_SEED)
     write_browser_seed_seal()
@@ -617,9 +629,25 @@ class AccountedResult(unittest.TextTestResult):
         self.observed.append((test.id(), "skipped"))
 
 
+@contextmanager
+def cost_seed_directory():
+    def interrupted(signum, _frame):
+        raise SystemExit(128 + signum)
+    previous = {name: signal.signal(name, interrupted) for name in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        with tempfile.TemporaryDirectory(prefix="d1-seed-", dir=ARTIFACTS) as seed:
+            yield seed
+    finally:
+        for name, handler in previous.items():
+            signal.signal(name, handler)
+
+
 def run_suite(runner):
-    if runner == "browser-fixture":
+    if runner == "migration-seed":
         prepare_browser_seed()
+        return
+    if runner == "browser-fixture":
+        validate_browser_seed_seal()
         return
     inventory = json.loads(INVENTORY.read_text())
     if runner == "python":
@@ -638,7 +666,13 @@ def run_suite(runner):
                    "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
                    "--reporter=./scripts/pilot-vitest-reporter.ts",
                    f"--outputFile={output}"]
-        returncode = subprocess.run(command, cwd=ROOT, check=False).returncode
+        # One closed, freshly migrated seed for this invocation; every test gets
+        # an independently verified copy. No mutable database crosses cases.
+        with cost_seed_directory() as seed:
+            subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
+                           cwd=ROOT, check=True)
+            returncode = subprocess.run(command, cwd=ROOT, check=False,
+                                        env={**os.environ, "KEEL_TEST_D1_SEED": seed}).returncode
     else:
         returncode = run_browser_lanes(
             output, prepared=runner == "playwright-prepared"
@@ -654,7 +688,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "runner",
-        choices=("browser-fixture", "vitest", "playwright", "playwright-prepared", "python"),
+        choices=("migration-seed", "browser-fixture", "vitest", "playwright", "playwright-prepared", "python"),
     )
     args = parser.parse_args()
     load_module("tugling-pilot").require_unfiltered_environment()

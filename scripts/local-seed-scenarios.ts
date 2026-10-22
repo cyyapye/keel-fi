@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -363,12 +365,19 @@ function writeScenarioMarker(
 }
 
 export function prepareLocalSeedScenario(options: {
+  readonly exportBrowserSeed?: boolean;
   readonly forceReset?: boolean;
   readonly rootDir?: string;
   readonly scenario: LocalSeedScenario;
 }): string {
   const rootDir = resolve(options.rootDir ?? repositoryRoot);
   const { scenario } = options;
+  if (
+    options.exportBrowserSeed &&
+    (scenario !== "default" || !options.forceReset)
+  ) {
+    throw new Error("Browser seed export requires a fresh default scenario.");
+  }
   const persistRoot = resolveLocalScenarioPersistRoot(scenario, rootDir);
   const needsSeed =
     options.forceReset === true ||
@@ -383,6 +392,27 @@ export function prepareLocalSeedScenario(options: {
     if (needsSeed) {
       for (const seedFile of LocalSeedScenarios[scenario].seedFiles) {
         applySeedFile(seedFile, persistRoot, rootDir);
+        if (
+          options.exportBrowserSeed &&
+          seedFile === "packages/database/seed/synthetic.sql"
+        ) {
+          // Browser tests use the base seed; the default development scenario
+          // adds its own holdings afterward. Copy only closed D1 persistence.
+          const parent = join(rootDir, ".keel-local", "e2e");
+          if (
+            realpathSync(parent) !== parent ||
+            existsSync(join(parent, "v3"))
+          ) {
+            throw new Error(
+              "Browser seed export requires an owned empty destination.",
+            );
+          }
+          cpSync(join(persistRoot, "v3"), join(parent, "v3"), {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+          });
+        }
       }
       if (scenario === "position-links" || scenario === "purchase-refund") {
         const generated = spawnSync(
@@ -586,6 +616,13 @@ if (isDirectExecution()) {
       prepareLocalSeedScenario({ scenario });
     } else if (mode === "reset") {
       prepareLocalSeedScenario({ forceReset: true, scenario });
+    } else if (mode === "verify-ci") {
+      prepareLocalSeedScenario({
+        forceReset: true,
+        scenario,
+        exportBrowserSeed: true,
+      });
+      checkScenario(scenario);
     } else if (mode === "migrate") {
       const persistRoot = resolveLocalScenarioPersistRoot(scenario);
       migrateScenario(persistRoot, repositoryRoot);
@@ -593,7 +630,7 @@ if (isDirectExecution()) {
       checkScenario(scenario);
     } else {
       throw new Error(
-        "Usage: local-seed-scenarios.ts <list|ensure|reset|migrate|check> [scenario]",
+        "Usage: local-seed-scenarios.ts <list|ensure|reset|migrate|check|verify-ci> [scenario]",
       );
     }
   }

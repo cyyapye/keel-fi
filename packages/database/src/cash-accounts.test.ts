@@ -1,6 +1,7 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NormalizedCashAccounts } from "@keel/connectors";
@@ -223,10 +224,7 @@ describe("reviewed cash accounts", () => {
   let measured: TestD1Database;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    migrationFiles.forEach((file) => {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    });
+    sqlite = createSqliteFixture(migrationFiles);
     measured = new TestD1Database(sqlite);
     repository = new D1CashAccountsRepository(
       measured as unknown as D1Database,

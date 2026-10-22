@@ -517,6 +517,13 @@ operations. The navigation and readiness waits each retain their 30-second
 bound; document capture retains its 24-document, 64-MiB and 20-minute limits. No
 polling, authentication, retry, lease-renewal or shared daily ceiling changes.
 
+After document inspection, the capture also waits at most 30 seconds for the
+last expected holding row to become visible and then requires the exact list
+count. This local DOM readiness check runs only within an admitted capture,
+including after its final document return. It adds zero browser launches,
+navigations, API, D1 or object operations on idle, failure or useful-work days;
+all existing scheduling, document limits and independent daily ceilings remain.
+
 For one deployment, three agents, one bounded foreground session, three explicit
 setup sessions, the daily source batch and three 120-position accepted captures,
 reserve 480,000 D1 reads for agents/source work plus captures (150,000 +

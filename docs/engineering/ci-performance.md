@@ -74,8 +74,8 @@ servers, ports and cleanup; each partition remains serial internally.
 The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks; PDF probes depend on both integrity and
-the successful image build. Browser fixture preparation also becomes ready after
-the integrity checks and enters the three-flow schedule when a slot opens. Build
+the successful image build. The migration flow also seals a private copy for
+browser tests; fixture validation becomes ready after that flow succeeds. Build
 depends on source checks and migration completion. Unit/D1 tests become ready
 after integrity checks and the PDF image build, and take the first available
 slot before migration and fixture preparation. They own isolated D1 fixtures and
@@ -101,7 +101,7 @@ flowchart LR
   pdfBuild[PDF security-image build] --> pdf
   pdfBuild --> unit[Unit and D1 tests]
   integrity --> unit
-  integrity --> browserFixture[Browser fixture]
+  migrations --> browserFixture[Browser fixture]
   migrations --> build
   build --> browser[Browser suite]
   pdf --> browser
@@ -116,7 +116,7 @@ confirmed cleanup; all original probes remain required. The fixture uses a slot
 released by an earlier flow and can overlap remaining source/PDF work. No
 browser consumer starts before its fixture, PDF isolation and build succeed.
 
-The unit suite uses two workers in CI and locally, and starts historically
+The unit suite uses three workers in CI and locally, and starts historically
 expensive files first. Its early admission reduces overlap between expensive D1
 fixtures and browser startup. The reviewed-rename cost fixture runs its
 synthetic import and 240 company-review operations inside its existing workerd
@@ -149,15 +149,15 @@ holdings-page projection through the web proxy, with one bounded probe in flight
 and a cached successful result for the development server. A simpler health
 endpoint cannot hide a cold first read or module load.
 
-Fixture preparation runs the unchanged browser reset, every migration, the
-synthetic seed and invariant readback early in the bounded flow graph. It moves
-the closed result into a dedicated allowlisted path and seals both the source
-inputs and complete fixture contents. The required browser command only accepts
-that seal, clones three profiles and consumes the seed; it never falls back to a
-reset on the browser critical path. The standalone `pilot_native.py playwright`
-command retains its reset-and-verify behavior and uses a separate seed path.
-Both commands share the Playwright lease while touching browser runtime/report
-paths.
+The migration flow runs every migration and the base synthetic seed, then copies
+its closed D1 tree into a dedicated allowlisted browser path before applying
+default-scenario additions and checking all canonical invariants. It verifies
+the browser binding/readback and seals both source inputs and complete fixture
+contents. The required browser command only accepts that seal, clones three
+profiles and consumes the seed; it never falls back to a reset on the browser
+critical path. The standalone `pilot_native.py playwright` command retains its
+reset-and-verify behavior and uses a separate seed path. All commands share the
+Playwright lease while touching browser runtime/report paths.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
@@ -433,3 +433,133 @@ boundary, and even zero-time lint cannot remove the remaining typecheck work.
 Ordinary per-file lint caching is unsafe for type-aware rules when imported
 types change. Keep the full checks; removing repeated parsing would require a
 separately measured design that preserves every workspace's type environment.
+
+## October 22 fixture and critical-path optimization
+
+PR #323 exhausted the unchanged 900-second budget twice (900.884 and 900.459
+seconds). Both full attempts left unit work incomplete, with browser work
+cancelled at the deadline. These are failed baselines, not accepted benchmarks.
+The repeated results rule out relying on another unchanged retry.
+
+The SQLite behavior fixtures now build an immutable, process-local snapshot once
+per ordered migration/seed content digest. Every case opens its own database
+copy and removes its owned temporary directory on close. No mutable database,
+transaction, connection, application state or test outcome is shared. Changed
+input bytes or order invalidate the snapshot; a failed migration cannot populate
+it. Disposable memory journals retain rollback, triggers, foreign keys and
+unique constraints without adding disk durability absent from the old in-memory
+fixtures. Independent migration tests and the real D1 migration/seed gate still
+execute migrations directly. D1 billing fixtures are unchanged.
+
+The complete SQL trace also reuses prepared SQLite statements within one owned
+trace. Every invocation, binding, result, production round trip, transaction and
+real D1 replay remains required. No virtual day is shortened or sampled.
+
+A local 20-fixture comparison, including every table and schema definition,
+produced identical SHA-256 digests. Setup and complete readback took 3,357 ms
+before and 381 ms after (88.7% less elapsed time). This is a focused local
+measurement; only the complete exact-revision Linux receipt establishes overall
+CI speed or headroom.
+
+PDF isolation is admitted before migration setup when a native slot opens. Its
+real image prerequisite, all probes and one-container ownership limit remain.
+The provider portfolio browser contract moves from stateful-a to stateful-b to
+balance measured lane work. Both lanes retain one worker, independent seed
+copies, identical projects/cases and unchanged snapshots. All five reports and
+the strict union inventory remain mandatory. No watchdog, retry, budget,
+security refresh, production boundary or assertion has been relaxed.
+
+The first fixture candidate, run `39859822324`, also exhausted the 900-second
+budget. Provider-day tests improved from 361.4 to 320.3 seconds, but unit work
+remained incomplete and browser execution was cancelled after 502.6 seconds. It
+is a failed experiment, not readiness evidence.
+
+The next candidate removes two more repeated costs:
+
+- Trace capture marks a single-statement UPDATE as zero-write only when SQLite's
+  cumulative change counter, including trigger work, is unchanged. Replay may
+  group those operations (including one-statement API batches) with adjacent
+  standalone reads. Every marked operation must independently report exactly
+  zero actual D1 rows written. Actual writes, every multi-statement production
+  batch, setup/measurement boundaries and the 100-statement transport bound stay
+  separate. Complete results, all original production round trips and every real
+  D1 counter remain checked. A negative control that labels a real write as zero
+  fails. The matched six-day comparison preserved all workload and D1 counters;
+  idle replay transport fell from 11,297 to 3,531 calls and local replay time
+  fell from 1,913 to 989 ms.
+- The native unit command builds one fresh real D1 migration/seed snapshot,
+  closes workerd, and seals its SQL/dependency inputs and all persisted bytes.
+  Each cost case verifies the seal and writes a private copy into a fresh
+  runtime. Missing, modified, stale, oversized or symlinked seed contents fail
+  without falling back to a rebuild. No result or mutable database is shared
+  across cases or runs. The parent owns the temporary seed and removes it on
+  success, failure and real cancellation. Direct local cost fixtures still
+  support independent migration replay, and the separate real migration/seed
+  gate is unchanged.
+
+The seed holdout compares complete schemas, seeded rows and actual D1 metadata
+against an independently bootstrapped fixture, then checks state isolation and
+corruption rejection. Native ownership tests exercise normal exit, an exception,
+SIGTERM and preservation of an unrelated sentinel. The second candidate adds two
+unit cases and one Python case; it removes no prior case or exclusion.
+
+Unmeasured `*-d1-cost.test.ts` files now receive early admission ahead of the
+historical duration hints. The complete local suite exposed a 16.8-second
+share-price scale case at the very end; it had no historical hint. This rule
+prevents newly added scale fixtures from silently becoming a long serial tail.
+It preserves discovery and within-file order.
+
+The second candidate, run `39863437995`, completed 1,280 unit cases but failed
+two unchanged five-second deadlines: reconnect setup and TypeScript runtime
+inventory scanning. Unit execution took 746.8 seconds; provider-day tests took
+149.7 seconds. Browser work was cancelled on that failure. This is diagnostic
+evidence, not a passing full-gate benchmark. The minimum available memory was
+2.9 GiB, CPU busy averaged 81.4%, and steal averaged 4.3%.
+
+The next candidate moves only unmeasured reconnect fixture registration into its
+existing workerd runtime and caches repeated TypeScript module resolution within
+the inventory scan. Both five-second deadlines and all assertions remain. It
+evaluates three unit workers, while retaining three concurrent native flows and
+four browser workers. The canonical migration flow now performs the complete
+default scenario replay and invariant readback once, copies its closed owned
+`v3` D1 tree, and runs the independent browser binding/readback on that copy.
+All lanes still receive separate mutable databases. The source and complete-tree
+seal, exclusive lease, fail-closed stale/missing/mutated input checks, and
+standalone browser reset remain. A failed migration or browser readback cannot
+produce a valid seal. This removes a duplicate migration pass, not a migration
+or browser assertion. Full Linux execution must establish the resulting
+headroom.
+
+Run `39866552058` completed all 1,282 Linux unit cases without skips or
+failures; unit execution took 526.1 seconds and its complete native flow took
+534.2 seconds. The gate still failed at 784.9 seconds on browser evidence:
+copying the populated default scenario changed the original browser fixture, and
+one mobile nested expansion passed only on retry. These are retained failed
+results, not accepted headroom. The corrected export now copies the base seed
+before default-only additions. An independent original browser rebuild matched
+all 131 tables and the entire schema, excluding only migration execution
+timestamps. The mobile flow waits for actual parent layout transitions and
+asserts the nested control's expanded state; its original screenshots and
+deadlines remain unchanged.
+
+Run `39869099587` passed the corrected migration/browser seed checks but stopped
+at 294.8 seconds on the real orphan-watchdog proof; its final error did not name
+the assertion. The isolated same-host probe subsequently proved caller death
+left the container running and that no container remained after 35 seconds.
+Fixed stage/boolean diagnostics now distinguish creation, acknowledgement,
+caller disconnection and deadline failure without exposing Docker output. The
+watchdog, cleanup assertions and timing limits remain unchanged.
+
+That run also exposed another five-second reconnect test timeout. The complete
+120/1,200-history reconnect operation sequence now executes beside real D1 and
+returns Zod-validated evidence. Host assertions still check session identity,
+viewer binding, positive/foreign/empty results, every original read/write and
+round-trip budget, historical growth and both indexed query-plan searches. Only
+Node-to-D1 bridge traffic is removed; the five-second deadline remains.
+
+A fresh-database comparison of the original host-side and new in-worker
+reconnect sequences produced identical results, plans and every D1 counter at
+both history sizes: each positive lease used six round trips, 14 rows read and
+three rows written. The runtime inventory walker also carries its nearest owning
+declaration during traversal instead of allocating parent links throughout the
+TypeScript AST; its complete existing call-site snapshot is unchanged.

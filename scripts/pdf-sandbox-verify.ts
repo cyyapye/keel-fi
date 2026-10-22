@@ -310,6 +310,7 @@ async function main() {
           orphan,
         );
         try {
+          console.log("CHECK: orphan watchdog container creation");
           assert.equal(
             (await command(sandboxCreateArgs(probe, orphan))).code,
             0,
@@ -320,6 +321,7 @@ async function main() {
             temporary,
             orphan,
           );
+          console.log("CHECK: orphan watchdog execution acknowledged");
           attached.kill();
           await attached.finished;
           const alive = await command([
@@ -329,6 +331,13 @@ async function main() {
             "--format",
             "{{.ID}}",
           ]);
+          console.log(
+            JSON.stringify({
+              orphanWatchdog: "caller-disconnected",
+              commandSucceeded: alive.code === 0,
+              running: alive.output.trim() !== "",
+            }),
+          );
           assert.equal(alive.code, 0);
           assert.notEqual(alive.output.trim(), "");
           await delay(35_000);
@@ -340,6 +349,13 @@ async function main() {
             "--format",
             "{{.ID}}",
           ]);
+          console.log(
+            JSON.stringify({
+              orphanWatchdog: "deadline",
+              commandSucceeded: gone.code === 0,
+              exists: gone.output.trim() !== "",
+            }),
+          );
           assert.equal(gone.code, 0);
           assert.equal(gone.output.trim(), "");
           console.log(

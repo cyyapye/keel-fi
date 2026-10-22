@@ -228,6 +228,7 @@ function tokenfolioPage(
   detailDelayMs = 0,
   tabCountDelayMs = 0,
   drawerUrlDelayMs = 0,
+  rowRenderDelayMs = 0,
 ): string {
   const rows = [
     {
@@ -281,7 +282,7 @@ function tokenfolioPage(
     </style></head><body>
       <button id="portfolio-tab-active" role="tab" aria-selected="true" onclick="this.dataset.clicked = 'true'">Active Holdings${tabCountDelayMs > 0 ? "" : activeCount.toString()}</button>
       <button role="tab" aria-selected="false">Exited Investments0</button>
-      ${rowMarkup}
+      <div id="portfolio-rows">${rowMarkup}</div>
       <div role="dialog"${drawerInitiallyOpen ? "" : " hidden"}>
         <h2></h2>
         <div><div class="text-xs text-gray-400 mb-1 truncate">Committed</div><div data-summary="committed"></div></div>
@@ -324,6 +325,14 @@ function tokenfolioPage(
             history.replaceState(null, '', url.href);
           }, ${drawerUrlDelayMs.toString()});
         });
+        if (${rowRenderDelayMs.toString()} > 0) {
+          const list = document.querySelector('#portfolio-rows');
+          const rows = [...list.children];
+          list.replaceChildren();
+          document.addEventListener('restore-portfolio-rows', () => {
+            setTimeout(() => list.append(...rows), ${rowRenderDelayMs.toString()});
+          }, { once: true });
+        }
       </script>
     </body></html>`;
 }
@@ -505,6 +514,61 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
     "22222222-2222-4222-8222-222222222222",
   ]);
   expect(new URL(page.url()).searchParams.has("investmentId")).toBe(false);
+});
+
+test("Tokenfolio waits for all holdings after document return before continuing and reconciling", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  let loads = 0;
+  await page.route("https://app.tokenfolio.co/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: tokenfolioPage(
+        2,
+        ["Funds Received", "Completed"],
+        false,
+        0,
+        0,
+        0,
+        loads++ === 0 ? 0 : 500,
+      ),
+    }),
+  );
+  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+  const ids: Array<string | null> = [];
+  const agreements: AgreementCollector = {
+    collect: async (sourcePage) => {
+      ids.push(new URL(sourcePage.url()).searchParams.get("investmentId"));
+      await sourcePage.goto("https://app.tokenfolio.co/portfolio?tab=active");
+      await expect(sourcePage.locator("#portfolio-tab-active")).toBeVisible();
+      expect(
+        await sourcePage
+          .locator('div[role="button"].relative.cursor-pointer')
+          .count(),
+      ).toBe(0);
+      await sourcePage.evaluate(() => {
+        document.dispatchEvent(new Event("restore-portfolio-rows"));
+      });
+    },
+    collectSydecarDocuments: () =>
+      Promise.reject(new Error("Unexpected provider")),
+    flush: () => Promise.resolve(),
+  };
+  const bytes = await captureTokenfolio(
+    page,
+    "2026-08-21",
+    () => undefined,
+    agreements,
+  );
+  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
+  expect(parsed.rows).toHaveLength(2);
+  expect(ids).toEqual([
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+  ]);
+  expect(loads).toBe(3);
 });
 
 test("fails closed when the Tokenfolio visible count does not reconcile", async ({

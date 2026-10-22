@@ -80,11 +80,16 @@
         "scripts/test-support/automatic-investment-cost-worker.ts",
         "scripts/test-support/purchase-cost-database.ts",
         "scripts/test-support/purchase-cost-worker.ts",
-        "scripts/purchase-details-d1-cost.test.ts"
+        "scripts/purchase-details-d1-cost.test.ts",
+        "scripts/test-support/sqlite-fixture.ts",
+        "scripts/test-support/sqlite-fixture.test.ts",
+        "scripts/prepare-d1-cost-seed.ts",
+        "scripts/test-support/d1-cost-seed.ts",
+        "scripts/test-support/provider-reconnect-cost.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts expensive fixtures first, immediately after integrity and PDF-image provisioning; two workers leave CPU capacity for browser lanes and measured priorities schedule costly files first after early admission. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state.",
+        "launch": "Vitest starts expensive fixtures first, immediately after integrity and PDF-image provisioning; three workers leave CPU capacity for browser lanes and measured priorities schedule costly files first after early admission. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
@@ -157,24 +162,6 @@
       "depends_on": []
     },
     {
-      "id": "migration-and-seed",
-      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["make", "db-verify"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
-        "health": "Scenario readback assertions check migrations, seeds and relationships.",
-        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
-      },
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
       "id": "pdf-isolation",
       "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
       "argv": ["make", "pdf-sandbox-verify"],
@@ -202,8 +189,28 @@
       "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
     },
     {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql",
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
       "id": "browser-fixture-preparation",
-      "description": "Build and seal the isolated synthetic D1 fixture before browser prerequisites reach the critical path.",
+      "description": "Validate the sealed isolated D1 fixture produced by the canonical migration gate.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "browser-fixture"],
       "timeout_seconds": 300,
       "sources": [
@@ -216,15 +223,16 @@
         "scripts/reset-e2e-state.mjs",
         "packages/database/seed/synthetic.sql",
         "scripts/test_pdf_sandbox_owner.py",
-        "scripts/pdf-sandbox-owner.py"
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/local-seed-scenarios.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The native command exclusively acquires the Playwright lease, runs the unchanged isolated browser reset, migrations, synthetic seed and readback, then moves the closed result to a dedicated allowlisted path.",
+        "launch": "The native command exclusively acquires the Playwright lease and validates the closed browser fixture already produced by the successful canonical migration gate. It performs no duplicate reset or migration pass.",
         "health": "A source-input digest and complete prepared-tree digest seal the verified fixture; the browser consumer rejects missing, stale, mutated or symlinked state without rebuilding it.",
         "cleanup": "Failure leaves no valid seal. The prepared browser command consumes the exact owned seed after cloning, while a later preparation safely replaces an unconsumed owned seed."
       },
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["migration-and-seed"]
     },
     {
       "id": "build-and-entry-budget",
