@@ -1459,6 +1459,18 @@ async function captureTokenfolio(
       await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
     }
     await waitForTokenfolioDrawerUrl(page, false);
+    if (agreements !== undefined) {
+      // A document return can paint the active tab before its rows mount.
+      // Require the full list before advancing, including after the final row.
+      onStage("row_count");
+      await rows.nth(expectedCount - 1).waitFor({
+        state: "visible",
+        timeout: PAGE_TIMEOUT_MS,
+      });
+      if ((await rows.count()) !== expectedCount) {
+        throw new AgentFailure("incomplete_snapshot");
+      }
+    }
   }
 
   onStage("final_reconcile");
