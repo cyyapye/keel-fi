@@ -298,13 +298,23 @@ async function controls(
   });
   if ((await snapshot.count()) !== 1)
     return { items, problem: "missing", restore: () => Promise.resolve() };
+  const portfolioUrl = new URL(sourceUrl);
+  portfolioUrl.searchParams.delete("investmentId");
   const restore = async () => {
-    await page.goto(sourceUrl, {
+    // The holding has already been read. A direct URL need not reopen its drawer.
+    await page.goto(portfolioUrl.href, {
       waitUntil: "domcontentloaded",
       timeout: 30_000,
     });
+    const restored = new URL(page.url());
+    if (
+      restored.origin !== source.origin ||
+      restored.pathname !== source.pathname ||
+      restored.searchParams.has("investmentId")
+    )
+      throw new CaptureProblem("page_changed");
     await page
-      .getByRole("button", { name: "Close drawer" })
+      .locator('button#portfolio-tab-active[role="tab"][aria-selected="true"]')
       .waitFor({ state: "visible", timeout: 30_000 });
   };
   try {

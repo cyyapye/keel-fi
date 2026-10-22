@@ -508,6 +508,15 @@ runtime-call inventory.
 
 ### Useful-work reserve
 
+Tokenfolio's legacy Deal Snapshot inspection returns through its existing single
+portfolio navigation, now without the investment ID. The caller accepts the
+already closed drawer and still requires the active list and full snapshot
+reconciliation. This changes one runtime navigation fingerprint with zero added
+idle-day, failure-day or useful-work-day navigation, API, D1 or object
+operations. The navigation and readiness waits each retain their 30-second
+bound; document capture retains its 24-document, 64-MiB and 20-minute limits. No
+polling, authentication, retry, lease-renewal or shared daily ceiling changes.
+
 For one deployment, three agents, one bounded foreground session, three explicit
 setup sessions, the daily source batch and three 120-position accepted captures,
 reserve 480,000 D1 reads for agents/source work plus captures (150,000 +
