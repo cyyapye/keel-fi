@@ -1157,7 +1157,9 @@ async function waitForTokenfolioTabCount(activeTab: Locator): Promise<number> {
 }
 
 function tokenfolioActiveHoldingStatus(value: string): boolean {
-  return ["active", "completed", "funds received"].includes(
+  // Active Holdings includes remaining shares after partial exits. Retain live
+  // participation; this label does not establish investor cash or vehicle closure.
+  return ["active", "completed", "funds received", "partially exited"].includes(
     normalizedText(value).toLowerCase(),
   );
 }
