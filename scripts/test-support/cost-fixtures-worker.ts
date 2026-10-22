@@ -2,6 +2,7 @@ import { z } from "zod";
 import { D1InvestmentConnectionsRepository } from "../../packages/database/src/investment-connections";
 import { D1ProviderPortfolioAgentRepository } from "../../packages/database/src/provider-portfolio-agent";
 import { measureD1 } from "./d1-meter";
+import { providerReconnectCost } from "./provider-reconnect-cost";
 import {
   COST_SUBJECT,
   seedCostHoldings,
@@ -93,7 +94,10 @@ export default {
         ),
       ]);
       await agents.register("synthetic-foreign", "tokenfolio");
-      result = { operation: operation.operation };
+      result = {
+        operation: operation.operation,
+        results: await providerReconnectCost(bindings.DB),
+      };
     } else {
       const measured = measureD1(bindings.DB);
       await seedCostHoldings(measured.database, COST_SUBJECT, 1, true);

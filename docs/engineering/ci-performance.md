@@ -541,3 +541,25 @@ all 131 tables and the entire schema, excluding only migration execution
 timestamps. The mobile flow waits for actual parent layout transitions and
 asserts the nested control's expanded state; its original screenshots and
 deadlines remain unchanged.
+
+Run `39869099587` passed the corrected migration/browser seed checks but stopped
+at 294.8 seconds on the real orphan-watchdog proof; its final error did not name
+the assertion. The isolated same-host probe subsequently proved caller death
+left the container running and that no container remained after 35 seconds.
+Fixed stage/boolean diagnostics now distinguish creation, acknowledgement,
+caller disconnection and deadline failure without exposing Docker output. The
+watchdog, cleanup assertions and timing limits remain unchanged.
+
+That run also exposed another five-second reconnect test timeout. The complete
+120/1,200-history reconnect operation sequence now executes beside real D1 and
+returns Zod-validated evidence. Host assertions still check session identity,
+viewer binding, positive/foreign/empty results, every original read/write and
+round-trip budget, historical growth and both indexed query-plan searches. Only
+Node-to-D1 bridge traffic is removed; the five-second deadline remains.
+
+A fresh-database comparison of the original host-side and new in-worker
+reconnect sequences produced identical results, plans and every D1 counter at
+both history sizes: each positive lease used six round trips, 14 rows read and
+three rows written. The runtime inventory walker also carries its nearest owning
+declaration during traversal instead of allocating parent links throughout the
+TypeScript AST; its complete existing call-site snapshot is unchanged.

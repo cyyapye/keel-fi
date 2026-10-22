@@ -84,7 +84,8 @@
         "scripts/test-support/sqlite-fixture.ts",
         "scripts/test-support/sqlite-fixture.test.ts",
         "scripts/prepare-d1-cost-seed.ts",
-        "scripts/test-support/d1-cost-seed.ts"
+        "scripts/test-support/d1-cost-seed.ts",
+        "scripts/test-support/provider-reconnect-cost.ts"
       ],
       "runtime": {
         "owner": "native-command",

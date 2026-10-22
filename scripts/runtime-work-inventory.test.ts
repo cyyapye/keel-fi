@@ -42,9 +42,13 @@ it("accounts for every runtime timer, network and queue call in the entrypoint g
       file,
       readFileSync(file, "utf8"),
       ts.ScriptTarget.Latest,
-      true,
+      false,
     );
-    function visit(node: ts.Node) {
+    // Carry only the owning declaration needed by this inventory instead of
+    // allocating parent links for every node in the complete runtime graph.
+    function visit(node: ts.Node, owner: ts.Node = source) {
+      if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node))
+        owner = node;
       if (
         (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
         node.moduleSpecifier &&
@@ -91,13 +95,6 @@ it("accounts for every runtime timer, network and queue call in the entrypoint g
                   ? "storage"
                   : null;
         if (kind) {
-          let owner: ts.Node = node;
-          while (
-            owner.parent &&
-            !ts.isFunctionDeclaration(owner) &&
-            !ts.isMethodDeclaration(owner)
-          )
-            owner = owner.parent;
           const label =
             ts.isFunctionDeclaration(owner) || ts.isMethodDeclaration(owner)
               ? (owner.name?.getText(source) ?? "anonymous")
@@ -112,7 +109,7 @@ it("accounts for every runtime timer, network and queue call in the entrypoint g
           );
         }
       }
-      ts.forEachChild(node, visit);
+      ts.forEachChild(node, (child) => visit(child, owner));
     }
     visit(source);
   }
