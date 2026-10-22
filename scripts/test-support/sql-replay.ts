@@ -5,6 +5,8 @@ export type SqlReplayStatement = {
   query: number;
   bindings: (string | number | null)[];
   rows: Record<string, unknown>[];
+  // SQLite observed no table or trigger changes. D1 must independently confirm.
+  zeroWrite?: true;
 };
 export type SqlReplayStep = {
   batch: boolean;
@@ -35,15 +37,19 @@ export async function replaySql(database: D1Database, chunk: SqlReplayChunk) {
   for (let index = 0; index < chunk.steps.length;) {
     const step = chunk.steps[index]!;
     const measuring = chunk.offset + index >= chunk.measureFrom;
-    const readOnly = (candidate: SqlReplayStep) =>
-      !candidate.batch &&
-      candidate.statements.length === 1 &&
-      /^SELECT\b/iu.test(
-        chunk.queries[candidate.statements[0]!.query]?.trimStart() ?? "",
+    const readOnly = (candidate: SqlReplayStep) => {
+      if (candidate.statements.length !== 1) return false;
+      const statement = candidate.statements[0]!;
+      const sql = chunk.queries[statement.query]?.trimStart() ?? "";
+      return (
+        (!candidate.batch && /^SELECT\b/iu.test(sql)) ||
+        (statement.zeroWrite === true && /^UPDATE\b/iu.test(sql))
       );
+    };
     const grouped = [step];
-    // Only adjacent standalone SELECTs may share a replay transport call.
-    // No write, original transaction, or setup/measurement boundary is crossed.
+    // Adjacent standalone SELECTs and single-statement zero-write UPDATEs may share a
+    // replay call. Every zero-write claim is checked against actual D1 metadata.
+    // No actual write, multi-statement batch, or setup/measurement boundary is crossed.
     // The fixture has a single owner, so no concurrent writer can be hidden.
     if (readOnly(step)) {
       while (
@@ -76,6 +82,11 @@ export async function replaySql(database: D1Database, chunk: SqlReplayChunk) {
     if (results.length !== expected.length)
       throw new Error("Incomplete D1 statement results");
     for (const [statementIndex, result] of results.entries()) {
+      if (
+        expected[statementIndex]!.zeroWrite === true &&
+        result.meta.rows_written !== 0
+      )
+        throw new Error("D1 rejected the zero-write replay claim");
       if (
         canonical(result.results) !== canonical(expected[statementIndex]!.rows)
       )

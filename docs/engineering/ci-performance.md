@@ -468,3 +468,43 @@ balance measured lane work. Both lanes retain one worker, independent seed
 copies, identical projects/cases and unchanged snapshots. All five reports and
 the strict union inventory remain mandatory. No watchdog, retry, budget,
 security refresh, production boundary or assertion has been relaxed.
+
+The first fixture candidate, run `39859822324`, also exhausted the 900-second
+budget. Provider-day tests improved from 361.4 to 320.3 seconds, but unit work
+remained incomplete and browser execution was cancelled after 502.6 seconds. It
+is a failed experiment, not readiness evidence.
+
+The next candidate removes two more repeated costs:
+
+- Trace capture marks a single-statement UPDATE as zero-write only when SQLite's
+  cumulative change counter, including trigger work, is unchanged. Replay may
+  group those operations (including one-statement API batches) with adjacent
+  standalone reads. Every marked operation must independently report exactly
+  zero actual D1 rows written. Actual writes, every multi-statement production
+  batch, setup/measurement boundaries and the 100-statement transport bound stay
+  separate. Complete results, all original production round trips and every real
+  D1 counter remain checked. A negative control that labels a real write as zero
+  fails. The matched six-day comparison preserved all workload and D1 counters;
+  idle replay transport fell from 11,297 to 3,531 calls and local replay time
+  fell from 1,913 to 989 ms.
+- The native unit command builds one fresh real D1 migration/seed snapshot,
+  closes workerd, and seals its SQL/dependency inputs and all persisted bytes.
+  Each cost case verifies the seal and writes a private copy into a fresh
+  runtime. Missing, modified, stale, oversized or symlinked seed contents fail
+  without falling back to a rebuild. No result or mutable database is shared
+  across cases or runs. The parent owns the temporary seed and removes it on
+  success, failure and real cancellation. Direct local cost fixtures still
+  support independent migration replay, and the separate real migration/seed
+  gate is unchanged.
+
+The seed holdout compares complete schemas, seeded rows and actual D1 metadata
+against an independently bootstrapped fixture, then checks state isolation and
+corruption rejection. Native ownership tests exercise normal exit, an exception,
+SIGTERM and preservation of an unrelated sentinel. The second candidate adds two
+unit cases and one Python case; it removes no prior case or exclusion.
+
+Unmeasured `*-d1-cost.test.ts` files now receive early admission ahead of the
+historical duration hints. The complete local suite exposed a 16.8-second
+share-price scale case at the very end; it had no historical hint. This rule
+prevents newly added scale fixtures from silently becoming a long serial tail.
+It preserves discovery, within-file order and the two-worker limit.

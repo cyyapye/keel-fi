@@ -18,6 +18,7 @@ export function createSqliteTrace() {
     "packages/database/seed/synthetic.sql",
   ]);
   const prepared = new Map<string, StatementSync>();
+  const changes = sqlite.prepare("SELECT total_changes() AS count");
   const queries: string[] = [];
   const queryIds = new Map<string, number>();
   const steps: SqlReplayStep[] = [];
@@ -61,10 +62,15 @@ export function createSqliteTrace() {
         statement = sqlite.prepare(this.sql);
         prepared.set(this.sql, statement);
       }
+      const update = /^UPDATE\b/iu.test(this.sql.trimStart());
+      const before = update ? changes.get()!.count : undefined;
+      const rows = statement.all(...this.bindings);
+      const zeroWrite = update && changes.get()!.count === before;
       return {
         query,
         bindings: this.bindings,
-        rows: statement.all(...this.bindings),
+        rows,
+        ...(zeroWrite ? { zeroWrite: true as const } : {}),
       };
     }
     all() {

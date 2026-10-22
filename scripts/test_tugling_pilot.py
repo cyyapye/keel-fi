@@ -750,6 +750,44 @@ class NativeAccountingTests(unittest.TestCase):
                         self.assertNotEqual(result.returncode, 0)
                         self.assertIn("Mocked browser test made an unhandled application API request", result.stdout + result.stderr)
 
+    def test_cost_seed_cleanup_on_success_failure_and_cancellation(self):
+        with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
+            root = Path(temporary)
+            sentinel = root / "unowned"
+            sentinel.write_text("synthetic")
+            with patch.object(native, "ARTIFACTS", root):
+                with native.cost_seed_directory() as seed:
+                    self.assertTrue(Path(seed).is_dir())
+                self.assertFalse(Path(seed).exists())
+                with self.assertRaises(ValueError):
+                    with native.cost_seed_directory() as failed:
+                        raise ValueError("synthetic failure")
+                self.assertFalse(Path(failed).exists())
+            code = f"""import sys, time
+from pathlib import Path
+sys.path.insert(0, {str(pilot.ROOT / 'scripts')!r})
+import pilot_native as native
+native.ARTIFACTS = Path({str(root)!r})
+with native.cost_seed_directory() as seed:
+    print(seed, flush=True)
+    time.sleep(30)
+"""
+            process = subprocess.Popen([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, text=True)
+            try:
+                cancelled = Path(process.stdout.readline().strip())
+                self.assertTrue(cancelled.is_relative_to(root))
+                self.assertTrue(cancelled.is_dir())
+                process.terminate()
+                process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 128 + signal.SIGTERM)
+                self.assertFalse(cancelled.exists())
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=5)
+            self.assertEqual(sentinel.read_text(), "synthetic")
+
     def test_native_vitest_removed_skipped_and_filtered_cases_fail_accounting(self):
         # Real native execution proves a green filtered/omitted run cannot pass
         # the reviewed inventory. The fixture is .ts, outside native discovery.

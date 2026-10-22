@@ -18,6 +18,7 @@ import stat
 import subprocess
 import sys
 import time
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -617,6 +618,19 @@ class AccountedResult(unittest.TextTestResult):
         self.observed.append((test.id(), "skipped"))
 
 
+@contextmanager
+def cost_seed_directory():
+    def interrupted(signum, _frame):
+        raise SystemExit(128 + signum)
+    previous = {name: signal.signal(name, interrupted) for name in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        with tempfile.TemporaryDirectory(prefix="d1-seed-", dir=ARTIFACTS) as seed:
+            yield seed
+    finally:
+        for name, handler in previous.items():
+            signal.signal(name, handler)
+
+
 def run_suite(runner):
     if runner == "browser-fixture":
         prepare_browser_seed()
@@ -638,7 +652,13 @@ def run_suite(runner):
                    "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
                    "--reporter=./scripts/pilot-vitest-reporter.ts",
                    f"--outputFile={output}"]
-        returncode = subprocess.run(command, cwd=ROOT, check=False).returncode
+        # One closed, freshly migrated seed for this invocation; every test gets
+        # an independently verified copy. No mutable database crosses cases.
+        with cost_seed_directory() as seed:
+            subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
+                           cwd=ROOT, check=True)
+            returncode = subprocess.run(command, cwd=ROOT, check=False,
+                                        env={**os.environ, "KEEL_TEST_D1_SEED": seed}).returncode
     else:
         returncode = run_browser_lanes(
             output, prepared=runner == "playwright-prepared"
