@@ -149,14 +149,15 @@ holdings-page projection through the web proxy, with one bounded probe in flight
 and a cached successful result for the development server. A simpler health
 endpoint cannot hide a cold first read or module load.
 
-The migration flow runs every migration, the canonical synthetic seed and
-invariant readback, then copies the closed D1 tree into a dedicated allowlisted
-browser path. It verifies the browser binding/readback and seals both source
-inputs and complete fixture contents. The required browser command only accepts
-that seal, clones three profiles and consumes the seed; it never falls back to a
-reset on the browser critical path. The standalone `pilot_native.py playwright`
-command retains its reset-and-verify behavior and uses a separate seed path. All
-commands share the Playwright lease while touching browser runtime/report paths.
+The migration flow runs every migration and the base synthetic seed, then copies
+its closed D1 tree into a dedicated allowlisted browser path before applying
+default-scenario additions and checking all canonical invariants. It verifies
+the browser binding/readback and seals both source inputs and complete fixture
+contents. The required browser command only accepts that seal, clones three
+profiles and consumes the seed; it never falls back to a reset on the browser
+critical path. The standalone `pilot_native.py playwright` command retains its
+reset-and-verify behavior and uses a separate seed path. All commands share the
+Playwright lease while touching browser runtime/report paths.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
@@ -528,3 +529,15 @@ standalone browser reset remain. A failed migration or browser readback cannot
 produce a valid seal. This removes a duplicate migration pass, not a migration
 or browser assertion. Full Linux execution must establish the resulting
 headroom.
+
+Run `39866552058` completed all 1,282 Linux unit cases without skips or
+failures; unit execution took 526.1 seconds and its complete native flow took
+534.2 seconds. The gate still failed at 784.9 seconds on browser evidence:
+copying the populated default scenario changed the original browser fixture, and
+one mobile nested expansion passed only on retry. These are retained failed
+results, not accepted headroom. The corrected export now copies the base seed
+before default-only additions. An independent original browser rebuild matched
+all 131 tables and the entire schema, excluding only migration execution
+timestamps. The mobile flow waits for actual parent layout transitions and
+asserts the nested control's expanded state; its original screenshots and
+deadlines remain unchanged.

@@ -229,6 +229,7 @@ def browser_seed_input_digest():
         ROOT / "scripts/reset-e2e-state.mjs",
         ROOT / "scripts/local-seed-scenarios.ts",
         ROOT / "packages/database/seed/synthetic.sql",
+        ROOT / "packages/database/seed/scenarios/default.sql",
         *sorted((ROOT / "packages/database/migrations").glob("*.sql")),
     ]
     digest = hashlib.sha256()
@@ -309,20 +310,17 @@ def validate_browser_seed_seal():
 def prepare_browser_seed():
     local = ROOT / ".keel-local"
     base = local / "e2e"
-    canonical = local / "scenarios" / "default" / "v3"
     validate_owned_browser_path(local, "browser profile parent", allow_missing=True)
     validate_owned_browser_path(base, "verified browser seed", recursive=True, allow_missing=True)
     remove_browser_seed()
-    # Replay every migration and the canonical synthetic readback once. Wrangler
-    # has exited before copying; browser lanes receive independent mutable state.
-    subprocess.run(["make", "db-verify", "SCENARIO=default"], cwd=ROOT, check=True)
-    validate_owned_browser_path(local, "browser profile parent")
-    validate_owned_browser_path(canonical, "canonical verified D1 seed", recursive=True)
-    validate_owned_browser_path(canonical / "d1", "canonical verified D1 state", recursive=True)
     if base.exists():
         shutil.rmtree(base)
-    base.mkdir(mode=0o700)
-    shutil.copytree(canonical, base / "v3")
+    base.mkdir(parents=True, mode=0o700)
+    # Replay every migration and the canonical synthetic readback once. Wrangler
+    # has exited before copying; browser lanes receive independent mutable state.
+    subprocess.run(["node", "--import", "tsx", "scripts/local-seed-scenarios.ts", "verify-ci", "default"], cwd=ROOT, check=True)
+    validate_owned_browser_path(local, "browser profile parent")
+    validate_owned_browser_path(base / "v3" / "d1", "verified base D1 state", recursive=True)
     # Keep the independent browser binding/readback check, without replaying the
     # same migrations a second time. Explicit persistence cannot inherit an override.
     subprocess.run(["make", "db-check-e2e", "E2E_PERSIST_TO=.keel-local/e2e"], cwd=ROOT, check=True)

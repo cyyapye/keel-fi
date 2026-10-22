@@ -201,7 +201,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The native seed runner resets the default synthetic scenario, replays every migration and verifies canonical invariants. After Wrangler exits, it copies the owned closed v3 D1 tree into the isolated browser seed, verifies the browser binding/readback, and seals all source inputs and persisted bytes.",
+        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
         "health": "Scenario readback assertions check migrations, seeds and relationships.",
         "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
       },

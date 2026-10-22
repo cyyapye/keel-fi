@@ -644,6 +644,12 @@ class NativeAccountingTests(unittest.TestCase):
                 "stateful-a": {"server": "stateful"},
                 "stateful-b": {"server": "stateful"},
             }
+            def export_base(command, **_options):
+                if command[0] == "node":
+                    target = seed / "v3/d1"
+                    target.mkdir(parents=True)
+                    (target / "seed.sqlite").write_text("base synthetic")
+
             with (
                 patch.object(native, "ROOT", repository),
                 patch.object(native, "BROWSER_RUNTIME", runtime),
@@ -652,11 +658,11 @@ class NativeAccountingTests(unittest.TestCase):
                 patch.object(
                     native, "browser_seed_input_digest", return_value="a" * 64
                 ) as input_digest,
-                patch.object(native.subprocess, "run") as run,
+                patch.object(native.subprocess, "run", side_effect=export_base) as run,
             ):
                 native.prepare_browser_seed()
                 self.assertEqual(run.call_args_list, [
-                    unittest.mock.call(["make", "db-verify", "SCENARIO=default"], cwd=repository, check=True),
+                    unittest.mock.call(["node", "--import", "tsx", "scripts/local-seed-scenarios.ts", "verify-ci", "default"], cwd=repository, check=True),
                     unittest.mock.call(["make", "db-check-e2e", "E2E_PERSIST_TO=.keel-local/e2e"], cwd=repository, check=True),
                 ])
                 self.assertFalse(seed.exists())
@@ -677,11 +683,11 @@ class NativeAccountingTests(unittest.TestCase):
                     self.assertEqual(list((runtime / lane).iterdir()), [])
                 for lane in ("stateful-development", "stateful-a", "stateful-b"):
                     self.assertEqual(
-                        (runtime / lane / "v3/d1/seed.sqlite").read_text(), "canonical synthetic"
+                        (runtime / lane / "v3/d1/seed.sqlite").read_text(), "base synthetic"
                     )
                 (runtime / "stateful-a/v3/d1/seed.sqlite").write_text("changed")
                 self.assertEqual((canonical / "seed.sqlite").read_text(), "canonical synthetic")
-                self.assertEqual((runtime / "stateful-b/v3/d1/seed.sqlite").read_text(), "canonical synthetic")
+                self.assertEqual((runtime / "stateful-b/v3/d1/seed.sqlite").read_text(), "base synthetic")
 
                 prepared_seed.mkdir()
                 (prepared_seed / "seed.sqlite").write_text("synthetic")
@@ -707,7 +713,12 @@ class NativeAccountingTests(unittest.TestCase):
                     native.prepare_browser_seed()
                 self.assertFalse(prepared_seed.exists())
                 self.assertFalse(prepared_seal.exists())
-                run.side_effect = [None, subprocess.CalledProcessError(1, ["make", "db-check-e2e"])]
+                def fail_readback(command, **options):
+                    if command[0] == "make":
+                        raise subprocess.CalledProcessError(1, command)
+                    export_base(command, **options)
+
+                run.side_effect = fail_readback
                 with self.assertRaises(subprocess.CalledProcessError):
                     native.prepare_browser_seed()
                 self.assertFalse(prepared_seed.exists())
