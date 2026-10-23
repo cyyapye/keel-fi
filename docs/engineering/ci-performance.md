@@ -636,3 +636,17 @@ headroom before that same 35-second assertion. Reader execution stays at 30
 seconds; scanner execution/watchdog stay at 90/95 seconds. No retries or relaxed
 absence deadline are introduced. Reader images must be rebuilt with the runtime
 because entrypoint attestation rejects the former 35-second image.
+
+The second PR324 run (`39892578296`) passed real PDF isolation, including the
+unchanged 35-second absence assertion, but failed two existing unit deadlines
+under browser contention: the full idle day at 30 seconds and runtime inventory
+at five seconds. It is not a passing benchmark. The unchanged inventory passed
+alone on the same Linux host in 2.21 seconds. These two files now receive early
+admission before browser startup; their cases and deadlines remain unchanged.
+The agent-usage fixture also reuses the existing sealed SQLite fixture helper
+and caches only prepared SQL within each fresh database. Every binding,
+execution, transaction, authorization and round-trip counter remains. A local
+before/after run preserved all 7,225 HTTP requests, 14,450 worker invocations,
+34,921 database round trips, 1,725 changed rows and zero browser starts; the
+complete 13-case file fell from 2.482 to 1.034 seconds. Full Linux verification
+must establish resulting gate performance.

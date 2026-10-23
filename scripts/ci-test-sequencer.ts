@@ -27,6 +27,11 @@ const seconds: Readonly<Record<string, number>> = {
 
 function priority(moduleId: string): number {
   const name = path.basename(moduleId);
+  // These complete-graph/day assertions have strict wall-clock deadlines.
+  // Admit them before browser startup competes for CPU; keep every operation,
+  // file and deadline, rather than letting the unmeasured tail starve them.
+  if (name === "runtime-work-inventory.test.ts") return 1_002;
+  if (name === "provider-agent-usage.test.ts") return 1_001;
   // New D1 scale cases can dominate the tail before an OVH timing exists.
   // Admit unmeasured cost fixtures first; never rely on a complete hint list.
   return seconds[name] ?? (name.endsWith("-d1-cost.test.ts") ? 1_000 : 0);
