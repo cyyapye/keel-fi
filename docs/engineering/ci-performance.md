@@ -370,11 +370,11 @@ PR run `39363608558` exhausted the unchanged 900-second gate with unit and
 browser work incomplete. Unit work started at 138.7 seconds after waiting for
 PDF images; PDF isolation waited for a slot until 195.2 seconds and finished at
 464.2 seconds, although the build and browser fixture were ready by 269.3
-seconds. The revised map removes only the unit image dependency and prioritizes
-ready PDF isolation within the existing three-flow cap. It preserves the
-required image build, real isolation proof, browser prerequisites and all
-individual cases. The existing scheduling contract rejects restoring the unit
-image dependency, delaying PDF priority or raising the gate budget.
+seconds. That attempt led to removing the unit image dependency and prioritizing
+ready PDF isolation within the existing three-flow cap. The later test-layering
+and independent-build work below supersedes that admission order: real provider
+document verification precedes UI and remaining PDF probes. The current map
+preserves all required boundaries and the unchanged gate budget.
 
 These observed admission delays are not guaranteed wall-time savings: moving
 work changes contention on the shared host. A complete exact-revision Linux
