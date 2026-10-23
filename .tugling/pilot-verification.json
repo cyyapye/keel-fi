@@ -2,33 +2,6 @@
   "schema_version": 1,
   "flows": [
     {
-      "id": "pdf-isolation",
-      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
-      "argv": ["make", "pdf-sandbox-verify"],
-      "timeout_seconds": 600,
-      "sources": [
-        "Makefile",
-        "scripts/pdf-sandbox-verify.ts",
-        "scripts/pdf-sandbox.ts",
-        "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/boundary.py",
-        "scripts/pdf-sandbox-owner.ts",
-        "scripts/pdf-sandbox-owner.py",
-        "scripts/pdf-sandbox-error.ts",
-        "scripts/test-support/pdf-sandbox-caller.ts",
-        "scripts/test-support/pdf-orphan-client.ts",
-        "scripts/legal-document-extraction.ts",
-        "scripts/test-support/legal-documents.ts"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
-        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
-        "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
-      },
-      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
-    },
-    {
       "id": "source-quality",
       "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
       "argv": ["make", "-j2", "data-scan", "format-check", "lint", "typecheck"],
@@ -99,6 +72,7 @@
         "scripts/test-support/d1-cost.ts",
         "scripts/test-support/d1-cost.test.ts",
         "scripts/test-support/cost-fixtures-worker.ts",
+        "scripts/test-support/portfolio-watch-cost.ts",
         "scripts/renamed-investments-d1-cost.test.ts",
         "scripts/test-support/renamed-investments-cost.ts",
         "scripts/test-support/renamed-investments-cost-worker.ts",
@@ -107,11 +81,23 @@
         "scripts/test-support/automatic-investment-cost-worker.ts",
         "scripts/test-support/purchase-cost-database.ts",
         "scripts/test-support/purchase-cost-worker.ts",
-        "scripts/purchase-details-d1-cost.test.ts"
+        "scripts/purchase-details-d1-cost.test.ts",
+        "scripts/test-support/sqlite-fixture.ts",
+        "scripts/test-support/sqlite-fixture.test.ts",
+        "scripts/prepare-d1-cost-seed.ts",
+        "scripts/test-support/d1-cost-seed.ts",
+        "scripts/test-support/provider-reconnect-cost.ts",
+        ".tugling/test-layering.json",
+        "scripts/test-layering.test.ts",
+        "scripts/agreement-capture.test.ts",
+        "scripts/sydecar-refresh-observation.test.ts",
+        "scripts/sydecar-session-expiry.test.ts",
+        "scripts/position-link-suggestion.test.ts",
+        "apps/web/src/collection-search.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts expensive fixtures first after integrity checks, without waiting for PDF images; its sandbox tests use mocks or fail-closed inputs, while real reader/scanner proof remains in mandatory PDF isolation. Two workers bound contention and measured priorities schedule costly files first. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state.",
+        "launch": "Vitest starts after integrity checks, before migrations and PDF isolation take their slots. Unit tests receive an explicitly absent owned PDF configuration; real PDF/Chromium verification is enforced by separate required flows, so image builds are not a unit prerequisite. Three workers admit strict workload fixtures first, followed by measured cost priorities. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
@@ -186,24 +172,47 @@
     {
       "id": "migration-and-seed",
       "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["make", "db-verify"],
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
       "timeout_seconds": 300,
       "sources": [
         "Makefile",
         "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql"
+        "packages/database/seed/synthetic.sql",
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The native seed runner creates and resets only this checkout local scenario state.",
+        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
         "health": "Scenario readback assertions check migrations, seeds and relationships.",
         "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
       },
       "depends_on": ["gate-and-artifact-integrity"]
     },
     {
+      "id": "provider-document-runtime",
+      "description": "Prove real Chromium popup capture through production tsx, scanning and PDF extraction without an unrelated application server.",
+      "argv": ["make", "provider-document-runtime-verify"],
+      "timeout_seconds": 60,
+      "sources": [
+        "Makefile",
+        "scripts/provider-document-runtime-verify.ts",
+        "scripts/test-support/provider-documents-runtime-smoke.ts",
+        "scripts/provider-legal-document-capture.ts",
+        "scripts/legal-document-extraction.ts",
+        "scripts/pdf-sandbox.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The existing isolated Chromium fixture runs as a real tsx child with its unchanged 50-second deadline and 128 KiB output cap. Production collector defaults retain the real scanner and reader.",
+        "health": "Zod validates the complete capture; exact request/download counts, one capture/document and the original legal-name/page assertions must pass.",
+        "cleanup": "The child closes Chromium in finally; the native owner enforces the outer deadline and descendant cleanup. This flow completes before either the four-worker UI suite or the remaining PDF probes start."
+      },
+      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+    },
+    {
       "id": "browser-fixture-preparation",
-      "description": "Build and seal the isolated synthetic D1 fixture before browser prerequisites reach the critical path.",
+      "description": "Validate the sealed isolated D1 fixture produced by the canonical migration gate.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "browser-fixture"],
       "timeout_seconds": 300,
       "sources": [
@@ -216,15 +225,16 @@
         "scripts/reset-e2e-state.mjs",
         "packages/database/seed/synthetic.sql",
         "scripts/test_pdf_sandbox_owner.py",
-        "scripts/pdf-sandbox-owner.py"
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/local-seed-scenarios.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The native command exclusively acquires the Playwright lease, runs the unchanged isolated browser reset, migrations, synthetic seed and readback, then moves the closed result to a dedicated allowlisted path.",
+        "launch": "The native command exclusively acquires the Playwright lease and validates the closed browser fixture already produced by the successful canonical migration gate. It performs no duplicate reset or migration pass.",
         "health": "A source-input digest and complete prepared-tree digest seal the verified fixture; the browser consumer rejects missing, stale, mutated or symlinked state without rebuilding it.",
         "cleanup": "Failure leaves no valid seal. The prepared browser command consumes the exact owned seed after cloning, while a later preparation safely replaces an unconsumed owned seed."
       },
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["migration-and-seed"]
     },
     {
       "id": "build-and-entry-budget",
@@ -238,7 +248,7 @@
         "scripts/check-web-entry-budget.mjs"
       ],
       "runtime": null,
-      "depends_on": ["source-quality", "migration-and-seed"]
+      "depends_on": []
     },
     {
       "id": "browser-workflows",
@@ -286,7 +296,38 @@
       "depends_on": [
         "browser-fixture-preparation",
         "build-and-entry-budget",
-        "pdf-isolation"
+        "provider-document-runtime"
+      ]
+    },
+    {
+      "id": "pdf-isolation",
+      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
+      "argv": ["make", "pdf-sandbox-verify"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "scripts/pdf-sandbox-verify.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox-owner.ts",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/pdf-sandbox-error.ts",
+        "scripts/test-support/pdf-sandbox-caller.ts",
+        "scripts/test-support/pdf-orphan-client.ts",
+        "scripts/legal-document-extraction.ts",
+        "scripts/test-support/legal-documents.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
+        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
+        "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
+      },
+      "depends_on": [
+        "gate-and-artifact-integrity",
+        "pdf-sandbox-build",
+        "provider-document-runtime"
       ]
     }
   ],
@@ -301,7 +342,8 @@
       "flows": [
         "gate-and-artifact-integrity",
         "native-unit-and-cost",
-        "browser-workflows"
+        "browser-workflows",
+        "provider-document-runtime"
       ]
     },
     {
@@ -355,7 +397,11 @@
         "docs/deployment/private-worker-access.md",
         "docs/security/threat-model.md"
       ],
-      "flows": ["native-unit-and-cost", "browser-workflows"]
+      "flows": [
+        "native-unit-and-cost",
+        "browser-workflows",
+        "provider-document-runtime"
+      ]
     },
     {
       "id": "document-resource-and-artifact-bounds",
@@ -369,7 +415,8 @@
         "pdf-sandbox-build",
         "native-unit-and-cost",
         "pdf-isolation",
-        "browser-workflows"
+        "browser-workflows",
+        "provider-document-runtime"
       ]
     },
     {
@@ -379,7 +426,11 @@
         "docs/deployment/linux-test-cleanup.md",
         "docs/engineering/tugling-pilot.md"
       ],
-      "flows": ["gate-and-artifact-integrity", "browser-fixture-preparation"]
+      "flows": [
+        "gate-and-artifact-integrity",
+        "browser-fixture-preparation",
+        "provider-document-runtime"
+      ]
     },
     {
       "id": "native-build-and-bootstrap",

@@ -522,6 +522,7 @@ function remoteBrowserHtml(
       const status = document.querySelector("#status");
       const rfb = new RFB(screen, "wss://" + location.host + "/${accessToken}/websockify", {
         credentials: { password: ${JSON.stringify(password)} },
+        wsProtocols: ["binary"],
       });
       rfb.scaleViewport = true;
       rfb.resizeSession = true;

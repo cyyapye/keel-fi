@@ -25,13 +25,25 @@ const seconds: Readonly<Record<string, number>> = {
   "d1-query-cost.test.ts": 24,
 };
 
+function priority(moduleId: string): number {
+  const name = path.basename(moduleId);
+  // These complete-graph/day assertions have strict wall-clock deadlines.
+  // Admit them before browser startup competes for CPU; keep every operation,
+  // file and deadline, rather than letting the unmeasured tail starve them.
+  if (name === "cash-accounts.test.ts") return 1_004;
+  if (name === "cash-request-d1-cost.test.ts") return 1_003;
+  if (name === "runtime-work-inventory.test.ts") return 1_002;
+  if (name === "provider-agent-usage.test.ts") return 1_001;
+  // New D1 scale cases can dominate the tail before an OVH timing exists.
+  // Admit unmeasured cost fixtures first; never rely on a complete hint list.
+  return seconds[name] ?? (name.endsWith("-d1-cost.test.ts") ? 1_000 : 0);
+}
+
 export function prioritizeCostFiles<T extends { readonly moduleId: string }>(
   files: readonly T[],
 ): T[] {
   return [...files].sort(
-    (left, right) =>
-      (seconds[path.basename(right.moduleId)] ?? 0) -
-      (seconds[path.basename(left.moduleId)] ?? 0),
+    (left, right) => priority(right.moduleId) - priority(left.moduleId),
   );
 }
 

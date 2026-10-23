@@ -1,3 +1,4 @@
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -563,10 +564,7 @@ describe("AngelList holding import persistence", () => {
   let repository: D1HoldingImportRepository;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    migrationFiles.forEach((file) => {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    });
+    sqlite = createSqliteFixture(migrationFiles);
     seedRobinhoodInvestmentConnection(sqlite);
     database = new TestD1Database(sqlite);
     repository = new D1HoldingImportRepository(
@@ -2117,10 +2115,7 @@ describe("exception-based source updates", () => {
     return input;
   };
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    migrationFiles.forEach((file) =>
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8")),
-    );
+    sqlite = createSqliteFixture(migrationFiles);
     database = new TestD1Database(sqlite);
     imports = new D1HoldingImportRepository(database as unknown as D1Database);
     baselines = new D1PortfolioBaselineRepository(
@@ -2533,10 +2528,7 @@ describe("reviewed portfolio baseline persistence", () => {
   let cashAccounts: D1CashAccountsRepository;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    migrationFiles.forEach((file) => {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    });
+    sqlite = createSqliteFixture(migrationFiles);
     seedRobinhoodInvestmentConnection(sqlite);
     database = new TestD1Database(sqlite);
     holdingImports = new D1HoldingImportRepository(

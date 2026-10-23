@@ -73,38 +73,39 @@ servers, ports and cleanup; each partition remains serial internally.
 
 The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
-Migration depends on integrity checks; PDF probes depend on both integrity and
-the successful image build. PDF isolation is first in map order, so it takes the
-next available slot once those prerequisites pass. Browser fixture preparation
-also becomes ready after integrity checks. Build depends on source checks and
-migration completion. Unit/D1 tests become ready after integrity checks and take
-a slot before Compose validation, migration and fixture preparation. They own
-isolated D1 fixtures and consume TypeScript sources; their sandbox tests use
-mocks or fail-closed inputs. PDF images, source checks, the shared scenario seed
-and build output are not inputs to this flow. Source checks and migration remain
-required for the complete gate. The exact real-reader name/page assertions
-belong to mandatory PDF isolation, outside Vitest’s unit pool. Browser tests
-depend on the sealed fixture, build and PDF isolation. This keeps generated
-outputs stable before their browser consumers start and avoids running browser
-document processing before the sandbox boundary passes. Formatting and linting
-exclude the Git-ignored runtime, fixture and cache directories, so concurrent
-integrity tests cannot change files under the source checkers. Repository source
-and test files remain in scope.
+Migration depends on integrity checks. Its sealed private copy supplies browser
+fixtures. Workspace builds consume source files and can start whenever a slot is
+available; source checks and migrations remain independently required. Unit/D1
+tests become ready after integrity; they receive an explicitly absent owned PDF
+configuration, retain their own isolated databases and consume TypeScript
+sources. Source checks remain concurrent and required.
+
+The standalone provider-document boundary runs real Chromium through the
+production tsx entrypoint, scanner and reader after image provisioning and
+integrity. It retains the former browser wrapper's 50-second child timeout, 128
+KiB output bound and exact counts/name/page assertions. Both the UI suite and
+the remaining PDF isolation probes depend on this boundary. This prevents a
+fifth browser worker and concurrent PDF callers while allowing CPU-light kernel
+watchdogs to overlap UI work. The full PDF suite remains mandatory for success.
+The UI suite also waits for the sealed fixture and build. Formatting and linting
+exclude ignored runtime/fixture/cache directories; repository sources and tests
+remain in scope.
 
 The declared prerequisites are:
 
 ```mermaid
 flowchart LR
-  source[Source checks] --> build[Build and entry budget]
+  source[Source checks: independently required]
+  build[Build and entry budget]
   integrity[Integrity checks] --> compose[Compose validation]
   integrity --> migrations[Migrations and seed]
-  integrity --> pdf[PDF isolation]
-  pdfBuild[PDF security-image build] --> pdf
+  integrity --> provider[Real provider document boundary]
+  pdfBuild[PDF security-image build] --> provider
+  provider --> pdf[PDF isolation]
   integrity --> unit[Unit and D1 tests]
-  integrity --> browserFixture[Browser fixture]
-  migrations --> build
+  migrations --> browserFixture[Browser fixture]
   build --> browser[Browser suite]
-  pdf --> browser
+  provider --> browser
   browserFixture --> browser
 ```
 
@@ -113,17 +114,19 @@ finish successfully. Source checks use at most two Make jobs, and PDF proof uses
 one independently limited container per daemon across processes. Kernel
 ownership serializes the scanner/reader and adversarial sequences through
 confirmed cleanup; all original probes remain required. The fixture uses a slot
-released by an earlier flow and can overlap remaining source/PDF work. No
-browser consumer starts before its fixture, PDF isolation and build succeed.
+released by an earlier flow and can overlap remaining source/PDF work. No UI
+browser consumer starts before its fixture, real provider document boundary and
+build succeed. All PDF isolation probes must pass before the gate succeeds.
 
-The unit suite uses two workers in CI and locally, and starts historically
-expensive files first. Its early admission reduces overlap between expensive D1
-fixtures and browser startup. The reviewed-rename cost fixture runs its
-synthetic import and 240 company-review operations inside its existing workerd
-fixture to avoid repeated Node-to-D1 bridge calls. It uses the same repository
-methods, accepted decisions and link records. The test still meters every
-positive, history, empty and unrelated-household read against real D1, with the
-same 120-position scale, row budgets and query-plan assertions.
+The unit suite uses three workers in CI and locally. Deadline-sensitive workload
+files receive first admission, followed by measured expensive files. Its early
+admission reduces overlap between expensive D1 fixtures and browser startup. The
+reviewed-rename cost fixture runs its synthetic import and 240 company-review
+operations inside its existing workerd fixture to avoid repeated Node-to-D1
+bridge calls. It uses the same repository methods, accepted decisions and link
+records. The test still meters every positive, history, empty and
+unrelated-household read against real D1, with the same 120-position scale, row
+budgets and query-plan assertions.
 
 Browser verification produces five reports while admitting at most four workers:
 three stateful partitions, 74 API-mocked executions served from the verified
@@ -149,15 +152,15 @@ holdings-page projection through the web proxy, with one bounded probe in flight
 and a cached successful result for the development server. A simpler health
 endpoint cannot hide a cold first read or module load.
 
-Fixture preparation runs the unchanged browser reset, every migration, the
-synthetic seed and invariant readback early in the bounded flow graph. It moves
-the closed result into a dedicated allowlisted path and seals both the source
-inputs and complete fixture contents. The required browser command only accepts
-that seal, clones three profiles and consumes the seed; it never falls back to a
-reset on the browser critical path. The standalone `pilot_native.py playwright`
-command retains its reset-and-verify behavior and uses a separate seed path.
-Both commands share the Playwright lease while touching browser runtime/report
-paths.
+The migration flow runs every migration and the base synthetic seed, then copies
+its closed D1 tree into a dedicated allowlisted browser path before applying
+default-scenario additions and checking all canonical invariants. It verifies
+the browser binding/readback and seals both source inputs and complete fixture
+contents. The required browser command only accepts that seal, clones three
+profiles and consumes the seed; it never falls back to a reset on the browser
+critical path. The standalone `pilot_native.py playwright` command retains its
+reset-and-verify behavior and uses a separate seed path. All commands share the
+Playwright lease while touching browser runtime/report paths.
 
 Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
@@ -169,6 +172,70 @@ rootless-engine validation, immutable digests, atomic configuration writes and
 the clean-scanner preflight remain unchanged. No consumer uses partially built
 images. Native and manual pilot workflows do not build the images a second time
 outside the dependency graph.
+
+## Test layers and coverage preservation
+
+Policy permutations belong in unit or integration tests that call production
+code. Browser tests own browser behavior; real PDF tests own the executable and
+kernel boundary. `.tugling/test-layering.json` maps the migration from
+`1ee7afcc` to exact replacement and retained boundary case identities. Its
+native test rejects a missing or excluded replacement or browser boundary. The
+complete case inventory still rejects filtering, omissions, retries and flaky
+success.
+
+The migration retains all prior unit/D1 cases and all visual baselines. It moves
+agreement scan/cache/recheck/budget permutations to the production capture core;
+renewal diagnostics to the real event observer with synthetic Request/Response
+boundaries; and expiry rules to the same storage reader and decision function
+used by the worker. Provider DOM tests use registered synthetic PDF text, while
+the production `tsx` capture still uses real Chromium, scanning and extraction.
+Production factories retain their real scanner/reader defaults.
+
+Other moved matrices cover investment-link identity, ambiguity and survivor
+selection; timezone/DST formatting using real Node Intl; Google SDK outcomes;
+120/1,000-item search; ownership percentages; and agreement page bounds. Shared
+synthetic domain constructors keep the old and replacement inputs aligned.
+Browser tests retain form binding, unsaved choices, rejected drafts, reload,
+history, local timezone display, SDK callback wiring and search DOM/read limits.
+The 1,000-item browser search keeps its real-browser p95 limit of 50 ms.
+
+`.tugling/test-layering-proof.json` records paired negative controls. Six
+document defects, four renewal defects and three investment-link defects were
+rejected by both the original browser tests and their replacements. An
+additional HTTP-classification defect was caught only by the replacement: the
+old browser fixture's sign-in fallback masked it. These controls demonstrate
+retained fault detection for the changed rules; they are not a universal
+equivalence proof. Exact-revision complete native verification remains the
+release requirement.
+
+The remaining browser files were reviewed by boundary:
+
+| Boundary                       | Retained checks                                                                                                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Navigation and loading         | Entry-script failure, deferred modules, router/history, keyboard focus, lazy rendering and script/style loss.                                                                                 |
+| Holdings and collection search | Responsive grouping, hidden cash, progressive rendering, highlights, 1,000-item DOM limits, browser performance and one projection read.                                                      |
+| Review and legal entities      | Distinct visual states, form bindings, manual decisions, independent saves, rejected drafts, exact reload/readback, downloads and SDK script integration.                                     |
+| Planning, goals and cash flow  | UI-triggered refreshes, linked goal navigation, confirmation boundaries, save/readback and responsive summaries. Public/private/cash refresh scenarios retain their separate component paths. |
+| Portfolio Watch                | Async loading/error/recovery, source disclosure, review actions, history, evidence navigation and distinct visual states.                                                                     |
+| Provider agents                | Delayed DOM readiness, count reconciliation, drawers, exact source association, URL routing, popup ownership, real process shutdown, persisted profiles and cold restarts.                    |
+| Reconnect and sessions         | Actual access/tunnel/viewer behavior, token rotation across process restarts, the simulated full day, request admission and browser storage serialization.                                    |
+
+The mandatory PDF suite retains real clean and complex PDF extraction, malware
+and archive/stream limits, filesystem/network/process isolation, unsafe-kernel
+handshake rejection, killed-caller cleanup, orphan reaping and absence of
+retained containers. Mocking these would weaken validation. Runtime
+timer/network inventory changes only the owning function name for the unchanged
+document fetch; its call digest, schedules and admission limits remain
+unchanged. The reader watchdog tightening described below is the sole deadline
+change.
+
+For performance comparison, use the complete successful PR323 merged run
+`39872116335` at `1ee7afcc`: 661.445 seconds active, including 376.629 seconds
+for browser workflows and 247.068 seconds for PDF isolation. It passed 1,282
+Linux unit/D1 cases and 351 executable browser cases with 45 reviewed browser
+exclusions. Compare new complete receipts on the same runner against this
+baseline, using the migration map to account for changed layer membership;
+focused local timings are not a full-CI benchmark.
 
 The September 23 UTC cold refresh in run `35800328085` took 120 seconds before
 the native gate: approximately 56 seconds for the reader/base and 63 seconds for
@@ -222,12 +289,12 @@ migration compatibility and scale holdouts. SQLite changed-row counts cannot
 stand in for D1 billed writes. Keep browser coverage for actual user workflows
 and Worker runtime boundaries, without repeating every decision permutation.
 
-Provider document permutations retain the real DOM, popups, source association,
-downloads, PDF extraction and cache/backfill assertions. Nine redundant scanner
-loads are replaced with current synthetic scan receipts, with exact scan-count
-assertions for cache reuse, extractor upgrades, expiry and resumed backfills.
-The production tsx smoke retains the real scanner/extractor boundary, and the
-dedicated PDF suite retains real adversarial scanner and isolation checks.
+Provider document browser cases retain real DOM, popups, source association,
+downloads and page restoration. Scan/cache/backfill policy matrices execute
+against the production capture core with explicit scan/extraction boundaries.
+The standalone production tsx integration retains real Chromium, scanning and
+extraction; the dedicated PDF suite retains every adversarial scanner and
+isolation probe.
 
 The provider full-day gate runs all five scenarios through the production
 client, web proxy, API, authentication and repositories using in-memory SQLite.
@@ -487,3 +554,277 @@ boundary, and even zero-time lint cannot remove the remaining typecheck work.
 Ordinary per-file lint caching is unsafe for type-aware rules when imported
 types change. Keep the full checks; removing repeated parsing would require a
 separately measured design that preserves every workspace's type environment.
+
+## October 22 fixture and critical-path optimization
+
+PR #323 exhausted the unchanged 900-second budget twice (900.884 and 900.459
+seconds). Both full attempts left unit work incomplete, with browser work
+cancelled at the deadline. These are failed baselines, not accepted benchmarks.
+The repeated results rule out relying on another unchanged retry.
+
+The SQLite behavior fixtures now build an immutable, process-local snapshot once
+per ordered migration/seed content digest. Every case opens its own database
+copy and removes its owned temporary directory on close. No mutable database,
+transaction, connection, application state or test outcome is shared. Changed
+input bytes or order invalidate the snapshot; a failed migration cannot populate
+it. Disposable memory journals retain rollback, triggers, foreign keys and
+unique constraints without adding disk durability absent from the old in-memory
+fixtures. Independent migration tests and the real D1 migration/seed gate still
+execute migrations directly. D1 billing fixtures are unchanged.
+
+The complete SQL trace also reuses prepared SQLite statements within one owned
+trace. Every invocation, binding, result, production round trip, transaction and
+real D1 replay remains required. No virtual day is shortened or sampled.
+
+A local 20-fixture comparison, including every table and schema definition,
+produced identical SHA-256 digests. Setup and complete readback took 3,357 ms
+before and 381 ms after (88.7% less elapsed time). This is a focused local
+measurement; only the complete exact-revision Linux receipt establishes overall
+CI speed or headroom.
+
+PDF isolation is admitted before migration setup when a native slot opens. Its
+real image prerequisite, all probes and one-container ownership limit remain.
+The provider portfolio browser contract moves from stateful-a to stateful-b to
+balance measured lane work. Both lanes retain one worker, independent seed
+copies, identical projects/cases and unchanged snapshots. All five reports and
+the strict union inventory remain mandatory. No watchdog, retry, budget,
+security refresh, production boundary or assertion has been relaxed.
+
+The first fixture candidate, run `39859822324`, also exhausted the 900-second
+budget. Provider-day tests improved from 361.4 to 320.3 seconds, but unit work
+remained incomplete and browser execution was cancelled after 502.6 seconds. It
+is a failed experiment, not readiness evidence.
+
+The next candidate removes two more repeated costs:
+
+- Trace capture marks a single-statement UPDATE as zero-write only when SQLite's
+  cumulative change counter, including trigger work, is unchanged. Replay may
+  group those operations (including one-statement API batches) with adjacent
+  standalone reads. Every marked operation must independently report exactly
+  zero actual D1 rows written. Actual writes, every multi-statement production
+  batch, setup/measurement boundaries and the 100-statement transport bound stay
+  separate. Complete results, all original production round trips and every real
+  D1 counter remain checked. A negative control that labels a real write as zero
+  fails. The matched six-day comparison preserved all workload and D1 counters;
+  idle replay transport fell from 11,297 to 3,531 calls and local replay time
+  fell from 1,913 to 989 ms.
+- The native unit command builds one fresh real D1 migration/seed snapshot,
+  closes workerd, and seals its SQL/dependency inputs and all persisted bytes.
+  Each cost case verifies the seal and writes a private copy into a fresh
+  runtime. Missing, modified, stale, oversized or symlinked seed contents fail
+  without falling back to a rebuild. No result or mutable database is shared
+  across cases or runs. The parent owns the temporary seed and removes it on
+  success, failure and real cancellation. Direct local cost fixtures still
+  support independent migration replay, and the separate real migration/seed
+  gate is unchanged.
+
+The seed holdout compares complete schemas, seeded rows and actual D1 metadata
+against an independently bootstrapped fixture, then checks state isolation and
+corruption rejection. Native ownership tests exercise normal exit, an exception,
+SIGTERM and preservation of an unrelated sentinel. The second candidate adds two
+unit cases and one Python case; it removes no prior case or exclusion.
+
+Unmeasured `*-d1-cost.test.ts` files now receive early admission ahead of the
+historical duration hints. The complete local suite exposed a 16.8-second
+share-price scale case at the very end; it had no historical hint. This rule
+prevents newly added scale fixtures from silently becoming a long serial tail.
+It preserves discovery and within-file order.
+
+The second candidate, run `39863437995`, completed 1,280 unit cases but failed
+two unchanged five-second deadlines: reconnect setup and TypeScript runtime
+inventory scanning. Unit execution took 746.8 seconds; provider-day tests took
+149.7 seconds. Browser work was cancelled on that failure. This is diagnostic
+evidence, not a passing full-gate benchmark. The minimum available memory was
+2.9 GiB, CPU busy averaged 81.4%, and steal averaged 4.3%.
+
+The next candidate moves only unmeasured reconnect fixture registration into its
+existing workerd runtime and caches repeated TypeScript module resolution within
+the inventory scan. Both five-second deadlines and all assertions remain. It
+evaluates three unit workers, while retaining three concurrent native flows and
+four browser workers. The canonical migration flow now performs the complete
+default scenario replay and invariant readback once, copies its closed owned
+`v3` D1 tree, and runs the independent browser binding/readback on that copy.
+All lanes still receive separate mutable databases. The source and complete-tree
+seal, exclusive lease, fail-closed stale/missing/mutated input checks, and
+standalone browser reset remain. A failed migration or browser readback cannot
+produce a valid seal. This removes a duplicate migration pass, not a migration
+or browser assertion. Full Linux execution must establish the resulting
+headroom.
+
+Run `39866552058` completed all 1,282 Linux unit cases without skips or
+failures; unit execution took 526.1 seconds and its complete native flow took
+534.2 seconds. The gate still failed at 784.9 seconds on browser evidence:
+copying the populated default scenario changed the original browser fixture, and
+one mobile nested expansion passed only on retry. These are retained failed
+results, not accepted headroom. The corrected export now copies the base seed
+before default-only additions. An independent original browser rebuild matched
+all 131 tables and the entire schema, excluding only migration execution
+timestamps. The mobile flow waits for actual parent layout transitions and
+asserts the nested control's expanded state; its original screenshots and
+deadlines remain unchanged.
+
+Run `39869099587` passed the corrected migration/browser seed checks but stopped
+at 294.8 seconds on the real orphan-watchdog proof; its final error did not name
+the assertion. The isolated same-host probe subsequently proved caller death
+left the container running and that no container remained after 35 seconds.
+Fixed stage/boolean diagnostics now distinguish creation, acknowledgement,
+caller disconnection and deadline failure without exposing Docker output. The
+watchdog, cleanup assertions and timing limits remain unchanged.
+
+That run also exposed another five-second reconnect test timeout. The complete
+120/1,200-history reconnect operation sequence now executes beside real D1 and
+returns Zod-validated evidence. Host assertions still check session identity,
+viewer binding, positive/foreign/empty results, every original read/write and
+round-trip budget, historical growth and both indexed query-plan searches. Only
+Node-to-D1 bridge traffic is removed; the five-second deadline remains.
+
+A fresh-database comparison of the original host-side and new in-worker
+reconnect sequences produced identical results, plans and every D1 counter at
+both history sizes: each positive lease used six round trips, 14 rows read and
+three rows written. The runtime inventory walker also carries its nearest owning
+declaration during traversal instead of allocating parent links throughout the
+TypeScript AST; its complete existing call-site snapshot is unchanged.
+
+The first PR324 attempt (`39891256030`) failed the unchanged 35-second orphan
+absence assertion. A focused real-container diagnosis found the worker dead but
+Docker still removing the container at 35 seconds, and absence by 36 seconds.
+The independent reader watchdog is now stricter at 32 seconds, leaving cleanup
+headroom before that same 35-second assertion. Reader execution stays at 30
+seconds; scanner execution/watchdog stay at 90/95 seconds. No retries or relaxed
+absence deadline are introduced. Reader images must be rebuilt with the runtime
+because entrypoint attestation rejects the former 35-second image.
+
+The second PR324 run (`39892578296`) passed real PDF isolation, including the
+unchanged 35-second absence assertion, but failed two existing unit deadlines
+under browser contention: the full idle day at 30 seconds and runtime inventory
+at five seconds. It is not a passing benchmark. The unchanged inventory passed
+alone on the same Linux host in 2.21 seconds. These two files now receive early
+admission before browser startup; their cases and deadlines remain unchanged.
+The agent-usage fixture also reuses the existing sealed SQLite fixture helper
+and caches only prepared SQL within each fresh database. Every binding,
+execution, transaction, authorization and round-trip counter remains. A local
+before/after run preserved all 7,225 HTTP requests, 14,450 worker invocations,
+34,921 database round trips, 1,725 changed rows and zero browser starts; the
+complete 13-case file fell from 2.482 to 1.034 seconds. Full Linux verification
+must establish resulting gate performance.
+
+Run `39894284586` is the first complete passing layered-test result: 1,356
+unit/integration cases, 333 executable browser cases, 33 reviewed browser
+exclusions and all 10 required flows, with no failures or flakes. It took
+847.753 seconds, leaving only 52.247 seconds. That is slower than the historical
+661.445-second baseline, so it does not establish an overall speedup.
+
+Its critical path delayed canonical migrations until source checks ended at
+237.687 seconds, then delayed browser admission until 379.743 seconds. Unit work
+was already occupying a native slot and competing for CPU. The next schedule
+admits unit work after source checks and canonical migrations, leaving those
+startup dependencies concurrent with real PDF isolation. The same three native
+slots, three unit workers, four browser workers, complete cases, commands,
+security refresh and 900-second budget remain. A new full receipt must measure
+whether this improves actual headroom.
+
+The source-gated unit experiment (`39895875897`) failed at 820.111 seconds: all
+four initial browser lanes passed, but the real cash-request day exceeded its
+existing 60-second deadline and the authenticated SQLite cash day exceeded its
+existing five-second deadline. Postponing units until source checks ended
+shifted too many heavy D1 fixtures into browser execution and reduced available
+memory to about 2 GiB. This experiment is rejected, not a passing benchmark.
+
+Unit admission now waits only for canonical migrations in addition to integrity
+and PDF-image provisioning, giving browser setup an early slot without waiting
+for source checks. Deadline-sensitive cash, inventory and provider-day files
+receive first admission. The cash SQLite fixture also reuses prepared statements
+within one fresh database, preserving every binding, execution, transaction, JWT
+path and query counter. All 21 existing cash cases pass locally, including
+rollback, authentication and both full-day workloads. No deadline, workload,
+worker limit or validation case is removed or relaxed.
+
+The remaining application-to-PDF dependency is removed by extracting the
+existing standalone production-tsx capture from its Playwright wrapper into the
+required `provider-document-runtime` flow. It launches the exact same child
+fixture and real Chromium/scanner/reader, with the same 50-second/128-KiB child
+bounds and 60-second outer deadline. Zod additionally validates the complete
+capture. The original request/download counts, one capture/document and
+legal-name/page assertions remain. `make verify` includes this boundary as well.
+UI validation can start after this short boundary instead of waiting for all
+adversarial PDF watchdogs, including on a cold daily image rebuild. Both
+branches must pass. The boundary completes before UI launch, preserving the
+four-browser-worker cap. Case accounting records 332 executable Playwright cases
+plus this required standalone Chromium flow, 32 reviewed browser exclusions and
+11 required native flows. No real browser/PDF boundary or assertion is removed.
+
+The final admission graph restores early unit execution and puts canonical
+migrations ahead of the provider/PDF flows. Unit tests no longer wait for image
+builds: all positive reader/scanner/Chromium proof is already in the two
+required real-runtime flows. The native unit command supplies an absent PDF
+configuration inside its owned temporary seed directory and rejects an
+unexpectedly present file. A new Python holdout checks ambient-config
+replacement, rejection and cleanup. This leaves 30 Python integrity cases, with
+all 1,356 unit identities unchanged. Fresh-image provisioning and both real
+boundaries still fail the complete gate on any error.
+
+Run `39897541194` passed all 1,356 Linux unit cases but failed at 790.460
+seconds on an existing investment-event screenshot. Inspection of its expected,
+actual and diff images identified only the Save event button's hover inversion:
+the new button occupied the preceding click position. The first attempted fix
+moved the pointer outside and asserted non-hover state before the same snapshot.
+The next run proved that this was the wrong baseline state; the correction is
+described below. Neither failed run is a benchmark pass.
+
+The complete local native unit run with deliberately unavailable PDF images
+passed all 1,355 macOS cases in 71.31 seconds, with its one existing Linux-only
+exclusion accounted for. All 30 Python integrity cases also passed. Local visual
+verification stopped earlier on an unrelated nine-pixel macOS text-rendering
+difference; that baseline remains unchanged. The exact-revision Linux run must
+verify the repaired screenshot and every real-runtime boundary.
+
+### Real-D1 source-day boundary and screenshot state
+
+Run `39899417924` failed closed after 704.837 seconds: one source-day D1 fixture
+exceeded its unchanged 120-second deadline, the Sydecar popup-ownership case
+passed only on retry, and the event-review snapshot differed at the Save button.
+It is not a performance or readiness pass.
+
+The source-day fixture now executes the same production scheduler and source
+jobs beside real D1, avoiding repeated Node/workerd bridge calls. It retains all
+24 hourly admissions, 40 sources with 40 extracted events each, duplicate
+replay, four outage attempts per source, the following idle day, real billing
+counters and every former assertion. The response is strictly validated and its
+native case identity and 120-second deadline are unchanged. A matched local run
+reduced this case from 17.508 to 1.055 seconds. Discovery still used 564 round
+trips, 967 statements and 45,883 writes; replay remained 80/80/0 and outage
+480/960/1,600. Discovery reads were 58,625 and 58,627 across independently
+generated UUIDs; the unchanged 150,000-row limit applies. The isolated Linux
+case passed in 6.406 seconds. These are focused measurements, not complete CI
+savings.
+
+The saved event-review screenshot includes the secondary Save button's hover
+state. The test now explicitly hovers that button and checks `:hover` before
+capturing the unchanged baseline. Moving the pointer away was the wrong state;
+that failed experiment is retained above. No tolerance or retry was increased.
+
+The corrected screenshot and unchanged Sydecar popup-ownership case each passed
+three consecutive isolated Linux executions, with zero retries (six passes in
+29.3 seconds). The managed temporary checkout and servers were cleaned on exit.
+These focused passes precede, and cannot substitute for, the complete gate.
+
+### Independent workspace-build admission
+
+Run `39901568601` passed all 11 flows, 1,356 unit/D1 cases and 332 executable
+browser cases with 32 reviewed exclusions and zero flakes in 800.497 seconds. It
+left 99.503 seconds below the unchanged limit. This was 47.256 seconds faster
+than the earlier layered pass, but 139.052 seconds slower than the historical
+661.445-second baseline. Host CPU steal averaged about 4 percent, versus 0.16
+percent in that baseline; this does not establish the cause of the difference.
+The passing measurement is retained, but does not establish the speed target.
+
+Its browser build waited 235.109 seconds to begin, even though workspace builds
+consume only repository source. The build flow now has no artificial dependency
+on source checks or D1 migration output and may use an earlier available slot.
+Every workspace compilation, declaration emission, API dry-run build, web build,
+entry budget, source check and migration remains required. The native
+concurrency cap stays three. UI tests still wait for the completed build, sealed
+migration fixture and real Chromium/PDF boundary. The integrity holdout checks
+that the independent source/migration/build flows are all still required for
+acceptance. Only a new complete exact-revision benchmark can establish the
+scheduling gain.

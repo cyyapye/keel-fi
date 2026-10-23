@@ -1,5 +1,6 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { readdirSync } from "node:fs";
+import type { StatementSync } from "node:sqlite";
+import { createSqliteFixture } from "./sqlite-fixture";
 import { emptyD1Cost, type D1Cost } from "./d1-meter";
 import {
   addD1Cost,
@@ -9,7 +10,15 @@ import {
 
 /** Fast SQL behavior fixture; D1 equivalence and billing require replay(). */
 export function createSqliteTrace() {
-  const sqlite = new DatabaseSync(":memory:");
+  const sqlite = createSqliteFixture([
+    ...readdirSync("packages/database/migrations")
+      .filter((file) => file.endsWith(".sql"))
+      .sort()
+      .map((file) => `packages/database/migrations/${file}`),
+    "packages/database/seed/synthetic.sql",
+  ]);
+  const prepared = new Map<string, StatementSync>();
+  const changes = sqlite.prepare("SELECT total_changes() AS count");
   const queries: string[] = [];
   const queryIds = new Map<string, number>();
   const steps: SqlReplayStep[] = [];
@@ -24,19 +33,6 @@ export function createSqliteTrace() {
       throw new Error("SQL trace does not emulate D1 metadata");
     },
   });
-  const execute = (sql: string) => sqlite.exec(sql);
-  try {
-    for (const file of readdirSync("packages/database/migrations")
-      .filter((file) => file.endsWith(".sql"))
-      .sort())
-      execute(readFileSync(`packages/database/migrations/${file}`, "utf8"));
-    execute(readFileSync("packages/database/seed/synthetic.sql", "utf8"));
-    if (sqlite.prepare("PRAGMA foreign_keys").get()!.foreign_keys !== 1)
-      throw new Error("Trace fixture must enforce foreign keys");
-  } catch (error) {
-    sqlite.close();
-    throw error;
-  }
   class Statement {
     constructor(
       readonly sql: string,
@@ -61,10 +57,20 @@ export function createSqliteTrace() {
         queries.push(this.sql);
         queryIds.set(this.sql, query);
       }
+      let statement = prepared.get(this.sql);
+      if (statement === undefined) {
+        statement = sqlite.prepare(this.sql);
+        prepared.set(this.sql, statement);
+      }
+      const update = /^UPDATE\b/iu.test(this.sql.trimStart());
+      const before = update ? changes.get()!.count : undefined;
+      const rows = statement.all(...this.bindings);
+      const zeroWrite = update && changes.get()!.count === before;
       return {
         query,
         bindings: this.bindings,
-        rows: sqlite.prepare(this.sql).all(...this.bindings),
+        rows,
+        ...(zeroWrite ? { zeroWrite: true as const } : {}),
       };
     }
     all() {

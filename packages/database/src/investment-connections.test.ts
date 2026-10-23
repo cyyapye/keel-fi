@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
@@ -207,10 +206,7 @@ describe("Plaid Investments connection state", () => {
   let repository: D1InvestmentConnectionsRepository;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    migrationFiles.forEach((file) => {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    });
+    sqlite = createSqliteFixture(migrationFiles);
     database = new TestD1Database(sqlite);
     repository = new D1InvestmentConnectionsRepository(
       database as unknown as D1Database,

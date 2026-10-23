@@ -1,3 +1,4 @@
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -604,11 +605,7 @@ describe("canonical exposure resolution and aggregation", () => {
   let baselines: D1PortfolioBaselineRepository;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
-    sqlite.exec("PRAGMA foreign_keys = ON");
-    migrationFiles.forEach((file) => {
-      sqlite.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-    });
+    sqlite = createSqliteFixture(migrationFiles);
     sqlite.exec(
       readFileSync(
         resolve(

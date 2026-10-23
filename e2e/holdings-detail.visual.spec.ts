@@ -942,7 +942,24 @@ test("leads with the investment and opens a truthful holding detail", async ({
     name: "Other valuations",
     exact: true,
   });
+  await expect(ownershipToggle).toHaveAttribute("aria-expanded", "true");
+  // Closing Planning and opening Ownership moves this nested trigger. Wait for
+  // those real transitions to finish before clicking its final mobile position.
+  await expect
+    .poll(() =>
+      page
+        .locator(".holding-detail-workspace")
+        .evaluate(
+          (element) =>
+            element
+              .getAnimations({ subtree: true })
+              .filter((animation) => animation.playState === "running").length,
+        ),
+    )
+    .toBe(0);
+  await expect(otherValuesToggle).toHaveAttribute("aria-expanded", "false");
   await otherValuesToggle.click();
+  await expect(otherValuesToggle).toHaveAttribute("aria-expanded", "true");
   await expect(
     page.getByText(
       "Reviewed value copied into the provider template as of the source date.",

@@ -75,7 +75,7 @@ Docker calls, each control call bounded at 10 seconds. Only retained containers
 cause the four 250-ms cleanup settling waits. The owner cancels after 180
 seconds and completes bounded cleanup before releasing capacity; reader/scanner
 execution remains 30/90 seconds with unchanged memory, CPU, input/output and
-independent 35/95-second watchdog limits. A dirty ownership journal, including a
+independent 32/95-second watchdog limits. A dirty ownership journal, including a
 create without a recorded completion acknowledgment, stops admission until
 explicit operator recovery; age or missing PIDs never authorize concurrent work.
 The runtime inventory's reader timer changes its error classification only; it
@@ -507,6 +507,22 @@ holdout. No auth caching or weaker cost limit is used to accept the new
 runtime-call inventory.
 
 ### Useful-work reserve
+
+Tokenfolio's legacy Deal Snapshot inspection returns through its existing single
+portfolio navigation, now without the investment ID. The caller accepts the
+already closed drawer and still requires the active list and full snapshot
+reconciliation. This changes one runtime navigation fingerprint with zero added
+idle-day, failure-day or useful-work-day navigation, API, D1 or object
+operations. The navigation and readiness waits each retain their 30-second
+bound; document capture retains its 24-document, 64-MiB and 20-minute limits. No
+polling, authentication, retry, lease-renewal or shared daily ceiling changes.
+
+After document inspection, the capture also waits at most 30 seconds for the
+last expected holding row to become visible and then requires the exact list
+count. This local DOM readiness check runs only within an admitted capture,
+including after its final document return. It adds zero browser launches,
+navigations, API, D1 or object operations on idle, failure or useful-work days;
+all existing scheduling, document limits and independent daily ceilings remain.
 
 For one deployment, three agents, one bounded foreground session, three explicit
 setup sessions, the daily source batch and three 120-position accepted captures,

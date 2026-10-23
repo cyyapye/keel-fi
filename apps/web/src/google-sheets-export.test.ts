@@ -3,6 +3,7 @@ import {
   createGoogleSheet,
   googleSheetsCreateBody,
   GoogleSheetsCreationUncertainError,
+  prepareGoogleSheetsAuthorization,
 } from "./google-sheets-export";
 
 const table = {
@@ -16,6 +17,61 @@ const table = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Google Sheets export", () => {
+  it.each(["popup_closed", "popup_failed_to_open", "denied", "success"])(
+    "handles the Google SDK %s result with least privilege and no export request",
+    async (outcome) => {
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const initTokenClient = vi.fn(
+        (
+          config: Parameters<
+            NonNullable<
+              NonNullable<NonNullable<Window["google"]>["accounts"]>["oauth2"]
+            >["initTokenClient"]
+          >[0],
+        ) => ({
+          requestAccessToken: () => {
+            if (outcome === "denied")
+              config.callback({ error: "access_denied" });
+            else if (outcome !== "success")
+              config.error_callback({ type: outcome });
+            else
+              config.callback({
+                access_token: "synthetic-token",
+                expires_in: 3600,
+                scope: config.scope,
+              });
+          },
+        }),
+      );
+      vi.stubGlobal("window", {
+        google: { accounts: { oauth2: { initTokenClient } } },
+      });
+      const authorize = await prepareGoogleSheetsAuthorization(
+        "synthetic-client.apps.googleusercontent.com",
+      );
+      expect(initTokenClient).not.toHaveBeenCalled(); // Must start in the later user gesture.
+      if (outcome === "success")
+        await expect(authorize()).resolves.toBe("synthetic-token");
+      else
+        await expect(authorize()).rejects.toThrow(
+          outcome === "denied"
+            ? "Allow Keel to create the Google Sheet, or download CSV instead."
+            : outcome === "popup_closed"
+              ? "Google sign-in was closed. Your export choices are unchanged."
+              : "Google sign-in could not open. Allow pop-ups for Keel and try again.",
+        );
+      expect(initTokenClient).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          client_id: "synthetic-client.apps.googleusercontent.com",
+          scope: "https://www.googleapis.com/auth/drive.file",
+          include_granted_scopes: false,
+        }),
+      );
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
   it("sends a complete 120-row sheet in one request with literal strings and no sharing change", async () => {
     const fetcher = vi
       .fn()

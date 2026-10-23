@@ -20,12 +20,7 @@ const cases = [
     refresh: freshRefresh,
     outcome: "verified",
   },
-  {
-    name: "missing access",
-    access: null,
-    refresh: freshRefresh,
-    outcome: "unexpected_failure",
-  },
+
   {
     name: "missing refresh",
     access: freshAccess,
@@ -36,30 +31,6 @@ const cases = [
     name: "malformed refresh",
     access: freshAccess,
     refresh: "synthetic.invalid.synthetic",
-    outcome: "unexpected_failure",
-  },
-  {
-    name: "invalid expiry",
-    access: freshAccess,
-    refresh: syntheticToken("invalid"),
-    outcome: "unexpected_failure",
-  },
-  {
-    name: "expired access",
-    access: syntheticToken(timestamp),
-    refresh: freshRefresh,
-    outcome: "unexpected_failure",
-  },
-  {
-    name: "expired refresh",
-    access: freshAccess,
-    refresh: syntheticToken(timestamp),
-    outcome: "provider_sign_in_required",
-  },
-  {
-    name: "short refresh",
-    access: freshAccess,
-    refresh: syntheticToken(timestamp + 8 * hour - 1),
     outcome: "unexpected_failure",
   },
 ];

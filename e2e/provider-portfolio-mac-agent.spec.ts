@@ -228,6 +228,7 @@ function tokenfolioPage(
   detailDelayMs = 0,
   tabCountDelayMs = 0,
   drawerUrlDelayMs = 0,
+  rowRenderDelayMs = 0,
 ): string {
   const rows = [
     {
@@ -281,7 +282,7 @@ function tokenfolioPage(
     </style></head><body>
       <button id="portfolio-tab-active" role="tab" aria-selected="true" onclick="this.dataset.clicked = 'true'">Active Holdings${tabCountDelayMs > 0 ? "" : activeCount.toString()}</button>
       <button role="tab" aria-selected="false">Exited Investments0</button>
-      ${rowMarkup}
+      <div id="portfolio-rows">${rowMarkup}</div>
       <div role="dialog"${drawerInitiallyOpen ? "" : " hidden"}>
         <h2></h2>
         <div><div class="text-xs text-gray-400 mb-1 truncate">Committed</div><div data-summary="committed"></div></div>
@@ -324,6 +325,14 @@ function tokenfolioPage(
             history.replaceState(null, '', url.href);
           }, ${drawerUrlDelayMs.toString()});
         });
+        if (${rowRenderDelayMs.toString()} > 0) {
+          const list = document.querySelector('#portfolio-rows');
+          const rows = [...list.children];
+          list.replaceChildren();
+          document.addEventListener('restore-portfolio-rows', () => {
+            setTimeout(() => list.append(...rows), ${rowRenderDelayMs.toString()});
+          }, { once: true });
+        }
       </script>
     </body></html>`;
 }
@@ -418,40 +427,49 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
   page,
 }) => {
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  let firstStatus = "Funds Received";
   await page.route("https://app.tokenfolio.co/**", async (route) => {
-    await route.fulfill({ body: tokenfolioPage(), contentType: "text/html" });
+    await route.fulfill({
+      body: tokenfolioPage(2, [firstStatus, "Completed"]),
+      contentType: "text/html",
+    });
   });
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+  for (firstStatus of ["Funds Received", "Partially Exited"]) {
+    await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
 
-  const bytes = await captureTokenfolio(page, "2026-08-21");
-  await expect(
-    page.getByRole("tab", { name: /^Active Holdings/u }),
-  ).not.toHaveAttribute("data-clicked", "true");
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toMatchObject([
-    {
-      companyOrFund: "Synthetic Atlas",
-      dealMetadata: {
-        sharePrices: {
-          costMicros: 10000000,
-          markMicros: 15000000,
-          markDate: null,
-          shareClass: null,
+    const bytes = await captureTokenfolio(page, "2026-08-21");
+    await expect(
+      page.getByRole("tab", { name: /^Active Holdings/u }),
+    ).not.toHaveAttribute("data-clicked", "true");
+    const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
+    expect(parsed.rows).toMatchObject([
+      {
+        companyOrFund: "Synthetic Atlas",
+        dealMetadata: {
+          sharePrices: {
+            costMicros: 10000000,
+            markMicros: 15000000,
+            markDate: null,
+            shareClass: null,
+          },
         },
+        investedMinor: 1_250_000,
+        status: "Live",
+        unrealizedValueMinor: 1_875_025,
+        realizedValueMinor: 0,
+        netValueMinor: 1_875_025,
+        investmentEntity: "Synthetic Family LLC",
+        investDate: "2025-08-20",
       },
-      investedMinor: 1_250_000,
-      unrealizedValueMinor: 1_875_025,
-      investmentEntity: "Synthetic Family LLC",
-      investDate: "2025-08-20",
-    },
-    {
-      companyOrFund: "Synthetic Beacon",
-      investedMinor: 800_000,
-      unrealizedValueMinor: null,
-      unrealizedValueState: "not_reported",
-      investDate: "2026-01-03",
-    },
-  ]);
+      {
+        companyOrFund: "Synthetic Beacon",
+        investedMinor: 800_000,
+        unrealizedValueMinor: null,
+        unrealizedValueState: "not_reported",
+        investDate: "2026-01-03",
+      },
+    ]);
+  }
 });
 
 test("Tokenfolio waits for each drawer URL to open and clear before associating agreements", async ({
@@ -459,20 +477,32 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
   page,
 }) => {
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", (route) =>
-    route.fulfill({
+  let firstLoad = true;
+  await page.route("https://app.tokenfolio.co/**", (route) => {
+    const body = tokenfolioPage(
+      2,
+      ["Funds Received", "Completed"],
+      firstLoad,
+      0,
+      0,
+      300,
+    );
+    firstLoad = false;
+    return route.fulfill({
       contentType: "text/html",
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], true, 0, 0, 300),
-    }),
-  );
+      body,
+    });
+  });
   await page.goto(
     "https://app.tokenfolio.co/portfolio?tab=active&investmentId=33333333-3333-4333-8333-333333333333",
   );
   const ids: Array<string | null> = [];
   const agreements: AgreementCollector = {
-    collect: (sourcePage) => {
+    collect: async (sourcePage) => {
       ids.push(new URL(sourcePage.url()).searchParams.get("investmentId"));
-      return Promise.resolve();
+      if (ids.length === 1) {
+        await sourcePage.goto("https://app.tokenfolio.co/portfolio?tab=active");
+      }
     },
     collectSydecarDocuments: () =>
       Promise.reject(new Error("Unexpected provider")),
@@ -484,6 +514,61 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
     "22222222-2222-4222-8222-222222222222",
   ]);
   expect(new URL(page.url()).searchParams.has("investmentId")).toBe(false);
+});
+
+test("Tokenfolio waits for all holdings after document return before continuing and reconciling", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  let loads = 0;
+  await page.route("https://app.tokenfolio.co/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: tokenfolioPage(
+        2,
+        ["Funds Received", "Completed"],
+        false,
+        0,
+        0,
+        0,
+        loads++ === 0 ? 0 : 500,
+      ),
+    }),
+  );
+  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+  const ids: Array<string | null> = [];
+  const agreements: AgreementCollector = {
+    collect: async (sourcePage) => {
+      ids.push(new URL(sourcePage.url()).searchParams.get("investmentId"));
+      await sourcePage.goto("https://app.tokenfolio.co/portfolio?tab=active");
+      await expect(sourcePage.locator("#portfolio-tab-active")).toBeVisible();
+      expect(
+        await sourcePage
+          .locator('div[role="button"].relative.cursor-pointer')
+          .count(),
+      ).toBe(0);
+      await sourcePage.evaluate(() => {
+        document.dispatchEvent(new Event("restore-portfolio-rows"));
+      });
+    },
+    collectSydecarDocuments: () =>
+      Promise.reject(new Error("Unexpected provider")),
+    flush: () => Promise.resolve(),
+  };
+  const bytes = await captureTokenfolio(
+    page,
+    "2026-08-21",
+    () => undefined,
+    agreements,
+  );
+  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
+  expect(parsed.rows).toHaveLength(2);
+  expect(ids).toEqual([
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+  ]);
+  expect(loads).toBe(3);
 });
 
 test("fails closed when the Tokenfolio visible count does not reconcile", async ({

@@ -22,7 +22,7 @@ const READY = Buffer.from("KEEL_PDF_SANDBOX_READY_V1\n");
 const ENTRYPOINT = [
   "/usr/bin/timeout",
   "--signal=KILL",
-  "35",
+  "32",
   "/usr/bin/python3",
   "-I",
   "-B",
@@ -409,7 +409,7 @@ export const SandboxTextSchema = z
 
 async function removeSandbox(command: SandboxCommand, name: string) {
   // Killing the docker client alone leaves the PDF process alive. Remove the
-  // exact container too; its independent 35s PID-1 watchdog covers parent death.
+  // exact container too; its independent 32s PID-1 watchdog covers parent death.
   const removal = await command(["rm", "--force", name]);
   if (removal.code !== 0) {
     // AutoRemove can win the removal race while deletion is still in progress.

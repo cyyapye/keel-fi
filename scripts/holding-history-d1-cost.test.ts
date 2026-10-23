@@ -8,7 +8,10 @@ import { COST_SUBJECT } from "./test-support/cost-fixtures";
 it("keeps latest holding reads bounded with 120 older captures for each of 120 positions", async () => {
   const fixture = await createCostFixtureDatabase({ operation: "holdings" });
   try {
-    const importId = fixture.initialResult!.importId;
+    if (fixture.initialResult?.operation !== "holdings") {
+      throw new Error("Expected the holdings cost fixture");
+    }
+    const importId = fixture.initialResult.importId;
     const measured = measureD1(fixture.database);
     const alpha = new D1AlphaRepository(measured.database);
     const positions = new D1InvestmentPositionViewRepository(measured.database);

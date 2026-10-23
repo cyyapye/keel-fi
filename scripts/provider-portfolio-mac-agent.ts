@@ -1157,7 +1157,9 @@ async function waitForTokenfolioTabCount(activeTab: Locator): Promise<number> {
 }
 
 function tokenfolioActiveHoldingStatus(value: string): boolean {
-  return ["active", "completed", "funds received"].includes(
+  // Active Holdings includes remaining shares after partial exits. Retain live
+  // participation; this label does not establish investor cash or vehicle closure.
+  return ["active", "completed", "funds received", "partially exited"].includes(
     normalizedText(value).toLowerCase(),
   );
 }
@@ -1451,9 +1453,24 @@ async function captureTokenfolio(
       await agreements.collect(page, capturedRow);
     }
     onStage("drawer_close");
-    await activateHtmlElement(close);
-    await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
+    // Legacy document capture returns to the list with the drawer already closed.
+    if (await close.isVisible()) {
+      await activateHtmlElement(close);
+      await close.waitFor({ state: "hidden", timeout: PAGE_TIMEOUT_MS });
+    }
     await waitForTokenfolioDrawerUrl(page, false);
+    if (agreements !== undefined) {
+      // A document return can paint the active tab before its rows mount.
+      // Require the full list before advancing, including after the final row.
+      onStage("row_count");
+      await rows.nth(expectedCount - 1).waitFor({
+        state: "visible",
+        timeout: PAGE_TIMEOUT_MS,
+      });
+      if ((await rows.count()) !== expectedCount) {
+        throw new AgentFailure("incomplete_snapshot");
+      }
+    }
   }
 
   onStage("final_reconcile");
@@ -1994,7 +2011,26 @@ const SydecarRefreshErrorSchema = z.object({
   ]),
 });
 
-function observeSydecarRefresh(context: BrowserContext) {
+interface RefreshEvents {
+  on(
+    event: "request" | "requestfailed",
+    listener: (request: BrowserRequest) => void,
+  ): unknown;
+  on(event: "response", listener: (response: BrowserResponse) => void): unknown;
+  off(
+    event: "request" | "requestfailed",
+    listener: (request: BrowserRequest) => void,
+  ): unknown;
+  off(
+    event: "response",
+    listener: (response: BrowserResponse) => void,
+  ): unknown;
+}
+
+function observeSydecarRefresh(
+  context: RefreshEvents,
+  ownsRequest: (request: BrowserRequest) => boolean,
+) {
   let requests = 0;
   let status: number | null = null;
   let refreshErrorCode:
@@ -2011,7 +2047,7 @@ function observeSydecarRefresh(context: BrowserContext) {
         request.method() === "POST" &&
         url.origin === "https://api-backend.sydecar.io" &&
         url.pathname === "/authenticate/refresh_tokens" &&
-        controlledPages.get(context)?.pages.has(request.frame().page()) === true
+        ownsRequest(request)
       );
     } catch {
       return false;
@@ -2171,7 +2207,11 @@ async function renewSavedSydecarSession(
       configurable: true,
     });
   });
-  const observation = observeSydecarRefresh(context);
+  const observation = observeSydecarRefresh(
+    context,
+    (request) =>
+      controlledPages.get(context)?.pages.has(request.frame().page()) === true,
+  );
   try {
     return await verifySydecarSessionRenewal(context, now);
   } catch (error) {
@@ -2204,6 +2244,66 @@ async function renewSavedSydecarSession(
   }
 }
 
+function readSydecarSessionExpiry() {
+  // Keep this callback self-contained: tsx adds a Node-side __name helper
+  // to nested named functions, which is unavailable in the provider page.
+  const result: { access: number | null; refresh: number | null } = {
+    access: null,
+    refresh: null,
+  };
+  for (const [kind, key] of [
+    ["access", "auth_token"],
+    ["refresh", "refresh_token"],
+  ] as const) {
+    try {
+      const token = localStorage.getItem(key);
+      if (token === null) continue;
+      const encoded = token.split(".")[1];
+      if (encoded === undefined) continue;
+      const payload: unknown = JSON.parse(
+        atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
+      );
+      if (
+        typeof payload !== "object" ||
+        payload === null ||
+        !("exp" in payload)
+      )
+        continue;
+      result[kind] =
+        typeof payload.exp === "number" && Number.isSafeInteger(payload.exp)
+          ? payload.exp
+          : null;
+    } catch {
+      // Missing or malformed expiry stays unverified.
+    }
+  }
+  // Only expiry metadata crosses the browser boundary. Tokens and other
+  // account claims stay inside the existing dedicated Chrome profile.
+  return result;
+}
+
+function verifySydecarExpiry(
+  value: unknown,
+  timestamp: number,
+  exhausted: boolean,
+) {
+  const expiry = SessionExpirySchema.parse(value);
+  if (expiry.refresh !== null && expiry.refresh <= timestamp)
+    throw new AgentFailure("provider_sign_in_required");
+  if (
+    exhausted ||
+    expiry.access === null ||
+    expiry.access <= timestamp ||
+    expiry.refresh === null ||
+    expiry.refresh < timestamp + 8 * 60 * 60
+  ) {
+    // A ready cached shell does not prove renewal. Require enough actual
+    // provider-issued lifetime for the next six-hour check plus discovery.
+    throw new AgentFailure("unexpected_failure");
+  }
+  return expiry.refresh;
+}
+
 async function verifySydecarSessionRenewal(
   context: BrowserContext,
   now: () => number,
@@ -2228,68 +2328,20 @@ async function verifySydecarSessionRenewal(
   const page = await portfolioPage(context, "sydecar");
   await requireProviderPageReady(page, "sydecar");
   const expiry = SessionExpirySchema.parse(
-    await page.evaluate(() => {
-      // Keep this callback self-contained: tsx adds a Node-side __name helper
-      // to nested named functions, which is unavailable in the provider page.
-      const result: { access: number | null; refresh: number | null } = {
-        access: null,
-        refresh: null,
-      };
-      for (const [kind, key] of [
-        ["access", "auth_token"],
-        ["refresh", "refresh_token"],
-      ] as const) {
-        try {
-          const token = localStorage.getItem(key);
-          if (token === null) continue;
-          const encoded = token.split(".")[1];
-          if (encoded === undefined) continue;
-          const payload: unknown = JSON.parse(
-            atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
-          );
-          if (
-            typeof payload !== "object" ||
-            payload === null ||
-            !("exp" in payload)
-          )
-            continue;
-          result[kind] =
-            typeof payload.exp === "number" && Number.isSafeInteger(payload.exp)
-              ? payload.exp
-              : null;
-        } catch {
-          // Missing or malformed expiry stays unverified.
-        }
-      }
-      // Only expiry metadata crosses the browser boundary. Tokens and other
-      // account claims stay inside the existing dedicated Chrome profile.
-      return result;
-    }),
+    await page.evaluate(readSydecarSessionExpiry),
   );
   const timestamp = now() / 1_000;
-  if (expiry.refresh !== null && expiry.refresh <= timestamp)
-    throw new AgentFailure("provider_sign_in_required");
-  if (
-    exhausted ||
-    expiry.access === null ||
-    expiry.access <= timestamp ||
-    expiry.refresh === null ||
-    expiry.refresh < timestamp + 8 * 60 * 60
-  ) {
-    // A ready cached shell does not prove renewal. Require enough actual
-    // provider-issued lifetime for the next six-hour check plus discovery.
-    throw new AgentFailure("unexpected_failure");
-  }
+  const refresh = verifySydecarExpiry(expiry, timestamp, exhausted);
   console.info(
     JSON.stringify({
       event: "provider_session_renewal_verified",
       provider: "sydecar",
       admittedRequests,
-      refreshRemainingSeconds: Math.floor(expiry.refresh - timestamp),
+      refreshRemainingSeconds: Math.floor(refresh - timestamp),
     }),
   );
   return ProviderSessionRenewalVerificationSchema.parse({
-    refreshExpiresAt: new Date(expiry.refresh * 1_000).toISOString(),
+    refreshExpiresAt: new Date(refresh * 1_000).toISOString(),
   });
 }
 
@@ -2746,6 +2798,10 @@ async function main(): Promise<void> {
 }
 
 export const __providerPortfolioMacAgentTest = {
+  AgentFailure,
+  observeSydecarRefresh,
+  readSydecarSessionExpiry,
+  verifySydecarExpiry,
   SessionRenewalFailure,
   queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
   lease,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 
 import {
   formatCompactCurrency,
@@ -10,6 +11,47 @@ import {
 } from "./format";
 
 describe("holding evidence precision", () => {
+  it.each([
+    {
+      zone: "America/Los_Angeles",
+      times: [
+        "2026-11-01T09:30:00.000Z",
+        "2026-11-01T08:30:00.000Z",
+        "2026-10-03T01:15:42.000Z",
+      ],
+      expected: [
+        "Nov 1, 2026, 1:30 AM",
+        "Nov 1, 2026, 1:30 AM",
+        "Oct 2, 2026, 6:15 PM",
+      ],
+    },
+    {
+      zone: "Asia/Singapore",
+      times: ["2026-10-02T17:45:06.000Z"],
+      expected: ["Oct 3, 2026, 1:45 AM"],
+    },
+  ])(
+    "formats local instants and fixed source calendar dates in $zone",
+    ({ zone, times, expected }) => {
+      // Fresh Node Intl with the real formatter: no mocked Date or Intl implementation.
+      const output = execFileSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          "--input-type=module",
+          "--eval",
+          `import { formatDate, formatSavedAt } from './apps/web/src/format.ts';
+       console.log(JSON.stringify({source: formatDate('2026-09-30'), saved: ${JSON.stringify(times)}.map(formatSavedAt)}));`,
+        ],
+        { env: { ...process.env, TZ: zone }, encoding: "utf8", timeout: 10000 },
+      );
+      expect(JSON.parse(output)).toEqual({
+        source: "Sep 30, 2026",
+        saved: expected,
+      });
+    },
+  );
   it("keeps sub-cent share prices exact while displaying at least two decimals", () => {
     expect(formatSharePrice(24_700_000)).toBe("$24.70");
     expect(formatSharePrice(24_712_345)).toBe("$24.712345");

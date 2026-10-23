@@ -1,8 +1,16 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { Miniflare, Log, LogLevel } from "miniflare";
 import { unstable_splitSqlQuery } from "wrangler";
 import { z } from "zod";
+import { copyCostSeed, costSeedInput, sealCostSeed } from "./d1-cost-seed";
 
 export { measureD1, emptyD1Cost, type D1Cost } from "./d1-meter";
 
@@ -74,48 +82,68 @@ const costDatabaseBootstrap = (() => {
   };
 })();
 
-export async function createCostDatabase(script?: string) {
-  const runtime = new Miniflare({
-    modules: [
-      {
-        type: "ESModule",
-        path: "bootstrap-worker.js",
-        contents: bootstrapWorker,
-      },
-      {
-        type: "ESModule",
-        path: "user-worker.js",
-        contents: script ?? defaultWorker,
-      },
-    ],
-    log: new Log(LogLevel.NONE),
-    compatibilityFlags: ["nodejs_compat"],
-    d1Databases: ["DB"],
-    compatibilityDate: "2026-07-28",
-  });
-  const database = await runtime.getD1Database("DB");
-  const execute = (sql: string) =>
-    database.batch(
-      unstable_splitSqlQuery(sql).map((statement) =>
-        database.prepare(statement),
-      ),
-    );
-  try {
-    const response = await runtime.dispatchFetch(bootstrapUrl, {
-      method: "POST",
-      body: costDatabaseBootstrap.body,
-    });
-    if (!response.ok) {
-      throw new Error(
-        `Cost database bootstrap failed: ${await response.text()}`,
-      );
+export async function createCostDatabase(
+  script?: string,
+  options: { seed?: string | null; persist?: string } = {},
+) {
+  const directory = mkdtempSync(join(tmpdir(), "keel-cost-d1-"));
+  const persist = options.persist ?? join(directory, "d1");
+  const seed =
+    options.seed === undefined ? process.env.KEEL_TEST_D1_SEED : options.seed;
+  let runtime: Miniflare | undefined;
+  const close = async () => {
+    try {
+      await runtime?.dispose();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
     }
-    const result = bootstrapResultSchema.parse(await response.json());
-    if (
-      result.batchCount !== costDatabaseBootstrap.batchCount ||
-      result.statementCount !== costDatabaseBootstrap.statementCount
-    )
-      throw new Error("Cost database bootstrap was incomplete");
+  };
+  try {
+    if (seed)
+      copyCostSeed(seed, persist, costSeedInput(costDatabaseBootstrap.body));
+    runtime = new Miniflare({
+      modules: [
+        {
+          type: "ESModule",
+          path: "bootstrap-worker.js",
+          contents: bootstrapWorker,
+        },
+        {
+          type: "ESModule",
+          path: "user-worker.js",
+          contents: script ?? defaultWorker,
+        },
+      ],
+      log: new Log(LogLevel.NONE),
+      compatibilityFlags: ["nodejs_compat"],
+      d1Databases: ["DB"],
+      d1Persist: persist,
+      compatibilityDate: "2026-07-28",
+    });
+    const database = await runtime.getD1Database("DB");
+    const execute = (sql: string) =>
+      database.batch(
+        unstable_splitSqlQuery(sql).map((statement) =>
+          database.prepare(statement),
+        ),
+      );
+    if (!seed) {
+      const response = await runtime.dispatchFetch(bootstrapUrl, {
+        method: "POST",
+        body: costDatabaseBootstrap.body,
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Cost database bootstrap failed: ${await response.text()}`,
+        );
+      }
+      const result = bootstrapResultSchema.parse(await response.json());
+      if (
+        result.batchCount !== costDatabaseBootstrap.batchCount ||
+        result.statementCount !== costDatabaseBootstrap.statementCount
+      )
+        throw new Error("Cost database bootstrap was incomplete");
+    }
     if (
       (await database
         .prepare("PRAGMA foreign_keys")
@@ -127,10 +155,23 @@ export async function createCostDatabase(script?: string) {
       database,
       execute,
       dispatchFetch: runtime.dispatchFetch.bind(runtime),
-      close: () => runtime.dispose(),
+      close,
     };
   } catch (error) {
-    await runtime.dispose();
+    await close();
     throw error;
   }
+}
+
+export async function prepareCostDatabaseSeed(root: string) {
+  if (!lstatSync(root).isDirectory() || lstatSync(root).isSymbolicLink())
+    throw new Error("D1 seed must use an owned directory");
+  if (readdirSync(root).length !== 0)
+    throw new Error("D1 seed directory must be empty");
+  const fixture = await createCostDatabase(undefined, {
+    seed: null,
+    persist: join(root, "d1"),
+  });
+  await fixture.close();
+  sealCostSeed(root, costSeedInput(costDatabaseBootstrap.body));
 }

@@ -244,3 +244,89 @@ it("batches only adjacent standalone reads without changing real billing or prod
     await fixture.close();
   }
 }, 30_000);
+
+it("coalesces proven zero-write updates while retaining actual writes, triggers and billing", async () => {
+  const bundled = await build({
+    entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+  });
+  const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
+  const trace = createSqliteTrace();
+  try {
+    const db = trace.database;
+    await db
+      .prepare(
+        "CREATE TABLE replay_noop (id INTEGER PRIMARY KEY, value INTEGER)",
+      )
+      .run();
+    await db
+      .prepare("CREATE INDEX replay_noop_value ON replay_noop(value)")
+      .run();
+    await db.prepare("CREATE TABLE replay_audit (value INTEGER)").run();
+    await db
+      .prepare(
+        "CREATE TRIGGER replay_change AFTER UPDATE ON replay_noop BEGIN INSERT INTO replay_audit VALUES (new.value); END",
+      )
+      .run();
+    await db.prepare("INSERT INTO replay_noop VALUES (1, 0)").run();
+    trace.reset();
+    for (let index = 0; index < 120; index++) {
+      const noChange = db
+        .prepare("UPDATE replay_noop SET value = ? WHERE id = 2")
+        .bind(index);
+      if (index % 2 === 0) await db.batch([noChange]);
+      else await noChange.run();
+      await db.prepare("SELECT value FROM replay_noop WHERE id = 1").all();
+      if (index % 40 === 0)
+        await db
+          .prepare("UPDATE replay_noop SET value = value + 1 WHERE id = 1")
+          .run();
+    }
+    const dispatch = (body: string) =>
+      fixture.dispatchFetch("https://synthetic-replay.invalid", {
+        method: "POST",
+        body,
+      });
+    const original = await trace.replay((body) => {
+      const chunk = JSON.parse(body) as SqlReplayChunk;
+      for (const step of chunk.steps)
+        for (const statement of step.statements) delete statement.zeroWrite;
+      return dispatch(JSON.stringify(chunk));
+    });
+    await fixture.execute("DROP TABLE replay_noop; DROP TABLE replay_audit");
+    const grouped = await trace.replay(dispatch);
+    const { replayRoundTrips: originalTransport, ...originalCost } = original;
+    const { replayRoundTrips: groupedTransport, ...groupedCost } = grouped;
+    expect(groupedCost).toEqual(originalCost);
+    expect(grouped.roundTrips).toBe(243);
+    expect(grouped.rowsWritten).toBeGreaterThan(3);
+    expect(groupedTransport).toBeLessThan(originalTransport / 10);
+    expect(
+      (
+        await fixture.database
+          .prepare("SELECT * FROM replay_audit ORDER BY value")
+          .all()
+      ).results,
+    ).toEqual([{ value: 1 }, { value: 2 }, { value: 3 }]);
+    await expect(
+      replaySql(fixture.database, {
+        queries: ["UPDATE replay_noop SET value = 99 WHERE id = 1"],
+        steps: [
+          {
+            batch: false,
+            statements: [{ query: 0, bindings: [], rows: [], zeroWrite: true }],
+          },
+        ],
+        offset: 0,
+        measureFrom: 0,
+      }),
+    ).rejects.toThrow("D1 rejected the zero-write replay claim");
+  } finally {
+    trace.close();
+    await fixture.close();
+  }
+}, 30_000);

@@ -2,6 +2,7 @@ import { build } from "esbuild";
 import { z } from "zod";
 import type { CostFixtureSetupOperation } from "./cost-fixtures-worker";
 import { createCostDatabase } from "./d1-cost";
+import { reconnectCostResultSchema } from "./provider-reconnect-cost";
 
 const costFixtureWorker = build({
   entryPoints: ["scripts/test-support/cost-fixtures-worker.ts"],
@@ -23,7 +24,43 @@ const d1CostSchema = z
     rowsWritten: z.number().int().nonnegative(),
   })
   .strict();
+const counter = z.number().int().nonnegative();
+const phaseSchema = z
+  .object({
+    roundTrips: counter,
+    statements: counter,
+    rowsRead: counter,
+    rowsWritten: counter,
+    sourceRequests: counter,
+    queueMessages: counter,
+    queueSends: counter,
+    queueBatches: counter,
+    objectWrites: counter,
+  })
+  .strict();
+const portfolioWatchCostSchema = z
+  .object({
+    discovery: phaseSchema,
+    replay: phaseSchema,
+    outage: phaseSchema,
+    idle: phaseSchema,
+    extractedEventCounts: z.array(counter).length(40),
+  })
+  .strict();
+
 const setupResultSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      operation: z.literal("portfolio-watch-day"),
+      results: portfolioWatchCostSchema,
+    })
+    .strict(),
+  z
+    .object({
+      operation: z.literal("provider-reconnect"),
+      results: reconnectCostResultSchema,
+    })
+    .strict(),
   z
     .object({
       operation: z.literal("holdings"),

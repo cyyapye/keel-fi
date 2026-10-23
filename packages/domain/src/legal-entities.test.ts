@@ -342,6 +342,8 @@ describe("legal entity contracts", () => {
   });
 
   it("rejects ambiguous or out-of-range ownership text", () => {
+    for (const value of ["101", "-1", "1.12345", "abc"])
+      expect(() => ownershipPercentTextToPpm(value)).toThrow("from 0 to 100");
     expect(() => ownershipPercentTextToPpm("12.34567")).toThrow(
       "from 0 to 100",
     );

@@ -32,7 +32,7 @@ launcher send the PDF. The unchanged 30-second reader and 90-second scanner
 deadlines bound execution. A separate Python 3 standard-library supervisor owns
 a kernel `flock` for the daemon, keeps it through exact-container removal and
 confirmed absence, and handles parent EOF, SIGTERM and SIGINT. Killing a caller
-cannot bypass this cleanup. A separate 35-second reader / 95-second scanner
+cannot bypass this cleanup. A separate 32-second reader / 95-second scanner
 PID-1 watchdog remains the fallback if the supervisor itself dies. Auto-removal
 deletes the container on exit. Failed cleanup is not reported as a successful
 extraction. Missing/unsafe infrastructure returns `extractor_unavailable`, with

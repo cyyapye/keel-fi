@@ -1,5 +1,4 @@
-import { renamedInvestmentDetails } from "../scripts/test-support/renamed-investments";
-import { PurchaseReceiptSchema } from "../packages/domain/src/position-purchases";
+import { positionLinkSuggestionFixture } from "../scripts/test-support/position-link-suggestion";
 import { expect, test, type Page } from "@playwright/test";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
@@ -398,10 +397,6 @@ test("review duplicate sources and replacement history with no typing, saved rel
 async function openHistoricalRenameReview(page: Page) {
   const { LegalEntityInventorySchema } =
     await import("../packages/domain/src/legal-entities");
-  const { InvestmentPositionRecordSchema } =
-    await import("../packages/domain/src/position-read-model");
-  const { InvestmentCompanyReceiptSchema } =
-    await import("../packages/domain/src/investment-review");
   const { routeInvestmentReview } =
     await import("./investment-review-fixtures");
   await page.clock.setFixedTime(new Date("2026-09-20T12:00:00.000Z"));
@@ -413,72 +408,8 @@ async function openHistoricalRenameReview(page: Page) {
       document.head.appendChild(style);
     });
   });
-  const positions = ["Synthetic Circuit Labs", "Synthetic Circuit Works"].map(
-    (name, index) =>
-      InvestmentPositionRecordSchema.parse({
-        id: `synthetic-rename-${index}`,
-        legalVehicleName: "Synthetic Circuit SPV, LP",
-        ownerLabel: "Synthetic Family LLC",
-        reportedExposureName: name,
-        kind: "spv_interest",
-        openedOn: "2024-06-10",
-        reviewStatus: "accepted",
-        acceptedAt: "2026-09-01T12:00:00.000Z",
-        ownershipVersion: 1,
-        ownershipBasis: "provider_provenance",
-        legalEntityNameEvidence: {
-          state: "provider_reported",
-          legalName: "Synthetic Circuit SPV, LP",
-          sourceField: "Fund Name",
-        },
-        source: {
-          label: "AngelList",
-          effectiveDate: `2026-09-0${index + 1}`,
-          retrievedAt: `2026-09-0${index + 1}T12:00:00.000Z`,
-          freshness: "current",
-        },
-        snapshot: {
-          id: `synthetic-snapshot-${index}`,
-          fingerprint: "a".repeat(64),
-          observedAt: `2026-09-0${index + 1}T12:00:00.000Z`,
-          providerStatus: "realized",
-          investedMinor: 310000,
-          allocationMinor: 310000,
-          unrealizedValue: { state: "reported", minor: 0 },
-          realizedValueMinor: 0,
-          netValue: { state: "not_reported", minor: null },
-          instrumentType: "SPV interest",
-          currency: "USD",
-          quantityMicros: null,
-          ticker: null,
-          costBasisMinor: null,
-        },
-        reportedEconomicsTerms: index
-          ? {
-              managementFeePpm: null,
-              carryPpm: 175000,
-              sourceLabel: "AngelList",
-              observedAt: "2026-09-02T12:00:00.000Z",
-            }
-          : null,
-        companyReview: InvestmentCompanyReceiptSchema.parse({
-          requestId: crypto.randomUUID(),
-          expectedSnapshotId: `synthetic-snapshot-${index}`,
-          expectedEvidenceRevision: "a".repeat(64),
-          expectedMappingIds: [],
-          company: { mode: "existing", companyId: "synthetic-circuit-company" },
-          basis: "user_confirmed",
-          citation: null,
-          reason: null,
-          positionId: `synthetic-rename-${index}`,
-          companyId: "synthetic-circuit-company",
-          companyName: "Synthetic Circuit Labs",
-          mappingId: `synthetic-mapping-${index}`,
-          recordedAt: "2026-09-03T12:00:00.000Z",
-          sourceDocument: null,
-        }),
-      }),
-  );
+  const { positions, availablePositions, unrelatedPositions } =
+    positionLinkSuggestionFixture();
   const sources = positions.map((p) => ({
     source: { kind: "holding_position" as const, id: p.id },
     sourceDisplayName: p.reportedExposureName!,
@@ -539,23 +470,6 @@ async function openHistoricalRenameReview(page: Page) {
       committedMinor: 310000,
       fundedMinor: 310000,
     });
-  positions[0]!.purchaseReceipt = PurchaseReceiptSchema.parse({
-    id: "synthetic-original-contribution",
-    positionId: positions[0]!.id,
-    snapshotId: positions[0]!.snapshot.id,
-    currency: "USD",
-    details: renamedInvestmentDetails(),
-    acceptedAt: "2026-09-01T12:00:00.000Z",
-  });
-  const availablePositions = positions.map((p) => ({
-    ...p,
-    ownershipContainerId: "synthetic-account",
-  }));
-  const unrelatedPositions = Array.from({ length: 120 }, (_, index) => ({
-    ...availablePositions[0]!,
-    id: `synthetic-unrelated-${index}`,
-    ownershipContainerId: `synthetic-other-account-${index}`,
-  }));
   let returnedPositions: PositionLinkWorkspace["positions"] = [
     ...availablePositions,
     ...unrelatedPositions,
@@ -794,12 +708,8 @@ test("suggests a unique retained historical source without accepting missing acc
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  for (const mismatch of [
-    { sourceProvider: "sydecar" as const },
-    { reviewedHistory: false },
-    { ownerLabel: "Synthetic Other Owner" },
-    { openedOn: "2024-07-10" },
-  ]) {
+  // The full identity matrix runs against suggestPositionLink directly.
+  for (const mismatch of [{ sourceProvider: "sydecar" as const }]) {
     fixture.setPositions([
       { ...retained, ...mismatch },
       current,
@@ -830,30 +740,9 @@ test("prefills only one exact investment pair and preserves manual choices acros
   const member = section.getByRole("combobox", {
     name: /^(Source to link|Link another source)$/,
   });
+  // Retain incompatible and ambiguous UI wiring; domain tests own permutations.
   for (const mismatch of [
     { ownershipContainerId: "synthetic-other-account" },
-    { ownershipContainerId: undefined },
-    { ownerLabel: "Synthetic Other Owner" },
-    { openedOn: "2024-07-10" },
-    { companyReview: null },
-    {
-      snapshot: {
-        ...availablePositions[0]!.snapshot,
-        currency: "EUR" as const,
-      },
-    },
-    {
-      snapshot: {
-        ...availablePositions[0]!.snapshot,
-        providerStatus: "live" as const,
-      },
-    },
-    {
-      companyReview: {
-        ...availablePositions[0]!.companyReview!,
-        companyId: "synthetic-other-company",
-      },
-    },
   ]) {
     fixture.setPositions([
       { ...availablePositions[0]!, ...mismatch },
@@ -876,35 +765,7 @@ test("prefills only one exact investment pair and preserves manual choices acros
   await expect(section.getByRole("button", { name: "Apply link" })).toHaveCount(
     0,
   );
-  // Same-name duplicates infer the ordinary same-investment relationship.
-  fixture.setPositions([
-    availablePositions[0]!,
-    {
-      ...availablePositions[1]!,
-      reportedExposureName: "Synthetic Circuit Labs",
-    },
-    ...unrelatedPositions,
-  ]);
-  await page.reload();
-  await expect(
-    section.getByRole("combobox", { name: "Relationship" }),
-  ).toContainText("Same investment, another source");
-  // A reviewed receipt wins even when it belongs to the newer source.
-  fixture.setPositions([
-    { ...availablePositions[0]!, purchaseReceipt: null },
-    {
-      ...availablePositions[1]!,
-      purchaseReceipt: {
-        ...availablePositions[0]!.purchaseReceipt!,
-        positionId: availablePositions[1]!.id,
-        snapshotId: availablePositions[1]!.snapshot.id,
-      },
-    },
-    ...unrelatedPositions,
-  ]);
-  await page.reload();
-  await expect(keep).toContainText("Sep 2, 2026");
-  await expect(member).toContainText("Sep 1, 2026");
+  // Relationship and evidence priority matrices run in position-link-suggestion.test.ts.
   fixture.setPositions([...availablePositions, ...unrelatedPositions]);
   await page.reload();
   await expect(keep).toContainText("Sep 1, 2026");
