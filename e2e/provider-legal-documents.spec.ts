@@ -1,18 +1,14 @@
-import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { resolve } from "node:path";
-import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
 import { providerAgreementCollector } from "../scripts/provider-legal-document-capture";
-import { createProviderPositionNaturalKeySha256 } from "../packages/connectors/src/provider-holdings-template-csv";
-import {
-  syntheticAgreementPdf,
-  syntheticDocumentScan,
-} from "../scripts/test-support/legal-documents";
+import { syntheticDocumentScan } from "../scripts/test-support/legal-documents";
+import { documentReaderFixture } from "../scripts/test-support/document-reader";
 import type {
   ProviderLegalDocumentCapture,
   ProviderLegalDocumentManifest,
 } from "../packages/domain/src/provider-legal-documents";
+
+const reader = documentReaderFixture();
+const syntheticAgreementPdf = reader.pdf;
 
 const position = {
   investment: "Synthetic Atlas",
@@ -23,15 +19,13 @@ const position = {
 // Real scanner timestamps must agree with the real clock. Cache-age tests
 // advance their injected observation clock relative to this run.
 const currentCheck = new Date().toISOString();
-const nextWeek = new Date(
-  Date.parse(currentCheck) + 8 * 24 * 60 * 60_000,
-).toISOString();
-// Scanner coverage inventory: the production tsx runner below deliberately
-// omits the scan injection so it exercises the real scanner and extractor.
+// Scanner coverage inventory: mandatory provider-document-runtime verification
+// omits scan/extraction injection and uses the real tsx service entrypoint.
 // Browser permutations inject a clean synthetic receipt while retaining the
-// real provider DOM, popup, URL validation, download, extraction, caching and
-// persistence paths. The dedicated pdf-sandbox suite owns adversarial scanner
-// behavior and resource-limit coverage.
+// real provider DOM, popup, URL validation, download and persistence paths.
+// Agreement policy permutations and parsed-page name extraction run in
+// agreement-capture.test.ts. Mandatory PDF and provider-document-runtime
+// verification exercise real Chromium, scanning, reading and resource limits.
 const cleanSyntheticScan = (bytes: Uint8Array, scannedAt = currentCheck) =>
   Promise.resolve({
     ...syntheticDocumentScan(bytes, scannedAt),
@@ -99,6 +93,7 @@ test("Sydecar associates same-label investments by source IDs and reads their li
     }),
   );
   const collector = providerAgreementCollector({
+    extract: reader.extract,
     provider: "sydecar",
     manifest: { version: 1, captures: [] },
     renew: () => Promise.resolve(),
@@ -164,6 +159,7 @@ test("does not read a document drawer belonging to a different source investment
   let downloads = 0;
   const saved: ProviderLegalDocumentCapture[] = [];
   const collector = providerAgreementCollector({
+    extract: reader.extract,
     provider: "tokenfolio",
     manifest: { version: 1, captures: [] },
     renew: () => Promise.resolve(),
@@ -185,218 +181,11 @@ test("does not read a document drawer belonging to a different source investment
   expect(saved[0]).toMatchObject({ problem: "page_changed", documents: [] });
 });
 
-for (const problem of ["scanner_unavailable", "security_blocked"] as const) {
-  test(`preserves original bytes without PDF extraction when ${problem}`, async ({
-    page,
-  }) => {
-    await documentPage(page, "sydecar");
-    const saved: ProviderLegalDocumentCapture[] = [];
-    let storedBytes = 0;
-    const collector = providerAgreementCollector({
-      provider: "sydecar",
-      manifest: { version: 1, captures: [] },
-      renew: () => Promise.resolve(),
-      download: () => Promise.resolve(new Response(syntheticAgreementPdf())),
-      scan: (bytes) => {
-        if (problem === "scanner_unavailable")
-          return Promise.reject(new Error("synthetic unavailable"));
-        return Promise.resolve({
-          ...syntheticDocumentScan(bytes, new Date().toISOString()),
-          outcome: "blocked",
-        });
-      },
-      save: ({ capture, files }) => {
-        saved.push(capture);
-        for (const bytes of files.values()) {
-          expect(bytes).toEqual(Buffer.from(syntheticAgreementPdf()));
-          storedBytes += bytes.length;
-        }
-        return Promise.resolve();
-      },
-    });
-    await collector.collect(page, position);
-    await collector.flush();
-    expect(storedBytes).toBe(syntheticAgreementPdf().length);
-    expect(saved[0]?.documents[0]?.extraction).toMatchObject({
-      problem,
-      pageCount: 0,
-      citations: [],
-    });
-  });
-}
-
-test("Sydecar central documents work through the production tsx runner", async () => {
-  test.setTimeout(60_000);
-  const { stdout } = await promisify(execFile)(
-    process.execPath,
-    [
-      resolve("node_modules/tsx/dist/cli.mjs"),
-      resolve("scripts/test-support/provider-documents-runtime-smoke.ts"),
-    ],
-    { timeout: 50_000, maxBuffer: 128 * 1024 },
-  );
-  expect(JSON.parse(stdout)).toMatchObject({
-    requests: 1,
-    downloads: 1,
-    captures: [
-      {
-        problem: null,
-        documents: [
-          {
-            extraction: {
-              problem: null,
-              citations: [{ legalName: "Synthetic Atlas SPV LLC", page: 1 }],
-            },
-          },
-        ],
-      },
-    ],
-  });
-});
-
 for (const provider of ["sydecar", "tokenfolio"] as const) {
-  test(`${provider}: rechecks only the selected agreement among 120 positions and preserves sibling evidence`, async ({
-    page,
-  }) => {
-    const naturalKeySha256 = await createProviderPositionNaturalKeySha256({
-      provider,
-      ...position,
-    });
-    const url = new URL(urls[provider]);
-    const documentKey = createHash("sha256")
-      .update(
-        JSON.stringify([provider, naturalKeySha256, url.origin, url.pathname]),
-      )
-      .digest("hex");
-    const id = crypto.randomUUID();
-    const document = {
-      id,
-      documentKey,
-      sha256: syntheticDocumentScan().sha256,
-      fileName: "agreement.pdf",
-      byteSize: syntheticAgreementPdf().length,
-      checkedAt: currentCheck,
-      scan: {
-        ...syntheticDocumentScan(syntheticAgreementPdf(), currentCheck),
-        version: 2 as const,
-        findings: [],
-      },
-      extraction: {
-        version: 3 as const,
-        pageCount: 1,
-        problem: null,
-        citations: [
-          {
-            legalName: "Synthetic Atlas SPV LLC",
-            page: 1,
-            quote: "Issuer: Synthetic Atlas SPV LLC",
-            role: "issuer" as const,
-          },
-        ],
-      },
-    };
-    const sibling = {
-      ...document,
-      id: crypto.randomUUID(),
-      documentKey: "c".repeat(64),
-      sha256: "d".repeat(64),
-      scan: { ...document.scan, sha256: "d".repeat(64) },
-    };
-    const others = Array.from({ length: 119 }, (_, index) => ({
-      ...position,
-      investment: `Synthetic Other ${index.toString()}`,
-    }));
-    const captures: ProviderLegalDocumentManifest["captures"] = [];
-    for (const other of others)
-      captures.push({
-        version: 1,
-        naturalKeySha256: await createProviderPositionNaturalKeySha256({
-          provider,
-          ...other,
-        }),
-        ownershipLabel: position.heldThrough,
-        problem: "missing",
-        documents: [],
-      });
-    captures.push({
-      version: 1,
-      naturalKeySha256,
-      ownershipLabel: position.heldThrough,
-      problem: null,
-      documents: [document, sibling],
-    });
-    const saved: ProviderLegalDocumentCapture[] = [];
-    let downloads = 0;
-    let scans = 0;
-    const collector = providerAgreementCollector({
-      provider,
-      manifest: { version: 1, captures },
-      recheckDocumentId: id,
-      renew: () => Promise.resolve(),
-      download: () => {
-        downloads += 1;
-        return Promise.resolve(new Response(syntheticAgreementPdf()));
-      },
-      scan: (bytes) => {
-        scans += 1;
-        return Promise.resolve({
-          ...syntheticDocumentScan(bytes, new Date().toISOString()),
-          version: 2,
-          outcome: "blocked",
-          findings: [
-            {
-              reason: "scan_limit",
-              signature: "Heuristics.Limits.Exceeded.MaxFileSize",
-            },
-          ],
-        });
-      },
-      save: ({ capture, files }) => {
-        saved.push(capture);
-        expect(files.size).toBe(0);
-        return Promise.resolve();
-      },
-    });
-    // No provider controls at all for unrelated positions: visiting one would
-    // fail this test, not merely return the same canned agreement.
-    await page.setContent("<p>No agreements on this unrelated page</p>");
-    for (const other of others) await collector.collect(page, other);
-    await documentPage(page, provider);
-    await collector.collect(page, position);
-    expect(saved).toHaveLength(0);
-    await collector.flush();
-    expect(downloads).toBe(1);
-    expect(scans).toBe(1); // Fresh clean cache cannot satisfy an explicit recheck.
-    expect(saved).toHaveLength(1);
-    expect(saved[0]!.documents[0]!.scan).toMatchObject({
-      version: 2,
-      outcome: "blocked",
-      findings: [{ reason: "scan_limit" }],
-    });
-    expect(saved[0]!.documents[0]!.extraction.problem).toBe("security_blocked");
-    const { id: siblingId, ...priorSibling } = sibling;
-    expect(siblingId).not.toBe(id);
-    expect(saved[0]!.documents[1]).toEqual(priorSibling);
-    const missing = providerAgreementCollector({
-      provider,
-      manifest: { version: 1, captures },
-      recheckDocumentId: id,
-      renew: () => Promise.resolve(),
-      save: () => {
-        throw new Error("must not save");
-      },
-    });
-    await expect(missing.flush()).rejects.toThrow(
-      "agreement_recheck_target_unavailable",
-    );
-  });
-  test(`${provider}: follows the provider popup, reads locally, caches original bytes and never persists signed URLs`, async ({
+  test(`${provider}: follows the provider popup, captures original bytes and never persists signed URLs`, async ({
     page,
     context,
   }) => {
-    // Keep a generous bound for four browser capture phases and real PDF
-    // extraction without weakening either sandbox's per-operation limits.
-    test.setTimeout(90_000);
     await documentPage(page, provider);
     let downloads = 0;
     let scans = 0;
@@ -408,6 +197,7 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
       const observedAt = () =>
         new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck));
       return providerAgreementCollector({
+        extract: reader.extract,
         provider,
         manifest,
         now: observedAt,
@@ -446,51 +236,6 @@ for (const provider of ["sydecar", "tokenfolio"] as const) {
     });
     expect(JSON.stringify(saved)).not.toContain("synthetic=one");
     expect(context.pages()).toHaveLength(1);
-    const captures = saved.map((capture) => ({
-      ...capture,
-      documents: capture.documents.map((document) => ({
-        ...document,
-        id: crypto.randomUUID(),
-      })),
-    }));
-    const cached = run({ version: 1, captures });
-    await cached.collect(page, position);
-    await cached.flush();
-    expect(downloads).toBe(1);
-    expect(scans).toBe(1);
-    const previousVersion = run({
-      version: 1,
-      captures: captures.map((capture) => ({
-        ...capture,
-        documents: capture.documents.map((document) => ({
-          ...document,
-          extraction: {
-            ...document.extraction,
-            version: 6,
-            problem: "name_not_found",
-            citations: [],
-          },
-        })),
-      })),
-    });
-    await previousVersion.collect(page, position);
-    await previousVersion.flush();
-    expect(downloads).toBe(2);
-    expect(scans).toBe(1); // A current clean scan can feed a newer extractor.
-    expect(saved.at(-1)?.documents[0]?.extraction).toMatchObject({
-      version: 7,
-      problem: null,
-      citations: [{ legalName: "Synthetic Atlas SPV LLC" }],
-    });
-    const refresh = run({ version: 1, captures }, nextWeek);
-    await refresh.collect(page, position);
-    await refresh.flush();
-    expect(downloads).toBe(3); // Same path may be replaced: bounded weekly recheck.
-    expect(scans).toBe(2);
-    expect(saved.at(-1)?.documents[0]).toMatchObject({
-      scan: { outcome: "clean" },
-      extraction: { problem: null },
-    });
   });
 }
 
@@ -537,6 +282,7 @@ test("Sydecar indexes one central Documents page across 120 rows and opens only 
   let scans = 0;
   const saved: ProviderLegalDocumentCapture[] = [];
   const collector = providerAgreementCollector({
+    extract: reader.extract,
     provider: "sydecar",
     manifest: { version: 1, captures: [] },
     renew: () => Promise.resolve(),
@@ -614,6 +360,7 @@ test("Sydecar uses an exact reconciled legacy page only after central controls f
   let scans = 0;
   const captures: ProviderLegalDocumentCapture[] = [];
   const collector = providerAgreementCollector({
+    extract: reader.extract,
     provider: "sydecar",
     manifest: { version: 1, captures: [] },
     renew: () => Promise.resolve(),
@@ -682,6 +429,7 @@ test("Sydecar central Documents association fails closed for duplicate position 
   let downloads = 0;
   const saved: ProviderLegalDocumentCapture[] = [];
   const collector = providerAgreementCollector({
+    extract: reader.extract,
     provider: "sydecar",
     manifest: { version: 1, captures: [] },
     renew: () => Promise.resolve(),
@@ -712,161 +460,13 @@ test("Sydecar central Documents association fails closed for duplicate position 
   ]);
 });
 
-test("Sydecar central agreement backfill resumes after the 24-download run budget", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  const positions = Array.from({ length: 13 }, (_, index) => ({
-    ...position,
-    investment: `Synthetic Position ${index.toString()}`,
-    legalPosition: `Synthetic source ${index.toString()}`,
-    sourceDisplayNameUnique: true,
-  }));
-  const rows = positions.flatMap((item, positionIndex) =>
-    Array.from({ length: 2 }, (_, documentIndex) =>
-      sydecarCentralDocumentRow({
-        documentName: `${item.investment} Subscription Agreement ${documentIndex.toString()}.pdf`,
-        documentType: "Subscription Agreement",
-        investment: item.investment,
-        url: `https://storage.googleapis.com/sydecar-prod-documents/synthetic/${positionIndex.toString()}-${documentIndex.toString()}-agreement.pdf?synthetic=one`,
-      }),
-    ),
-  );
-  await page.route("https://app.sydecar.io/documents", (route) =>
-    route.fulfill({
-      body: sydecarCentralDocumentsPage(rows),
-      contentType: "text/html",
-    }),
-  );
-  let downloads = 0;
-  let scans = 0;
-  const saved: ProviderLegalDocumentCapture[] = [];
-  const build = (manifest: ProviderLegalDocumentManifest) =>
-    providerAgreementCollector({
-      provider: "sydecar",
-      manifest,
-      now: () => new Date(),
-      renew: () => Promise.resolve(),
-      download: () => {
-        downloads += 1;
-        return Promise.resolve(new Response(syntheticAgreementPdf()));
-      },
-      scan: (bytes) => {
-        scans += 1;
-        return cleanSyntheticScan(bytes, new Date().toISOString());
-      },
-      save: ({ capture }) => {
-        saved.push(capture);
-        return Promise.resolve();
-      },
-    });
-
-  const first = build({ version: 1, captures: [] });
-  await first.collectSydecarDocuments(page, positions);
-  await first.flush();
-  expect(downloads).toBe(24);
-  expect(scans).toBe(1);
-  expect(saved).toHaveLength(13);
-  expect(saved[12]).toMatchObject({
-    problem: "limit_reached",
-    documents: [],
-  });
-
-  const second = build({
-    version: 1,
-    captures: saved.map((capture) => ({
-      ...capture,
-      documents: capture.documents.map((document) => ({
-        ...document,
-        id: crypto.randomUUID(),
-      })),
-    })),
-  });
-  await second.collectSydecarDocuments(page, positions);
-  await second.flush();
-
-  expect(downloads).toBe(26);
-  expect(scans).toBe(1); // The second collector reuses the fresh hash receipt.
-  expect(saved).toHaveLength(26);
-  expect(saved.slice(13).every((capture) => capture.problem === null)).toBe(
-    true,
-  );
-  expect(saved[25]?.documents).toHaveLength(2);
-});
-
-test("backfill reaches later positions before rechecking expired cached agreements", async ({
-  page,
-}) => {
-  test.setTimeout(90_000);
-  await documentPage(page, "sydecar");
-  const saved: ProviderLegalDocumentCapture[] = [];
-  let downloads = 0;
-  let scans = 0;
-  const build = (
-    manifest: ProviderLegalDocumentManifest,
-    date = currentCheck,
-  ) => {
-    const observedAt = () =>
-      new Date(Date.now() + Date.parse(date) - Date.parse(currentCheck));
-    return providerAgreementCollector({
-      provider: "sydecar",
-      manifest,
-      now: observedAt,
-      renew: () => Promise.resolve(),
-      download: () => {
-        downloads += 1;
-        return Promise.resolve(new Response(syntheticAgreementPdf()));
-      },
-      scan: (bytes) => {
-        scans += 1;
-        return cleanSyntheticScan(bytes, observedAt().toISOString());
-      },
-      save: ({ capture }) => {
-        saved.push(capture);
-        return Promise.resolve();
-      },
-    });
-  };
-  const first = build({ version: 1, captures: [] });
-  for (let index = 0; index < 25; index += 1)
-    await first.collect(page, {
-      ...position,
-      investment: `Synthetic ${index.toString()}`,
-    });
-  await first.flush();
-  expect(downloads).toBe(24);
-  expect(scans).toBe(1);
-  expect(saved[24]).toMatchObject({ problem: "limit_reached", documents: [] });
-  const second = build(
-    {
-      version: 1,
-      captures: saved.map((capture) => ({
-        ...capture,
-        documents: capture.documents.map((document) => ({
-          ...document,
-          id: crypto.randomUUID(),
-        })),
-      })),
-    },
-    nextWeek,
-  );
-  for (let index = 0; index < 25; index += 1)
-    await second.collect(page, {
-      ...position,
-      investment: `Synthetic ${index.toString()}`,
-    });
-  await second.flush();
-  expect(downloads).toBe(48); // One new original, then 23 cached rechecks.
-  expect(scans).toBe(2); // One expired hash is rescanned, then reused this run.
-  expect(saved[49]).toMatchObject({ problem: null });
-});
-
 test("inaccessible or untrusted document locations become explicit gaps", async ({
   page,
 }) => {
   const saved: ProviderLegalDocumentCapture[] = [];
   let downloads = 0;
   const collector = providerAgreementCollector({
+    extract: reader.extract,
     provider: "sydecar",
     manifest: { version: 1, captures: [] },
     renew: () => Promise.resolve(),
@@ -916,6 +516,7 @@ test("legacy Tokenfolio detail pages are checked and restored without guessing a
   await page.goto(sourceUrl);
   const saved: ProviderLegalDocumentCapture[] = [];
   const collector = providerAgreementCollector({
+    extract: reader.extract,
     provider: "tokenfolio",
     manifest: { version: 1, captures: [] },
     renew: () => Promise.resolve(),

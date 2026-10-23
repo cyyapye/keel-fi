@@ -671,8 +671,15 @@ def run_suite(runner):
         with cost_seed_directory() as seed:
             subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
                            cwd=ROOT, check=True)
+            # Unit tests own policy/fake-command boundaries. Real PDF/Chromium
+            # integrations are separate required flows, so units must not rely
+            # on a previously built sandbox while today's images are building.
+            unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
+            if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
+                raise ValueError("Unit PDF boundary must remain unprovisioned")
             returncode = subprocess.run(command, cwd=ROOT, check=False,
-                                        env={**os.environ, "KEEL_TEST_D1_SEED": seed}).returncode
+                                        env={**os.environ, "KEEL_TEST_D1_SEED": seed,
+                                             "KEEL_PDF_SANDBOX_CONFIG": str(unavailable_pdf)}).returncode
     else:
         returncode = run_browser_lanes(
             output, prepared=runner == "playwright-prepared"

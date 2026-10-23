@@ -1,7 +1,7 @@
 import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NormalizedCashAccounts } from "@keel/connectors";
@@ -30,42 +30,42 @@ const migrationFiles = [
 
 class TestD1Statement {
   public constructor(
-    private readonly database: DatabaseSync,
+    private readonly owner: TestD1Database,
     private readonly sql: string,
     private readonly values: readonly SQLInputValue[] = [],
-    private readonly measured?: TestD1Database,
   ) {}
 
   public bind(...values: SQLInputValue[]): TestD1Statement {
-    return new TestD1Statement(this.database, this.sql, values, this.measured);
+    return new TestD1Statement(this.owner, this.sql, values);
   }
 
   public first<T>(): Promise<T | null> {
-    this.measured?.record(this.sql, this.values);
+    this.owner.record(this.sql, this.values);
     return Promise.resolve(
-      (this.database.prepare(this.sql).get(...this.values) as T) ?? null,
+      (this.owner.statement(this.sql).get(...this.values) as T) ?? null,
     );
   }
 
   public all<T>(): Promise<{ results: T[] }> {
-    this.measured?.record(this.sql, this.values);
+    this.owner.record(this.sql, this.values);
     return Promise.resolve({
-      results: this.database.prepare(this.sql).all(...this.values) as T[],
+      results: this.owner.statement(this.sql).all(...this.values) as T[],
     });
   }
 
   public run(): Promise<{ meta: { changes: number } }> {
-    this.measured?.record(this.sql, this.values);
-    const result = this.database.prepare(this.sql).run(...this.values);
+    this.owner.record(this.sql, this.values);
+    const result = this.owner.statement(this.sql).run(...this.values);
     return Promise.resolve({ meta: { changes: Number(result.changes) } });
   }
 
   public execute(): void {
-    this.database.prepare(this.sql).run(...this.values);
+    this.owner.statement(this.sql).run(...this.values);
   }
 }
 
 class TestD1Database {
+  private readonly statements = new Map<string, StatementSync>();
   public roundTrips = 0;
   public queries: { sql: string; values: readonly SQLInputValue[] }[] = [];
   public failNextBatch = false;
@@ -75,8 +75,19 @@ class TestD1Database {
   }
   public constructor(private readonly database: DatabaseSync) {}
 
+  // Compilation is shared only within one fresh fixture; all reads, bindings,
+  // writes, transaction boundaries and measured calls still execute.
+  public statement(sql: string): StatementSync {
+    let statement = this.statements.get(sql);
+    if (!statement) {
+      statement = this.database.prepare(sql);
+      this.statements.set(sql, statement);
+    }
+    return statement;
+  }
+
   public prepare(sql: string): TestD1Statement {
-    return new TestD1Statement(this.database, sql, [], this);
+    return new TestD1Statement(this, sql);
   }
 
   public batch(statements: readonly TestD1Statement[]): Promise<void> {

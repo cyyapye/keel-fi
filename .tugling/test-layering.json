@@ -1,0 +1,292 @@
+{
+  "version": 1,
+  "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
+  "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
+  "baselineBrowserCases": 396,
+  "retiredBrowserCaseCount": 36,
+  "addedBrowserCases": [
+    "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+    "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
+    "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+    "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs"
+  ],
+  "requiredPdfFlow": "pdf-isolation",
+  "migrations": [
+    {
+      "id": "agreement-scan-gate",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: preserves original bytes without PDF extraction when scanner_unavailable",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: preserves original bytes without PDF extraction when security_blocked",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: preserves original bytes without PDF extraction when scanner_unavailable",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: preserves original bytes without PDF extraction when security_blocked"
+      ],
+      "unitCases": [
+        "scripts/agreement-capture.test.ts :: preserves original bytes without PDF extraction when scanner_unavailable",
+        "scripts/agreement-capture.test.ts :: preserves original bytes without PDF extraction when security_blocked"
+      ],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
+      ],
+      "assertions": "Blocked and unavailable scans preserve exact original bytes and prohibit extraction."
+    },
+    {
+      "id": "agreement-target",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: rechecks only the selected agreement among 120 positions and preserves sibling evidence",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: rechecks only the selected agreement among 120 positions and preserves sibling evidence",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: sydecar: rechecks only the selected agreement among 120 positions and preserves sibling evidence",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: rechecks only the selected agreement among 120 positions and preserves sibling evidence"
+      ],
+      "unitCases": [
+        "scripts/agreement-capture.test.ts :: sydecar: rechecks only the selected agreement among 120 positions and preserves sibling evidence",
+        "scripts/agreement-capture.test.ts :: tokenfolio: rechecks only the selected agreement among 120 positions and preserves sibling evidence"
+      ],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
+      ],
+      "assertions": "120 positions, no unrelated discovery/download, forced selected scan, sibling retention and missing-target failure."
+    },
+    {
+      "id": "agreement-cache",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, reads locally, caches original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, reads locally, caches original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: sydecar: follows the provider popup, reads locally, caches original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: follows the provider popup, reads locally, caches original bytes and never persists signed URLs"
+      ],
+      "unitCases": [
+        "scripts/agreement-capture.test.ts :: sydecar: caches bytes, upgrades extraction, expires scans and never persists signed URLs",
+        "scripts/agreement-capture.test.ts :: tokenfolio: caches bytes, upgrades extraction, expires scans and never persists signed URLs"
+      ],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
+      ],
+      "assertions": "Fresh scan reuse, extractor-version upgrade, eight-day expiry, exact download/scan counts and no signed URL persistence."
+    },
+    {
+      "id": "agreement-run-budget",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central agreement backfill resumes after the 24-download run budget",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central agreement backfill resumes after the 24-download run budget"
+      ],
+      "unitCases": [
+        "scripts/agreement-capture.test.ts :: Sydecar central agreement backfill resumes after the 24-download run budget"
+      ],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
+      ],
+      "assertions": "26 documents resume over the unchanged 24-download cap with content-hash scan reuse."
+    },
+    {
+      "id": "agreement-recheck-priority",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: backfill reaches later positions before rechecking expired cached agreements",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: backfill reaches later positions before rechecking expired cached agreements"
+      ],
+      "unitCases": [
+        "scripts/agreement-capture.test.ts :: backfill reaches later positions before rechecking expired cached agreements"
+      ],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
+      ],
+      "assertions": "25 positions: fresh discovery takes priority over expired rechecks without starvation."
+    },
+    {
+      "id": "renewal-observer",
+      "retiredBrowserCases": [
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies expired refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies html refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies oversized refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies rejected refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies service refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies unknown refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies expired refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies html refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies oversized refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies rejected refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies service refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies unknown refresh failures without logging credentials"
+      ],
+      "unitCases": [
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies dns refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies expired refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies html refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies invalid refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies oversized refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies rejected refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies service refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies unknown refresh failures without logging credentials",
+        "scripts/sydecar-refresh-observation.test.ts :: a sign-in failure is classified without requiring a refresh response",
+        "scripts/sydecar-refresh-observation.test.ts :: an older response body cannot overwrite the latest refresh observation",
+        "scripts/sydecar-refresh-observation.test.ts :: does not materialize an unbounded or encoded diagnostic body: {\"content-encoding\":\"gzip\"}",
+        "scripts/sydecar-refresh-observation.test.ts :: does not materialize an unbounded or encoded diagnostic body: {\"content-length\":\"\"}",
+        "scripts/sydecar-refresh-observation.test.ts :: does not materialize an unbounded or encoded diagnostic body: {\"content-length\":\"-1\"}",
+        "scripts/sydecar-refresh-observation.test.ts :: does not materialize an unbounded or encoded diagnostic body: {\"content-length\":\"4097\"}",
+        "scripts/sydecar-refresh-observation.test.ts :: does not materialize an unbounded or encoded diagnostic body: {\"content-length\":\"99999\"}",
+        "scripts/sydecar-refresh-observation.test.ts :: does not materialize an unbounded or encoded diagnostic body: {\"content-type\":\"text/plain\"}",
+        "scripts/sydecar-refresh-observation.test.ts :: refresh observation ignores unrelated origins, paths, methods and uncontrolled pages",
+        "scripts/sydecar-refresh-observation.test.ts :: rejects invalid JSON materialized diagnostics",
+        "scripts/sydecar-refresh-observation.test.ts :: rejects oversized body materialized diagnostics",
+        "scripts/sydecar-refresh-observation.test.ts :: rejects private category materialized diagnostics"
+      ],
+      "browserCases": [
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies dns refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies invalid refresh failures without logging credentials"
+      ],
+      "assertions": "All eight HTTP/category/body/transport outcomes, exact sanitized log payloads and request counts; added ownership/body-size/out-of-order holdouts."
+    },
+    {
+      "id": "renewal-expiry",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "scripts/sydecar-session-expiry.test.ts :: exhausted request admission rejects otherwise sufficient session expiry",
+        "scripts/sydecar-session-expiry.test.ts :: rejects fractional browser expiry metadata",
+        "scripts/sydecar-session-expiry.test.ts :: rejects negative browser expiry metadata",
+        "scripts/sydecar-session-expiry.test.ts :: rejects out of range browser expiry metadata",
+        "scripts/sydecar-session-expiry.test.ts :: rejects unexpected field browser expiry metadata",
+        "scripts/sydecar-session-expiry.test.ts :: rejects unsafe browser expiry metadata",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry exact refresh horizon",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry expired access",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry expired refresh",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry invalid expiry",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry malformed refresh",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry missing access",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry missing refresh",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry renewed",
+        "scripts/sydecar-session-expiry.test.ts :: session expiry short refresh"
+      ],
+      "browserCases": [
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal verifies expiry through the production tsx runner"
+      ],
+      "assertions": "Full prior eight-case expiry matrix plus exact horizon and malformed metadata. Real tsx/Chromium keeps valid, missing and malformed storage cases."
+    },
+    {
+      "id": "link-suggestion",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "scripts/position-link-suggestion.test.ts :: only a unique pair is suggested, without mutating records or accepting a link",
+        "scripts/position-link-suggestion.test.ts :: retained history rejects mismatched identity: {\"openedOn\":\"2024-07-10\"}",
+        "scripts/position-link-suggestion.test.ts :: retained history rejects mismatched identity: {\"ownerLabel\":\"Synthetic Other Owner\"}",
+        "scripts/position-link-suggestion.test.ts :: retained history rejects mismatched identity: {\"reviewedHistory\":false}",
+        "scripts/position-link-suggestion.test.ts :: retained history rejects mismatched identity: {\"sourceProvider\":\"sydecar\"}",
+        "scripts/position-link-suggestion.test.ts :: retained history suggests the current account without inventing missing identity",
+        "scripts/position-link-suggestion.test.ts :: reviewed contribution evidence wins over the earlier observation in either direction",
+        "scripts/position-link-suggestion.test.ts :: same-name duplicates infer the same-investment relationship",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different account among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different company among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different currency among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different date among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different kind among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different owner among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different status among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects different vehicle among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects missing account among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects missing company among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects missing name among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects same observation time among 120 unrelated positions"
+      ],
+      "browserCases": [
+        "e2e/position-links.visual.spec.ts :: chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts",
+        "e2e/position-links.visual.spec.ts :: chromium :: suggests a unique retained historical source without accepting missing account or company identity"
+      ],
+      "assertions": "Eight ordinary and four historical identity holdouts, ambiguity, relationship inference and reviewed-survivor priority among 120 unrelated records. Keep form binding, manual choice, no automatic save, missing-identity warning and screenshot."
+    },
+    {
+      "id": "local-date-formatting",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: local history in Asia/Singapore > converts saved instants while preserving source calendar dates",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: local history in Asia/Singapore > converts saved instants while preserving source calendar dates"
+      ],
+      "unitCases": [
+        "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'America/Los_Angeles'",
+        "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'Asia/Singapore'"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: local history in America/Los_Angeles > converts saved instants while preserving source calendar dates"
+      ],
+      "assertions": "All prior instants, DST fold, UTC date crossing and fixed source dates through real Node Intl; browser keeps timezone selection, displayed text and datetime attributes."
+    },
+    {
+      "id": "google-authorization",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_failed_to_open",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns popup_failed_to_open"
+      ],
+      "unitCases": [
+        "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK denied result with least privilege and no export request",
+        "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK popup_closed result with least privilege and no export request",
+        "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK popup_failed_to_open result with least privilege and no export request",
+        "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK success result with least privilege and no export request"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns denied",
+        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_closed"
+      ],
+      "assertions": "All SDK results, exact error messages, least-privilege scope, gesture timing and no export request. Browser keeps both SDK callback channels, choices and CSV recovery."
+    },
+    {
+      "id": "holdings-search",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: searches all 120 holdings before pagination with zero additional projection reads",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: searches all 120 holdings before pagination with zero additional projection reads"
+      ],
+      "unitCases": [
+        "apps/web/src/collection-search.test.ts :: searches all 1000 holdings before pagination",
+        "apps/web/src/collection-search.test.ts :: searches all 120 holdings before pagination"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: searches all 1000 holdings before pagination with zero additional projection reads"
+      ],
+      "assertions": "Both 120/1000 record search matrices, Unicode/ticker/provider queries, full population and no matches. Browser retains 1000-record DOM bounds, highlight, one projection read and real browser p95 <50ms."
+    },
+    {
+      "id": "ownership-input",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > rejects ambiguous or out-of-range ownership text"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: reviews company evidence and keeps ownership drafts across independent saves"
+      ],
+      "assertions": "Exact invalid ownership values 101, -1, 1.12345 and abc remain in the production parser test; UI retains invalid-to-valid draft behavior and independent saves."
+    },
+    {
+      "id": "agreement-page-input",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > accepts a user-entered name with only a document and page, without weakening extracted choices"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason",
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual other_structure entry without requiring an excerpt or reason"
+      ],
+      "assertions": "Blank/zero, fractional and >150 page bounds remain in the schema; UI retains disabled invalid submission, correction, optional excerpt and both review forms."
+    },
+    {
+      "id": "production-provider-document-boundary",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central documents work through the production tsx runner"
+      ],
+      "unitCases": [
+        "scripts/agreement-capture.test.ts :: preserves original bytes without PDF extraction when scanner_unavailable",
+        "scripts/agreement-capture.test.ts :: preserves original bytes without PDF extraction when security_blocked"
+      ],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
+      ],
+      "assertions": "The required provider-document-runtime flow runs the identical real Chromium/tsx/scanner/reader child with unchanged 50-second and 128 KiB bounds, exact request/download counts, one capture/document and legal-name/page assertions. Only the unused application browser server is removed."
+    }
+  ],
+  "requiredProviderDocumentFlow": "provider-document-runtime"
+}

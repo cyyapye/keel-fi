@@ -1,6 +1,6 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../apps/api/src/app";
@@ -20,6 +20,7 @@ import { MacAgentAccessError } from "./mac-agent-auth";
 import { runProviderAgentPolling } from "./provider-agent-polling";
 import { leaseProviderBrowserSession } from "./provider-browser-reconnect";
 import { __providerPortfolioMacAgentTest } from "./provider-portfolio-mac-agent";
+import { createSqliteFixture } from "./test-support/sqlite-fixture";
 
 const DAY_MS = 24 * 60 * 60_000;
 const START = Date.parse("2026-09-01T00:00:00.000Z");
@@ -40,7 +41,7 @@ class MeasuredStatement {
   }
   public first<T>(columnName?: string): Promise<T | null> {
     this.owner.roundTrips++;
-    const row = this.owner.sqlite.prepare(this.sql).get(...this.bindings);
+    const row = this.owner.statement(this.sql).get(...this.bindings);
     return Promise.resolve(
       row === undefined
         ? null
@@ -50,19 +51,30 @@ class MeasuredStatement {
   public all<T>(): Promise<{ results: T[] }> {
     this.owner.roundTrips++;
     return Promise.resolve({
-      results: this.owner.sqlite.prepare(this.sql).all(...this.bindings) as T[],
+      results: this.owner.statement(this.sql).all(...this.bindings) as T[],
     });
   }
   public execute(): { success: true } {
-    this.owner.sqlite.prepare(this.sql).run(...this.bindings);
+    this.owner.statement(this.sql).run(...this.bindings);
     return { success: true };
   }
 }
 
 class MeasuredDatabase {
+  private readonly statements = new Map<string, StatementSync>();
   public roundTrips = 0;
   public queries = new Set<string>();
   public constructor(public readonly sqlite: DatabaseSync) {}
+  // Reuse compilation only within this owned database. Every call still binds,
+  // executes and counts; no result, authorization or mutable state is cached.
+  public statement(sql: string): StatementSync {
+    let statement = this.statements.get(sql);
+    if (!statement) {
+      statement = this.sqlite.prepare(sql);
+      this.statements.set(sql, statement);
+    }
+    return statement;
+  }
   public prepare(sql: string): MeasuredStatement {
     this.queries.add(sql);
     return new MeasuredStatement(this, sql);
@@ -81,7 +93,7 @@ class MeasuredDatabase {
   }
   public changes(): number {
     return Number(
-      this.sqlite.prepare("SELECT total_changes() AS count").get()!.count,
+      this.statement("SELECT total_changes() AS count").get()!.count,
     );
   }
 }
@@ -96,16 +108,14 @@ afterEach(() => {
 
 async function fixture() {
   vi.spyOn(console, "info").mockImplementation(() => undefined);
-  database = new DatabaseSync(":memory:");
   const migrations = resolve("packages/database/migrations");
-  for (const file of readdirSync(migrations)
-    .filter((file) => file.endsWith(".sql"))
-    .sort()) {
-    database.exec(readFileSync(resolve(migrations, file), "utf8"));
-  }
-  database.exec(
-    readFileSync(resolve("packages/database/seed/synthetic.sql"), "utf8"),
-  );
+  database = createSqliteFixture([
+    ...readdirSync(migrations)
+      .filter((file) => file.endsWith(".sql"))
+      .sort()
+      .map((file) => resolve(migrations, file)),
+    resolve("packages/database/seed/synthetic.sql"),
+  ]);
   const measured = new MeasuredDatabase(database);
   const d1 = measured as unknown as D1Database;
   const clock = { now: START };

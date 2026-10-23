@@ -20,7 +20,7 @@ LABEL keel.pdf-sandbox.protocol="1"
 # Adversarial probes are a separate test image, never in the reader image.
 FROM base AS probe
 COPY probe.py /opt/keel/reader.py
-ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "35", "/usr/bin/python3", "-I", "-B", "/opt/keel/reader.py"]
+ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "32", "/usr/bin/python3", "-I", "-B", "/opt/keel/reader.py"]
 
 # Signature refresh is an explicit maintenance/build step. The runtime scanner
 # has no network and refuses vendor databases older than 72 hours.
@@ -36,4 +36,4 @@ ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "95", "/usr/bin/python3", "-I",
 
 FROM base AS reader
 COPY reader.py /opt/keel/reader.py
-ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "35", "/usr/bin/python3", "-I", "-B", "/opt/keel/reader.py"]
+ENTRYPOINT ["/usr/bin/timeout", "--signal=KILL", "32", "/usr/bin/python3", "-I", "-B", "/opt/keel/reader.py"]

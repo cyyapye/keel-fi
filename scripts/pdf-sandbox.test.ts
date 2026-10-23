@@ -46,7 +46,7 @@ function inspection() {
       Entrypoint: [
         "/usr/bin/timeout",
         "--signal=KILL",
-        "35",
+        "32",
         "/usr/bin/python3",
         "-I",
         "-B",
@@ -174,6 +174,15 @@ describe("PDF sandbox policy", () => {
     expect(dockerfile).toContain(
       "apt-get install -y --no-install-recommends ca-certificates poppler-utils python3",
     );
+  });
+  it("leaves cleanup headroom before the unchanged 35-second orphan absence check", async () => {
+    const value = inspection();
+    expect(() => assertSandboxContainer(value, config.image)).not.toThrow();
+    value.Config.Entrypoint[2] = "35";
+    expect(() => assertSandboxContainer(value, config.image)).toThrow();
+    const dockerfile = await readFile("scripts/pdf-sandbox/Dockerfile", "utf8");
+    expect(dockerfile.match(/"--signal=KILL", "32"/gu)).toHaveLength(2);
+    expect(dockerfile.match(/"--signal=KILL", "95"/gu)).toHaveLength(1);
   });
   it("allows only a local socket and immutable image identity", () => {
     expect(PdfSandboxConfigSchema.parse(config)).toEqual(config);

@@ -15,7 +15,7 @@ AGENT_PLATFORM ?= $(shell uname -s)
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap bootstrap-ci dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify pilot-validate pilot-verify
+.PHONY: help bootstrap bootstrap-ci dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify pilot-validate pilot-verify provider-document-runtime-verify
 
 help:
 	@echo "Keel developer commands"
@@ -176,10 +176,14 @@ e2e:
 pdf-sandbox-build:
 	$(PNPM) exec tsx scripts/pdf-sandbox-build.ts
 
+provider-document-runtime-verify:
+	$(PNPM) exec tsx scripts/provider-document-runtime-verify.ts
+
 pdf-sandbox-verify:
 	$(PNPM) exec tsx scripts/pdf-sandbox-verify.ts
 
 verify:
+	$(MAKE) provider-document-runtime-verify
 	$(MAKE) pdf-sandbox-verify
 	$(MAKE) check
 	$(MAKE) e2e

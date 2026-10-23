@@ -49,21 +49,12 @@ test("Sydecar renewal verifies expiry through the production tsx runner", async 
     {
       cases: [
         { name: "renewed", outcome: "verified", requests: 1 },
-        { name: "missing access", outcome: "unexpected_failure", requests: 1 },
         { name: "missing refresh", outcome: "unexpected_failure", requests: 1 },
         {
           name: "malformed refresh",
           outcome: "unexpected_failure",
           requests: 1,
         },
-        { name: "invalid expiry", outcome: "unexpected_failure", requests: 1 },
-        { name: "expired access", outcome: "unexpected_failure", requests: 1 },
-        {
-          name: "expired refresh",
-          outcome: "provider_sign_in_required",
-          requests: 1,
-        },
-        { name: "short refresh", outcome: "unexpected_failure", requests: 1 },
       ],
     },
   ]);
@@ -415,16 +406,9 @@ test("a working Sydecar access token does not prove a refresh token survived ano
   }
 });
 
-for (const failure of [
-  "rejected",
-  "invalid",
-  "expired",
-  "unknown",
-  "html",
-  "oversized",
-  "service",
-  "dns",
-] as const) {
+// Full HTTP/category/body/transport matrix lives in sydecar-refresh-observation.test.ts.
+// Keep both actual browser response and requestfailed event boundaries.
+for (const failure of ["invalid", "dns"] as const) {
   test(`Sydecar identifies ${failure} refresh failures without logging credentials`, async ({
     isMobile,
   }) => {
@@ -445,9 +429,10 @@ for (const failure of [
       await expect(
         renewSavedSydecarSession(next.context, () => runtime.state.now),
       ).rejects.toMatchObject({
-        code: ["service", "dns"].includes(failure)
-          ? "unexpected_failure"
-          : "provider_sign_in_required",
+        code:
+          failure === "dns"
+            ? "unexpected_failure"
+            : "provider_sign_in_required",
         failure: {
           refreshExpiresAt: new Date(start + 12 * hour).toISOString(),
         },
@@ -457,34 +442,17 @@ for (const failure of [
           {
             event: "provider_session_renewal_failed",
             provider: "sydecar",
-            code: ["service", "dns"].includes(failure)
-              ? "unexpected_failure"
-              : "provider_sign_in_required",
+            code:
+              failure === "dns"
+                ? "unexpected_failure"
+                : "provider_sign_in_required",
             refreshRequests: 1,
-            refreshStatus:
-              failure === "rejected"
-                ? 401
-                : failure === "service"
-                  ? 503
-                  : failure === "dns"
-                    ? null
-                    : 403,
+            refreshStatus: failure === "dns" ? null : 403,
             refreshTransport: failure === "dns" ? "dns" : null,
             refreshErrorCode:
-              failure === "invalid"
-                ? "INVALID_REFRESH_TOKEN"
-                : failure === "expired"
-                  ? "EXPIRED_REFRESH_TOKEN"
-                  : failure === "unknown"
-                    ? "UNKNOWN_REFRESH_TOKEN"
-                    : null,
-            refreshResponseKind:
-              failure === "dns" ? null : failure === "html" ? "html" : "json",
-            reason: !["service", "dns"].includes(failure)
-              ? "authorization"
-              : failure === "service"
-                ? "unavailable"
-                : "transport",
+              failure === "invalid" ? "INVALID_REFRESH_TOKEN" : null,
+            refreshResponseKind: failure === "dns" ? null : "json",
+            reason: failure !== "dns" ? "authorization" : "transport",
           },
         ],
       );
