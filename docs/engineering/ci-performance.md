@@ -75,8 +75,8 @@ The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks. Its sealed private copy supplies browser
 fixtures, while build depends on source checks and migration completion. Unit/D1
-tests become ready after integrity, PDF-image provisioning and canonical
-migrations; they retain their own isolated databases and consume TypeScript
+tests become ready after integrity; they receive an explicitly absent owned PDF
+configuration, retain their own isolated databases and consume TypeScript
 sources. Source checks remain concurrent and required.
 
 The standalone provider-document boundary runs real Chromium through the
@@ -711,10 +711,10 @@ boundaries still fail the complete gate on any error.
 Run `39897541194` passed all 1,356 Linux unit cases but failed at 790.460
 seconds on an existing investment-event screenshot. Inspection of its expected,
 actual and diff images identified only the Save event button's hover inversion:
-the new button occupied the preceding click position. The test now moves the
-pointer outside and asserts the default non-hover state before the same
-snapshot; its baseline, tolerance and deadline are unchanged. The failure is
-retained and is not a benchmark pass.
+the new button occupied the preceding click position. The first attempted fix
+moved the pointer outside and asserted non-hover state before the same snapshot.
+The next run proved that this was the wrong baseline state; the correction is
+described below. Neither failed run is a benchmark pass.
 
 The complete local native unit run with deliberately unavailable PDF images
 passed all 1,355 macOS cases in 71.31 seconds, with its one existing Linux-only
@@ -722,3 +722,33 @@ exclusion accounted for. All 30 Python integrity cases also passed. Local visual
 verification stopped earlier on an unrelated nine-pixel macOS text-rendering
 difference; that baseline remains unchanged. The exact-revision Linux run must
 verify the repaired screenshot and every real-runtime boundary.
+
+### Real-D1 source-day boundary and screenshot state
+
+Run `39899417924` failed closed after 704.837 seconds: one source-day D1 fixture
+exceeded its unchanged 120-second deadline, the Sydecar popup-ownership case
+passed only on retry, and the event-review snapshot differed at the Save button.
+It is not a performance or readiness pass.
+
+The source-day fixture now executes the same production scheduler and source
+jobs beside real D1, avoiding repeated Node/workerd bridge calls. It retains all
+24 hourly admissions, 40 sources with 40 extracted events each, duplicate
+replay, four outage attempts per source, the following idle day, real billing
+counters and every former assertion. The response is strictly validated and its
+native case identity and 120-second deadline are unchanged. A matched local run
+reduced this case from 17.508 to 1.055 seconds. Discovery still used 564 round
+trips, 967 statements and 45,883 writes; replay remained 80/80/0 and outage
+480/960/1,600. Discovery reads were 58,625 and 58,627 across independently
+generated UUIDs; the unchanged 150,000-row limit applies. The isolated Linux
+case passed in 6.406 seconds. These are focused measurements, not complete CI
+savings.
+
+The saved event-review screenshot includes the secondary Save button's hover
+state. The test now explicitly hovers that button and checks `:hover` before
+capturing the unchanged baseline. Moving the pointer away was the wrong state;
+that failed experiment is retained above. No tolerance or retry was increased.
+
+The corrected screenshot and unchanged Sydecar popup-ownership case each passed
+three consecutive isolated Linux executions, with zero retries (six passes in
+29.3 seconds). The managed temporary checkout and servers were cleaned on exit.
+These focused passes precede, and cannot substitute for, the complete gate.

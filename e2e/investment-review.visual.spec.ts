@@ -1769,16 +1769,18 @@ The SPV received 88 closing warrant shares.`);
   await section
     .getByRole("button", { name: "Review event", exact: true })
     .click();
-  // The newly rendered Save button can occupy the former click coordinates.
-  // Capture the same default state regardless of layout or pointer timing.
-  await page.mouse.move(0, 0);
+  // The baseline includes Save hovered after the preceding Review click.
+  // Establish that state explicitly instead of relying on reused coordinates.
+  await section
+    .getByRole("button", { name: "Save event", exact: true })
+    .hover();
   await expect
     .poll(() =>
       section
         .getByRole("button", { name: "Save event", exact: true })
         .evaluate((element) => element.matches(":hover")),
     )
-    .toBe(false);
+    .toBe(true);
   await expect(section).toHaveScreenshot("investment-event-review.png", {
     animations: "disabled",
   });

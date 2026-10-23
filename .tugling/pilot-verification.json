@@ -72,6 +72,7 @@
         "scripts/test-support/d1-cost.ts",
         "scripts/test-support/d1-cost.test.ts",
         "scripts/test-support/cost-fixtures-worker.ts",
+        "scripts/test-support/portfolio-watch-cost.ts",
         "scripts/renamed-investments-d1-cost.test.ts",
         "scripts/test-support/renamed-investments-cost.ts",
         "scripts/test-support/renamed-investments-cost-worker.ts",

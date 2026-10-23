@@ -3,6 +3,7 @@ import { D1InvestmentConnectionsRepository } from "../../packages/database/src/i
 import { D1ProviderPortfolioAgentRepository } from "../../packages/database/src/provider-portfolio-agent";
 import { measureD1 } from "./d1-meter";
 import { providerReconnectCost } from "./provider-reconnect-cost";
+import { portfolioWatchSourceCost } from "./portfolio-watch-cost";
 import {
   COST_SUBJECT,
   seedCostHoldings,
@@ -31,6 +32,7 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
   }),
   z.object({ operation: z.literal("read-budgets") }).strict(),
   z.object({ operation: z.literal("provider-reconnect") }).strict(),
+  z.object({ operation: z.literal("portfolio-watch-day") }).strict(),
 ]);
 export type CostFixtureSetupOperation = z.input<typeof setupOperationSchema>;
 
@@ -79,6 +81,11 @@ export default {
         .bind(operation.nextCheckAt)
         .run();
       result = { operation: operation.operation, importId };
+    } else if (operation.operation === "portfolio-watch-day") {
+      result = {
+        operation: operation.operation,
+        results: await portfolioWatchSourceCost(bindings.DB),
+      };
     } else if (operation.operation === "provider-reconnect") {
       const agents = new D1ProviderPortfolioAgentRepository(
         bindings.DB,
