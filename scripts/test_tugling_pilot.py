@@ -918,7 +918,7 @@ with native.cost_seed_directory() as seed:
         )
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["gate-and-artifact-integrity", "pdf-sandbox-build", "source-quality", "migration-and-seed"],
+            ["gate-and-artifact-integrity", "pdf-sandbox-build", "migration-and-seed"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))

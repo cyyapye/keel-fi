@@ -665,3 +665,19 @@ startup dependencies concurrent with real PDF isolation. The same three native
 slots, three unit workers, four browser workers, complete cases, commands,
 security refresh and 900-second budget remain. A new full receipt must measure
 whether this improves actual headroom.
+
+The source-gated unit experiment (`39895875897`) failed at 820.111 seconds: all
+four initial browser lanes passed, but the real cash-request day exceeded its
+existing 60-second deadline and the authenticated SQLite cash day exceeded its
+existing five-second deadline. Postponing units until source checks ended
+shifted too many heavy D1 fixtures into browser execution and reduced available
+memory to about 2 GiB. This experiment is rejected, not a passing benchmark.
+
+Unit admission now waits only for canonical migrations in addition to integrity
+and PDF-image provisioning, giving browser setup an early slot without waiting
+for source checks. Deadline-sensitive cash, inventory and provider-day files
+receive first admission. The cash SQLite fixture also reuses prepared statements
+within one fresh database, preserving every binding, execution, transaction, JWT
+path and query counter. All 21 existing cash cases pass locally, including
+rollback, authentication and both full-day workloads. No deadline, workload,
+worker limit or validation case is removed or relaxed.
