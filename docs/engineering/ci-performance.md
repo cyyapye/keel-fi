@@ -650,3 +650,18 @@ before/after run preserved all 7,225 HTTP requests, 14,450 worker invocations,
 34,921 database round trips, 1,725 changed rows and zero browser starts; the
 complete 13-case file fell from 2.482 to 1.034 seconds. Full Linux verification
 must establish resulting gate performance.
+
+Run `39894284586` is the first complete passing layered-test result: 1,356
+unit/integration cases, 333 executable browser cases, 33 reviewed browser
+exclusions and all 10 required flows, with no failures or flakes. It took
+847.753 seconds, leaving only 52.247 seconds. That is slower than the historical
+661.445-second baseline, so it does not establish an overall speedup.
+
+Its critical path delayed canonical migrations until source checks ended at
+237.687 seconds, then delayed browser admission until 379.743 seconds. Unit work
+was already occupying a native slot and competing for CPU. The next schedule
+admits unit work after source checks and canonical migrations, leaving those
+startup dependencies concurrent with real PDF isolation. The same three native
+slots, three unit workers, four browser workers, complete cases, commands,
+security refresh and 900-second budget remain. A new full receipt must measure
+whether this improves actual headroom.

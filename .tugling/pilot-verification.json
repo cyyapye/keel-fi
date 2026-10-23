@@ -96,11 +96,16 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts expensive fixtures first, immediately after integrity and PDF-image provisioning; three workers leave CPU capacity for browser lanes and measured priorities schedule costly files first after early admission. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
+        "launch": "Vitest starts after integrity, PDF-image provisioning, source checks and canonical migrations. This leaves the early CPU and native slots for browser prerequisites; three workers then overlap complete unit validation with browser execution. Strict inventory/day fixtures receive early admission before measured cost priorities. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+      "depends_on": [
+        "gate-and-artifact-integrity",
+        "pdf-sandbox-build",
+        "source-quality",
+        "migration-and-seed"
+      ]
     },
     {
       "id": "compose-configuration",
