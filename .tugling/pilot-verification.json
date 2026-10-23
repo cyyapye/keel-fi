@@ -96,15 +96,11 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts after integrity, PDF-image provisioning, canonical migrations. The brief migration head start frees an early native slot for browser prerequisites without postponing heavy unit fixtures until browser startup; three workers then overlap complete unit validation with browser execution. Strict inventory/day fixtures receive early admission before measured cost priorities. Each fixture owns fresh workerd, synthetic D1, GPG and temporary state. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
+        "launch": "Vitest starts after integrity checks, before migrations and PDF isolation take their slots. Unit tests receive an explicitly absent owned PDF configuration; real PDF/Chromium verification is enforced by separate required flows, so image builds are not a unit prerequisite. Three workers admit strict workload fixtures first, followed by measured cost priorities. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": [
-        "gate-and-artifact-integrity",
-        "pdf-sandbox-build",
-        "migration-and-seed"
-      ]
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "compose-configuration",
@@ -173,6 +169,26 @@
       "depends_on": []
     },
     {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql",
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
       "id": "provider-document-runtime",
       "description": "Prove real Chromium popup capture through production tsx, scanning and PDF extraction without an unrelated application server.",
       "argv": ["make", "provider-document-runtime-verify"],
@@ -223,26 +239,6 @@
         "pdf-sandbox-build",
         "provider-document-runtime"
       ]
-    },
-    {
-      "id": "migration-and-seed",
-      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql",
-        "scripts/pilot_native.py",
-        "scripts/test_tugling_pilot.py"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
-        "health": "Scenario readback assertions check migrations, seeds and relationships.",
-        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
-      },
-      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "browser-fixture-preparation",

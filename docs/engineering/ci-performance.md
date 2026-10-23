@@ -100,9 +100,7 @@ flowchart LR
   integrity --> provider[Real provider document boundary]
   pdfBuild[PDF security-image build] --> provider
   provider --> pdf[PDF isolation]
-  pdfBuild --> unit[Unit and D1 tests]
-  integrity --> unit
-  migrations --> unit
+  integrity --> unit[Unit and D1 tests]
   migrations --> browserFixture[Browser fixture]
   migrations --> build
   build --> browser[Browser suite]
@@ -699,3 +697,28 @@ branches must pass. The boundary completes before UI launch, preserving the
 four-browser-worker cap. Case accounting records 332 executable Playwright cases
 plus this required standalone Chromium flow, 32 reviewed browser exclusions and
 11 required native flows. No real browser/PDF boundary or assertion is removed.
+
+The final admission graph restores early unit execution and puts canonical
+migrations ahead of the provider/PDF flows. Unit tests no longer wait for image
+builds: all positive reader/scanner/Chromium proof is already in the two
+required real-runtime flows. The native unit command supplies an absent PDF
+configuration inside its owned temporary seed directory and rejects an
+unexpectedly present file. A new Python holdout checks ambient-config
+replacement, rejection and cleanup. This leaves 30 Python integrity cases, with
+all 1,356 unit identities unchanged. Fresh-image provisioning and both real
+boundaries still fail the complete gate on any error.
+
+Run `39897541194` passed all 1,356 Linux unit cases but failed at 790.460
+seconds on an existing investment-event screenshot. Inspection of its expected,
+actual and diff images identified only the Save event button's hover inversion:
+the new button occupied the preceding click position. The test now moves the
+pointer outside and asserts the default non-hover state before the same
+snapshot; its baseline, tolerance and deadline are unchanged. The failure is
+retained and is not a benchmark pass.
+
+The complete local native unit run with deliberately unavailable PDF images
+passed all 1,355 macOS cases in 71.31 seconds, with its one existing Linux-only
+exclusion accounted for. All 30 Python integrity cases also passed. Local visual
+verification stopped earlier on an unrelated nine-pixel macOS text-rendering
+difference; that baseline remains unchanged. The exact-revision Linux run must
+verify the repaired screenshot and every real-runtime boundary.

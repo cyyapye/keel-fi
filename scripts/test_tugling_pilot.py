@@ -815,6 +815,43 @@ with native.cost_seed_directory() as seed:
                 process.communicate(timeout=5)
             self.assertEqual(sentinel.read_text(), "synthetic")
 
+    def test_unit_pdf_boundary_is_absent_owned_and_independent_of_ambient_images(self):
+        with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
+            root = Path(temporary)
+            inventory = root / "inventory.json"
+            inventory.write_text(json.dumps({"vitest": ["fixture.test.ts :: required"], "exclusions": []}))
+            for provisioned in (False, True):
+                seen = []
+                seeds = []
+                def execute(command, **options):
+                    if "scripts/prepare-d1-cost-seed.ts" in command:
+                        seed = Path(command[-1])
+                        seeds.append(seed)
+                        if provisioned:
+                            (seed / "pdf-runtime-unavailable.json").write_text("synthetic")
+                    else:
+                        seen.append(command)
+                        config = Path(options["env"]["KEEL_PDF_SANDBOX_CONFIG"])
+                        self.assertTrue(config.is_relative_to(Path(options["env"]["KEEL_TEST_D1_SEED"])))
+                        self.assertFalse(config.exists())
+                        (root / "vitest.json").write_text(json.dumps({"success": True, "testResults": [{
+                            "name": str(root / "fixture.test.ts"), "assertionResults": [{
+                                "ancestorTitles": [], "title": "required", "status": "passed", "failureMessages": []
+                            }]
+                        }]}))
+                    return subprocess.CompletedProcess(command, 0)
+                with (patch.object(native, "ROOT", root), patch.object(native, "ARTIFACTS", root),
+                      patch.object(native, "INVENTORY", inventory), patch.object(native.subprocess, "run", side_effect=execute),
+                      patch.dict(os.environ, {"KEEL_PDF_SANDBOX_CONFIG": "/synthetic-ambient-config.json"})):
+                    if provisioned:
+                        with self.assertRaisesRegex(ValueError, "must remain unprovisioned"):
+                            native.run_suite("vitest")
+                    else:
+                        native.run_suite("vitest")
+                self.assertEqual(len(seen), 0 if provisioned else 1)
+                self.assertTrue(seeds)
+                self.assertTrue(all(not seed.exists() for seed in seeds))
+
     def test_native_vitest_removed_skipped_and_filtered_cases_fail_accounting(self):
         # Real native execution proves a green filtered/omitted run cannot pass
         # the reviewed inventory. The fixture is .ts, outside native discovery.
@@ -924,10 +961,12 @@ with native.cost_seed_directory() as seed:
         self.assertIn('resolve("scripts/test-support/provider-documents-runtime-smoke.ts")', boundary)
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["gate-and-artifact-integrity", "pdf-sandbox-build", "migration-and-seed"],
+            ["gate-and-artifact-integrity"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
+        self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("provider-document-runtime"))
+        self.assertLess(flow_order.index("provider-document-runtime"), flow_order.index("pdf-isolation"))
         self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["source-quality", "migration-and-seed"])
         self.assertEqual(flows["migration-and-seed"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "migration-seed"])
         self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])

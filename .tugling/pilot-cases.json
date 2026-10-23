@@ -1749,6 +1749,7 @@
     "test_tugling_pilot.NativeAccountingTests.test_native_vitest_removed_skipped_and_filtered_cases_fail_accounting",
     "test_tugling_pilot.NativeAccountingTests.test_rejects_replacement_identity_duplicates_and_unexpected_success",
     "test_tugling_pilot.NativeAccountingTests.test_rejects_selection_and_reporter_environment_overrides",
+    "test_tugling_pilot.NativeAccountingTests.test_unit_pdf_boundary_is_absent_owned_and_independent_of_ambient_images",
     "test_tugling_pilot.SourceBoundaryTests.test_ignores_ambient_git_routing_and_replacement_objects",
     "test_tugling_pilot.SourceBoundaryTests.test_isolates_adjacent_python_imports",
     "test_tugling_pilot.SourceBoundaryTests.test_rejects_dirty_source_and_index_hiding_flags",
