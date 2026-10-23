@@ -914,8 +914,14 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], [])
         self.assertEqual(
             flows["pdf-isolation"]["depends_on"],
-            ["gate-and-artifact-integrity", "pdf-sandbox-build"],
+            ["gate-and-artifact-integrity", "pdf-sandbox-build", "provider-document-runtime"],
         )
+        self.assertEqual(flows["provider-document-runtime"]["argv"], ["make", "provider-document-runtime-verify"])
+        self.assertEqual(flows["provider-document-runtime"]["timeout_seconds"], 60)
+        self.assertEqual(flows["provider-document-runtime"]["depends_on"], ["gate-and-artifact-integrity", "pdf-sandbox-build"])
+        boundary = (pilot.ROOT / "scripts/provider-document-runtime-verify.ts").read_text()
+        self.assertIn("timeout: 50_000, maxBuffer: 128 * 1024", boundary)
+        self.assertIn('resolve("scripts/test-support/provider-documents-runtime-smoke.ts")', boundary)
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
             ["gate-and-artifact-integrity", "pdf-sandbox-build", "migration-and-seed"],
@@ -925,7 +931,10 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["source-quality", "migration-and-seed"])
         self.assertEqual(flows["migration-and-seed"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "migration-seed"])
         self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])
-        self.assertIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
+        self.assertIn("provider-document-runtime", flows["browser-workflows"]["depends_on"])
+        # The sole Chromium PDF integration finishes before UI workers start;
+        # remaining PDF kernel/scanner probes cannot add a fifth browser worker.
+        self.assertNotIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         self.assertLessEqual(
             sum(flow["timeout_seconds"] for flow in flows.values()), 7200

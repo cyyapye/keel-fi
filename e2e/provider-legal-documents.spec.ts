@@ -1,6 +1,3 @@
-import { execFile } from "node:child_process";
-import { resolve } from "node:path";
-import { promisify } from "node:util";
 import { expect, test, type Page } from "@playwright/test";
 import { providerAgreementCollector } from "../scripts/provider-legal-document-capture";
 import { syntheticDocumentScan } from "../scripts/test-support/legal-documents";
@@ -22,13 +19,13 @@ const position = {
 // Real scanner timestamps must agree with the real clock. Cache-age tests
 // advance their injected observation clock relative to this run.
 const currentCheck = new Date().toISOString();
-// Scanner coverage inventory: the production tsx runner below deliberately
-// omits the scan injection so it exercises the real scanner and extractor.
+// Scanner coverage inventory: mandatory provider-document-runtime verification
+// omits scan/extraction injection and uses the real tsx service entrypoint.
 // Browser permutations inject a clean synthetic receipt while retaining the
 // real provider DOM, popup, URL validation, download and persistence paths.
 // Agreement policy permutations and parsed-page name extraction run in
-// agreement-capture.test.ts. Mandatory pdf-sandbox verification and the tsx
-// boundary below exercise the real scanner, reader and resource limits.
+// agreement-capture.test.ts. Mandatory PDF and provider-document-runtime
+// verification exercise real Chromium, scanning, reading and resource limits.
 const cleanSyntheticScan = (bytes: Uint8Array, scannedAt = currentCheck) =>
   Promise.resolve({
     ...syntheticDocumentScan(bytes, scannedAt),
@@ -182,35 +179,6 @@ test("does not read a document drawer belonging to a different source investment
   await collector.flush();
   expect(downloads).toBe(0);
   expect(saved[0]).toMatchObject({ problem: "page_changed", documents: [] });
-});
-
-test("Sydecar central documents work through the production tsx runner", async () => {
-  test.setTimeout(60_000);
-  const { stdout } = await promisify(execFile)(
-    process.execPath,
-    [
-      resolve("node_modules/tsx/dist/cli.mjs"),
-      resolve("scripts/test-support/provider-documents-runtime-smoke.ts"),
-    ],
-    { timeout: 50_000, maxBuffer: 128 * 1024 },
-  );
-  expect(JSON.parse(stdout)).toMatchObject({
-    requests: 1,
-    downloads: 1,
-    captures: [
-      {
-        problem: null,
-        documents: [
-          {
-            extraction: {
-              problem: null,
-              citations: [{ legalName: "Synthetic Atlas SPV LLC", page: 1 }],
-            },
-          },
-        ],
-      },
-    ],
-  });
 });
 
 for (const provider of ["sydecar", "tokenfolio"] as const) {

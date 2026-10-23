@@ -11,6 +11,7 @@ const manifest = z
     retiredBrowserCaseCount: z.number().int().positive(),
     addedBrowserCases: z.array(z.string()).nonempty(),
     requiredPdfFlow: z.literal("pdf-isolation"),
+    requiredProviderDocumentFlow: z.literal("provider-document-runtime"),
     migrations: z
       .array(
         z
@@ -61,22 +62,51 @@ function verifyCoverage(current: typeof inventory) {
       throw new Error(`Missing replacement browser identity: ${id}`);
 }
 
+const verification = z
+  .object({
+    flows: z.array(z.object({ id: z.string(), argv: z.array(z.string()) })),
+  })
+  .parse(JSON.parse(readFileSync(".tugling/pilot-verification.json", "utf8")));
+
+function verifyNativeBoundaries(flows: typeof verification.flows) {
+  for (const [id, argv] of [
+    [manifest.requiredPdfFlow, ["make", "pdf-sandbox-verify"]],
+    [
+      manifest.requiredProviderDocumentFlow,
+      ["make", "provider-document-runtime-verify"],
+    ],
+  ] as const) {
+    if (
+      JSON.stringify(flows.find((flow) => flow.id === id)?.argv) !==
+      JSON.stringify(argv)
+    )
+      throw new Error(`Missing required native boundary: ${id}`);
+  }
+}
+
 test("every migrated policy keeps executable replacements and real browser/PDF boundaries", () => {
   verifyCoverage(inventory);
-  const verification = z
-    .object({
-      flows: z.array(z.object({ id: z.string(), argv: z.array(z.string()) })),
-    })
-    .parse(
-      JSON.parse(readFileSync(".tugling/pilot-verification.json", "utf8")),
-    );
-  expect(
-    verification.flows.find((flow) => flow.id === manifest.requiredPdfFlow)
-      ?.argv,
-  ).toEqual(["make", "pdf-sandbox-verify"]);
+  verifyNativeBoundaries(verification.flows);
 });
 
 test("coverage accounting rejects missing or excluded replacement and browser cases", () => {
+  for (const id of [
+    manifest.requiredPdfFlow,
+    manifest.requiredProviderDocumentFlow,
+  ]) {
+    expect(() =>
+      verifyNativeBoundaries(
+        verification.flows.filter((flow) => flow.id !== id),
+      ),
+    ).toThrow("Missing required native boundary");
+    expect(() =>
+      verifyNativeBoundaries(
+        verification.flows.map((flow) =>
+          flow.id === id ? { ...flow, argv: ["true"] } : flow,
+        ),
+      ),
+    ).toThrow("Missing required native boundary");
+  }
   for (const kind of ["unit", "browser"] as const) {
     const id =
       kind === "unit"

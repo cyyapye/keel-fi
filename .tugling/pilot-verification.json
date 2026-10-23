@@ -173,6 +173,27 @@
       "depends_on": []
     },
     {
+      "id": "provider-document-runtime",
+      "description": "Prove real Chromium popup capture through production tsx, scanning and PDF extraction without an unrelated application server.",
+      "argv": ["make", "provider-document-runtime-verify"],
+      "timeout_seconds": 60,
+      "sources": [
+        "Makefile",
+        "scripts/provider-document-runtime-verify.ts",
+        "scripts/test-support/provider-documents-runtime-smoke.ts",
+        "scripts/provider-legal-document-capture.ts",
+        "scripts/legal-document-extraction.ts",
+        "scripts/pdf-sandbox.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The existing isolated Chromium fixture runs as a real tsx child with its unchanged 50-second deadline and 128 KiB output cap. Production collector defaults retain the real scanner and reader.",
+        "health": "Zod validates the complete capture; exact request/download counts, one capture/document and the original legal-name/page assertions must pass.",
+        "cleanup": "The child closes Chromium in finally; the native owner enforces the outer deadline and descendant cleanup. This flow completes before either the four-worker UI suite or the remaining PDF probes start."
+      },
+      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+    },
+    {
       "id": "pdf-isolation",
       "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
       "argv": ["make", "pdf-sandbox-verify"],
@@ -197,7 +218,11 @@
         "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
         "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
       },
-      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+      "depends_on": [
+        "gate-and-artifact-integrity",
+        "pdf-sandbox-build",
+        "provider-document-runtime"
+      ]
     },
     {
       "id": "migration-and-seed",
@@ -305,7 +330,7 @@
       "depends_on": [
         "browser-fixture-preparation",
         "build-and-entry-budget",
-        "pdf-isolation"
+        "provider-document-runtime"
       ]
     }
   ],
@@ -320,7 +345,8 @@
       "flows": [
         "gate-and-artifact-integrity",
         "native-unit-and-cost",
-        "browser-workflows"
+        "browser-workflows",
+        "provider-document-runtime"
       ]
     },
     {
@@ -374,7 +400,11 @@
         "docs/deployment/private-worker-access.md",
         "docs/security/threat-model.md"
       ],
-      "flows": ["native-unit-and-cost", "browser-workflows"]
+      "flows": [
+        "native-unit-and-cost",
+        "browser-workflows",
+        "provider-document-runtime"
+      ]
     },
     {
       "id": "document-resource-and-artifact-bounds",
@@ -388,7 +418,8 @@
         "pdf-sandbox-build",
         "native-unit-and-cost",
         "pdf-isolation",
-        "browser-workflows"
+        "browser-workflows",
+        "provider-document-runtime"
       ]
     },
     {
@@ -398,7 +429,11 @@
         "docs/deployment/linux-test-cleanup.md",
         "docs/engineering/tugling-pilot.md"
       ],
-      "flows": ["gate-and-artifact-integrity", "browser-fixture-preparation"]
+      "flows": [
+        "gate-and-artifact-integrity",
+        "browser-fixture-preparation",
+        "provider-document-runtime"
+      ]
     },
     {
       "id": "native-build-and-bootstrap",

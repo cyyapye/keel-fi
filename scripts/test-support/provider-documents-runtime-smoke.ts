@@ -3,7 +3,7 @@ import { providerAgreementCollector } from "../provider-legal-document-capture";
 import { syntheticAgreementPdf } from "./legal-documents";
 import type { ProviderLegalDocumentCapture } from "../../packages/domain/src/provider-legal-documents";
 
-// Invoked by the browser suite through the same tsx entrypoint as the service.
+// Invoked by the mandatory native boundary through the service tsx entrypoint.
 // Playwright's own test transpiler does not reproduce tsx's browser-callback
 // serialization, so an in-process fixture alone cannot cover this boundary.
 const browser = await chromium.launch();

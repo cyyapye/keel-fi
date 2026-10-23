@@ -73,22 +73,22 @@ servers, ports and cleanup; each partition remains serial internally.
 
 The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
-Migration depends on integrity checks; PDF probes depend on both integrity and
-the successful image build. The migration flow also seals a private copy for
-browser tests; fixture validation becomes ready after that flow succeeds. Build
-depends on source checks and migration completion. Unit/D1 tests become ready
-after integrity checks and the PDF image build, and take the first available
-slot before migration and fixture preparation. They own isolated D1 fixtures and
-consume TypeScript sources, so source checks, the shared scenario seed and build
-output are not inputs to this flow. Source checks and migration remain required
-for the complete gate. The exact real-reader name/page assertions now belong to
-mandatory PDF isolation, outside Vitest’s unit pool. Browser tests depend on the
-sealed fixture, build and PDF isolation. This keeps generated outputs stable
-before their browser consumers start and avoids running browser document
-processing before the sandbox boundary passes. Formatting and linting exclude
-the Git-ignored runtime, fixture and cache directories, so concurrent integrity
-tests cannot change files under the source checkers. Repository source and test
-files remain in scope.
+Migration depends on integrity checks. Its sealed private copy supplies browser
+fixtures, while build depends on source checks and migration completion. Unit/D1
+tests become ready after integrity, PDF-image provisioning and canonical
+migrations; they retain their own isolated databases and consume TypeScript
+sources. Source checks remain concurrent and required.
+
+The standalone provider-document boundary runs real Chromium through the
+production tsx entrypoint, scanner and reader after image provisioning and
+integrity. It retains the former browser wrapper's 50-second child timeout, 128
+KiB output bound and exact counts/name/page assertions. Both the UI suite and
+the remaining PDF isolation probes depend on this boundary. This prevents a
+fifth browser worker and concurrent PDF callers while allowing CPU-light kernel
+watchdogs to overlap UI work. The full PDF suite remains mandatory for success.
+The UI suite also waits for the sealed fixture and build. Formatting and linting
+exclude ignored runtime/fixture/cache directories; repository sources and tests
+remain in scope.
 
 The declared prerequisites are:
 
@@ -97,14 +97,16 @@ flowchart LR
   source[Source checks] --> build[Build and entry budget]
   integrity[Integrity checks] --> compose[Compose validation]
   integrity --> migrations[Migrations and seed]
-  integrity --> pdf[PDF isolation]
-  pdfBuild[PDF security-image build] --> pdf
+  integrity --> provider[Real provider document boundary]
+  pdfBuild[PDF security-image build] --> provider
+  provider --> pdf[PDF isolation]
   pdfBuild --> unit[Unit and D1 tests]
   integrity --> unit
+  migrations --> unit
   migrations --> browserFixture[Browser fixture]
   migrations --> build
   build --> browser[Browser suite]
-  pdf --> browser
+  provider --> browser
   browserFixture --> browser
 ```
 
@@ -113,17 +115,19 @@ finish successfully. Source checks use at most two Make jobs, and PDF proof uses
 one independently limited container per daemon across processes. Kernel
 ownership serializes the scanner/reader and adversarial sequences through
 confirmed cleanup; all original probes remain required. The fixture uses a slot
-released by an earlier flow and can overlap remaining source/PDF work. No
-browser consumer starts before its fixture, PDF isolation and build succeed.
+released by an earlier flow and can overlap remaining source/PDF work. No UI
+browser consumer starts before its fixture, real provider document boundary and
+build succeed. All PDF isolation probes must pass before the gate succeeds.
 
-The unit suite uses three workers in CI and locally, and starts historically
-expensive files first. Its early admission reduces overlap between expensive D1
-fixtures and browser startup. The reviewed-rename cost fixture runs its
-synthetic import and 240 company-review operations inside its existing workerd
-fixture to avoid repeated Node-to-D1 bridge calls. It uses the same repository
-methods, accepted decisions and link records. The test still meters every
-positive, history, empty and unrelated-household read against real D1, with the
-same 120-position scale, row budgets and query-plan assertions.
+The unit suite uses three workers in CI and locally. Deadline-sensitive workload
+files receive first admission, followed by measured expensive files. Its early
+admission reduces overlap between expensive D1 fixtures and browser startup. The
+reviewed-rename cost fixture runs its synthetic import and 240 company-review
+operations inside its existing workerd fixture to avoid repeated Node-to-D1
+bridge calls. It uses the same repository methods, accepted decisions and link
+records. The test still meters every positive, history, empty and
+unrelated-household read against real D1, with the same 120-position scale, row
+budgets and query-plan assertions.
 
 Browser verification produces five reports while admitting at most four workers:
 three stateful partitions, 74 API-mocked executions served from the verified
@@ -286,12 +290,12 @@ migration compatibility and scale holdouts. SQLite changed-row counts cannot
 stand in for D1 billed writes. Keep browser coverage for actual user workflows
 and Worker runtime boundaries, without repeating every decision permutation.
 
-Provider document permutations retain the real DOM, popups, source association,
-downloads, PDF extraction and cache/backfill assertions. Nine redundant scanner
-loads are replaced with current synthetic scan receipts, with exact scan-count
-assertions for cache reuse, extractor upgrades, expiry and resumed backfills.
-The production tsx smoke retains the real scanner/extractor boundary, and the
-dedicated PDF suite retains real adversarial scanner and isolation checks.
+Provider document browser cases retain real DOM, popups, source association,
+downloads and page restoration. Scan/cache/backfill policy matrices execute
+against the production capture core with explicit scan/extraction boundaries.
+The standalone production tsx integration retains real Chromium, scanning and
+extraction; the dedicated PDF suite retains every adversarial scanner and
+isolation probe.
 
 The provider full-day gate runs all five scenarios through the production
 client, web proxy, API, authentication and repositories using in-memory SQLite.
@@ -681,3 +685,17 @@ within one fresh database, preserving every binding, execution, transaction, JWT
 path and query counter. All 21 existing cash cases pass locally, including
 rollback, authentication and both full-day workloads. No deadline, workload,
 worker limit or validation case is removed or relaxed.
+
+The remaining application-to-PDF dependency is removed by extracting the
+existing standalone production-tsx capture from its Playwright wrapper into the
+required `provider-document-runtime` flow. It launches the exact same child
+fixture and real Chromium/scanner/reader, with the same 50-second/128-KiB child
+bounds and 60-second outer deadline. Zod additionally validates the complete
+capture. The original request/download counts, one capture/document and
+legal-name/page assertions remain. `make verify` includes this boundary as well.
+UI validation can start after this short boundary instead of waiting for all
+adversarial PDF watchdogs, including on a cold daily image rebuild. Both
+branches must pass. The boundary completes before UI launch, preserving the
+four-browser-worker cap. Case accounting records 332 executable Playwright cases
+plus this required standalone Chromium flow, 32 reviewed browser exclusions and
+11 required native flows. No real browser/PDF boundary or assertion is removed.

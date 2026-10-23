@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 34,
+  "retiredBrowserCaseCount": 36,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -27,7 +27,6 @@
       "browserCases": [
         "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
         "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
-        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
         "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
       ],
       "assertions": "Blocked and unavailable scans preserve exact original bytes and prohibit extraction."
@@ -47,7 +46,6 @@
       "browserCases": [
         "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
         "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
-        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
         "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
       ],
       "assertions": "120 positions, no unrelated discovery/download, forced selected scan, sibling retention and missing-target failure."
@@ -67,7 +65,6 @@
       "browserCases": [
         "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
         "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
-        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
         "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
       ],
       "assertions": "Fresh scan reuse, extractor-version upgrade, eight-day expiry, exact download/scan counts and no signed URL persistence."
@@ -84,7 +81,6 @@
       "browserCases": [
         "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
         "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
-        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
         "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
       ],
       "assertions": "26 documents resume over the unchanged 24-download cap with content-hash scan reuse."
@@ -101,7 +97,6 @@
       "browserCases": [
         "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
         "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
-        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
         "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
       ],
       "assertions": "25 positions: fresh discovery takes priority over expired rechecks without starvation."
@@ -276,6 +271,22 @@
         "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual other_structure entry without requiring an excerpt or reason"
       ],
       "assertions": "Blank/zero, fractional and >150 page bounds remain in the schema; UI retains disabled invalid submission, correction, optional excerpt and both review forms."
+    },
+    {
+      "id": "production-provider-document-boundary",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central documents work through the production tsx runner"
+      ],
+      "unitCases": [
+        "scripts/agreement-capture.test.ts :: preserves original bytes without PDF extraction when scanner_unavailable",
+        "scripts/agreement-capture.test.ts :: preserves original bytes without PDF extraction when security_blocked"
+      ],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
+      ],
+      "assertions": "The required provider-document-runtime flow runs the identical real Chromium/tsx/scanner/reader child with unchanged 50-second and 128 KiB bounds, exact request/download counts, one capture/document and legal-name/page assertions. Only the unused application browser server is removed."
     }
-  ]
+  ],
+  "requiredProviderDocumentFlow": "provider-document-runtime"
 }

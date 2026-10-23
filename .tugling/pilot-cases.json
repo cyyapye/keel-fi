@@ -1615,7 +1615,6 @@
     "e2e/provider-browser-lifecycle.spec.ts :: mobile-chromium :: Sydecar closes between captures and preserves its saved profile across browser restarts",
     "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar associates same-label investments by source IDs and reads their linked memos",
     "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central Documents association fails closed for duplicate position labels",
-    "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central documents work through the production tsx runner",
     "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements",
     "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar uses an exact reconciled legacy page only after central controls finish",
     "e2e/provider-legal-documents.spec.ts :: chromium :: does not read a document drawer belonging to a different source investment ID",
@@ -1625,7 +1624,6 @@
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar associates same-label investments by source IDs and reads their linked memos",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central Documents association fails closed for duplicate position labels",
-    "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central documents work through the production tsx runner",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar uses an exact reconciled legacy page only after central controls finish",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: does not read a document drawer belonging to a different source investment ID",
@@ -1773,12 +1771,6 @@
     {
       "runner": "playwright",
       "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: does not read a document drawer belonging to a different source investment ID",
-      "platforms": ["darwin", "linux"],
-      "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
-    },
-    {
-      "runner": "playwright",
-      "id": "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar central documents work through the production tsx runner",
       "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
