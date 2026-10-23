@@ -170,6 +170,69 @@ the clean-scanner preflight remain unchanged. No consumer uses partially built
 images. Native and manual pilot workflows do not build the images a second time
 outside the dependency graph.
 
+## Test layers and coverage preservation
+
+Policy permutations belong in unit or integration tests that call production
+code. Browser tests own browser behavior; real PDF tests own the executable and
+kernel boundary. `.tugling/test-layering.json` maps the migration from
+`1ee7afcc` to exact replacement and retained boundary case identities. Its
+native test rejects a missing or excluded replacement or browser boundary. The
+complete case inventory still rejects filtering, omissions, retries and flaky
+success.
+
+The migration retains all prior unit/D1 cases and all visual baselines. It moves
+agreement scan/cache/recheck/budget permutations to the production capture core;
+renewal diagnostics to the real event observer with synthetic Request/Response
+boundaries; and expiry rules to the same storage reader and decision function
+used by the worker. Provider DOM tests use registered synthetic PDF text, while
+the production `tsx` capture still uses real Chromium, scanning and extraction.
+Production factories retain their real scanner/reader defaults.
+
+Other moved matrices cover investment-link identity, ambiguity and survivor
+selection; timezone/DST formatting using real Node Intl; Google SDK outcomes;
+120/1,000-item search; ownership percentages; and agreement page bounds. Shared
+synthetic domain constructors keep the old and replacement inputs aligned.
+Browser tests retain form binding, unsaved choices, rejected drafts, reload,
+history, local timezone display, SDK callback wiring and search DOM/read limits.
+The 1,000-item browser search keeps its real-browser p95 limit of 50 ms.
+
+`.tugling/test-layering-proof.json` records paired negative controls. Six
+document defects, four renewal defects and three investment-link defects were
+rejected by both the original browser tests and their replacements. An
+additional HTTP-classification defect was caught only by the replacement: the
+old browser fixture's sign-in fallback masked it. These controls demonstrate
+retained fault detection for the changed rules; they are not a universal
+equivalence proof. Exact-revision complete native verification remains the
+release requirement.
+
+The remaining browser files were reviewed by boundary:
+
+| Boundary                       | Retained checks                                                                                                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Navigation and loading         | Entry-script failure, deferred modules, router/history, keyboard focus, lazy rendering and script/style loss.                                                                                 |
+| Holdings and collection search | Responsive grouping, hidden cash, progressive rendering, highlights, 1,000-item DOM limits, browser performance and one projection read.                                                      |
+| Review and legal entities      | Distinct visual states, form bindings, manual decisions, independent saves, rejected drafts, exact reload/readback, downloads and SDK script integration.                                     |
+| Planning, goals and cash flow  | UI-triggered refreshes, linked goal navigation, confirmation boundaries, save/readback and responsive summaries. Public/private/cash refresh scenarios retain their separate component paths. |
+| Portfolio Watch                | Async loading/error/recovery, source disclosure, review actions, history, evidence navigation and distinct visual states.                                                                     |
+| Provider agents                | Delayed DOM readiness, count reconciliation, drawers, exact source association, URL routing, popup ownership, real process shutdown, persisted profiles and cold restarts.                    |
+| Reconnect and sessions         | Actual access/tunnel/viewer behavior, token rotation across process restarts, the simulated full day, request admission and browser storage serialization.                                    |
+
+The mandatory PDF suite retains real clean and complex PDF extraction, malware
+and archive/stream limits, filesystem/network/process isolation, unsafe-kernel
+handshake rejection, killed-caller cleanup, orphan reaping and absence of
+retained containers. Mocking these would weaken validation. Runtime
+timer/network inventory changes only the owning function name for the unchanged
+document fetch; its call digest, budgets, schedules, deadlines and admission
+limits remain unchanged.
+
+For performance comparison, use the complete successful PR323 merged run
+`39872116335` at `1ee7afcc`: 661.445 seconds active, including 376.629 seconds
+for browser workflows and 247.068 seconds for PDF isolation. It passed 1,282
+Linux unit/D1 cases and 351 executable browser cases with 45 reviewed browser
+exclusions. Compare new complete receipts on the same runner against this
+baseline, using the migration map to account for changed layer membership;
+focused local timings are not a full-CI benchmark.
+
 The September 23 UTC cold refresh in run `35800328085` took 120 seconds before
 the native gate: approximately 56 seconds for the reader/base and 63 seconds for
 the scanner, with a cached probe. Using the measured flow durations and

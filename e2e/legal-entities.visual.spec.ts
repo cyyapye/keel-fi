@@ -1782,11 +1782,7 @@ test("creates a Google Sheet from selected records and columns and prevents unch
   await expectNoHorizontalOverflow(page);
 });
 
-for (const outcome of [
-  "popup_closed",
-  "popup_failed_to_open",
-  "denied",
-] as const) {
+for (const outcome of ["popup_closed", "denied"] as const) {
   test(`preserves export choices when Google authorization returns ${outcome}`, async ({
     page,
   }) => {

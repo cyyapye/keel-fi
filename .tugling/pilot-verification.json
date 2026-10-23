@@ -85,7 +85,14 @@
         "scripts/test-support/sqlite-fixture.test.ts",
         "scripts/prepare-d1-cost-seed.ts",
         "scripts/test-support/d1-cost-seed.ts",
-        "scripts/test-support/provider-reconnect-cost.ts"
+        "scripts/test-support/provider-reconnect-cost.ts",
+        ".tugling/test-layering.json",
+        "scripts/test-layering.test.ts",
+        "scripts/agreement-capture.test.ts",
+        "scripts/sydecar-refresh-observation.test.ts",
+        "scripts/sydecar-session-expiry.test.ts",
+        "scripts/position-link-suggestion.test.ts",
+        "apps/web/src/collection-search.test.ts"
       ],
       "runtime": {
         "owner": "native-command",

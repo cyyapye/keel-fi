@@ -965,24 +965,13 @@ test("editing an existing partial investment preserves its recorded scope", asyn
   ).toBeDisabled();
 });
 
+// The full timezone/DST matrix lives in format.test.ts; retain actual browser
+// timezone selection, displayed history, datetime attributes and source dates.
 for (const scenario of [
   {
     zone: "America/Los_Angeles",
-    times: [
-      "2026-11-01T09:30:00.000Z",
-      "2026-11-01T08:30:00.000Z",
-      "2026-10-03T01:15:42.000Z",
-    ],
-    expected: [
-      "Nov 1, 2026, 1:30 AM",
-      "Nov 1, 2026, 1:30 AM",
-      "Oct 2, 2026, 6:15 PM",
-    ],
-  },
-  {
-    zone: "Asia/Singapore",
-    times: ["2026-10-02T17:45:06.000Z"],
-    expected: ["Oct 3, 2026, 1:45 AM"],
+    times: ["2026-10-03T01:15:42.000Z"],
+    expected: ["Oct 2, 2026, 6:15 PM"],
   },
 ]) {
   test.describe(`local history in ${scenario.zone}`, () => {

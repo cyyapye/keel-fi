@@ -786,7 +786,7 @@ test("reviews company evidence and keeps ownership drafts across independent sav
   await review
     .getByRole("button", { name: "Add ownership evidence", exact: true })
     .click();
-  for (const value of ["101", "-1", "1.12345", "abc"]) {
+  for (const value of ["101"]) {
     await review
       .getByRole("textbox", { name: "Ownership interest %", exact: true })
       .fill(value);

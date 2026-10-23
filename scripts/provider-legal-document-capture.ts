@@ -35,7 +35,7 @@ import { scanDocumentInSandbox } from "./pdf-sandbox";
 
 type Provider = ProviderPortfolioAgentProvider;
 type Run = NonNullable<ProviderPortfolioAgentLease["run"]>;
-type Position = {
+export type AgreementPosition = {
   investment: string;
   legalPosition: string;
   heldThrough: string;
@@ -44,8 +44,9 @@ type Position = {
   sourceDisplayNameUnique?: boolean;
   sydecarLegacyDocumentUrl?: string;
 };
-type DocumentControls = {
-  items: Locator[];
+type Position = AgreementPosition;
+type DocumentControls<T = Locator> = {
+  items: T[];
   problem: LegalDocumentProblem | null;
   restore: () => Promise<void>;
   association?: "investment_page" | "document_investment_id" | "display_label";
@@ -499,7 +500,7 @@ async function sydecarCentralDocumentControls(
   }
 }
 
-export function providerAgreementCollector(options: {
+export type AgreementCaptureOptions = {
   provider: Provider;
   manifest: ProviderLegalDocumentManifest;
   recheckDocumentId?: string;
@@ -508,7 +509,12 @@ export function providerAgreementCollector(options: {
   now?: () => Date;
   download?: (url: URL) => Promise<Response>;
   scan?: (bytes: Uint8Array) => Promise<LegalDocumentScan>;
-}): AgreementCollector {
+  extract?: typeof extractLegalNameFromPdf;
+};
+
+// The capture engine owns policy, bytes and evidence. Browser adapters supply
+// only observed document controls; production extraction remains the default.
+export function agreementCapture(options: AgreementCaptureOptions) {
   const now = options.now ?? (() => new Date());
   const pending: PendingCapture[] = [];
   const rechecks: { checkedAt: string; run: () => Promise<void> }[] = [];
@@ -644,7 +650,7 @@ export function providerAgreementCollector(options: {
             sameBytes.extraction.version === LEGAL_DOCUMENT_EXTRACTOR_VERSION &&
             sameBytes.extraction.problem !== "extractor_unavailable"
           ? sameBytes.extraction
-          : await extractLegalNameFromPdf(bytes);
+          : await (options.extract ?? extractLegalNameFromPdf)(bytes);
     const decodedPath = decodeURIComponent(url.pathname);
     const fileName = decodedPath.split("/").at(-1) ?? "agreement.pdf";
     const document = CapturedLegalDocumentSchema.parse({
@@ -662,10 +668,9 @@ export function providerAgreementCollector(options: {
     if (!knownHashes.has(sha256)) files.set(sha256, bytes);
     return document;
   };
-  const collectWithControls = async (
-    page: Page,
+  const collect = async (
     position: Position,
-    getControls: () => Promise<DocumentControls>,
+    getControls: () => Promise<DocumentControls<() => Promise<URL>>>,
   ) => {
     const naturalKeySha256 = await positionKey(position);
     if (!isTargetPosition(position)) return;
@@ -718,7 +723,7 @@ export function providerAgreementCollector(options: {
           0,
         );
         await renew();
-        const url = await agreementPopupUrl(page, control, options.provider);
+        const url = agreementUrl(options.provider, (await control()).href);
         const documentKey = hash(
           JSON.stringify([
             options.provider,
@@ -820,6 +825,63 @@ export function providerAgreementCollector(options: {
     pending.push({ capture, files });
   };
   return {
+    collect,
+    async targetPositions(positions: readonly Position[]) {
+      for (const position of positions) await positionKey(position);
+      return positions.filter(isTargetPosition);
+    },
+    async flush() {
+      if (
+        options.recheckDocumentId !== undefined &&
+        checkedTargets.size !== targetKeys.size
+      )
+        throw new AgreementRecheckError("target_unavailable");
+      // Only invoked after the existing full snapshot and identity checks pass.
+      // No partial or duplicate-position scrape can publish name observations.
+      for (const recheck of rechecks.sort((a, b) =>
+        a.checkedAt.localeCompare(b.checkedAt),
+      )) {
+        if (
+          downloads >= MAX_LEGAL_DOCUMENTS_PER_RUN ||
+          bytesDownloaded >= MAX_LEGAL_DOCUMENT_RUN_BYTES ||
+          now().getTime() - startedAt >= 20 * 60_000
+        )
+          break;
+        await recheck.run();
+      }
+      for (const item of pending) {
+        await renew();
+        await options.save({
+          ...item,
+          capture: ProviderLegalDocumentCaptureSchema.parse(item.capture),
+        });
+      }
+      // Publish the explicit scanner-unavailable observation, but never report
+      // an incomplete recheck as a successful job. The server enforces this too.
+      if (incompleteRecheck) throw new AgreementRecheckError("scan_incomplete");
+    },
+  };
+}
+
+export function providerAgreementCollector(
+  options: AgreementCaptureOptions,
+): AgreementCollector {
+  const capture = agreementCapture(options);
+  const collectWithControls = (
+    page: Page,
+    position: Position,
+    read: () => Promise<DocumentControls>,
+  ) =>
+    capture.collect(position, async () => {
+      const found = await read();
+      return {
+        ...found,
+        items: found.items.map(
+          (control) => () => agreementPopupUrl(page, control, options.provider),
+        ),
+      };
+    });
+  return {
     collect(page, position) {
       return collectWithControls(page, position, () => {
         if (position.providerInvestmentId !== undefined) {
@@ -846,14 +908,7 @@ export function providerAgreementCollector(options: {
     async collectSydecarDocuments(page, positions) {
       // Keep provider identity/uniqueness checks based on the full snapshot.
       // Filter only document navigation, after those checks have already run.
-      for (const position of positions) await positionKey(position);
-      if (options.recheckDocumentId !== undefined)
-        positions = positions.filter((position) =>
-          targetedCaptures.some(
-            (capture) =>
-              capture.naturalKeySha256 === positionKeys.get(position),
-          ),
-        );
+      positions = await capture.targetPositions(positions);
       if (options.provider !== "sydecar") {
         for (const position of positions) {
           await collectWithControls(page, position, () =>
@@ -905,36 +960,7 @@ export function providerAgreementCollector(options: {
         });
       }
     },
-    async flush() {
-      if (
-        options.recheckDocumentId !== undefined &&
-        checkedTargets.size !== targetKeys.size
-      )
-        throw new AgreementRecheckError("target_unavailable");
-      // Only invoked after the existing full snapshot and identity checks pass.
-      // No partial or duplicate-position scrape can publish name observations.
-      for (const recheck of rechecks.sort((a, b) =>
-        a.checkedAt.localeCompare(b.checkedAt),
-      )) {
-        if (
-          downloads >= MAX_LEGAL_DOCUMENTS_PER_RUN ||
-          bytesDownloaded >= MAX_LEGAL_DOCUMENT_RUN_BYTES ||
-          now().getTime() - startedAt >= 20 * 60_000
-        )
-          break;
-        await recheck.run();
-      }
-      for (const item of pending) {
-        await renew();
-        await options.save({
-          ...item,
-          capture: ProviderLegalDocumentCaptureSchema.parse(item.capture),
-        });
-      }
-      // Publish the explicit scanner-unavailable observation, but never report
-      // an incomplete recheck as a successful job. The server enforces this too.
-      if (incompleteRecheck) throw new AgreementRecheckError("scan_incomplete");
-    },
+    flush: () => capture.flush(),
   };
 }
 

@@ -1,0 +1,246 @@
+{
+  "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
+  "scope": "Paired local fault controls before retiring the original browser permutations. Complete exact-revision native CI remains required.",
+  "pairedExperiments": [
+    {
+      "mutation": "force-scan",
+      "sourceSha256": "204c6a5c9a09939d1a20d3deef50311b9f499a43120e80fdb7e6ed9cd88cf6e9",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.568
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 1.43
+        }
+      ]
+    },
+    {
+      "mutation": "extractor-upgrade",
+      "sourceSha256": "204c6a5c9a09939d1a20d3deef50311b9f499a43120e80fdb7e6ed9cd88cf6e9",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.574
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 1.51
+        }
+      ]
+    },
+    {
+      "mutation": "download-cap",
+      "sourceSha256": "204c6a5c9a09939d1a20d3deef50311b9f499a43120e80fdb7e6ed9cd88cf6e9",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.559
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 3.381
+        }
+      ]
+    },
+    {
+      "mutation": "scan-before-extract",
+      "sourceSha256": "204c6a5c9a09939d1a20d3deef50311b9f499a43120e80fdb7e6ed9cd88cf6e9",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.567
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 1.39
+        }
+      ]
+    },
+    {
+      "mutation": "target-position",
+      "sourceSha256": "204c6a5c9a09939d1a20d3deef50311b9f499a43120e80fdb7e6ed9cd88cf6e9",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.574
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 1.678
+        }
+      ]
+    },
+    {
+      "mutation": "new-before-recheck",
+      "sourceSha256": "204c6a5c9a09939d1a20d3deef50311b9f499a43120e80fdb7e6ed9cd88cf6e9",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.576
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 2.614
+        }
+      ]
+    },
+    {
+      "mutation": "authorization-error-code",
+      "sourceSha256": "3776dda0895cd48f1682cd4d4ae0236513205f26368f2408f9aa2d0a6cafcf2b",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.751
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 3.704
+        }
+      ]
+    },
+    {
+      "mutation": "public-error-category",
+      "sourceSha256": "3776dda0895cd48f1682cd4d4ae0236513205f26368f2408f9aa2d0a6cafcf2b",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.754
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 3.74
+        }
+      ]
+    },
+    {
+      "mutation": "expiry-horizon",
+      "sourceSha256": "3776dda0895cd48f1682cd4d4ae0236513205f26368f2408f9aa2d0a6cafcf2b",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.751
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 1.765
+        }
+      ]
+    },
+    {
+      "mutation": "access-expiry",
+      "sourceSha256": "3776dda0895cd48f1682cd4d4ae0236513205f26368f2408f9aa2d0a6cafcf2b",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.751
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 1.528
+        }
+      ]
+    },
+    {
+      "mutation": "account-identity",
+      "sourceSha256": "7ea5a6a8021f9d2822049aba8d9a7f58b569ef33ad462d9e2a527aa602d2667c",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.455
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 16.967
+        }
+      ]
+    },
+    {
+      "mutation": "unique-match",
+      "sourceSha256": "7ea5a6a8021f9d2822049aba8d9a7f58b569ef33ad462d9e2a527aa602d2667c",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.443
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 16.073
+        }
+      ]
+    },
+    {
+      "mutation": "reviewed-survivor",
+      "sourceSha256": "7ea5a6a8021f9d2822049aba8d9a7f58b569ef33ad462d9e2a527aa602d2667c",
+      "checks": [
+        {
+          "channel": "replacement",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 0.446
+        },
+        {
+          "channel": "original-browser",
+          "exitCode": 1,
+          "assertionFailure": true,
+          "seconds": 17.824
+        }
+      ]
+    }
+  ],
+  "additionalControl": {
+    "mutation": "remove HTTP authorization classification",
+    "replacementRejected": true,
+    "originalBrowserRejected": false,
+    "explanation": "The original browser fixture fell back to the sign-in error. The new integration test independently requires HTTP status classification."
+  }
+}

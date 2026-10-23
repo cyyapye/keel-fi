@@ -1973,7 +1973,9 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
   expect(errors).toEqual([]);
 });
 
-for (const size of [120, 1_000]) {
+// The 120/1,000 search matrix runs in collection-search.test.ts. Keep the
+// larger browser case for DOM bounds, projection reads, highlights and p95.
+for (const size of [1_000]) {
   test(`searches all ${size} holdings before pagination with zero additional projection reads`, async ({
     page,
   }, testInfo) => {
