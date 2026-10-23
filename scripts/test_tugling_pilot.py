@@ -967,7 +967,12 @@ with native.cost_seed_directory() as seed:
         self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
         self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("provider-document-runtime"), flow_order.index("pdf-isolation"))
-        self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["source-quality", "migration-and-seed"])
+        self.assertLess(flow_order.index("browser-workflows"), flow_order.index("pdf-isolation"))
+        # Workspace builds consume source files, not lint/typecheck or D1 output.
+        # Their prerequisites remain independently required for gate acceptance.
+        self.assertEqual(flows["build-and-entry-budget"]["depends_on"], [])
+        required = {flow for requirement in plan["requirements"] for flow in requirement["flows"]}
+        self.assertTrue({"source-quality", "migration-and-seed", "build-and-entry-budget"} <= required)
         self.assertEqual(flows["migration-and-seed"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "migration-seed"])
         self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])
         self.assertIn("provider-document-runtime", flows["browser-workflows"]["depends_on"])

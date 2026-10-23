@@ -74,7 +74,8 @@ servers, ports and cleanup; each partition remains serial internally.
 The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks. Its sealed private copy supplies browser
-fixtures, while build depends on source checks and migration completion. Unit/D1
+fixtures. Workspace builds consume source files and can start whenever a slot is
+available; source checks and migrations remain independently required. Unit/D1
 tests become ready after integrity; they receive an explicitly absent owned PDF
 configuration, retain their own isolated databases and consume TypeScript
 sources. Source checks remain concurrent and required.
@@ -94,7 +95,8 @@ The declared prerequisites are:
 
 ```mermaid
 flowchart LR
-  source[Source checks] --> build[Build and entry budget]
+  source[Source checks: independently required]
+  build[Build and entry budget]
   integrity[Integrity checks] --> compose[Compose validation]
   integrity --> migrations[Migrations and seed]
   integrity --> provider[Real provider document boundary]
@@ -102,7 +104,6 @@ flowchart LR
   provider --> pdf[PDF isolation]
   integrity --> unit[Unit and D1 tests]
   migrations --> browserFixture[Browser fixture]
-  migrations --> build
   build --> browser[Browser suite]
   provider --> browser
   browserFixture --> browser
@@ -752,3 +753,24 @@ The corrected screenshot and unchanged Sydecar popup-ownership case each passed
 three consecutive isolated Linux executions, with zero retries (six passes in
 29.3 seconds). The managed temporary checkout and servers were cleaned on exit.
 These focused passes precede, and cannot substitute for, the complete gate.
+
+### Independent workspace-build admission
+
+Run `39901568601` passed all 11 flows, 1,356 unit/D1 cases and 332 executable
+browser cases with 32 reviewed exclusions and zero flakes in 800.497 seconds. It
+left 99.503 seconds below the unchanged limit. This was 47.256 seconds faster
+than the earlier layered pass, but 139.052 seconds slower than the historical
+661.445-second baseline. Host CPU steal averaged about 4 percent, versus 0.16
+percent in that baseline; this does not establish the cause of the difference.
+The passing measurement is retained, but does not establish the speed target.
+
+Its browser build waited 235.109 seconds to begin, even though workspace builds
+consume only repository source. The build flow now has no artificial dependency
+on source checks or D1 migration output and may use an earlier available slot.
+Every workspace compilation, declaration emission, API dry-run build, web build,
+entry budget, source check and migration remains required. The native
+concurrency cap stays three. UI tests still wait for the completed build, sealed
+migration fixture and real Chromium/PDF boundary. The integrity holdout checks
+that the independent source/migration/build flows are all still required for
+acceptance. Only a new complete exact-revision benchmark can establish the
+scheduling gain.
