@@ -75,7 +75,7 @@ Docker calls, each control call bounded at 10 seconds. Only retained containers
 cause the four 250-ms cleanup settling waits. The owner cancels after 180
 seconds and completes bounded cleanup before releasing capacity; reader/scanner
 execution remains 30/90 seconds with unchanged memory, CPU, input/output and
-independent 35/95-second watchdog limits. A dirty ownership journal, including a
+independent 32/95-second watchdog limits. A dirty ownership journal, including a
 create without a recorded completion acknowledgment, stops admission until
 explicit operator recovery; age or missing PIDs never authorize concurrent work.
 The runtime inventory's reader timer changes its error classification only; it

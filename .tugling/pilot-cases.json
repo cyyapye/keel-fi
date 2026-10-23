@@ -1112,6 +1112,7 @@
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > attests actual Docker settings and rejects silent policy drift",
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > has no host mounts, credentials, network or privileges and bounds every resource",
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > keeps scanner limits separate and refuses a reader or weakened container as a scanner",
+    "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > leaves cleanup headroom before the unchanged 35-second orphan absence check",
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > refuses malformed scanner output after cleanup",
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > rejects rootful engines and unenforced or missing cgroup capabilities",
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > requires HTTPS package mirrors before updating the reader image",

@@ -302,7 +302,9 @@ async function main() {
           await unsafeOwner.release();
         }
         // Killing only the attached CLI simulates a lost caller. Deliberately leave
-        // the worker running: PID 1, not parent cleanup, must terminate it by 35s.
+        // the worker running: the 32s PID-1 watchdog must leave it absent by the
+        // unchanged 35s check, including Docker auto-removal. Parent cleanup
+        // cannot satisfy this assertion.
         const orphan = `keel-pdf-${randomUUID()}`;
         const orphanOwner = await acquireSandboxOwner(
           config.socket,

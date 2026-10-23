@@ -222,8 +222,9 @@ and archive/stream limits, filesystem/network/process isolation, unsafe-kernel
 handshake rejection, killed-caller cleanup, orphan reaping and absence of
 retained containers. Mocking these would weaken validation. Runtime
 timer/network inventory changes only the owning function name for the unchanged
-document fetch; its call digest, budgets, schedules, deadlines and admission
-limits remain unchanged.
+document fetch; its call digest, schedules and admission limits remain
+unchanged. The reader watchdog tightening described below is the sole deadline
+change.
 
 For performance comparison, use the complete successful PR323 merged run
 `39872116335` at `1ee7afcc`: 661.445 seconds active, including 376.629 seconds
@@ -626,3 +627,12 @@ both history sizes: each positive lease used six round trips, 14 rows read and
 three rows written. The runtime inventory walker also carries its nearest owning
 declaration during traversal instead of allocating parent links throughout the
 TypeScript AST; its complete existing call-site snapshot is unchanged.
+
+The first PR324 attempt (`39891256030`) failed the unchanged 35-second orphan
+absence assertion. A focused real-container diagnosis found the worker dead but
+Docker still removing the container at 35 seconds, and absence by 36 seconds.
+The independent reader watchdog is now stricter at 32 seconds, leaving cleanup
+headroom before that same 35-second assertion. Reader execution stays at 30
+seconds; scanner execution/watchdog stay at 90/95 seconds. No retries or relaxed
+absence deadline are introduced. Reader images must be rebuilt with the runtime
+because entrypoint attestation rejects the former 35-second image.
