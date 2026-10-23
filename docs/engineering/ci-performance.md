@@ -420,13 +420,49 @@ untested architectural opportunities. A finite benchmark cannot prove that no
 possible future optimization exceeds 5%. No additional runner, larger host,
 removed assertion, relaxed watchdog or increased retry count is assumed.
 
-The native job owns one read-only host-counter observer during verification. It
-reads CPU, memory, swap and pressure counters every five seconds, with at most
-361 samples and an independent 30-minute deadline. The job stops and reaps it on
-success or failure; observer errors do not trigger retries or application
-requests. It performs no network, D1 or object-storage work. Diagnostics share
-the existing seven-day artifact retention and contain no process arguments,
-credentials or portfolio data.
+The native job owns one read-only resource observer during verification. It
+retains the five-second cadence, at most 361 samples and the independent
+30-minute deadline. Host CPU, memory, swap and pressure fields retain their
+existing meanings. The job stops and reaps the observer on success or failure;
+observer errors do not trigger retries or application requests. It performs no
+network, D1 or object-storage work. Diagnostics share the existing seven-day
+artifact retention and contain no process arguments, credentials or portfolio
+data.
+
+`flow_resources` adds CPU and main-thread run-queue delay deltas for each mapped
+native flow. Ownership requires the observer's original parent PID/start time, a
+descendant of the expected pinned pilot coordinator, an exact mapped command, a
+matching checkout directory, and a new flow session. Descendants are followed
+through ancestry even when they start another session. CPU includes each
+observed process's threads; scheduling delay covers only its main thread and
+requires the kernel's `sched_schedstats` flag to be enabled. Disabled or
+unreadable scheduler statistics produce `null`, without changing host settings.
+
+These are sampled lower bounds, not whole-flow totals or elapsed time. Only
+matching PID/start-time and flow-root identities in adjacent samples contribute
+deltas. New processes, lost processes, counter resets, contributing-process
+counts, read errors and discovery/tracking limits are explicit. No matching
+counter pair produces `null`; a valid unchanged pair produces zero. Short-lived
+processes between samples, startup/exit tails, inaccessible or reparented
+processes, other users and work delegated to an existing daemon or a container
+may be absent. Missing ancestors and identity changes are excluded. If a flow
+has partial coverage, its numeric delta still covers only the reported
+contributing processes. Use the complete native receipt to establish which flows
+ran; an unobserved flow is not evidence of zero work.
+
+Discovery examines at most 8,192 `/proc` directory entries and 2,048 PIDs per
+sample, with at most 32 ancestry steps and 512 tracked processes. The mapping is
+read once with a 128-KiB/32-flow bound; command, process-stat and scheduler-stat
+reads are capped at 8,192, 4,096 and 128 bytes. No per-thread scan or
+environment read is performed. The worst case is bounded by 2,048 process-stat
+reads, 4,096 command reads, 2,048 cwd lookups, 512 counter/identity pairs and
+6,144 root-chain identity reads per sample; early ownership checks ordinarily
+make these much smaller. Output includes collection CPU/wall time and monotonic
+sample intervals. These collection timings exclude JSON output and startup, so
+observer overhead must also be measured externally. Regression fixtures cover
+120 descendants, PID reuse, ancestry boundaries, incomplete reads, bounds and
+counter resets. The sampler does not change flow scheduling, assertions, worker
+counts, isolation, resource limits or the 900-second native verification budget.
 
 ## Evaluated remaining source-check optimizations
 

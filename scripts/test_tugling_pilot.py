@@ -879,5 +879,230 @@ class NativeAccountingTests(unittest.TestCase):
             self.assertNotIn(forbidden, workflow)
 
 
+
+
+sampler = load("ci_sampler", "ci-resource-sampler.py")
+
+
+class ResourceSamplerTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.proc = Path(self.temporary.name).resolve() / "proc"
+        self.repo = Path(self.temporary.name).resolve() / "repo"
+        self.source = Path(self.temporary.name).resolve() / "tugling"
+        self.proc.mkdir()
+        self.repo.mkdir()
+        self.flows = {"unit": ["python3", "-I", "scripts/pilot_native.py", "vitest"],
+                      "browser": ["make", "browser"]}
+        self.coordinator = ["python3", "-I", str(self.source / "plugins/tugling/scripts/project_contract.py"),
+                            "--repo", str(self.repo), "--config", ".tugling/pilot.json",
+                            "--source-root", str(self.source), "--source-mode", "pinned", "--json", "--run-required"]
+        (self.proc / "sys/kernel").mkdir(parents=True)
+        (self.proc / "sys/kernel/sched_schedstats").write_text("1\n")
+        self.process(10, 1, start=100)
+        self.process(20, 10, start=110, argv=self.coordinator)
+        self.process(30, 20, start=120, argv=self.flows["unit"], leader=True)
+
+    def process(self, pid, parent, *, start=130, cpu=10, delay=100, argv=None, leader=False, cwd=None):
+        directory = self.proc / str(pid)
+        directory.mkdir(exist_ok=True)
+        fields = ["S", str(parent), str(pid if leader else 30), str(pid if leader else 30)] + ["0"] * 20
+        fields[11], fields[12], fields[19] = str(cpu), "0", str(start)
+        # A comm may contain spaces and closing parentheses; fields follow the final ')'.
+        (directory / "stat").write_text(f"{pid} (synthetic ) task) " + " ".join(fields))
+        (directory / "cmdline").write_bytes(b"\0".join(x.encode() for x in (argv or ["worker"])) + b"\0")
+        (directory / "schedstat").write_text(f"50 {delay} 3\n")
+        (directory / "cwd").unlink(missing_ok=True)
+        (directory / "cwd").symlink_to(cwd or self.repo)
+
+    def observer(self, **kwargs):
+        return sampler.FlowSampler(self.repo, self.source, self.flows, proc=self.proc,
+                                   scope_pid=10, ticks_per_second=100, **kwargs)
+
+    def test_main_emits_flow_diagnostics_without_changing_host_fields(self):
+        import io
+        from contextlib import redirect_stdout
+        output = io.StringIO()
+        host = {"time": 1, "cpu": [0] * 8, "memory_available_mib": 123}
+        with patch.object(sampler, "sample", return_value=host), patch.object(sampler.time, "sleep", side_effect=StopIteration), redirect_stdout(output):
+            with self.assertRaises(StopIteration):
+                sampler.main()
+        record = json.loads(output.getvalue().splitlines()[0])
+        self.assertEqual(record["memory_available_mib"], 123)
+        self.assertIn("flow_resources", record)
+        self.assertEqual(sampler.INTERVAL_SECONDS, 5)
+        self.assertEqual(sampler.MAX_DURATION_SECONDS, 1800)
+
+    def test_attributes_only_owned_flow_ancestry_and_deltas(self):
+        self.process(31, 30)
+        self.process(32, 31, leader=True)  # A descendant may create a new session.
+        self.process(40, 20, argv=self.flows["browser"], leader=True)
+        self.process(41, 40)
+        self.process(50, 1, argv=self.flows["unit"], leader=True)  # Unrelated invocation.
+        self.process(70, 1, argv=self.coordinator)
+        self.process(71, 70, argv=self.flows["unit"], leader=True)
+        self.process(60, 20, argv=self.flows["unit"], leader=True, cwd=self.source)
+        self.process(61, 31, argv=self.flows["browser"], leader=True)  # Same argv within unit stays unit.
+        observer = self.observer()
+        first = observer.collect()
+        self.assertIsNone(first["flows"]["unit"]["cpu_delta_ns"])
+        for pid, parent in ((30, 20), (31, 30), (32, 31), (40, 20), (41, 40), (61, 31)):
+            self.process(pid, parent, start=120 if pid == 30 else 130, cpu=20, delay=150,
+                         argv=self.flows["unit"] if pid == 30 else self.flows["browser"] if pid in (40, 61) else None,
+                         leader=pid in (30, 32, 40, 61))
+        result = observer.collect()["flows"]
+        self.assertEqual(result["unit"]["observed_processes"], 4)
+        self.assertEqual(result["unit"]["cpu_delta_ns"], 400_000_000)
+        self.assertEqual(result["unit"]["main_thread_runqueue_delta_ns"], 200)
+        self.assertEqual(result["browser"]["cpu_delta_ns"], 200_000_000)
+        self.assertNotIn("synthetic", json.dumps(result))
+        self.assertNotIn(str(self.repo), json.dumps(result))
+
+    def test_pid_reuse_scope_reuse_and_counter_decreases_never_become_activity(self):
+        self.process(31, 30)
+        observer = self.observer()
+        observer.collect()
+        self.process(31, 30, start=999, cpu=1000, delay=1000)
+        self.process(30, 20, start=120, cpu=1, delay=1, argv=self.flows["unit"], leader=True)
+        result = observer.collect()["flows"]["unit"]
+        self.assertIsNone(result["cpu_delta_ns"])
+        self.assertIsNone(result["main_thread_runqueue_delta_ns"])
+        self.assertEqual(result["new_processes"], 1)
+        self.assertEqual(result["lost_processes"], 1)
+        self.assertEqual(result["counter_resets"], 2)
+        self.process(10, 1, start=9999)
+        result = observer.collect()
+        self.assertEqual(result["status"], "scope-unavailable")
+        self.assertIsNone(result["flows"]["unit"]["cpu_delta_ns"])
+
+    def test_missing_inaccessible_and_disabled_counters_are_not_zero(self):
+        self.process(31, 30)
+        observer = self.observer()
+        observer.collect()
+        (self.proc / "31/stat").unlink()
+        original = sampler.read_bytes
+        def denied(path, limit):
+            if Path(path) == self.proc / "30/schedstat":
+                raise PermissionError("synthetic denial")
+            return original(path, limit)
+        with patch.object(sampler, "read_bytes", side_effect=denied):
+            result = observer.collect()
+        self.assertGreaterEqual(result["read_errors"], 2)
+        self.assertEqual(result["flows"]["unit"]["lost_processes"], 1)
+        self.assertEqual(result["flows"]["unit"]["cpu_delta_ns"], 0)
+        self.assertIsNone(result["flows"]["unit"]["main_thread_runqueue_delta_ns"])
+        (self.proc / "sys/kernel/sched_schedstats").write_text("0\n")
+        result = observer.collect()
+        self.assertFalse(result["schedstats_enabled"])
+        self.assertIsNone(result["flows"]["unit"]["main_thread_runqueue_delta_ns"])
+        (self.proc / "sys/kernel/sched_schedstats").unlink()
+        self.assertIsNone(observer.collect()["schedstats_enabled"])
+
+    def test_rejects_identity_change_during_counter_read(self):
+        observer = self.observer()
+        original = sampler.read_bytes
+        def reused(path, limit):
+            data = original(path, limit)
+            if Path(path) == self.proc / "30/schedstat":
+                self.process(30, 20, start=999, cpu=999, argv=self.flows["unit"], leader=True)
+            return data
+        with patch.object(sampler, "read_bytes", side_effect=reused):
+            result = observer.collect()
+        self.assertEqual(result["flows"]["unit"]["observed_processes"], 0)
+        self.assertGreater(result["read_errors"], 0)
+
+    def test_120_process_scale_and_explicit_discovery_tracking_and_byte_bounds(self):
+        for pid in range(100, 220):
+            self.process(pid, 30)
+        observer = self.observer()
+        original = sampler.read_bytes
+        with patch.object(sampler, "read_bytes", wraps=original) as reads:
+            first = observer.collect()
+        self.assertEqual(first["flows"]["unit"]["observed_processes"], 121)
+        self.assertLessEqual(reads.call_count, 385)
+        self.assertLessEqual(len(json.dumps(first)), 4096)
+        second = observer.collect()
+        self.assertEqual(second["flows"]["unit"]["cpu_delta_processes"], 121)
+        self.assertEqual(second["flows"]["unit"]["cpu_delta_ns"], 0)
+        with patch.object(sampler, "MAX_TRACKED", 100):
+            capped = self.observer().collect()
+        self.assertTrue(capped["tracking_limited"])
+        self.assertEqual(capped["flows"]["unit"]["observed_processes"], 100)
+        with patch.object(sampler, "MAX_PIDS", 50):
+            capped = self.observer().collect()
+        self.assertTrue(capped["discovery_limited"])
+        self.assertLessEqual(capped["pids_examined"], 50)
+        with patch.object(sampler, "MAX_ENTRIES", 5):
+            self.assertTrue(self.observer().collect()["discovery_limited"])
+        (self.proc / "30/cmdline").write_bytes(b"x" * (sampler.MAX_CMD_BYTES + 1))
+        self.assertEqual(self.observer().collect()["flows"]["unit"]["observed_processes"], 0)
+
+    def test_wrong_coordinator_cycles_depth_and_parent_start_order_are_excluded(self):
+        self.process(20, 10, start=110, argv=["python3", "other.py"])
+        self.assertEqual(self.observer().collect()["flows"]["unit"]["observed_processes"], 0)
+        self.process(20, 10, start=110, argv=self.coordinator)
+        self.process(31, 32)
+        self.process(32, 31)
+        self.process(33, 30, start=50)  # Child predates the observed parent: PID reuse.
+        result = self.observer().collect()
+        self.assertEqual(result["flows"]["unit"]["observed_processes"], 1)
+        with patch.object(sampler, "MAX_DEPTH", 1):
+            result = self.observer().collect()
+        self.assertEqual(result["flows"]["unit"]["observed_processes"], 0)
+        self.assertGreater(result["ancestry_incomplete"], 0)
+
+    def test_shared_ownership_rechecks_remain_bounded_and_invalidate_all_flows(self):
+        self.process(40, 20, argv=self.flows["browser"], leader=True)
+        observer = self.observer()
+        original = sampler.read_stat
+        counts = {}
+        def inspect(proc, pid):
+            counts[pid] = counts.get(pid, 0) + 1
+            result = original(proc, pid)
+            if pid == 20 and counts[pid] == 2:
+                result["start"] += 1  # Shared coordinator reused at final validation.
+            return result
+        with patch.object(sampler, "read_stat", side_effect=inspect):
+            result = observer.collect()
+        self.assertEqual(counts[20], 2)  # Initial discovery, one shared final read.
+        self.assertEqual(counts[10], 2)
+        self.assertEqual(result["flows"]["unit"]["observed_processes"], 0)
+        self.assertEqual(result["flows"]["browser"]["observed_processes"], 0)
+        self.assertGreater(result["read_errors"], 0)
+
+    def test_bounded_direct_reads_complete_short_reads_and_always_close(self):
+        # Procfs reads can be short; the byte cap and close apply on every outcome.
+        path = self.proc / "bounded-read"
+        path.write_bytes(b"1 2")
+        with patch.object(sampler.os, "open", return_value=42) as opened, patch.object(sampler.os, "read", side_effect=[b"1", b" 2", b""]) as reads, patch.object(sampler.os, "close") as closed:
+            self.assertEqual(sampler.read_bytes(path, 8), b"1 2")
+            opened.assert_called_once()
+            self.assertEqual([call.args[1] for call in reads.call_args_list], [9, 8, 6])
+            closed.assert_called_once_with(42)
+        with patch.object(sampler.os, "open", return_value=43), patch.object(sampler.os, "read", return_value=b"1234"), patch.object(sampler.os, "close") as closed:
+            with self.assertRaisesRegex(ValueError, "byte bound"):
+                sampler.read_bytes(path, 3)
+            closed.assert_called_once_with(43)
+        with patch.object(sampler.os, "open", return_value=44), patch.object(sampler.os, "read", side_effect=PermissionError("synthetic")), patch.object(sampler.os, "close") as closed:
+            with self.assertRaises(PermissionError):
+                sampler.read_bytes(path, 8)
+            closed.assert_called_once_with(44)
+        with patch.object(sampler.os, "open", side_effect=PermissionError("synthetic")), patch.object(sampler.os, "close") as closed:
+            with self.assertRaises(PermissionError):
+                sampler.read_bytes(path, 8)
+            closed.assert_not_called()
+
+    def test_flow_map_validation_and_unobserved_flow_are_explicit(self):
+        for invalid in ({}, {"bad/name": ["make"]}, {"unit": []}, {"unit": [1]},
+                        {"unit": ["x" * 8193]}, {str(n): ["make"] for n in range(33)}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                sampler.FlowSampler(self.repo, self.source, invalid, proc=self.proc, scope_pid=10)
+        result = self.observer().collect()["flows"]["browser"]
+        self.assertEqual(result["observed_processes"], 0)
+        self.assertIsNone(result["cpu_delta_ns"])
+        self.assertIsNone(result["main_thread_runqueue_delta_ns"])
+
+
 if __name__ == "__main__":
     unittest.main()
