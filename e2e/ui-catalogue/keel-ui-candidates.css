@@ -1,0 +1,314 @@
+/* Synthetic composition and catalogue layout only; controls come from @keel/ui. */
+.candidate-intro {
+  margin: 0 0 24px;
+  max-width: 72ch;
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+.candidate-examples {
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+.candidate-examples > p,
+.candidate-examples .catalogue-example-content > p,
+.candidate-form > p,
+.candidate-loading-rules > p,
+.candidate-loading-rule-grid p,
+.candidate-collection-controls > p {
+  margin: 0;
+}
+.candidate-examples .catalogue-source {
+  margin: 8px 0 24px;
+}
+.candidate-examples .button {
+  gap: 8px;
+}
+.candidate-preview-states {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.candidate-preview-states > span {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.candidate-preview-states .button {
+  font-size: 12px;
+}
+.candidate-demo-options {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+}
+.candidate-demo-options .button {
+  min-height: 44px;
+}
+.candidate-inline-error {
+  margin-top: 8px !important;
+}
+.candidate-form {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.candidate-form .field {
+  min-width: 0;
+}
+.candidate-form .input[aria-invalid="true"] {
+  border-bottom: 2px solid var(--ink);
+}
+.candidate-form .input[type="file"] {
+  width: 100%;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink);
+  padding: 8px 0;
+}
+.candidate-form .input[type="file"]::file-selector-button {
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  padding: 10px 16px;
+  min-height: 44px;
+  margin-right: 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.candidate-record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.candidate-record-list > li {
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.candidate-record-list > li + li {
+  border-top: 1px solid var(--line-soft);
+}
+.candidate-attention {
+  font-size: var(--text-body);
+  color: var(--ink);
+}
+.candidate-history > div + div {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+.candidate-history [data-slot="collapsible-trigger"] {
+  min-height: 44px;
+}
+.candidate-history-label {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+}
+.candidate-history-label time {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.candidate-history-body {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+}
+.candidate-citation {
+  margin: 16px 0 0;
+  padding: 0 0 0 16px;
+  border-left: 2px solid var(--line);
+}
+.candidate-citation blockquote {
+  margin: 0;
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+.candidate-citation figcaption {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.candidate-table-wrap {
+  width: 100%;
+  min-width: 0;
+}
+.candidate-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: var(--text-body);
+}
+.candidate-table caption {
+  text-align: left;
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.candidate-table th {
+  font-weight: 600;
+  padding: 12px;
+  border-bottom: 1px solid var(--ink);
+}
+.candidate-table td {
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.candidate-table td strong,
+.candidate-table td .candidate-metadata {
+  display: block;
+}
+.candidate-table td .candidate-metadata {
+  margin-top: 8px;
+}
+.candidate-table td strong {
+  font-weight: 600;
+}
+.candidate-progress-block {
+  display: grid;
+  gap: 12px;
+}
+.candidate-fact-strong {
+  font-weight: 600;
+}
+.candidate-progress {
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--wash);
+  color: var(--ink);
+  accent-color: var(--ink);
+}
+.candidate-progress::-webkit-progress-bar {
+  background: var(--wash);
+}
+.candidate-progress::-webkit-progress-value {
+  background: var(--ink);
+}
+.candidate-progress::-moz-progress-bar {
+  background: var(--ink);
+}
+.candidate-progress:indeterminate {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--line) 0 12px,
+    transparent 12px 24px
+  );
+}
+.candidate-recovery {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+}
+.candidate-recovery .section-heading h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .candidate-table,
+  .candidate-table tbody {
+    display: block;
+  }
+  .candidate-table caption {
+    display: block;
+  }
+  .candidate-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .candidate-table tr {
+    display: block;
+    padding: 16px 0;
+    border-top: 1px solid var(--line-soft);
+  }
+  .candidate-table td {
+    display: grid;
+    grid-template-columns: 85px minmax(0, 1fr);
+    gap: 12px;
+    border: 0;
+    padding: 8px 0;
+  }
+  .candidate-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .candidate-table td > .candidate-metadata {
+    grid-column: 2;
+    margin-top: 0;
+  }
+  .candidate-table td strong {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* At narrow widths the values identify themselves; retain table headers for assistive technology. */
+@media (max-width: 640px) {
+  .candidate-table td {
+    display: block;
+  }
+  .candidate-table td::before {
+    content: none;
+  }
+  .candidate-table td > .candidate-metadata {
+    margin-top: 8px;
+  }
+}
+
+.candidate-record-list > li:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+.candidate-collection-page {
+  display: grid;
+  gap: 40px;
+}
+.candidate-loading-rules,
+.candidate-collection-controls {
+  display: grid;
+  gap: 20px;
+}
+.candidate-loading-rule-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+.candidate-loading-rule-grid h3 {
+  margin: 0 0 8px;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.candidate-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  align-items: center;
+}
+.candidate-automatic-collection .candidate-record-list > li {
+  min-height: 80px;
+  display: flex;
+  align-items: center;
+  padding: 16px 0;
+  box-sizing: border-box;
+}
+@media (max-width: 640px) {
+  .candidate-loading-rule-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+.candidate-choice-children {
+  padding-left: 30px;
+}

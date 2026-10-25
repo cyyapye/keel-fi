@@ -606,12 +606,11 @@ test("leads with the investment and opens a truthful holding detail", async ({
   ).toHaveCount(0);
   await expect(
     publicExposure.locator(".exposure-group__summary"),
-  ).toContainText("$183k · $190.4 · +30%");
-  await expect(
-    publicExposure.locator(
-      ".exposure-group__summary .exposure-group__market-meta",
-    ),
-  ).toHaveAttribute("title", "Share price as of Aug 10, 2026");
+  ).toContainText("Basis $183k · +30% total return");
+  await expect(publicExposure.locator(".exposure-group__quote")).toHaveText(
+    "$190.4/share · Aug 10, 2026",
+  );
+  await expect(publicExposure.getByText(/\$190\.4\/share/u)).toHaveCount(1);
   await expect(
     publicExposure.locator(".exposure-group__summary"),
   ).not.toContainText("Cost basis");
@@ -627,20 +626,29 @@ test("leads with the investment and opens a truthful holding detail", async ({
   expect(
     await page.locator(".exposure-group__performance").evaluateAll((elements) =>
       elements.map((element) => {
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        return range.getClientRects().length;
+        const styles = window.getComputedStyle(element);
+        return {
+          fitsWidth: element.scrollWidth <= element.clientWidth,
+          fitsThreeLines:
+            element.getBoundingClientRect().height <=
+            Number.parseFloat(styles.lineHeight) * 3 + 1,
+        };
       }),
     ),
-  ).toEqual([1, 1]);
+  ).toEqual([
+    { fitsWidth: true, fitsThreeLines: true },
+    { fitsWidth: true, fitsThreeLines: true },
+  ]);
   await expect(
     northstarExposure.locator(".exposure-group__summary"),
-  ).toContainText("$400k · +200%");
+  ).toContainText("Basis $400k · +200% total return");
   const harborAction = page.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
   await expect(harborAction).toHaveAttribute("data-slot", "text-link");
-  await expect(harborAction.getByText("View details")).toBeVisible();
+  await expect(
+    harborAction.getByText("Details", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByText("Beacon Demo SPV", { exact: true }),
   ).toBeVisible();
@@ -649,7 +657,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     page.getByRole("button", {
       name: "View Seed preferred holding details",
     }),
-  ).toContainText("View details");
+  ).toHaveText("Details");
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);
@@ -1202,7 +1210,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     adjustedBeaconPosition.locator(".position-row__value"),
   ).toHaveAttribute("title", "Reviewed mark as of Aug 18, 2026");
-  await expect(adjustedBeaconPosition).not.toContainText("Reviewed mark");
+  await expect(adjustedBeaconPosition).toContainText("Reviewed mark");
 
   await latticeExposure.locator(".exposure-group__summary").click();
   await page

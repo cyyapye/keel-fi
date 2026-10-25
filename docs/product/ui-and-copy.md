@@ -187,6 +187,9 @@ catalogue entry must show keyboard, mobile, loading, disabled and error behavior
 where applicable. A complete library means coverage of the approved task, not
 every imaginable component.
 
+The executable examples and approved control APIs are documented in
+[the UI library](ui-library.md).
+
 ## Shared implementation layer
 
 - Build recurring interface patterns in `packages/ui` and consume them through

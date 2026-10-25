@@ -471,7 +471,7 @@ test.beforeEach(async ({ page }) => {
 
 test("groups reviewed public stock with separate SPVs and keeps their value bases", async ({
   page,
-}) => {
+}, testInfo) => {
   const syntheticHolding = (
     id: string,
     name: string,
@@ -549,7 +549,42 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
     group.getByRole("link", { name: "Review company link" }),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath("review-mixed-company.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
   await expect(group).toHaveScreenshot("public-private-company-group.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
+  const incompleteHoldings = holdings.map((holding) =>
+    holding.id === "position_nstr_spv_b"
+      ? { ...holding, administratorNavState: "locked" as const }
+      : holding,
+  );
+  const incompleteView = investmentHoldingsViewFor(incompleteHoldings);
+  await routeHoldingsPage(page, {
+    householdName: "Demo Household",
+    holdings: incompleteHoldings,
+    investmentHoldings: {
+      ...incompleteView,
+      exposureView: {
+        ...incompleteView.exposureView,
+        publicCompanyLinks: linkedView.exposureView.publicCompanyLinks,
+      },
+    },
+    acceptedCashAccounts: [],
+    pendingImports: [],
+  });
+  await page.reload();
+  await expect(group.locator(".exposure-group__value")).toHaveText(
+    "Known value$36k1 value unavailable",
+  );
+  await group.locator('[data-slot="collapsible-trigger"]').click();
+  await expect(group.getByText("Locked", { exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(group).toHaveScreenshot("public-private-known-subtotal.png", {
     animations: "disabled",
     caret: "hide",
   });
@@ -627,7 +662,9 @@ test("shows the Holdings shell while one read-only projection loads", async ({
   expect(apiRequests.filter((request) => request.method !== "GET")).toEqual([]);
 });
 
-test("shows compact empty exposure and account states", async ({ page }) => {
+test("shows compact empty exposure and account states", async ({
+  page,
+}, testInfo) => {
   const emptyAlphaFixture = { ...alphaFixture, holdings: [] };
   const emptyConnectionStatus = {
     ...statuses[0]!,
@@ -699,6 +736,11 @@ test("shows compact empty exposure and account states", async ({ page }) => {
     exposureView.getByRole("link", { name: "Manage sources" }),
   ).toHaveAttribute("href", "/holdings/sources");
   await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath("review-empty-holdings.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
   await expect(exposureView).toHaveScreenshot(
     "investment-holdings-empty-exposures.png",
     {
@@ -845,7 +887,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     exposureView.locator(".investment-views__heading"),
   ).toContainText("7 legal positions");
   await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "Total exposure$860k · 2 values unavailable",
+    "Portfolio exposure$860k · 2 position values unavailable",
   );
   await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
   const exposureSort = exposureView.getByLabel(
@@ -890,10 +932,14 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   });
   await expect(nvda).toContainText("3 positions");
   await nvda.locator(".exposure-group__summary").click();
-  await expect(nvda.getByText("Robinhood · Robinhood brokerage")).toBeVisible();
-  await expect(nvda.getByText("Fidelity · Fidelity brokerage")).toBeVisible();
   await expect(
-    nvda.getByText("Fidelity · Fidelity rollover IRA"),
+    nvda.getByText("Robinhood brokerage", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    nvda.getByText("Fidelity brokerage", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    nvda.getByText("Fidelity rollover IRA", { exact: true }),
   ).toBeVisible();
   await expect(
     nvda.locator(".exposure-group__summary .exposure-group__totals"),
@@ -901,7 +947,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const nvdaSummaryMeta = nvda.locator(
     ".exposure-group__summary .exposure-group__market-meta",
   );
-  await expect(nvdaSummaryMeta).toHaveText("$681k · $185 · +9%");
+  await expect(nvdaSummaryMeta).toHaveText("Basis $681k · +9% total return");
   expect(
     await nvda
       .locator(
@@ -946,32 +992,78 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "$240k",
     "$185k",
   ]);
-  const nvdaPositionMeta = nvda.locator(".position-row__market-meta");
-  await expect(nvdaPositionMeta).toHaveText([
-    "$290k · $185 · +9%",
-    "$221k · $185 · +9%",
-    "$170k · $185 · +9%",
+  await expect(nvda.locator(".position-row__market-meta > span")).toHaveText([
+    "Basis $290k",
+    "+9% total return",
+    "Basis $221k",
+    "+9% total return",
+    "Basis $170k",
+    "+9% total return",
   ]);
-  await expect(nvdaPositionMeta.first()).toHaveAttribute(
-    "title",
-    "Share price as of Aug 15, 2026",
+  await expect(nvda.locator(".exposure-group__quote")).toHaveText(
+    "$185/share · Aug 15, 2026",
   );
-  expect(
-    await nvdaPositionMeta.evaluateAll((elements) =>
-      elements.map((element) => {
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        return range.getClientRects().length;
-      }),
-    ),
-  ).toEqual([1, 1, 1]);
+  await expect(nvda.getByText(/\$185\/share/u)).toHaveCount(1);
+  await expect(nvda.locator(".record-row__title")).toHaveText([
+    "Fidelity rollover IRA",
+    "Fidelity brokerage",
+    "Robinhood brokerage",
+  ]);
+  await expect(nvda.getByRole("list", { name: "NVDA positions" })).toHaveCSS(
+    "background-color",
+    "rgba(38, 34, 56, 0.06)",
+  );
+  await expect(nvda.locator(".record-row").nth(1)).toHaveCSS(
+    "border-top-color",
+    /0\.11/u,
+  );
+  const rowGeometry = await nvda
+    .locator(".record-row")
+    .first()
+    .evaluate((row) => {
+      const bounds = (selector: string) => {
+        const { left, right, top, bottom } = row
+          .querySelector(selector)!
+          .getBoundingClientRect();
+        return { left, right, top, bottom };
+      };
+      return {
+        identity: bounds(".record-row__identity"),
+        value: bounds(".record-row__value"),
+        metadata: bounds(".record-row__metadata"),
+        action: bounds(".record-row__action"),
+        width: row.clientWidth,
+      };
+    });
+  expect(rowGeometry.value.left).toBeGreaterThanOrEqual(
+    rowGeometry.identity.right,
+  );
+  await expect(nvda).toHaveScreenshot("holdings-quiet-public-group.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
+  if (rowGeometry.width < 600) {
+    expect(rowGeometry.metadata.left).toBe(rowGeometry.identity.left);
+    expect(rowGeometry.action.left).toBeGreaterThanOrEqual(
+      rowGeometry.metadata.right,
+    );
+    expect(rowGeometry.action.top).toBeLessThan(rowGeometry.metadata.bottom);
+  }
   await expect(nvda).not.toContainText("Cost basis");
   await expect(nvda).not.toContainText("Return");
   await expect(nvda).not.toContainText("Full exposure");
-  await expect(nvda).not.toContainText("/sh");
+  await expect(nvda).toContainText("/share");
   const cash = page.locator(".cash-holdings");
   await expect(cash.getByRole("heading", { name: "Cash" })).toBeVisible();
-  await expect(cash).toContainText("Total cash$28.55k");
+  await expect(cash).toContainText("Portfolio cash$28.55k");
+  await expect(cash.locator(".cash-holdings__rows strong").first()).toHaveCSS(
+    "font-size",
+    "14px",
+  );
+  await expect(cash.locator(".cash-holdings__rows small").first()).toHaveCSS(
+    "font-size",
+    "13px",
+  );
   await expect(cash).toContainText("2 bank accounts · 2 brokerage positions");
   await expect(cash.getByText("Everyday checking")).toBeVisible();
   await expect(cash.getByText("Northstar Demo Bank · Bank cash")).toBeVisible();
@@ -1194,7 +1286,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
         ".investment-institution-list",
         ".investment-institution",
         ".exposure-group",
-        ".exposure-group__positions article",
+        ".exposure-group__positions article:first-child",
         ".unallocated-positions",
       ].join(", "),
     )
@@ -1747,7 +1839,7 @@ test("keeps one reviewed-history legal position without a fake account", async (
 
 test("keeps failed canonical holdings out of view and retries", async ({
   page,
-}) => {
+}, testInfo) => {
   let holdingsRequestCount = 0;
   await page.unroute("**/api/holdings-page");
   await page.route("**/api/holdings-page", async (route) => {
@@ -1789,6 +1881,11 @@ test("keeps failed canonical holdings out of view and retries", async ({
     errorState.getByText("Exposure unresolved", { exact: true }),
   ).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
+  await page.screenshot({
+    path: testInfo.outputPath("review-unavailable-holdings.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
   await expect(errorState).toHaveScreenshot(
     "investment-holdings-retry-error.png",
     {
@@ -1888,7 +1985,7 @@ test("progressively renders long exposure lists", async ({
 
 test("searches holdings by SPV and hidden cash while preserving totals and return navigation", async ({
   page,
-}) => {
+}, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const reviewsLoaded = page.waitForResponse("**/api/private-exposure-reviews");
@@ -1900,6 +1997,11 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
   const cashTotal = (await page
     .locator(".cash-holdings__total")
     .textContent())!;
+  await page.screenshot({
+    path: testInfo.outputPath("review-overview.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
   const requests: string[] = [];
   const recordRequest = (request: Request) => {
     if (new URL(request.url()).pathname.startsWith("/api/"))
@@ -1921,6 +2023,11 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
   page.off("request", recordRequest);
   await expectNoHorizontalOverflow(page);
   await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({
+    path: testInfo.outputPath("review-search-match.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
   await expect(page).toHaveScreenshot("investment-holdings-search-spv.png", {
     animations: "disabled",
     caret: "hide",
@@ -1957,6 +2064,11 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
     "0 results",
   );
   await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({
+    path: testInfo.outputPath("review-search-empty.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
   await expect(page).toHaveScreenshot("investment-holdings-search-empty.png", {
     animations: "disabled",
     caret: "hide",

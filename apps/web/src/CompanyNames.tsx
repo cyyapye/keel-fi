@@ -14,6 +14,7 @@ import {
   SectionHeader,
   Textarea,
   TextLink,
+  LoadingStatus,
 } from "@keel/ui";
 import {
   CompanyAliasProposalSchema,
@@ -124,7 +125,7 @@ export function CompanyNames() {
       {error && <FormMessage tone="error">{error}</FormMessage>}
       {catalog === null ? (
         <>
-          <p role="status">Loading company names…</p>
+          <LoadingStatus>Loading company names…</LoadingStatus>
           {error && (
             <Button
               onClick={() => {

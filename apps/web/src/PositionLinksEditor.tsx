@@ -30,6 +30,7 @@ import {
   DataItem,
   TextLink,
   InfoTip,
+  LoadingStatus,
 } from "@keel/ui";
 import {
   acceptPositionLink,
@@ -309,7 +310,7 @@ export function PositionLinksEditor({
             </Notice>
           )}
           {busy && workspace === null && (
-            <p role="status">Loading investment records…</p>
+            <LoadingStatus>Loading investment records…</LoadingStatus>
           )}
           {target && (
             <>

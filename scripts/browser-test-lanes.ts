@@ -3,6 +3,7 @@ import path from "node:path";
 
 export const BROWSER_TEST_LANES = {
   mocked: [
+    "ui-catalogue.visual.spec.ts",
     "agreement-security.visual.spec.ts",
     "automatic-investment-review.visual.spec.ts",
     "company-names.visual.spec.ts",

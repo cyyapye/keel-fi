@@ -715,12 +715,21 @@ test("shows only unresolved private positions and safely retries their decisions
   await expect(
     page.getByText(preview.rows[1]!.positionName, { exact: true }),
   ).toHaveCount(0);
+  // Capture the tall component without the viewport navigation overlay.
+  const snapshotStyle = await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
   await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
     "holdings-import-exceptions.png",
     { animations: "disabled", maxDiffPixelRatio: 0.025 },
   );
+  await snapshotStyle.evaluate((style) => {
+    style.textContent = "";
+  });
   await page
-    .getByLabel(`Accept update for ${preview.rows[0]!.positionName}`)
+    .getByRole("checkbox", {
+      name: `Accept update for ${preview.rows[0]!.positionName}`,
+    })
     .check();
   await page
     .getByRole("button", { name: "Apply 1 and dismiss the rest" })

@@ -1,0 +1,5 @@
+/* Component crops exclude the surrounding catalogue's sticky navigation. */
+.topbar,
+.mobile-nav {
+  visibility: hidden !important;
+}

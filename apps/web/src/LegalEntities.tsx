@@ -35,6 +35,9 @@ import {
   type ReviewDocumentRenderer,
 } from "./InvestmentReview";
 import {
+  Checkbox,
+  RadioGroup,
+  CollectionFooter,
   ActionGroup,
   Badge,
   Button,
@@ -1159,11 +1162,10 @@ function CandidateRow({
                 candidate.sourceDisplayName}
             </SearchHighlight>
           </h3>
-          <Badge tone="warning">
-            {excluded
-              ? "Excluded"
-              : kind === "found"
-                ? "Needs review"
+          {(excluded || kind !== "found") && (
+            <Badge tone="warning">
+              {excluded
+                ? "Excluded"
                 : kind === "conflict"
                   ? "Names disagree"
                   : kind === "structure"
@@ -1171,7 +1173,8 @@ function CandidateRow({
                     : kind === "document"
                       ? "Review PDF"
                       : "Name unavailable"}
-          </Badge>
+            </Badge>
+          )}
         </div>
         <p>
           <SearchHighlight query={searchQuery}>
@@ -1438,27 +1441,19 @@ function EntityReviewWorkspace({
   const identity = (
     <>
       {entity === undefined && editor !== null && source !== undefined && (
-        <fieldset className="entity-review__destination">
-          <legend>Legal entity</legend>
-          <label>
-            <Input
-              type="radio"
-              name="entity-destination"
-              checked={mode === "new"}
-              onChange={() => setMode("new")}
-            />
-            Create new entity
-          </label>
-          <label>
-            <Input
-              type="radio"
-              name="entity-destination"
-              checked={mode === "existing"}
-              onChange={() => setMode("existing")}
-            />
-            Link existing entity
-          </label>
-        </fieldset>
+        <RadioGroup
+          className="entity-review__destination"
+          label="Legal entity"
+          name="entity-destination"
+          value={mode}
+          onValueChange={(value) =>
+            setMode(value === "existing" ? "existing" : "new")
+          }
+          options={[
+            { value: "new", label: "Create new entity" },
+            { value: "existing", label: "Link existing entity" },
+          ]}
+        />
       )}
       {entity === undefined &&
         source !== undefined &&
@@ -1766,22 +1761,26 @@ function ExactBatchReview({
   const remainingCopy =
     batch.remainingCandidateCount === 0
       ? ""
-      : ` ${batch.remainingCandidateCount} source ${
+      : ` ${batch.remainingCandidateCount} ${
           batch.remainingCandidateCount === 1
-            ? "record remains"
-            : "records remain"
+            ? "source remains"
+            : "sources remain"
         } outside this batch.`;
 
   return (
     <div className="legal-entity-exact-batch">
       <div className="legal-entity-exact-batch__summary">
         <h3>
-          {batch.entityCount} source-reported{" "}
-          {batch.entityCount === 1 ? "name" : "names"} ready to add or link
+          {batch.sourceCount}
+          {batch.remainingCandidateCount > 0
+            ? ` of ${batch.sourceCount + batch.remainingCandidateCount}`
+            : ""}{" "}
+          {batch.sourceCount === 1 ? "source" : "sources"} ready to add or link
         </h3>
         <p>
-          {typeSummary}. Review individually below, or apply these names
-          together.
+          {batch.entityCount} legal {batch.entityCount === 1 ? "name" : "names"}
+          {" · "}
+          {typeSummary}.{remainingCopy}
         </p>
       </div>
       <Button disabled={working} onClick={() => void onApply()} tone="primary">
@@ -1802,12 +1801,8 @@ function ExactBatchReview({
         />
         <CollapsibleContent>
           <p>
-            {batch.sourceCount} source{" "}
-            {batch.sourceCount === 1 ? "record contains" : "records contain"}{" "}
-            {batch.entityCount} exact legal{" "}
-            {batch.entityCount === 1 ? "name" : "names"}; duplicate source rows
-            share one record.{existingCopy}
-            {remainingCopy}
+            Sources with the same exact legal name use one legal-entity entry.
+            {existingCopy}
           </p>
         </CollapsibleContent>
       </Collapsible>
@@ -2092,36 +2087,21 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
                   ` · ${conflictingNameCount} ${conflictingNameCount === 1 ? "name conflict" : "name conflicts"}`}
               </p>
             </div>
-            <label>
-              <Input
-                checked={includeNeedsReview}
-                onChange={(event) =>
-                  setIncludeNeedsReview(event.currentTarget.checked)
-                }
-                type="checkbox"
-              />
-              <span>Include unresolved source records</span>
-            </label>
-            <label>
-              <Input
-                checked={includeHistorical}
-                onChange={(event) =>
-                  setIncludeHistorical(event.currentTarget.checked)
-                }
-                type="checkbox"
-              />
-              <span>Include historical and cancelled investments</span>
-            </label>
-            <label>
-              <Input
-                checked={includeOtherEntityTypes}
-                onChange={(event) =>
-                  setIncludeOtherEntityTypes(event.currentTarget.checked)
-                }
-                type="checkbox"
-              />
-              <span>Include non-LLC entities</span>
-            </label>
+            <Checkbox
+              checked={includeNeedsReview}
+              onCheckedChange={setIncludeNeedsReview}
+              label="Include unresolved source records"
+            />
+            <Checkbox
+              checked={includeHistorical}
+              onCheckedChange={setIncludeHistorical}
+              label="Include historical and cancelled investments"
+            />
+            <Checkbox
+              checked={includeOtherEntityTypes}
+              onCheckedChange={setIncludeOtherEntityTypes}
+              label="Include non-LLC entities"
+            />
           </div>
           <div className="legal-entity-export__fields">
             <div className="legal-entity-export__fields-heading">
@@ -2136,16 +2116,12 @@ function ExportWorkspace({ inventory }: { inventory: LegalEntityInventory }) {
             </div>
             <div className="legal-entity-export__field-grid">
               {LEGAL_ENTITY_EXPORT_FIELDS.map((field) => (
-                <label key={field}>
-                  <Input
-                    checked={fields.has(field)}
-                    onChange={(event) =>
-                      toggleField(field, event.currentTarget.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <span>{LEGAL_ENTITY_EXPORT_FIELD_LABELS[field]}</span>
-                </label>
+                <Checkbox
+                  key={field}
+                  checked={fields.has(field)}
+                  onCheckedChange={(checked) => toggleField(field, checked)}
+                  label={LEGAL_ENTITY_EXPORT_FIELD_LABELS[field]}
+                />
               ))}
             </div>
           </div>
@@ -2161,51 +2137,46 @@ function ProgressiveRows<T>({
   items,
   render,
   label,
-  keepVisible,
+  mode = "manual",
 }: {
   items: readonly T[];
   render: (item: T) => ReactNode;
   label: string;
-  keepVisible?: (item: T) => boolean;
+  mode?: "manual" | "automatic";
 }) {
   const [visible, setVisible] = useState(LEGAL_ENTITY_PAGE_SIZE);
-  const sentinel = useRef<HTMLDivElement>(null);
-  const visibleItems = items.filter(
-    (item, index) => index < visible || keepVisible?.(item),
-  );
+  const rows = useRef<HTMLDivElement>(null);
+  const focusNewRow = useRef<number | null>(null);
+  const visibleItems = items.slice(0, visible);
   const more = visibleItems.length < items.length;
   const loadMore = useCallback(
-    () => setVisible((count) => count + LEGAL_ENTITY_PAGE_SIZE),
-    [],
+    (source: "manual" | "automatic") => {
+      if (source === "manual") focusNewRow.current = visible;
+      setVisible((count) => count + LEGAL_ENTITY_PAGE_SIZE);
+    },
+    [visible],
   );
   useEffect(() => {
-    const target = sentinel.current;
-    if (!more || target === null || typeof IntersectionObserver === "undefined")
-      return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) loadMore();
-      },
-      { rootMargin: "240px 0px" },
-    );
-    observer.observe(target);
-    return () => observer.disconnect();
-  }, [more, visible, loadMore]);
+    const index = focusNewRow.current;
+    if (index === null) return;
+    rows.current?.children[index]
+      ?.querySelector<HTMLButtonElement>("button")
+      ?.focus();
+    focusNewRow.current = null;
+  }, [visible]);
   return (
     <>
-      {visibleItems.map(render)}
+      <div ref={rows}>{visibleItems.map(render)}</div>
       {more && (
-        <div
-          className="exposure-pagination legal-entities__pagination"
-          ref={sentinel}
-        >
-          <span>
-            Showing {visibleItems.length} of {items.length} {label}
-          </span>
-          <Button onClick={loadMore} tone="secondary">
-            Load more {label}
-          </Button>
-        </div>
+        <CollectionFooter
+          className="legal-entities__pagination"
+          shown={visibleItems.length}
+          total={items.length}
+          label={label}
+          hasMore={more}
+          mode={mode}
+          onLoadMore={loadMore}
+        />
       )}
     </>
   );
@@ -2696,6 +2667,12 @@ function LegalEntitiesInventory({
                 items={activeEntities}
                 key={searchQuery}
                 label="entities"
+                mode={
+                  historicalEntities.length === 0 &&
+                  excludedCandidates.length === 0
+                    ? "automatic"
+                    : "manual"
+                }
                 render={(entity) => (
                   <EntityRow
                     entity={entity}
@@ -2723,6 +2700,9 @@ function LegalEntitiesInventory({
                     items={historicalEntities}
                     key={searchQuery}
                     label="historical entities"
+                    mode={
+                      excludedCandidates.length === 0 ? "automatic" : "manual"
+                    }
                     render={(entity) => (
                       <EntityRow
                         entity={entity}
@@ -2757,6 +2737,7 @@ function LegalEntitiesInventory({
                   items={excludedCandidates}
                   key={searchQuery}
                   label="excluded sources"
+                  mode="automatic"
                   render={(candidate) => (
                     <CandidateRow
                       candidate={candidate}
