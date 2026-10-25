@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { BROWSER_TEST_VITE_READINESS_PATH } from "./browser-test-readiness";
 import {
   BROWSER_TEST_EXECUTION,
+  assertBrowserSnapshotRenderer,
   BROWSER_TEST_LANES,
   BROWSER_TEST_SCHEDULE,
   browserServerFailureExitCode,
@@ -17,6 +18,23 @@ import {
 const assigned = Object.values(BROWSER_TEST_LANES).flat();
 
 describe("browser test lanes", () => {
+  it("permits the canonical Linux renderer and native macOS", () => {
+    expect(() => assertBrowserSnapshotRenderer("linux", "x64")).not.toThrow();
+    expect(() =>
+      assertBrowserSnapshotRenderer("darwin", "arm64"),
+    ).not.toThrow();
+    expect(() => assertBrowserSnapshotRenderer("darwin", "x64")).not.toThrow();
+  });
+
+  it("rejects Linux architectures that would overwrite CI baselines", () => {
+    expect(() => assertBrowserSnapshotRenderer("linux", "arm64")).toThrow(
+      /Linux screenshot baselines require x64 to match CI/u,
+    );
+    expect(() => assertBrowserSnapshotRenderer("linux", "arm")).toThrow(
+      /do not replace Linux baselines with ARM captures/u,
+    );
+  });
+
   it("keeps every repository browser spec assigned exactly once", () => {
     const actual = discoverBrowserSpecFiles("e2e");
     expect(() => validateBrowserTestLanes(actual)).not.toThrow();

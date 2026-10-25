@@ -972,6 +972,8 @@
     "scripts/browser-test-lanes.test.ts :: browser test lanes > fails closed for unassigned, duplicate and stale specs",
     "scripts/browser-test-lanes.test.ts :: browser test lanes > gives concurrent lanes distinct non-ephemeral runtime ports",
     "scripts/browser-test-lanes.test.ts :: browser test lanes > keeps every repository browser spec assigned exactly once",
+    "scripts/browser-test-lanes.test.ts :: browser test lanes > permits the canonical Linux renderer and native macOS",
+    "scripts/browser-test-lanes.test.ts :: browser test lanes > rejects Linux architectures that would overwrite CI baselines",
     "scripts/browser-test-lanes.test.ts :: browser test lanes > rejects unknown lane names",
     "scripts/cash-request-d1-cost.test.ts :: bounds a day of real cash GET/POST requests with 100 accepted accounts, exceptions and historical proposals",
     "scripts/ci-test-sequencer.test.ts :: starts costly fixtures early without dropping, duplicating or mutating discovered specifications",
