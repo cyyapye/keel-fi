@@ -58,6 +58,13 @@ For material changes or screenshot-baseline updates, read
 [visual-verification.md](references/visual-verification.md). It owns screenshot
 commands, supported-platform baselines, artifact handling, and visual replay.
 
+For material design delivery or a requested rendered-design review, use
+[design-review.md](references/design-review.md) and `.tugling/ui.json` to
+connect the project brief, approved components, native evidence and independent
+visual challenge. Keep mechanical edits on the focused path above. The review
+helper records evidence coverage; it does not replace the product contract or
+native verification.
+
 ## Follow the affected boundary
 
 - When changing collection loading, request behavior, or a read model, trace the

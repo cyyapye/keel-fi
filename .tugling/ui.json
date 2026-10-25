@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "project": "Keel",
+  "contracts": [
+    "docs/product/ui-and-copy.md",
+    "docs/product/ui-library.md",
+    ".codex/skills/keel-ui-quality/references/design-review.md"
+  ],
+  "sourceRoots": ["apps/web/src", "packages/ui/src", "e2e"],
+  "sourceFiles": [
+    "Makefile",
+    "package.json",
+    "playwright.config.ts",
+    "scripts/ui-design-review.ts",
+    "scripts/shared-ui-usage.test.ts",
+    ".codex/skills/keel-ui-quality/SKILL.md"
+  ],
+  "theme": "packages/ui/src/styles.css",
+  "components": "packages/ui/src/index.tsx",
+  "catalogue": "e2e/ui-catalogue/keel-ui-catalogue.tsx",
+  "references": {
+    "density": "Holdings",
+    "controls": "Scenarios",
+    "compositions": "Approved UI catalogue"
+  },
+  "checks": {
+    "structure": ["make", "test", "TEST_ARGS=scripts/shared-ui-usage.test.ts"],
+    "browser": ["make", "e2e", "E2E_ARGS=<affected specs>"],
+    "materialHandoff": ["make", "verify"]
+  },
+  "criteria": [
+    {
+      "id": "meaning",
+      "question": "What is the primary object and user task? Do grouping, labels and visible qualifications preserve the domain meaning? Do not infer unsupported financial facts."
+    },
+    {
+      "id": "economy",
+      "question": "Does each visible fact, label, notice and action earn its place? Identify avoidable repetition within one context while preserving useful orientation, accessible form labels and essential caveats."
+    },
+    {
+      "id": "hierarchy",
+      "question": "Can the primary answer/action, related facts and supporting metadata be distinguished by type, reading order and spacing? For repeated rows, trace each identity to its value and action; check whether the parent group and sibling boundaries remain clear on a narrow screen. Compare with the approved reference, including within and between groups."
+    },
+    {
+      "id": "theme",
+      "question": "Does the rendered composition use Keel's established type, surfaces, controls and spacing? Check the actual appearance, not just component names."
+    },
+    {
+      "id": "responsive",
+      "question": "Is the narrow screen a usable composition with readable labels and reachable actions? Check crowding, clipping, target sizes and navigation alternatives; use browser assertions for geometry."
+    },
+    {
+      "id": "states",
+      "question": "Are the states required by this task legible and truthful, including focus/selection/disabled and local recovery when relevant? Separate visible evidence from behavior that needs a native test."
+    }
+  ]
+}
