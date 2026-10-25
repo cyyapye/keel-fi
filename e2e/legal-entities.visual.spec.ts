@@ -718,7 +718,7 @@ test("keeps historical ownership and an explicit structure clear with incomplete
 test("starts with compact triage and a visible entity inventory", async ({
   page,
   isMobile,
-}) => {
+}, testInfo) => {
   if (isMobile) await page.setViewportSize({ width: 393, height: 680 });
   await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
   await routeHoldingsPage(page, {
