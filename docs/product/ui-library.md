@@ -64,21 +64,22 @@ outlined points, readable ticks and hover/tap/keyboard details. ChartContainer
 provides the shared surface and tooltip; chart-specific marks remain composition
 properties rather than changing every chart type globally.
 
-## Quiet record groups
+## Alternating record rows
 
-The user approved the **Quiet group** proposal on 2026-10-25 for Holdings and
-the shared library. `RecordGroup` gives related rows one quiet filled surface;
+`RecordGroup` distinguishes related records with alternating row backgrounds;
 `RecordRow` supplies title, related detail, value, metadata and action slots.
-Subtle separators distinguish sibling records, with 16px inner padding. The
-title is 14px/600, value 16px/650, and supporting text 13px/400. A narrow row
-keeps the value beside its identity and the action beside its supporting facts.
-At 600px of available group width, the action occupies a trailing column.
+Odd rows use the light ink wash and even rows show the canvas, without
+additional row dividers. Each row has 16px inner padding. The title is 14px/600,
+value 16px/650, and supporting text 13px/400. A narrow row keeps the value
+beside its identity and the action beside its supporting facts. At 600px of
+available group width, the action occupies a trailing column.
 
 Use this composition inside an expanded disclosure when its records belong to
 one parent, including a single record. Keep parent-level copy, sharing,
-pagination and other sections outside the filled surface. Do not stripe these
-rows or apply the surface to every disclosure. Use the existing `RecordItem` for
-standalone records with richer expanded content.
+pagination and other sections outside the group. A single record uses the first
+shaded row; each group starts its alternation again. Do not apply this treatment
+to every disclosure. Use the existing `RecordItem` for standalone records with
+richer expanded content.
 
 Within a public exposure, promote the account name and show a shared dated price
 once. Keep legal vehicles distinct in private or combined exposures. Unavailable

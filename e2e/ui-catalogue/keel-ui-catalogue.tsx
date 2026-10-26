@@ -104,7 +104,7 @@ const groups: Record<string, { page: Page; names: string[]; states: string }> =
       page: "compositions",
       names: ["RecordItem", "RecordGroup", "RecordRow"],
       states:
-        "Wrapping title, detail, provenance and actions; quiet groups with multiple, single, unavailable and empty records",
+        "Wrapping title, detail, provenance and actions; alternating rows with multiple, single, unavailable and empty records",
     },
     Typography: {
       page: "foundations",
@@ -979,7 +979,7 @@ function Foundations() {
     ["Muted", "--muted", "Supporting text"],
     ["Faint", "--faint", "Low-emphasis metadata"],
     ["Line", "--line", "Field and control edges"],
-    ["Soft line", "--line-soft", "Quiet group separators"],
+    ["Soft line", "--line-soft", "Subtle dividers"],
     ["Wash", "--wash", "Subtle surface fill"],
   ] as const;
   const spaces = Object.entries(CATALOGUE_TOKENS).filter(([name]) =>

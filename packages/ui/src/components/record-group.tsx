@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "../lib/utils";
 
-/** One quiet surface for related records. Disclosure and loading belong to the caller. */
+/** Alternating surfaces for related records. Disclosure and loading belong to the caller. */
 export function RecordGroup({ className, ...props }: ComponentProps<"div">) {
   return (
     <div role="list" {...props} className={cn("record-group", className)} />
