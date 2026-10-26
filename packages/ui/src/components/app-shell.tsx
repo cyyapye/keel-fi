@@ -22,6 +22,8 @@ type AppShellProps<Id extends string> = {
   operatorInitials: string;
   operatorName: string;
   pageTitle: string;
+  referenceLinks?: readonly { href: string; label: string }[];
+  referenceLabel?: string;
 };
 
 export function AppShell<Id extends string>({
@@ -36,6 +38,8 @@ export function AppShell<Id extends string>({
   operatorInitials,
   operatorName,
   pageTitle,
+  referenceLinks = [],
+  referenceLabel = "Reference",
 }: AppShellProps<Id>) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -67,7 +71,7 @@ export function AppShell<Id extends string>({
       }
 
       const navigationButtons = Array.from(
-        navigationElement.querySelectorAll<HTMLButtonElement>("button"),
+        navigationElement.querySelectorAll<HTMLElement>("button, a[href]"),
       );
       const lastButton = navigationButtons.at(-1);
 
@@ -122,6 +126,21 @@ export function AppShell<Id extends string>({
       </button>
     ));
 
+  const references = referenceLinks.length > 0 && (
+    <div
+      className="navigation-reference"
+      role="group"
+      aria-label={referenceLabel}
+    >
+      <p className="navigation-reference__label">{referenceLabel}</p>
+      {referenceLinks.map((link) => (
+        <a href={link.href} key={link.href}>
+          {link.label}
+        </a>
+      ))}
+    </div>
+  );
+
   return (
     <div className="app-shell" data-slot="app-shell">
       <aside className="sidebar" data-slot="sidebar">
@@ -132,7 +151,10 @@ export function AppShell<Id extends string>({
             {brandSubtitle !== undefined && <small>{brandSubtitle}</small>}
           </div>
         </div>
-        <nav aria-label="Primary navigation">{navigation(false)}</nav>
+        <div className="sidebar__navigation">
+          <nav aria-label="Primary navigation">{navigation(false)}</nav>
+          {references}
+        </div>
         <div className="sidebar__footer">
           <div className="user-avatar">{operatorInitials}</div>
           <div>
@@ -178,6 +200,7 @@ export function AppShell<Id extends string>({
         ref={mobileNavigationRef}
       >
         {navigation(true)}
+        {references}
       </nav>
     </div>
   );

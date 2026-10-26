@@ -155,6 +155,7 @@ import {
 } from "./api";
 import {
   holdingsNavigation,
+  referenceLinks,
   type HoldingsView,
   navigation,
   pageHeading,
@@ -9341,6 +9342,7 @@ export function App() {
 
   return (
     <AppShell
+      referenceLinks={referenceLinks}
       activeItemId={activeScreen}
       brandMark={<BrandMark />}
       brandName="Keel"

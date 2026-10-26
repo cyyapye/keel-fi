@@ -25,6 +25,21 @@ bypasses; browser tests cover interaction and geometry; the reviewer challenges
 meaning, repetition, composition and fidelity to approved references. An LLM
 judgment supplements these checks and does not replace them.
 
+## Discover components before coding
+
+The adapter's `agentGuide` points to `make ui-guide`. Query a known component or
+a task phrase to retrieve focused guidance; for example,
+`make ui-guide UI_QUERY=RecordGroup` or `UI_QUERY='infinite scroll'`. Read the
+actual API declaration, linked example context, canonical rules and required
+states before selecting a control. Open the matching `/ui/#...` page to inspect
+its rendering. The index is generated from current source during queries and web
+builds, and native tests reject missing exports, examples and rules.
+
+The Keel skill routes this lookup; Tugling does not crawl the human catalogue or
+make a visual judgment from JSON. A screenshot review still checks meaning and
+composition after implementation. Other projects provide their own guide paths
+and design rules through their adapter.
+
 ## Prepare a review
 
 Keep runtime packets under an ignored local directory or the task's artifact

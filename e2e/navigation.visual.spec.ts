@@ -160,7 +160,7 @@ test("keeps primary navigation legible and keyboard accessible", async ({
     await expect(closeMenuButton).toBeFocused();
     await page.keyboard.press("Shift+Tab");
     await expect(
-      mobileNavigation.getByRole("button", { name: "Forecast History" }),
+      mobileNavigation.getByRole("link", { name: "UI catalogue" }),
     ).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(closeMenuButton).toBeFocused();
@@ -183,6 +183,74 @@ test("keeps primary navigation legible and keyboard accessible", async ({
       threshold: 0.25,
     });
   }
+
+  // Use the real Vite/static catalogue entry; do not fulfil it with a fixture.
+  if (mobile) await menuButton.click();
+  const reference = (
+    mobile ? mobileNavigation : page.locator(".sidebar")
+  ).getByRole("group", { name: "Reference", exact: true });
+  const catalogue = reference.getByRole("link", {
+    name: "UI catalogue",
+    exact: true,
+  });
+  await expect(catalogue).toHaveAttribute("href", "/ui/");
+  expect(
+    await catalogue.evaluate((link) => link.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(44);
+  const portfolioRequests: string[] = [];
+  page.on("request", (request) => {
+    // The page we are leaving can still finish its initial requests while
+    // Vite builds the separate catalogue. Attribute requests to their document.
+    if (
+      new URL(request.url()).pathname.startsWith("/api/") &&
+      new URL(request.frame().url()).pathname.startsWith("/ui/")
+    )
+      portfolioRequests.push(request.url());
+  });
+  await catalogue.click();
+  await expect(page).toHaveURL(/\/ui\/$/u);
+  await expect(
+    page.getByRole("heading", { name: "Foundations", exact: true, level: 1 }),
+  ).toBeVisible();
+  const indexResponse = await page.request.get("/ui/agent-index.json");
+  expect(indexResponse.ok()).toBe(true);
+  const index = await indexResponse.json();
+  expect(index.entries).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: "Records",
+        reference: "/ui/reference/Records.json",
+      }),
+    ]),
+  );
+  expect(portfolioRequests).toEqual([]);
+  if (mobile)
+    await page.getByRole("button", { name: "Open navigation menu" }).click();
+  const returnLink = (
+    mobile
+      ? page.getByRole("navigation", { name: "Mobile navigation" })
+      : page.locator(".sidebar")
+  ).getByRole("link", { name: "Back to Keel" });
+  await expect(returnLink).toBeVisible();
+  await expect(mobile ? page : page.locator(".sidebar")).toHaveScreenshot(
+    "catalogue-navigation.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+  if (mobile) {
+    const close = page.getByRole("button", { name: "Close navigation menu" });
+    await close.focus();
+    await page.keyboard.press("Shift+Tab");
+    await expect(returnLink).toBeFocused();
+  }
+  await returnLink.click();
+  await expect(
+    page.getByRole("heading", { name: "Financial independence", level: 1 }),
+  ).toBeVisible();
 
   const viewportWidths = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,

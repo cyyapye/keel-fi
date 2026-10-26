@@ -1,3 +1,4 @@
+import { resolveDevPorts } from "./dev-ports";
 import { build } from "esbuild";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -10,7 +11,7 @@ const fixture = join(repository, "e2e/ui-catalogue");
 const webRequire = createRequire(join(repository, "apps/web/package.json"));
 
 /** Synthetic fixtures stay under e2e; the catalogue always bundles production UI. */
-export async function buildUiCatalogue(): Promise<string> {
+export async function buildUiCatalogue(returnUrl = "/"): Promise<string> {
   const paths = [
     "packages/ui/src/styles.css",
     "apps/web/src/styles.css",
@@ -39,6 +40,7 @@ export async function buildUiCatalogue(): Promise<string> {
     jsx: "automatic",
     define: {
       "process.env.NODE_ENV": '"production"',
+      CATALOGUE_RETURN_URL: JSON.stringify(returnUrl),
       CATALOGUE_REVISION: JSON.stringify("local sources"),
       CATALOGUE_TOKENS: JSON.stringify(tokens),
     },
@@ -61,7 +63,9 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  const html = await buildUiCatalogue();
+  const html = await buildUiCatalogue(
+    `http://127.0.0.1:${resolveDevPorts().webPort}/`,
+  );
   const port = 18462;
   createServer((_request, response) => {
     response.writeHead(200, {

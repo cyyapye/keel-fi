@@ -8,9 +8,11 @@ contributor-documentation changes do not need a UI packet.
 
 Read `.tugling/ui.json`: it identifies the theme, component exports, catalogue,
 contracts, reference screens and native commands. Inspect the relevant sources
-and current render. Pick a reference because it solves the same presentation
-problem; do not make every screen look like the same example. Reuse this adapter
-on subsequent tasks, checking affected paths for drift.
+and current render. Query the adapter's agent guide for relevant controls,
+compositions, usage rules and examples before selecting components. Pick a
+reference because it solves the same presentation problem; do not make every
+screen look like the same example. Reuse this adapter on subsequent tasks,
+checking affected paths for drift.
 
 ## 2. Define the design
 

@@ -207,6 +207,10 @@ pilot-verify:
 pilot-clean:
 	@python3 -I scripts/tugling-pilot.py cleanup
 
-.PHONY: ui-catalogue
+.PHONY: ui-catalogue ui-guide
+export UI_QUERY
+ui-guide:
+	$(PNPM) exec tsx scripts/ui-guide.ts
+
 ui-catalogue:
 	$(PNPM) exec tsx scripts/ui-catalogue.ts

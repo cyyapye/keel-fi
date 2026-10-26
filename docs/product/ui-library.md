@@ -2,8 +2,29 @@
 
 `@keel/ui` owns reusable control behavior and the current ink/canvas theme. The
 executable catalogue imports those same sources; its synthetic state lives only
-in `e2e/ui-catalogue`. Start it with `make ui-catalogue` and open the URL
-printed by the command. Rebuild/restart it after changing shared sources.
+in `e2e/ui-catalogue`. Open **Reference → UI catalogue** in the desktop sidebar
+or mobile menu, or `/ui/` on the local/preview origin. **Back to Keel** returns
+to the application. The page is a separate static reference bundle, makes no
+portfolio API requests, and uses only synthetic browser fixtures. Preview's
+existing access policy still applies. `make ui-catalogue` remains available as a
+standalone server; rebuild/restart that server after changing shared sources.
+
+## Agent entry point
+
+Run `make ui-guide` for the searchable index, then
+`make ui-guide UI_QUERY=RecordGroup` (or `UI_QUERY='infinite scroll'`) for the
+relevant APIs, usage rules, required states, example code and verification
+paths. The same index ships at `/ui/agent-index.json`; each entry links to a
+focused JSON reference. Compositions such as history, import, progress and
+recovery are indexed alongside components and are explicitly marked as
+application recipes.
+
+The generator reads current exports and declarations, canonical rules from this
+document, and the actual typechecked catalogue examples. JSX fragments include
+the owning function location for state/import context; they are not standalone
+copy-paste components. Demo state and fixture-only CSS stay in browser tests.
+Use the current theme tokens and check the rendered result. Export coverage and
+source freshness do not establish visual quality or complete state coverage.
 
 ## Approved design and scope
 
@@ -160,6 +181,10 @@ Catalogue examples live in their permanent categories: choice and form controls
 under Forms & actions, responsive navigation under Interactions, and both
 collection modes under Collection loading. The former additions URL opens Forms
 & actions for compatibility.
+
+Separate application reference links from core task navigation with a labeled
+Reference group, including in the mobile menu. Keep them reachable by keyboard
+and allow the menu/sidebar to scroll on short screens.
 
 The Component index is permanent navigation and export coverage, not a claim
 that every state has been verified. Keep its links and documented states

@@ -11,6 +11,7 @@ import type { ReactNode } from "react";
 
 import {
   holdingsNavigation,
+  referenceLinks,
   type HoldingsView,
   navigation,
   pageHeading,
@@ -97,6 +98,7 @@ export function HoldingsRouteShell({ status }: { status?: ReactNode }) {
 export function HoldingsInitialShell() {
   return (
     <AppShell
+      referenceLinks={referenceLinks}
       activeItemId="holdings"
       brandMark={<BrandMark />}
       brandName="Keel"
