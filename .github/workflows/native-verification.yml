@@ -18,7 +18,7 @@ jobs:
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
       TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v7
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           path: keel
@@ -27,18 +27,18 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           repository: cyyapye/tugling
           ref: 01af7eda080d3ef49d9fabcb7dfdf40e949a693c
           path: tugling-candidate
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           run_install: false
           version: 11.9.0
           package_json_file: keel/package.json
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
           cache: pnpm
@@ -76,7 +76,7 @@ jobs:
           make pilot-verify > .tugling/local/pilot-required.json
       - name: Validate and publish the complete receipt
         run: python3 -I scripts/ci-verification.py publish
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: native-required-${{ github.sha }}-${{ github.run_attempt }}
           path: keel/.tugling/local/verification/required.json
@@ -85,7 +85,7 @@ jobs:
           retention-days: 7
       - name: Retain native diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
           path: |
