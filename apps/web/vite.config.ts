@@ -1,3 +1,4 @@
+import { uiCataloguePlugin } from "../../scripts/ui-catalogue-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { browserTestReadinessPlugin } from "../../scripts/browser-test-readiness";
@@ -11,6 +12,7 @@ export default defineConfig({
   ...(browserCacheDir === undefined ? {} : { cacheDir: browserCacheDir }),
   plugins: [
     react(),
+    uiCataloguePlugin(),
     ...(browserReadinessEnabled ? [browserTestReadinessPlugin()] : []),
   ],
   server: {

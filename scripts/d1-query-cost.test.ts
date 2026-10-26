@@ -133,13 +133,17 @@ describe("complete production SQL inventory", () => {
         "CREATE TABLE cost_counter_holdout (id TEXT PRIMARY KEY, label TEXT NOT NULL)",
       )
       .run();
-    await fixture.database.batch(
-      Array.from({ length: 120 }, (_, index) =>
-        fixture.database
-          .prepare("INSERT INTO cost_counter_holdout VALUES (?, 'synthetic')")
-          .bind(String(index)),
-      ),
-    );
+    // Seed the same holdout in one statement so setup does not dominate this
+    // counter assertion when native unit and browser lanes share the CI host.
+    await fixture.database
+      .prepare(
+        `WITH RECURSIVE holdout(id) AS (
+          SELECT 0 UNION ALL SELECT id + 1 FROM holdout WHERE id < 119
+        )
+        INSERT INTO cost_counter_holdout (id, label)
+        SELECT CAST(id AS TEXT), 'synthetic' FROM holdout`,
+      )
+      .run();
     const scan = await fixture.database
       .prepare("SELECT id FROM cost_counter_holdout WHERE label = 'absent'")
       .all();

@@ -65,6 +65,33 @@ visual challenge. Keep mechanical edits on the focused path above. The review
 helper records evidence coverage; it does not replace the product contract or
 native verification.
 
+## Find approved controls before coding
+
+Read `.tugling/ui.json` and use its `agentGuide` entry. Start with
+`make ui-guide` when the component is unknown; then query the relevant component
+or task, for example `make ui-guide UI_QUERY=RecordGroup` or
+`make ui-guide UI_QUERY='infinite scroll'`. Read the returned usage rules,
+current API declarations, required states and example source before designing or
+implementing. JSX fragments depend on their linked owner function; do not copy
+fixture data, state controls or catalogue-only styles into the application.
+
+Inspect the matching `/ui/#...` page on the running app for visual context. The
+guide is generated from the same catalogue, production exports and canonical
+rules; its coverage is not proof of design quality. Keep native browser checks
+and the independent rendered review required above. If the guide fails because
+an API, rule or example moved, repair its reference rather than inventing an
+API.
+
+Before handoff, maintain the affected design-system inputs in the same change.
+Follow
+[the guide upkeep map](../../../docs/product/ui-library.md#maintain-the-guide-with-ui-changes)
+for canonical rules, inventory, when-to-use guidance and live examples. Check
+that prose still matches behavior even when links and types pass. Regenerate
+through the guide command; never hand-edit its JSON. Re-query the affected entry
+and run the checks required by the change's scope. Existing-pattern reuse needs
+no guide edit when its contract is unchanged. Report the updated inputs, or why
+no update was needed. Backend-only work does not acquire this requirement.
+
 ## Follow the affected boundary
 
 - When changing collection loading, request behavior, or a read model, trace the

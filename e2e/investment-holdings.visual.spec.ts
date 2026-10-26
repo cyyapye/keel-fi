@@ -1011,12 +1011,17 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ]);
   await expect(nvda.getByRole("list", { name: "NVDA positions" })).toHaveCSS(
     "background-color",
-    "rgba(38, 34, 56, 0.06)",
+    "rgba(0, 0, 0, 0)",
   );
-  await expect(nvda.locator(".record-row").nth(1)).toHaveCSS(
-    "border-top-color",
-    /0\.11/u,
-  );
+  for (const [index, row] of (
+    await nvda.locator(".record-row").all()
+  ).entries()) {
+    await expect(row).toHaveCSS(
+      "background-color",
+      index % 2 === 0 ? "rgba(38, 34, 56, 0.06)" : "rgba(0, 0, 0, 0)",
+    );
+    await expect(row).toHaveCSS("border-top-width", "0px");
+  }
   const rowGeometry = await nvda
     .locator(".record-row")
     .first()

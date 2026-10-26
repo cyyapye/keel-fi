@@ -13,7 +13,10 @@
     "playwright.config.ts",
     "scripts/ui-design-review.ts",
     "scripts/shared-ui-usage.test.ts",
-    ".codex/skills/keel-ui-quality/SKILL.md"
+    ".codex/skills/keel-ui-quality/SKILL.md",
+    "scripts/ui-guide.ts",
+    "scripts/ui-catalogue.ts",
+    "scripts/ui-catalogue-plugin.ts"
   ],
   "theme": "packages/ui/src/styles.css",
   "components": "packages/ui/src/index.tsx",
@@ -53,5 +56,10 @@
       "id": "states",
       "question": "Are the states required by this task legible and truthful, including focus/selection/disabled and local recovery when relevant? Separate visible evidence from behavior that needs a native test."
     }
-  ]
+  ],
+  "agentGuide": {
+    "indexCommand": ["make", "ui-guide"],
+    "queryCommand": ["make", "ui-guide", "UI_QUERY=<component or task>"],
+    "previewIndex": "/ui/agent-index.json"
+  }
 }

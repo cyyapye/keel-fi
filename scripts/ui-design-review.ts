@@ -24,6 +24,13 @@ const adapterSchema = z.strictObject({
   theme: text,
   components: text,
   catalogue: text,
+  agentGuide: z
+    .strictObject({
+      indexCommand: z.array(text).min(1),
+      queryCommand: z.array(text).min(1),
+      previewIndex: text,
+    })
+    .optional(),
   references: z.record(text, text),
   checks: z.record(text, z.array(text).min(1)),
   criteria: z.array(z.strictObject({ id, question: text })).min(1),

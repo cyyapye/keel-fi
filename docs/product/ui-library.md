@@ -2,8 +2,55 @@
 
 `@keel/ui` owns reusable control behavior and the current ink/canvas theme. The
 executable catalogue imports those same sources; its synthetic state lives only
-in `e2e/ui-catalogue`. Start it with `make ui-catalogue` and open the URL
-printed by the command. Rebuild/restart it after changing shared sources.
+in `e2e/ui-catalogue`. Open **Reference → UI catalogue** in the desktop sidebar
+or mobile menu, or `/ui/` on the local/preview origin. **Back to Keel** returns
+to the application. The page is a separate static reference bundle, makes no
+portfolio API requests, and uses only synthetic browser fixtures. Preview's
+existing access policy still applies. `make ui-catalogue` remains available as a
+standalone server; rebuild/restart that server after changing shared sources.
+
+## Agent entry point
+
+Run `make ui-guide` for the searchable index, then
+`make ui-guide UI_QUERY=RecordGroup` (or `UI_QUERY='infinite scroll'`) for the
+relevant APIs, usage rules, required states, example code and verification
+paths. The same index ships at `/ui/agent-index.json`; each entry links to a
+focused JSON reference. Compositions such as history, import, progress and
+recovery are indexed alongside components and are explicitly marked as
+application recipes.
+
+The generator reads current exports and declarations, canonical rules from this
+document, and the actual typechecked catalogue examples. JSX fragments include
+the owning function location for state/import context; they are not standalone
+copy-paste components. Demo state and fixture-only CSS stay in browser tests.
+Use the current theme tokens and check the rendered result. Export coverage and
+source freshness do not establish visual quality or complete state coverage.
+
+## Maintain the guide with UI changes
+
+The agent changing a shared component, approved composition or usage rule owns
+the affected guide inputs in the same change. The generated JSON is build
+output; never edit it directly.
+
+| Input                                           | Update when                                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `packages/ui/src`                               | The shared API, behavior or theme changes.                                                        |
+| This document and `docs/product/ui-and-copy.md` | An approved usage or design rule changes. Keep each rule in its canonical location.               |
+| `e2e/ui-catalogue/catalogue-manifest.ts`        | Exports, grouping, catalogue destinations or required states change.                              |
+| `e2e/ui-catalogue/agent-guidance.ts`            | When-to-use guidance or rule/example references change.                                           |
+| `e2e/ui-catalogue/*.tsx`                        | A component or composition needs a new or corrected rendered example. Synthetic state stays here. |
+
+Renaming or removing a control includes migrating its inventory, guidance and
+example references. Read the affected prose against actual behavior: a valid
+link does not establish that a recommendation is still correct. Reusing an
+existing pattern without changing its contract needs no guide edit.
+
+Query the affected entry with `make ui-guide UI_QUERY=...`, inspect its matching
+catalogue example when appearance or behavior changed, and run the relevant
+checks below. In particular, `make test TEST_ARGS=scripts/ui-guide.test.ts`
+checks export coverage and rule/example references. Keep the UI skill's existing
+scope rules for mechanical corrections and material changes. The handoff names
+the updated inputs and checks, or explains why no guide update was needed.
 
 ## Approved design and scope
 
@@ -64,21 +111,22 @@ outlined points, readable ticks and hover/tap/keyboard details. ChartContainer
 provides the shared surface and tooltip; chart-specific marks remain composition
 properties rather than changing every chart type globally.
 
-## Quiet record groups
+## Alternating record rows
 
-The user approved the **Quiet group** proposal on 2026-10-25 for Holdings and
-the shared library. `RecordGroup` gives related rows one quiet filled surface;
+`RecordGroup` distinguishes related records with alternating row backgrounds;
 `RecordRow` supplies title, related detail, value, metadata and action slots.
-Subtle separators distinguish sibling records, with 16px inner padding. The
-title is 14px/600, value 16px/650, and supporting text 13px/400. A narrow row
-keeps the value beside its identity and the action beside its supporting facts.
-At 600px of available group width, the action occupies a trailing column.
+Odd rows use the light ink wash and even rows show the canvas, without
+additional row dividers. Each row has 16px inner padding. The title is 14px/600,
+value 16px/650, and supporting text 13px/400. A narrow row keeps the value
+beside its identity and the action beside its supporting facts. At 600px of
+available group width, the action occupies a trailing column.
 
 Use this composition inside an expanded disclosure when its records belong to
 one parent, including a single record. Keep parent-level copy, sharing,
-pagination and other sections outside the filled surface. Do not stripe these
-rows or apply the surface to every disclosure. Use the existing `RecordItem` for
-standalone records with richer expanded content.
+pagination and other sections outside the group. A single record uses the first
+shaded row; each group starts its alternation again. Do not apply this treatment
+to every disclosure. Use the existing `RecordItem` for standalone records with
+richer expanded content.
 
 Within a public exposure, promote the account name and show a shared dated price
 once. Keep legal vehicles distinct in private or combined exposures. Unavailable
@@ -159,6 +207,10 @@ Catalogue examples live in their permanent categories: choice and form controls
 under Forms & actions, responsive navigation under Interactions, and both
 collection modes under Collection loading. The former additions URL opens Forms
 & actions for compatibility.
+
+Separate application reference links from core task navigation with a labeled
+Reference group, including in the mobile menu. Keep them reachable by keyboard
+and allow the menu/sidebar to scroll on short screens.
 
 The Component index is permanent navigation and export coverage, not a claim
 that every state has been verified. Keep its links and documented states

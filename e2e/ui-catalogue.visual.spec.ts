@@ -86,21 +86,26 @@ const screenshotOptions = {
   ),
 };
 
-test("quiet record groups keep identities, values and actions readable", async ({
+test("record groups keep identities, values and actions readable", async ({
   page,
 }) => {
   await page.goto("/keel-ui-catalogue.html#compositions");
   const example = page.getByRole("region", {
-    name: "Quiet record group",
+    name: "Alternating record rows",
     exact: true,
   });
   const group = example.getByRole("list", { name: "Example positions" });
   await expect(group.getByRole("listitem")).toHaveCount(3);
-  await expect(group).toHaveCSS("background-color", "rgba(38, 34, 56, 0.06)");
-  await expect(group.locator(".record-row").nth(1)).toHaveCSS(
-    "border-top-width",
-    "1px",
-  );
+  await expect(group).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  for (const [index, row] of (
+    await group.getByRole("listitem").all()
+  ).entries()) {
+    await expect(row).toHaveCSS(
+      "background-color",
+      index % 2 === 0 ? "rgba(38, 34, 56, 0.06)" : "rgba(0, 0, 0, 0)",
+    );
+    await expect(row).toHaveCSS("border-top-width", "0px");
+  }
   const details = example.getByRole("button", {
     name: "Details for Fidelity brokerage",
     exact: true,
@@ -119,6 +124,10 @@ test("quiet record groups keep identities, values and actions readable", async (
   );
   await example.getByRole("button", { name: "Single", exact: true }).click();
   await expect(group.getByRole("listitem")).toHaveCount(1);
+  await expect(group.getByRole("listitem")).toHaveCSS(
+    "background-color",
+    "rgba(38, 34, 56, 0.06)",
+  );
   await example
     .getByRole("button", { name: "Unavailable", exact: true })
     .click();

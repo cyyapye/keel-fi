@@ -658,7 +658,7 @@ export function FieldSaveExample() {
   );
 }
 
-function QuietRecordGroupExample() {
+function RecordGroupExample() {
   const [state, setState] = useState("Multiple");
   const [selected, setSelected] = useState<string | null>(null);
   const publicRows = [
@@ -707,12 +707,12 @@ function QuietRecordGroupExample() {
         : publicRows;
   return (
     <Example
-      title="Quiet record group"
-      description="One quiet surface contains related records; subtle dividers separate the rows. Use it inside a disclosure, including one-record groups. Keep unrelated sections outside the surface."
+      title="Alternating record rows"
+      description="Alternate a light ink wash with the canvas background to distinguish related rows. The first row is shaded, including in a one-record group. Use this inside a disclosure; keep unrelated sections outside the group."
       wide
     >
       <PreviewStates
-        label="Quiet group preview"
+        label="Alternating rows preview"
         value={state}
         values={["Multiple", "Single", "Unavailable", "Empty"]}
         onChange={(value) => {
@@ -724,7 +724,7 @@ function QuietRecordGroupExample() {
         <EmptyState title="No positions" compact icon={null} />
       ) : (
         <Collapsible defaultOpen key={state}>
-          <CollapsibleTrigger className="catalogue-quiet-summary">
+          <CollapsibleTrigger className="catalogue-record-summary">
             <span>
               {state === "Unavailable" ? "Northstar Robotics" : "NVDA"}
               <small>
@@ -1377,7 +1377,7 @@ export function Compositions() {
         stays in this preview.
       </p>
       <div className="catalogue-grid candidate-examples">
-        <QuietRecordGroupExample />
+        <RecordGroupExample />
         <RecordRowsExample />
         <HistoryExample />
         <ImportExample />

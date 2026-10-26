@@ -44,3 +44,7 @@ export function pageHeading(screen: Screen): string {
 export function pathForScreen(screen: Screen): string {
   return screen === "dashboard" ? "/" : `/${screen}`;
 }
+
+export const referenceLinks = [
+  { href: "/ui/", label: "UI catalogue" },
+] as const;
