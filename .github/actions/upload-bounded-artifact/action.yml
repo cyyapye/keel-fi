@@ -1,0 +1,41 @@
+name: Upload bounded artifact
+description: Check explicit files and repository capacity before any upload.
+inputs:
+  kind:
+    description: receipt, diagnostics, backup or release
+    required: true
+  name:
+    description: Unique artifact name
+    required: true
+  path:
+    description:
+      One to four explicit files, relative to the checkout or absolute
+    required: true
+  status:
+    description: Job status before packaging/upload
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Enforce payload, retention and repository storage budgets
+      if: always()
+      id: budget
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../..
+      env:
+        ARTIFACT_KIND: ${{ inputs.kind }}
+        ARTIFACT_STATUS: ${{ inputs.status }}
+        ARTIFACT_PATHS: ${{ inputs.path }}
+        GITHUB_TOKEN: ${{ github.token }}
+      run: pnpm exec tsx scripts/ci-artifact-budget.ts
+    - uses: actions/upload-artifact@v4
+      if: ${{ always() && steps.budget.outcome == 'success' }}
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ steps.budget.outputs.paths }}
+        retention-days: ${{ steps.budget.outputs.retention-days }}
+        include-hidden-files: true
+        if-no-files-found: error
+        compression-level:
+          ${{ (inputs.kind == 'backup' || inputs.kind == 'diagnostics') && '0'
+          || '9' }}
