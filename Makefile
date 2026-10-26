@@ -1,6 +1,13 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
+.PHONY: ui-review-prepare ui-review-check
+ui-review-prepare:
+	$(PNPM) exec tsx scripts/ui-design-review.ts prepare "$(BRIEF)" "$(OUT)"
+
+ui-review-check:
+	$(PNPM) exec tsx scripts/ui-design-review.ts check "$(PACKET)" "$(REVIEW)"
+
 npm_config_cache ?= $(CURDIR)/.npm-cache
 npm_config_prefer_offline ?= true
 npm_config_update_notifier ?= false
@@ -33,6 +40,8 @@ help:
 	@echo "  make pdf-sandbox-build   Build the PDF reader using a provisioned rootless Docker socket"
 	@echo "  make pdf-sandbox-verify  Prove PDF isolation with synthetic adversarial probes"
 	@echo "  make check         Run source checks, unit tests, and builds"
+	@echo "  make ui-review-prepare BRIEF=... OUT=...   Package current design-review evidence"
+	@echo "  make ui-review-check PACKET=... REVIEW=... Validate review coverage and freshness"
 	@echo "  make lint          Run ESLint"
 	@echo "  make typecheck     Run TypeScript checks"
 	@echo "  make test          Run unit/API tests (optional TEST_ARGS=...)"
@@ -197,3 +206,7 @@ pilot-verify:
 .PHONY: pilot-clean
 pilot-clean:
 	@python3 -I scripts/tugling-pilot.py cleanup
+
+.PHONY: ui-catalogue
+ui-catalogue:
+	$(PNPM) exec tsx scripts/ui-catalogue.ts

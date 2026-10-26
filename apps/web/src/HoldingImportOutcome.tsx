@@ -3,7 +3,7 @@ import type {
   HoldingImportApplyResult,
   HoldingImportPreview,
 } from "@keel/domain";
-import { ActionGroup, Button, Input, Notice, Panel } from "@keel/ui";
+import { ActionGroup, Button, Checkbox, Notice, Panel } from "@keel/ui";
 import { useState } from "react";
 import { formatDate, formatMoney } from "./format";
 
@@ -134,24 +134,21 @@ export function HoldingImportOutcome({
                             this update.
                           </p>
                         ) : (
-                          <label className="import-row-decision">
-                            <Input
-                              type="checkbox"
-                              checked={accepted.has(row.id)}
-                              disabled={working}
-                              aria-label={`Accept update for ${row.positionName}`}
-                              onChange={(event) => {
-                                const checked = event.currentTarget.checked;
-                                setAccepted((current) => {
-                                  const next = new Set(current);
-                                  if (checked) next.add(row.id);
-                                  else next.delete(row.id);
-                                  return next;
-                                });
-                              }}
-                            />
-                            <span>Accept this position update</span>
-                          </label>
+                          <Checkbox
+                            className="import-row-selection"
+                            label="Accept this position update"
+                            accessibleLabel={`Accept update for ${row.positionName}`}
+                            checked={accepted.has(row.id)}
+                            disabled={working}
+                            onCheckedChange={(checked) => {
+                              setAccepted((current) => {
+                                const next = new Set(current);
+                                if (checked) next.add(row.id);
+                                else next.delete(row.id);
+                                return next;
+                              });
+                            }}
+                          />
                         )}
                       </td>
                     </tr>

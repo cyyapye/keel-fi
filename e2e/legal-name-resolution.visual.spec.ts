@@ -785,11 +785,11 @@ test("gates manual creation and editing on all profile fields without browser va
   expect(writes).toHaveLength(0);
 });
 
-for (const automatic of [true, false])
-  test(`starts entity data directly and loads a 500-source attention-first queue by ${automatic ? "scrolling" : "button fallback"}`, async ({
+for (const supportsObserver of [true, false])
+  test(`keeps following content reachable in a 500-source queue ${supportsObserver ? "with" : "without"} automatic observation`, async ({
     page,
   }) => {
-    if (!automatic)
+    if (!supportsObserver)
       await page.addInitScript(() => {
         Object.defineProperty(window, "IntersectionObserver", {
           configurable: true,
@@ -843,8 +843,15 @@ for (const automatic of [true, false])
       name: "Load more sources",
       exact: true,
     });
-    if (automatic) await loadMore.scrollIntoViewIfNeeded();
-    else await loadMore.click();
+    // Known entities and Add entity follow this queue, so scrolling must leave
+    // them reachable. The same explicit control works without an observer.
+    await loadMore.scrollIntoViewIfNeeded();
+    await expect(rows).toHaveCount(25);
+    await page
+      .getByRole("button", { name: "Add entity", exact: true })
+      .scrollIntoViewIfNeeded();
+    await expect(rows).toHaveCount(25);
+    await loadMore.click();
     await expect(rows).toHaveCount(50);
     const scrollBefore = await page.evaluate(() => window.scrollY);
     await rows

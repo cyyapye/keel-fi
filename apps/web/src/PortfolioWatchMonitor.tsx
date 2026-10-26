@@ -424,14 +424,16 @@ export function PortfolioWatchMonitor({
                   : "Monitoring status unavailable"
                 : latest === undefined
                   ? "Monitoring has not run yet"
-                  : ["failed", "partial", "timed_out"].includes(
-                        latest.status,
-                      ) ||
-                      activity.summary.unavailableCount > 0 ||
-                      activity.summary.companiesWithVerifiedSources <
-                        activity.summary.companyCount
-                    ? "Monitoring limited"
-                    : "Monitoring active"}
+                  : latest.status === "failed"
+                    ? "Last check failed"
+                    : latest.status === "timed_out"
+                      ? "Last check timed out"
+                      : latest.status === "partial" ||
+                          activity.summary.unavailableCount > 0 ||
+                          activity.summary.companiesWithVerifiedSources <
+                            activity.summary.companyCount
+                        ? "Monitoring limited"
+                        : "Monitoring active"}
           </strong>
           {latest !== undefined && <p>{runOutcome(running ?? latest)}</p>}
           {latest !== undefined && (

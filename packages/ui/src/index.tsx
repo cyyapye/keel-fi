@@ -25,7 +25,13 @@ export {
 } from "./components/collapsible";
 export { DisclosureIndicator } from "./components/disclosure-indicator";
 export { EmptyState, FormMessage, Notice } from "./components/feedback";
-export { Field, Input, InputGroup, Textarea } from "./components/field";
+export {
+  Field,
+  FieldGroup,
+  Input,
+  InputGroup,
+  Textarea,
+} from "./components/field";
 export { SearchField, SearchHighlight } from "./components/search";
 export { SearchSelect } from "./components/search-select";
 export {
@@ -54,3 +60,11 @@ export {
 export { TextLink, type TextLinkProps } from "./components/text-link";
 export { ChoiceGroup, type ChoiceOption } from "./components/choice-group";
 export { InfoTip } from "./components/info-tip";
+
+export { Checkbox } from "./components/checkbox";
+export { RadioGroup, type RadioOption } from "./components/radio-group";
+export { LoadingStatus, Spinner } from "./components/loading";
+export { CollectionFooter } from "./components/collection-footer";
+export { RecordItem } from "./components/record-item";
+export { RecordGroup, RecordRow } from "./components/record-group";
+export { Text } from "./components/text";

@@ -16,6 +16,19 @@ current tracked files, including tracked edits, but omits `.env*`, untracked
 files, and symlinks. Use synthetic inputs only. Each run has its own dependency
 and browser caches; the example pins the pnpm store inside the run as well.
 
+Linux browser screenshots must use the x86-64 renderer used by CI. An ARM64
+Colima guest or container can produce different glyph rasterization with the
+same Chromium version; those images must not replace the canonical `*-linux.png`
+baselines. Playwright fails early on non-x64 Linux hosts. Native macOS uses its
+separate `*-darwin.png` baselines.
+
+Before generating Linux baselines, record the architecture, distribution, Node,
+pnpm and Chromium versions, match the CI environment, and confirm a known
+unchanged screenshot against CI. Use a native x86-64 host when emulation cannot
+run the pinned toolchain. Keep the synthetic checkout owned by this managed
+runner, export its evidence, inspect every changed image, and replay without
+snapshot updates. Do not relax screenshot thresholds to bridge renderers.
+
 Success, failure, SIGINT, and SIGTERM remove the temporary checkout and stop its
 process group. Copy any desired test evidence to an explicit host output path
 before the command exits, or pass `--keep` before `--` to retain a debug run for

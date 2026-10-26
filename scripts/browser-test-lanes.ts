@@ -1,8 +1,22 @@
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
+export function assertBrowserSnapshotRenderer(
+  platform: NodeJS.Platform,
+  architecture: string,
+) {
+  if (platform === "linux" && architecture !== "x64") {
+    throw new Error(
+      "Keel's Linux screenshot baselines require x64 to match CI. " +
+        "Use an x86-64 Linux runner or native macOS; do not replace Linux " +
+        "baselines with ARM captures. See docs/deployment/linux-test-cleanup.md.",
+    );
+  }
+}
+
 export const BROWSER_TEST_LANES = {
   mocked: [
+    "ui-catalogue.visual.spec.ts",
     "agreement-security.visual.spec.ts",
     "automatic-investment-review.visual.spec.ts",
     "company-names.visual.spec.ts",

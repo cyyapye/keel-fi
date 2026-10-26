@@ -12,7 +12,8 @@
         "scripts/check-public-data.mjs",
         "eslint.config.mjs",
         "tsconfig.json",
-        ".prettierignore"
+        ".prettierignore",
+        "e2e/ui-catalogue/tsconfig.json"
       ],
       "runtime": null,
       "depends_on": []
@@ -93,7 +94,11 @@
         "scripts/sydecar-refresh-observation.test.ts",
         "scripts/sydecar-session-expiry.test.ts",
         "scripts/position-link-suggestion.test.ts",
-        "apps/web/src/collection-search.test.ts"
+        "apps/web/src/collection-search.test.ts",
+        "scripts/ui-design-review.test.ts",
+        "scripts/ui-design-review.ts",
+        "scripts/watchdog-removal.test.ts",
+        "scripts/sandbox-proof-diagnostics.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -285,7 +290,10 @@
         "scripts/browser-test-server.ts",
         "scripts/browser-test-readiness.ts",
         "e2e/agreement-security.visual.spec.ts",
-        "apps/web/vite.config.ts"
+        "apps/web/vite.config.ts",
+        "e2e/ui-catalogue.visual.spec.ts",
+        "e2e/ui-catalogue/keel-ui-catalogue.tsx",
+        "e2e/ui-catalogue/keel-ui-candidates.tsx"
       ],
       "runtime": {
         "owner": "native-command",
@@ -316,7 +324,9 @@
         "scripts/test-support/pdf-sandbox-caller.ts",
         "scripts/test-support/pdf-orphan-client.ts",
         "scripts/legal-document-extraction.ts",
-        "scripts/test-support/legal-documents.ts"
+        "scripts/test-support/legal-documents.ts",
+        "scripts/test-support/watchdog-removal.ts",
+        "scripts/test-support/sandbox-proof-diagnostics.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -370,7 +380,12 @@
     {
       "id": "shared-responsive-ui",
       "description": "Use the accepted shared compositions and responsive controls, keep primary actions clear, preserve invalid drafts and saved-state behavior.",
-      "sources": ["docs/product/ui-and-copy.md", "apps/web/AGENTS.md"],
+      "sources": [
+        "docs/product/ui-and-copy.md",
+        "apps/web/AGENTS.md",
+        "docs/product/ui-library.md",
+        ".tugling/ui.json"
+      ],
       "flows": ["native-unit-and-cost", "browser-workflows"]
     },
     {

@@ -1,8 +1,21 @@
-import type { ComponentProps, LabelHTMLAttributes, ReactNode } from "react";
+import {
+  useId,
+  type ComponentProps,
+  type LabelHTMLAttributes,
+  type ReactNode,
+} from "react";
 
 import { cn } from "../lib/utils";
 
-type FieldProps = LabelHTMLAttributes<HTMLLabelElement> & {
+type FieldControlProps = {
+  id: string;
+  "aria-labelledby": string;
+  "aria-describedby"?: string | undefined;
+  "aria-invalid"?: true | undefined;
+};
+type FieldProps = Omit<LabelHTMLAttributes<HTMLLabelElement>, "children"> & {
+  children: ReactNode | ((props: FieldControlProps) => ReactNode);
+  error?: ReactNode;
   description?: ReactNode;
   label: ReactNode;
   variant?: "line" | "filled";
@@ -13,11 +26,22 @@ export function Field({
   children,
   className,
   description,
+  error,
+  htmlFor,
   label,
   variant = "line",
   wide = false,
   ...props
 }: FieldProps) {
+  const generatedId = useId();
+  const id = htmlFor ?? generatedId;
+  const associated = typeof children === "function";
+  const descriptionId = `${id}-description`;
+  const errorId = `${id}-error`;
+  const described =
+    [description ? descriptionId : "", error ? errorId : ""]
+      .filter(Boolean)
+      .join(" ") || undefined;
   return (
     <label
       className={cn(
@@ -27,12 +51,34 @@ export function Field({
         className,
       )}
       data-slot="field"
+      htmlFor={associated ? id : htmlFor}
       {...props}
     >
-      <span data-slot="field-label">{label}</span>
-      {children}
+      <span data-slot="field-label" id={associated ? `${id}-label` : undefined}>
+        {label}
+      </span>
+      {associated
+        ? children({
+            id,
+            "aria-labelledby": `${id}-label`,
+            "aria-describedby": described,
+            "aria-invalid": error ? true : undefined,
+          })
+        : children}
       {description !== undefined && (
-        <small data-slot="field-description">{description}</small>
+        <small data-slot="field-description" id={descriptionId}>
+          {description}
+        </small>
+      )}
+      {error && (
+        <span
+          data-slot="field-error"
+          className="field-error"
+          id={errorId}
+          role="alert"
+        >
+          {error}
+        </span>
       )}
     </label>
   );
@@ -84,5 +130,23 @@ export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
       data-slot="textarea"
       {...props}
     />
+  );
+}
+
+export function FieldGroup({
+  label,
+  children,
+  className,
+  ...props
+}: ComponentProps<"fieldset"> & { label: ReactNode }) {
+  return (
+    <fieldset
+      {...props}
+      className={cn("field-group", className)}
+      data-slot="field-group"
+    >
+      <legend>{label}</legend>
+      {children}
+    </fieldset>
   );
 }

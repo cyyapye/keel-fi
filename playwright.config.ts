@@ -3,10 +3,13 @@ import { fileURLToPath } from "node:url";
 import { BROWSER_TEST_VITE_READINESS_PATH } from "./scripts/browser-test-readiness";
 import {
   BROWSER_TEST_EXECUTION,
+  assertBrowserSnapshotRenderer,
   browserTestDirectory,
   resolveBrowserTestLane,
 } from "./scripts/browser-test-lanes";
 import { resolveDevPorts } from "./scripts/dev-ports";
+
+assertBrowserSnapshotRenderer(process.platform, process.arch);
 
 const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 const browserLane = resolveBrowserTestLane({

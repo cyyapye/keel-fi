@@ -9,6 +9,7 @@ import {
   DataItem,
   DisclosureIndicator,
   Notice,
+  LoadingStatus,
 } from "@keel/ui";
 import { formatSavedAt } from "./format";
 import { holdingHistorySummary } from "./holding-history-summary";
@@ -47,7 +48,7 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
         </Button>
       </Notice>
     );
-  if (!page) return <p>Loading history…</p>;
+  if (!page) return <LoadingStatus>Loading history…</LoadingStatus>;
   return (
     <div className="holding-receipt-history">
       {page.entries.map((entry) => {

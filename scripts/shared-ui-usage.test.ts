@@ -56,6 +56,29 @@ function jsxElements(source: string) {
 }
 
 describe("shared UI usage", () => {
+  it("keeps the integrated catalogue controls in the shared library", () => {
+    for (const name of ["LegalEntities.tsx", "HoldingImportOutcome.tsx"]) {
+      const source = readFileSync(join(webSourceDirectory, name), "utf8");
+      const rawChoices = jsxElements(source).filter(
+        ({ component, attributes }) =>
+          component === "Input" &&
+          ["checkbox", "radio"].includes(attributes.get("type") ?? ""),
+      );
+      expect(rawChoices, name).toEqual([]);
+    }
+    const examples = readFileSync(
+      resolve(
+        import.meta.dirname,
+        "../e2e/ui-catalogue/keel-ui-candidates.tsx",
+      ),
+      "utf8",
+    );
+    expect(examples).not.toMatch(
+      /function (?:Checkbox|RadioGroup|CollectionFooter|RecordItem|RecordGroup|RecordRow|Spinner|LoadingStatus)\(/u,
+    );
+    expect(examples).not.toContain("@base-ui/react");
+  });
+
   it("keeps native interactive elements inside @keel/ui", () => {
     const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
       const source = readFileSync(path, "utf8");

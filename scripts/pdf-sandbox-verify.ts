@@ -6,13 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
-import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { extractLegalNameFromPdf } from "./legal-document-extraction";
-import { describeSandboxFailure } from "./pdf-sandbox-error";
 import { acquireSandboxOwner } from "./pdf-sandbox-owner";
 import {
   dockerCommand,
+  assertSandboxContainer,
   loadSandboxConfig,
   PdfSandboxConfigSchema,
   runSandbox,
@@ -23,6 +22,8 @@ import {
 } from "./pdf-sandbox";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
 import { startOrphanProbe } from "./test-support/pdf-orphan-client";
+import { describeSandboxProofFailure } from "./test-support/sandbox-proof-diagnostics";
+import { observeWatchdogLifecycle } from "./test-support/watchdog-removal";
 import {
   syntheticManyFileZip,
   syntheticManyStreamPdf,
@@ -302,9 +303,7 @@ async function main() {
           await unsafeOwner.release();
         }
         // Killing only the attached CLI simulates a lost caller. Deliberately leave
-        // the worker running: the 32s PID-1 watchdog must leave it absent by the
-        // unchanged 35s check, including Docker auto-removal. Parent cleanup
-        // cannot satisfy this assertion.
+        // the worker running: the attested 32s PID-1 watchdog must terminate it.
         const orphan = `keel-pdf-${randomUUID()}`;
         const orphanOwner = await acquireSandboxOwner(
           config.socket,
@@ -316,50 +315,52 @@ async function main() {
           assert.equal(
             (await command(sandboxCreateArgs(probe, orphan))).code,
             0,
+            "orphan-created",
           );
           await orphanOwner.creationSettled();
-          const attached = await startOrphanProbe(
+          const inspection = await command(["inspect", orphan]);
+          assert.equal(inspection.code, 0, "orphan-inspection-query");
+          assertSandboxContainer(
+            z
+              .array(z.unknown())
+              .length(1)
+              .parse(JSON.parse(inspection.output))[0],
+            probe.image,
+          );
+          const orphanStarted = performance.now();
+          const lifecycle = await observeWatchdogLifecycle(
             config.socket,
-            temporary,
             orphan,
+            async () => {
+              const attached = await startOrphanProbe(
+                config.socket,
+                temporary,
+                orphan,
+              );
+              attached.kill();
+              await attached.finished;
+              const alive = await command([
+                "ps",
+                "--filter",
+                `name=^/${orphan}$`,
+                "--format",
+                "{{.State}}",
+              ]);
+              assert.equal(alive.code, 0, "orphan-alive-query");
+              assert.equal(
+                alive.output.trim(),
+                "running",
+                "orphan-survives-caller",
+              );
+            },
           );
-          console.log("CHECK: orphan watchdog execution acknowledged");
-          attached.kill();
-          await attached.finished;
-          const alive = await command([
-            "ps",
-            "--filter",
-            `name=^/${orphan}$`,
-            "--format",
-            "{{.ID}}",
-          ]);
           console.log(
             JSON.stringify({
-              orphanWatchdog: "caller-disconnected",
-              commandSucceeded: alive.code === 0,
-              running: alive.output.trim() !== "",
+              probe: "orphan-watchdog",
+              elapsedMs: Math.round(performance.now() - orphanStarted),
+              ...lifecycle,
             }),
           );
-          assert.equal(alive.code, 0);
-          assert.notEqual(alive.output.trim(), "");
-          await delay(35_000);
-          const gone = await command([
-            "ps",
-            "--all",
-            "--filter",
-            `name=^/${orphan}$`,
-            "--format",
-            "{{.ID}}",
-          ]);
-          console.log(
-            JSON.stringify({
-              orphanWatchdog: "deadline",
-              commandSucceeded: gone.code === 0,
-              exists: gone.output.trim() !== "",
-            }),
-          );
-          assert.equal(gone.code, 0);
-          assert.equal(gone.output.trim(), "");
           console.log(
             "PASS: independent watchdog kills orphaned work after the caller disappears",
           );
@@ -404,6 +405,6 @@ async function main() {
   }
 }
 main().catch((error: unknown) => {
-  console.error(describeSandboxFailure(error));
+  console.error(describeSandboxProofFailure(error));
   process.exitCode = 1;
 });

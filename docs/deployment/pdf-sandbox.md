@@ -142,6 +142,29 @@ pool; they remain mandatory in local and CI release verification. Never skip
 these tests or replace the reader with a mock to make CI green. Browser capture
 tests also use the real isolated reader on synthetic provider pages.
 
+The watchdog proof attests the probe's 32-second entrypoint, then registers two
+passive Docker waits (`next-exit` and `removed`) on the validated rootless
+socket. Both response headers must acknowledge registration before the worker
+starts;
+[Docker's wait contract](https://github.com/moby/moby/blob/master/client/container_wait.go)
+explicitly provides this synchronization. The proof kills only the attached
+caller and verifies the worker remains running. It then requires exit status 137
+and successful removal with the same status. No deadline sleep, removal polling,
+manual deletion or retry can satisfy the proof. Owner cleanup happens after the
+proof settles, including on failure.
+
+Registration is bounded at 10 seconds. After the caller-death barrier, exit
+observation is bounded at the 32-second watchdog plus a 10-second
+daemon-response allowance; removal observation has a separate 10-second bound
+after exit is confirmed. These observation bounds do not change the 30/90-second
+execution deadlines or 32/95-second watchdogs, nor do they claim hard real-time
+kernel measurement. Missing exit confirmation, missing removal, daemon errors,
+disconnects and malformed responses fail separately. Each response is capped at
+4 KiB and schema-checked; observers close on every outcome. Fixed assertion
+labels identify failures without exposing response bodies, document content,
+Docker stderr or assertion values. A stalled daemon can still fail the proof; an
+ordinary asynchronous notification no longer races an instantaneous query.
+
 The image pins the official Ubuntu base manifest, installs signed distribution
 updates over HTTPS, and enforces a Poppler package floor covering USN-8400-1.
 Because the minimal Ubuntu root filesystem has no CA bundle, the build copies

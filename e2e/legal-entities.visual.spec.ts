@@ -718,7 +718,7 @@ test("keeps historical ownership and an explicit structure clear with incomplete
 test("starts with compact triage and a visible entity inventory", async ({
   page,
   isMobile,
-}) => {
+}, testInfo) => {
   if (isMobile) await page.setViewportSize({ width: 393, height: 680 });
   await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
   await routeHoldingsPage(page, {
@@ -752,21 +752,37 @@ test("starts with compact triage and a visible entity inventory", async ({
   await expect(page).toHaveScreenshot("legal-entities-initial.png");
   await triage.click();
   await expect(batchAction).toBeVisible();
+  const summary = page.locator(".legal-entity-exact-batch__summary");
+  await expect(summary.getByRole("heading")).toHaveText(
+    "3 of 5 sources ready to add or link",
+  );
+  await expect(summary).toContainText("2 legal names");
+  // Scope must be legible before optional detail is opened.
+  await expect(summary).toContainText("2 sources remain outside this batch.");
+  await expect(page.getByText("Needs review", { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("initial-viewport.png") });
+  await expect(batchAction).toBeInViewport({ ratio: 1 });
   const details = page.getByRole("button", { name: "Batch details" });
   expect((await details.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await expect(details).toHaveAttribute("aria-expanded", "false");
   await details.click();
   await expect(details).toHaveAttribute("aria-expanded", "true");
   await expect(
-    page.getByText(/duplicate source rows share one record/u),
+    page.getByText(
+      "Sources with the same exact legal name use one legal-entity entry.",
+      { exact: true },
+    ),
   ).toBeVisible();
   await expect(
-    page.getByText(/2 source records remain outside this batch/u),
+    summary.getByText(/2 sources remain outside this batch/u),
   ).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".legal-entity-exact-batch")).toHaveScreenshot(
     "legal-entities-batch-details.png",
   );
+  await page.screenshot({
+    path: testInfo.outputPath("batch-details-viewport.png"),
+  });
   if (isMobile) {
     await details.click();
     await page.setViewportSize({ width: 320, height: 680 });
@@ -1215,10 +1231,10 @@ test("reviews legal entities and exports selected counsel fields", async ({
     ),
   ).toHaveCount(16);
   await expect(
-    page.getByLabel("Legal-name evidence", { exact: true }),
+    page.getByRole("checkbox", { name: "Legal-name evidence", exact: true }),
   ).toBeChecked();
   await expect(
-    page.getByLabel("Include unresolved source records"),
+    page.getByRole("checkbox", { name: "Include unresolved source records" }),
   ).toBeChecked();
   const exportSnapshotStyle = await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
@@ -1245,9 +1261,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
     page.getByRole("button", { name: "Add or link 3 sources" }),
   ).toBeVisible();
   await expect(page.locator(".legal-entities")).toContainText("Not recorded");
-  await expect(
-    page.getByText("Needs review", { exact: true }).first(),
-  ).toBeVisible();
+  await expect(page.getByText("Needs review", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Name unavailable", { exact: true })).toHaveCount(
     1,
   );
@@ -1611,15 +1625,21 @@ test("keeps export above 140 entities and preserves choices through collapse and
   await expect(
     page.getByText("You can import the CSV into Google Sheets."),
   ).toBeVisible();
-  await page.getByLabel("Notes", { exact: true }).check();
-  await page.getByLabel("Include non-LLC entities").uncheck();
+  await page.getByRole("checkbox", { name: "Notes", exact: true }).check();
+  await page
+    .getByRole("checkbox", { name: "Include non-LLC entities" })
+    .uncheck();
   await toggle.click();
   await expect(
     page.getByRole("heading", { name: "Export legal entities" }),
   ).toBeHidden();
   await toggle.click();
-  await expect(page.getByLabel("Notes", { exact: true })).toBeChecked();
-  await expect(page.getByLabel("Include non-LLC entities")).not.toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Notes", exact: true }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Include non-LLC entities" }),
+  ).not.toBeChecked();
   expect(optionRequests).toBe(1);
   const download = page.getByRole("button", { name: /Download CSV/u });
   const options = page.locator(".legal-entity-export");
@@ -1644,10 +1664,13 @@ test("keeps export above 140 entities and preserves choices through collapse and
   await expect(
     page.getByText("The export could not be prepared. Try again."),
   ).toBeVisible();
-  await expect(page.getByLabel("Notes", { exact: true })).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Notes", exact: true }),
+  ).toBeChecked();
   expect(exportRequests).toBe(1);
   for (const checkbox of await page
-    .locator('.legal-entity-export__field-grid input[type="checkbox"]')
+    .locator(".legal-entity-export__field-grid")
+    .getByRole("checkbox")
     .all())
     await checkbox.uncheck();
   await expect(download).toBeDisabled();
@@ -1655,10 +1678,73 @@ test("keeps export above 140 entities and preserves choices through collapse and
   await page.getByRole("button", { name: "Use recommended fields" }).click();
   await expect(download).toBeEnabled();
   await expect(
-    page.locator(".legal-entity-export__field-grid input:checked"),
+    page
+      .locator(".legal-entity-export__field-grid")
+      .getByRole("checkbox", { checked: true }),
   ).toHaveCount(16);
   await expectNoHorizontalOverflow(page);
 });
+
+for (const followingSection of [false, true]) {
+  test(`loads 140 entities ${followingSection ? "manually before history" : "automatically at the page end"} without extra reads`, async ({
+    page,
+  }) => {
+    let reads = 0;
+    await page.route("**/api/legal-entities", (route) => {
+      reads += 1;
+      return route.fulfill({
+        json: {
+          ...initialInventory,
+          candidates: [],
+          excludedCandidates: [],
+          entities: [
+            ...Array.from({ length: 140 }, (_, index) => ({
+              ...initialInventory.entities[0]!,
+              id: `synthetic-page-${index}`,
+              legalName: `Synthetic ${String(index).padStart(3, "0")} LLC`,
+            })),
+            ...(followingSection
+              ? [
+                  {
+                    ...initialInventory.entities[0]!,
+                    id: "synthetic-page-history",
+                    legalName: "Synthetic Historical LLC",
+                    interestStatus: "historical",
+                  },
+                ]
+              : []),
+          ],
+        },
+      });
+    });
+    await page.goto("/holdings/entities");
+    const rows = page.locator(".legal-entity-row");
+    await expect(rows).toHaveCount(25);
+    const initialReads = reads;
+    const more = page.getByRole("button", {
+      name: "Load more entities",
+      exact: true,
+    });
+    await page.getByRole("button", { name: "Export", exact: true }).focus();
+    await more.scrollIntoViewIfNeeded();
+    if (followingSection) {
+      await page
+        .getByRole("button", { name: "Historical interests · 1" })
+        .click();
+      await expect(rows).toHaveCount(26);
+      await more.click();
+      await expect(rows).toHaveCount(51);
+      await expect(rows.nth(25).getByRole("button").first()).toBeFocused();
+    } else {
+      await expect(rows).toHaveCount(50);
+      await expect(
+        page.getByRole("button", { name: "Export", exact: true }),
+      ).toBeFocused();
+    }
+    expect(reads).toBe(initialReads);
+    await expectNoHorizontalOverflow(page);
+  });
+}
 
 async function routeGoogleExport(
   page: Page,
@@ -1754,8 +1840,10 @@ test("creates a Google Sheet from selected records and columns and prevents unch
   await exportSnapshotStyle.evaluate((style) => {
     style.textContent = "";
   });
-  await page.getByLabel("Include unresolved source records").uncheck();
-  await page.getByLabel("Notes", { exact: true }).check();
+  await page
+    .getByRole("checkbox", { name: "Include unresolved source records" })
+    .uncheck();
+  await page.getByRole("checkbox", { name: "Notes", exact: true }).check();
   await create.click();
   await expect(
     page.getByRole("link", { name: "Open Google Sheet" }),
@@ -1777,7 +1865,9 @@ test("creates a Google Sheet from selected records and columns and prevents unch
   expect(rows[1]!.values[0]!.userEnteredValue).toEqual({
     stringValue: "Demo Family Holdings LLC",
   });
-  await page.getByLabel("Include unresolved source records").check();
+  await page
+    .getByRole("checkbox", { name: "Include unresolved source records" })
+    .check();
   await expect(create).toBeEnabled();
   await expectNoHorizontalOverflow(page);
 });
@@ -1798,7 +1888,7 @@ for (const outcome of ["popup_closed", "denied"] as const) {
     });
     await page.goto("/holdings/entities");
     await page.getByRole("button", { name: "Export", exact: true }).click();
-    await page.getByLabel("Notes", { exact: true }).check();
+    await page.getByRole("checkbox", { name: "Notes", exact: true }).check();
     await page
       .getByRole("button", { name: "Create Google Sheet", exact: true })
       .click();
@@ -1811,7 +1901,9 @@ for (const outcome of ["popup_closed", "denied"] as const) {
             : "Google sign-in could not open. Allow pop-ups for Keel and try again.",
       ),
     ).toBeVisible();
-    await expect(page.getByLabel("Notes", { exact: true })).toBeChecked();
+    await expect(
+      page.getByRole("checkbox", { name: "Notes", exact: true }),
+    ).toBeChecked();
     await expect(
       page.getByRole("button", { name: /Download CSV/u }),
     ).toBeEnabled();

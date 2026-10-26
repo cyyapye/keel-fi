@@ -36,6 +36,8 @@ import {
   FormMessage,
   Input,
   Notice,
+  RecordGroup,
+  RecordRow,
   Select,
   SelectContent,
   SelectItem,
@@ -244,6 +246,7 @@ function formatCurrencyTotals(
   reportedByCurrency: ReadonlyMap<string, number>,
   unavailableCount: number,
   emptyLabel = "Value unavailable",
+  unavailableUnit = "value",
 ): string {
   if (reportedByCurrency.size === 0) {
     return emptyLabel;
@@ -258,7 +261,7 @@ function formatCurrencyTotals(
     ...(unavailableCount === 0
       ? []
       : [
-          `${unavailableCount} value${unavailableCount === 1 ? "" : "s"} unavailable`,
+          `${unavailableCount} ${unavailableUnit}${unavailableCount === 1 ? "" : "s"} unavailable`,
         ]),
   ].join(" · ");
 }
@@ -381,7 +384,7 @@ function sharePricePresentation(
   return priceMinor === null
     ? null
     : {
-        label: formatHoldingCurrency(priceMinor, observation.currency),
+        label: `${formatHoldingCurrency(priceMinor, observation.currency)}/share`,
         observedAt: observation.observedAt,
       };
 }
@@ -449,7 +452,7 @@ function exposureSharePricePresentation(
   return priceMinor === null
     ? null
     : {
-        label: formatHoldingCurrency(priceMinor, latest[0]!.currency),
+        label: `${formatHoldingCurrency(priceMinor, latest[0]!.currency)}/share`,
         observedAt: latestObservedAt,
       };
 }
@@ -515,10 +518,10 @@ function signedRoundedReturnLabel(valuePpm: number): string {
   return `${valuePpm > 0 ? "+" : "−"}${wholePercent}%`;
 }
 
-function positionEconomicsLabel(
+function positionEconomicsParts(
   position: InvestmentExposurePosition,
   sharePriceLabel: string | null,
-): string | null {
+): string[] {
   const performance = exposurePositionPerformance(position);
   const labels: string[] = [];
   if (performance.costBasisMinor !== null) {
@@ -527,14 +530,24 @@ function positionEconomicsLabel(
       position.currency,
       1_000,
     );
-    labels.push(basisLabel);
+    labels.push(`Basis\u00a0${basisLabel}`);
   }
   if (sharePriceLabel !== null) {
     labels.push(sharePriceLabel);
   }
   if (performance.totalReturnPpm !== null) {
-    labels.push(signedRoundedReturnLabel(performance.totalReturnPpm));
+    labels.push(
+      `${signedRoundedReturnLabel(performance.totalReturnPpm)}\u00a0total return`,
+    );
   }
+  return labels;
+}
+
+function positionEconomicsLabel(
+  position: InvestmentExposurePosition,
+  sharePriceLabel: string | null,
+): string | null {
+  const labels = positionEconomicsParts(position, sharePriceLabel);
   return labels.length === 0 ? null : labels.join(" · ");
 }
 
@@ -593,7 +606,7 @@ function exposurePerformanceLabel(
     0,
   );
   const basisLabel = formatRoundedHoldingCurrency(basisMinor, currency, 1_000);
-  const basisAndPriceLabel = [basisLabel, sharePriceLabel]
+  const basisAndPriceLabel = [`Basis\u00a0${basisLabel}`, sharePriceLabel]
     .filter((label): label is string => label !== null)
     .join(" · ");
   if (!returnAvailable || allocatedValues.length !== allocatedBases.length) {
@@ -611,7 +624,7 @@ function exposurePerformanceLabel(
   if (!Number.isSafeInteger(returnPpm)) {
     return basisAndPriceLabel;
   }
-  return `${basisAndPriceLabel} · ${signedRoundedReturnLabel(returnPpm)}`;
+  return `${basisAndPriceLabel} · ${signedRoundedReturnLabel(returnPpm)}\u00a0total return`;
 }
 
 function companyExposureGroups(data: InvestmentHoldingsView) {
@@ -628,10 +641,6 @@ function exposureTotalsLabel(
       .filter((total) => total.knownValuePositionCount > 0)
       .map((total) => [total.currency, total.allocatedValueMinor]),
   );
-  const unavailableCount = totals.reduce(
-    (count, total) => count + total.unknownValuePositionCount,
-    0,
-  );
   if (reportedByCurrency.size === 0) {
     return "Value unavailable";
   }
@@ -640,14 +649,7 @@ function exposureTotalsLabel(
     .map(([currency, valueMinor]) =>
       formatMagnitudeRoundedHoldingCurrency(valueMinor, currency),
     );
-  return [
-    ...reported,
-    ...(unavailableCount === 0
-      ? []
-      : [
-          `${unavailableCount} value${unavailableCount === 1 ? "" : "s"} unavailable`,
-        ]),
-  ].join(" · ");
+  return reported.join(" · ");
 }
 
 function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
@@ -677,6 +679,7 @@ function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
     companyExposureGroups(data).length === 0
       ? formatHoldingCurrency(0, "USD")
       : "Value unavailable",
+    "position value",
   );
 }
 
@@ -1221,7 +1224,11 @@ function ExposureView({
   visibleExposureCount: number;
   visiblePositionCounts: ReadonlyMap<string, number>;
 }) {
-  const holdingDetailAction = (holdingId: string, holdingName: string) =>
+  const holdingDetailAction = (
+    holdingId: string,
+    holdingName: string,
+    compact = false,
+  ) =>
     openableHoldingIds.has(holdingId) ? (
       <TextLink
         aria-label={`View ${holdingName} holding details`}
@@ -1229,7 +1236,7 @@ function ExposureView({
         data-holding-id={holdingId}
         onClick={() => onOpenHolding(holdingId)}
       >
-        View details
+        {compact ? "Details" : "View details"}
       </TextLink>
     ) : null;
   const positionContextById = new Map(
@@ -1582,10 +1589,19 @@ function ExposureView({
           group,
           positions,
         );
+        const isOpen =
+          searchMatches !== null || openExposureIds.has(group.exposure.id);
+        const unavailableValueCount = group.totals.reduce(
+          (count, total) => count + total.unknownValuePositionCount,
+          0,
+        );
+        const hasKnownValue = group.totals.some(
+          (total) => total.knownValuePositionCount > 0,
+        );
         const performanceLabel = exposurePerformanceLabel(
           group,
           positions,
-          currentSharePrice?.label ?? null,
+          isOpen ? null : (currentSharePrice?.label ?? null),
         );
         const summaryMetaLabel = [
           investedEstimateCount > 0
@@ -1656,7 +1672,18 @@ function ExposureView({
               </span>
               <span className="exposure-group__totals">
                 <span className="exposure-group__value">
+                  {hasKnownValue && unavailableValueCount > 0 && (
+                    <small className="exposure-group__value-label">
+                      Known value
+                    </small>
+                  )}
                   {exposureTotalsLabel(group.totals)}
+                  {hasKnownValue && unavailableValueCount > 0 && (
+                    <small className="exposure-group__value-label">
+                      {unavailableValueCount} value
+                      {unavailableValueCount === 1 ? "" : "s"} unavailable
+                    </small>
+                  )}
                 </span>
                 {summaryMetaLabel.length > 0 && (
                   <small
@@ -1678,85 +1705,115 @@ function ExposureView({
               <DisclosureIndicator className="exposure-group__indicator" />
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <HoldingLinkButton kind="holding" id={group.exposure.id} />
               <div className="exposure-group__positions">
-                {matchingPositions.slice(0, positionLimit).map((position) => {
-                  const positionName = positionDisplayName(position);
-                  const valueSourceLabel = exposureValueSourceLabel(position);
-                  const currentSharePrice =
-                    positionSharePricePresentation(position);
-                  const economicsLabel = positionEconomicsLabel(
-                    position,
-                    currentSharePrice?.label ?? null,
-                  );
-                  const allocationLabel = position.hasUnknownAllocation
-                    ? "Allocation unknown"
-                    : position.knownAllocationPpm === 1_000_000
-                      ? null
-                      : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`;
-                  return (
-                    <article key={position.id}>
-                      <span>
-                        <strong
-                          title={
-                            positionName === position.legalVehicleName
-                              ? undefined
-                              : position.legalVehicleName
-                          }
-                        >
-                          <SearchHighlight query={searchQuery}>
-                            {positionName}
-                          </SearchHighlight>
-                        </strong>
-                        <small>
-                          <SearchHighlight query={searchQuery}>
-                            {positionContext(position) ?? ""}
-                          </SearchHighlight>
-                        </small>
-                      </span>
-                      <span
-                        className="position-row__value"
+                {currentSharePrice !== null && (
+                  <p className="exposure-group__quote">
+                    {currentSharePrice.label} ·{" "}
+                    {formatDate(currentSharePrice.observedAt)}
+                  </p>
+                )}
+                <RecordGroup aria-label={`${displayName} positions`}>
+                  {matchingPositions.slice(0, positionLimit).map((position) => {
+                    const positionName = positionDisplayName(position);
+                    const context = positionContext(position);
+                    const accountTitle =
+                      position.ticker !== null && context != null;
+                    const rowTitle = accountTitle
+                      ? position.containerLabel
+                          .toLocaleLowerCase()
+                          .includes(
+                            position.institutionLabel.toLocaleLowerCase(),
+                          )
+                        ? position.containerLabel
+                        : `${position.institutionLabel} · ${position.containerLabel}`
+                      : positionName;
+                    const rowDetail = accountTitle
+                      ? positionName === displayName
+                        ? null
+                        : positionName
+                      : context;
+                    const valueSourceLabel = exposureValueSourceLabel(position);
+                    const rowSharePrice =
+                      positionSharePricePresentation(position);
+                    const sharesGroupQuote =
+                      currentSharePrice !== null &&
+                      rowSharePrice?.label === currentSharePrice.label &&
+                      rowSharePrice.observedAt === currentSharePrice.observedAt;
+                    const economicsParts = positionEconomicsParts(
+                      position,
+                      sharesGroupQuote ? null : (rowSharePrice?.label ?? null),
+                    );
+                    const allocationLabel = position.hasUnknownAllocation
+                      ? "Allocation unknown"
+                      : position.knownAllocationPpm === 1_000_000
+                        ? null
+                        : `${Math.floor(position.knownAllocationPpm / 10_000)}% allocated`;
+                    return (
+                      <RecordRow
+                        key={position.id}
                         title={
-                          valueSourceLabel !== null
-                            ? position.valueSource === "share_price_estimate" &&
-                              position.shareValueEstimate?.proxy &&
-                              position.shareValueEstimate.effectiveDate === null
-                              ? `${valueSourceLabel} · Mark date unknown`
-                              : `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`
-                            : undefined
+                          <SearchHighlight query={searchQuery}>
+                            {rowTitle}
+                          </SearchHighlight>
                         }
-                      >
-                        {exposurePositionValue(position)}
-                        {valueSourceLabel !== null &&
-                          economicsLabel === null && (
-                            <small>{valueSourceLabel}</small>
-                          )}
-                        {economicsLabel !== null && (
-                          <small
-                            className={
-                              currentSharePrice === null
-                                ? undefined
-                                : "position-row__market-meta"
-                            }
+                        detail={
+                          rowDetail && (
+                            <SearchHighlight query={searchQuery}>
+                              {rowDetail}
+                            </SearchHighlight>
+                          )
+                        }
+                        value={
+                          <span
+                            className="position-row__value"
                             title={
-                              currentSharePrice === null
-                                ? undefined
-                                : `Share price as of ${formatDate(currentSharePrice.observedAt)}`
+                              valueSourceLabel !== null
+                                ? position.valueSource ===
+                                    "share_price_estimate" &&
+                                  position.shareValueEstimate?.proxy &&
+                                  position.shareValueEstimate.effectiveDate ===
+                                    null
+                                  ? `${valueSourceLabel} · Mark date unknown`
+                                  : `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`
+                                : undefined
                             }
                           >
-                            {economicsLabel}
-                          </small>
+                            {exposurePositionValue(position)}
+                            {valueSourceLabel !== null && (
+                              <small>{valueSourceLabel}</small>
+                            )}
+                            {allocationLabel !== null && (
+                              <small className="position-row__allocation">
+                                {allocationLabel}
+                              </small>
+                            )}
+                          </span>
+                        }
+                        metadata={
+                          economicsParts.length > 0 && (
+                            <span
+                              className="position-row__market-meta"
+                              title={
+                                rowSharePrice === null || sharesGroupQuote
+                                  ? undefined
+                                  : `Share price as of ${formatDate(rowSharePrice.observedAt)}`
+                              }
+                            >
+                              {economicsParts.map((part) => (
+                                <span key={part}>{part}</span>
+                              ))}
+                            </span>
+                          )
+                        }
+                        action={holdingDetailAction(
+                          position.id,
+                          positionName,
+                          true,
                         )}
-                        {allocationLabel !== null && (
-                          <small className="position-row__allocation">
-                            {allocationLabel}
-                          </small>
-                        )}
-                      </span>
-                      {holdingDetailAction(position.id, positionName)}
-                    </article>
-                  );
-                })}
+                      />
+                    );
+                  })}
+                </RecordGroup>
                 {matchingPositions.length > positionLimit && (
                   <div className="exposure-pagination">
                     <span>
@@ -1771,15 +1828,18 @@ function ExposureView({
                     </Button>
                   </div>
                 )}
-                {publicExposureId !== undefined && (
-                  <TextLink
-                    href={`/holdings/entities?companies=1&public=${encodeURIComponent(publicExposureId)}`}
-                  >
-                    {group.exposure.exposureKind === "public_instrument"
-                      ? "Group with company"
-                      : "Review company link"}
-                  </TextLink>
-                )}
+                <ActionGroup className="exposure-group__actions" wrap>
+                  <HoldingLinkButton kind="holding" id={group.exposure.id} />
+                  {publicExposureId !== undefined && (
+                    <TextLink
+                      href={`/holdings/entities?companies=1&public=${encodeURIComponent(publicExposureId)}`}
+                    >
+                      {group.exposure.exposureKind === "public_instrument"
+                        ? "Group with company"
+                        : "Review company link"}
+                    </TextLink>
+                  )}
+                </ActionGroup>
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -1960,7 +2020,7 @@ function CashHoldingsView({
               brokeragePositions.length === 1 ? "position" : "positions"
             }`}
             detailAs="span"
-            label="Total cash"
+            label="Portfolio cash"
             labelAs="small"
             value={formatCurrencyTotals(totals, unavailableCount)}
           />
@@ -2848,7 +2908,7 @@ export function InvestmentHoldings({
                       }`
                 }`}
                 detailAs="span"
-                label="Total exposure"
+                label="Portfolio exposure"
                 labelAs="small"
                 value={exposureGrandTotalLabel(data)}
               />

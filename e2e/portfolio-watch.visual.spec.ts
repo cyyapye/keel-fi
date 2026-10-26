@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { PortfolioWatchActivitySchema } from "../packages/domain/src/portfolio-watch-activity";
 import { navigateToScreen } from "./navigation";
 
 const financingFactsFixture = {
@@ -214,7 +215,23 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
     route.fulfill({
       json: {
         ...watchActivityFixture,
-        summary: { ...watchActivityFixture.summary, unavailableCount: 3 },
+        summary: {
+          ...watchActivityFixture.summary,
+          companiesWithVerifiedSources: 0,
+          unavailableCount: 3,
+          lastSuccessAt: "2026-08-01T12:00:00.000Z",
+        },
+        companies: watchActivityFixture.companies.map((company) => ({
+          ...company,
+          sources: company.sources.map((source) => ({
+            ...source,
+            outcome: "failed",
+            errorCode: "source_timeout",
+            httpStatus: null,
+            signalCount: 0,
+            lastSuccessAt: "2026-08-01T12:00:00.000Z",
+          })),
+        })),
         runs: [
           {
             ...watchActivityFixture.runs[0],
@@ -238,7 +255,7 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
     .locator("..");
   const filters = page.getByRole("group", { name: "Filter updates" });
   await expect(
-    monitor.getByText("Monitoring limited", { exact: true }),
+    monitor.getByText("Last check failed", { exact: true }),
   ).toBeVisible();
   await expect(
     monitor.getByRole("button", { name: "Check now", exact: true }),
@@ -246,6 +263,9 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
   await expect(
     monitor.getByText("0 of 3 pages and feeds read · 3 unavailable"),
   ).toBeVisible();
+  await expect(monitor).toContainText(
+    "Last successful read Aug 1, 2026, 5:00 AM PDT",
+  );
   await expect(
     empty.getByText("Previously read news is available under All updates."),
   ).toBeVisible();
@@ -276,7 +296,7 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
     await expect(empty.locator('[aria-hidden="true"]')).toHaveCount(0);
     const screenBounds = (await page.locator(".watch-screen").boundingBox())!;
     const statusBounds = (await monitor
-      .getByText("Monitoring limited", { exact: true })
+      .getByText("Last check failed", { exact: true })
       .boundingBox())!;
     expect(statusBounds.x).toBeCloseTo(screenBounds.x, 0);
     for (const button of await filters.getByRole("button").all()) {
@@ -294,6 +314,9 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
       await page.evaluate(() => document.documentElement.scrollWidth),
     ).toBeLessThanOrEqual(width);
   }
+  await page.screenshot({
+    path: testInfo.outputPath("review-empty-viewport.png"),
+  });
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
@@ -393,6 +416,15 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
     exact: true,
   });
   await expect(checkButton).toBeEnabled();
+  await expect(page.locator(".watch-check-title")).toHaveText(
+    "Monitoring limited",
+  );
+  await expect(page.getByTestId("portfolio-watch-control")).toContainText(
+    "2 of 3 pages and feeds read",
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("review-initial-viewport.png"),
+  });
   await checkButton.click();
   await expect(
     page.getByText("Waiting to check sources", { exact: true }),
@@ -423,6 +455,10 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   await expect(page.getByTestId("watch-target-watch_northstar")).toContainText(
     "Official website not identified",
   );
+  await page.locator(".watch-screen").screenshot({
+    path: testInfo.outputPath("review-coverage.png"),
+    animations: "disabled",
+  });
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
   });
@@ -495,8 +531,24 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
 test("keeps empty, failed and timed-out checks distinct and restores saved history after reload", async ({
   page,
 }, testInfo) => {
-  let state = {
+  let state = PortfolioWatchActivitySchema.parse({
     ...watchActivityFixture,
+    summary: {
+      ...watchActivityFixture.summary,
+      companiesWithVerifiedSources: 2,
+      unavailableCount: 0,
+    },
+    companies: watchActivityFixture.companies.map((company) => ({
+      ...company,
+      sources: company.sources.map((source) => ({
+        ...source,
+        outcome: "succeeded",
+        errorCode: null,
+        httpStatus: 200,
+        signalCount: 0,
+        lastSuccessAt: "2026-08-02T12:00:00.000Z",
+      })),
+    })),
     runs: [
       {
         ...watchActivityFixture.runs[0]!,
@@ -508,9 +560,9 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
         signalCount: 0,
       },
     ],
-  };
+  });
   await page.route("**/api/watch/activity**", async (route) =>
-    route.fulfill({ json: state }),
+    route.fulfill({ json: PortfolioWatchActivitySchema.parse(state) }),
   );
   await page.goto("/");
   await navigateToScreen(
@@ -520,6 +572,10 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
   );
   const summary = page.getByTestId("portfolio-watch-control");
   await expect(summary).toContainText("No new updates from those sources");
+  // A successful check is not full portfolio coverage when companies lack sources.
+  await expect(summary.locator(".watch-check-title")).toHaveText(
+    "Monitoring limited",
+  );
   await page.reload();
   await navigateToScreen(
     page,
@@ -529,13 +585,38 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
   await expect(summary).toContainText("Last attempt Aug 2, 2026");
   state = {
     ...state,
+    asOf: "2026-08-03T12:00:00.000Z",
+    summary: {
+      ...state.summary,
+      companiesWithVerifiedSources: 0,
+      unavailableCount: 3,
+      nextCheckAt: "2026-08-03T13:00:00.000Z",
+    },
+    companies: state.companies.map((company) => ({
+      ...company,
+      sources: company.sources.map((source) => ({
+        ...source,
+        outcome: "failed",
+        errorCode: "source_timeout",
+        httpStatus: null,
+        lastAttemptAt: "2026-08-03T12:00:00.000Z",
+        lastCompletedAt: "2026-08-03T12:00:00.000Z",
+        nextCheckAt: "2026-08-03T13:00:00.000Z",
+      })),
+    })),
     runs: [
       {
         ...state.runs[0]!,
+        id: "run_failed",
+        requestedAt: "2026-08-03T11:59:00.000Z",
+        startedAt: "2026-08-03T11:59:10.000Z",
+        completedAt: "2026-08-03T12:00:00.000Z",
+        deadlineAt: "2026-08-03T12:14:00.000Z",
         status: "failed",
         succeededCount: 0,
         failedCount: 3,
       },
+      ...state.runs,
     ],
   };
   await page.reload();
@@ -548,15 +629,39 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
     "0 of 3 pages and feeds read · 3 unavailable",
   );
   await expect(summary).not.toContainText("No new updates");
+  await expect(summary.locator(".watch-check-title")).toHaveText(
+    "Last check failed",
+  );
+  await expect(summary).toContainText("Last attempt Aug 3, 2026");
+  await expect(summary).toContainText("Last successful read Aug 2, 2026");
   state = {
     ...state,
+    asOf: "2026-08-04T12:15:00.000Z",
+    summary: { ...state.summary, nextCheckAt: "2026-08-04T13:00:00.000Z" },
+    companies: state.companies.map((company) => ({
+      ...company,
+      sources: company.sources.map((source) => ({
+        ...source,
+        outcome: "failed",
+        errorCode: "check_timed_out",
+        lastAttemptAt: "2026-08-04T11:59:10.000Z",
+        lastCompletedAt: "2026-08-04T12:15:00.000Z",
+        nextCheckAt: "2026-08-04T13:00:00.000Z",
+      })),
+    })),
     runs: [
       {
         ...state.runs[0]!,
+        id: "run_timeout",
+        requestedAt: "2026-08-04T11:59:00.000Z",
+        startedAt: "2026-08-04T11:59:10.000Z",
+        completedAt: "2026-08-04T12:15:00.000Z",
+        deadlineAt: "2026-08-04T12:14:00.000Z",
         status: "timed_out",
         completedCount: 0,
         failedCount: 0,
       },
+      ...state.runs,
     ],
   };
   await page.reload();
@@ -566,6 +671,13 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
     /Watch/,
   );
   await expect(summary).toContainText("This check did not finish");
+  await expect(summary.locator(".watch-check-title")).toHaveText(
+    "Last check timed out",
+  );
+  await expect(summary).toContainText("Last attempt Aug 4, 2026");
+  await expect(summary).toContainText("Last successful read Aug 2, 2026");
+  await expect(summary).toHaveScreenshot("portfolio-watch-timeout.png");
+  await page.screenshot({ path: testInfo.outputPath("review-timeout.png") });
   await expect(
     page.getByRole("button", { name: "Check now", exact: true }),
   ).toBeEnabled();

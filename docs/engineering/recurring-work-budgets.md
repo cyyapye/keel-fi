@@ -82,6 +82,16 @@ The runtime inventory's reader timer changes its error classification only; it
 does not raise the deadline. Process races, caller death, supervisor death and
 cleanup barriers are native regression gates.
 
+The verification-only orphan probe registers exactly two passive HTTP waits on
+that same rootless socket, for next exit and removal, before starting the
+worker. It makes no repeated lifecycle queries or retries. Registration is
+bounded at 10 seconds, exit observation at 45 seconds after the caller-death
+barrier (35-second watchdog plus 10-second response allowance), and removal
+observation at 10 seconds after exit confirmation. Responses are capped at 4 KiB
+each and observers are cancelled on every outcome. This replaces deadline
+polling in the proof only; production call counts, admission, execution and
+cleanup budgets above are unchanged.
+
 The envelope is one always-on process per provider, three providers, and one
 deployment. Additional workers, households, or deployments require a new shared
 account budget. Do not silently multiply this envelope.
