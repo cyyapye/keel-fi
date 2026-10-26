@@ -25,12 +25,39 @@ export function createSqliteTrace() {
   let roundTrips = 0;
   let measureFrom = 0;
   let failed = false;
-  const result = (rows: Record<string, unknown>[]) => ({
-    results: rows,
+  const unsupportedMetadata = (): never => {
+    failed = true;
+    throw new Error("SQL trace does not emulate D1 metadata");
+  };
+  const result = (
+    statement: SqlReplayStatement,
+    changed: number | undefined,
+  ) => ({
+    results: statement.rows,
     success: true,
-    get meta(): never {
-      failed = true;
-      throw new Error("SQL trace does not emulate D1 metadata");
+    get meta() {
+      return new Proxy(
+        {},
+        {
+          get(_target, property) {
+            if (
+              property === "changes" &&
+              changed !== undefined &&
+              Number.isSafeInteger(changed) &&
+              changed >= 0
+            ) {
+              // This is a branch input, not a billing estimate. Replay rejects
+              // the entire result unless real D1 reports the same affected rows.
+              statement.changes = changed;
+              return changed;
+            }
+            return unsupportedMetadata();
+          },
+          has: unsupportedMetadata,
+          ownKeys: unsupportedMetadata,
+          getOwnPropertyDescriptor: unsupportedMetadata,
+        },
+      );
     },
   });
   class Statement {
@@ -50,7 +77,7 @@ export function createSqliteTrace() {
         throw new Error("Unsupported trace binding");
       return new Statement(this.sql, values as (string | number | null)[]);
     }
-    capture(): SqlReplayStatement {
+    capture(): { captured: SqlReplayStatement; changed: number | undefined } {
       let query = queryIds.get(this.sql);
       if (query === undefined) {
         query = queries.length;
@@ -63,22 +90,35 @@ export function createSqliteTrace() {
         prepared.set(this.sql, statement);
       }
       const update = /^UPDATE\b/iu.test(this.sql.trimStart());
-      const before = update ? changes.get()!.count : undefined;
+      const mutation = /^(?:INSERT|UPDATE|DELETE)\b/iu.test(
+        this.sql.trimStart(),
+      );
+      const before = mutation ? Number(changes.get()!.count) : undefined;
       const rows = statement.all(...this.bindings);
-      const zeroWrite = update && changes.get()!.count === before;
-      return {
+      // D1 changes includes trigger effects, unlike SQLite changes(). Keep it
+      // distinct from D1 rows_written, which also bills index maintenance.
+      const changed =
+        before === undefined
+          ? undefined
+          : Number(changes.get()!.count) - before;
+      const zeroWrite = update && changed === 0;
+      const captured: SqlReplayStatement = {
         query,
         bindings: this.bindings,
         rows,
         ...(zeroWrite ? { zeroWrite: true as const } : {}),
       };
+      return {
+        captured,
+        changed,
+      };
     }
     all() {
       try {
-        const statement = this.capture();
-        steps.push({ batch: false, statements: [statement] });
+        const { captured, changed } = this.capture();
+        steps.push({ batch: false, statements: [captured] });
         roundTrips++;
-        return Promise.resolve(result(statement.rows));
+        return Promise.resolve(result(captured, changed));
       } catch (error) {
         failed = true;
         throw error;
@@ -103,10 +143,13 @@ export function createSqliteTrace() {
       try {
         const captured = statements.map((statement) => statement.capture());
         sqlite.exec("COMMIT");
-        steps.push({ batch: true, statements: captured });
+        steps.push({
+          batch: true,
+          statements: captured.map(({ captured }) => captured),
+        });
         roundTrips++;
         return Promise.resolve(
-          captured.map((statement) => result(statement.rows)),
+          captured.map(({ captured, changed }) => result(captured, changed)),
         );
       } catch (error) {
         sqlite.exec("ROLLBACK");

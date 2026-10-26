@@ -303,7 +303,11 @@ the complete trace inside workerd. Every D1 result must match. The original
 HTTP, Worker invocation, round-trip and actual D1 billing ceilings still apply;
 no averages, sampled requests or shorter virtual days replace them. The replay
 fixture rejects unsupported metadata-dependent behavior rather than supplying
-fake D1 metadata. Required browser tests continue to cover Worker HTTP behavior.
+fake D1 billing metadata. The cash-request fixture may consume mutation
+`meta.changes` only: each consumed value is recorded and independently compared
+with real D1 during replay, including trigger effects. Reads of billing metadata
+or metadata reflection fail closed. Required browser tests continue to cover
+Worker HTTP behavior.
 
 Session setup and browser reconnect checks use the same complete-trace proof.
 Each test retains its shared application and trace state across scenarios. Each
@@ -828,3 +832,59 @@ migration fixture and real Chromium/PDF boundary. The integrity holdout checks
 that the independent source/migration/build flows are all still required for
 acceptance. Only a new complete exact-revision benchmark can establish the
 scheduling gain.
+
+### Cash-request deadline: remove the host bridge bottleneck
+
+PR #326's first attempt on `3bbf5f3` timed out in the unchanged 60-second
+cash-request day; its unchanged rerun passed that case in 43.426 seconds. The
+failed window had CPU pressure `some.avg10` between 60.49 and 74.51 and as
+little as 2,875.7 MiB available memory; the passing window ranged from 41.38 to
+68.86 with at least 4,710.9 MiB available. These host samples show contention
+but do not identify which competing process caused it. The original case passed
+locally in 9.162 seconds. Neither an unchanged rerun nor early file scheduling
+removes its sensitivity to the host/Miniflare bridge.
+
+The cash fixture was still executing every D1 operation through Node's binding
+proxy. Unlike the provider/session full-day fixtures, it could not use the
+complete SQL trace because cash refresh admission consumes `meta.changes`. The
+trace deliberately rejected all metadata. It now supports only explicitly
+consumed mutation counts, using SQLite's total-change delta including triggers
+and comparing every such count with real D1. It still rejects fabricated billing
+metadata, incomplete replay and any differing result, binding, transaction or
+consumed count. The Worker validates the replay payload with Zod.
+
+The real client, web proxy, authenticated API, repositories and both complete
+24-hour days still execute. Each of the 48 requests/day is authenticated and
+each hourly state still contains 20 connections and 100 accepted accounts. Every
+SQL operation and result is replayed into a fresh real D1 database, including
+prior scenario state before the measurement boundary. Production round trips are
+counted from the original trace; grouping replay transport cannot lower them.
+Existing deadlines, row/round-trip ceilings, outage calls, worker counts and the
+overall 900-second gate remain unchanged.
+
+| Scenario                | Client requests | Production D1 trips/statements | D1 rows read | D1 rows written | Host replay requests |
+| ----------------------- | --------------- | ------------------------------ | ------------ | --------------- | -------------------- |
+| Unchanged day           | 48              | 360                            | 111,528      | 0               | 1                    |
+| Object-store outage day | 48              | 485                            | 97,003       | 180             | 2                    |
+
+The old and new fixtures produce exactly these same D1 counters. The native cash
+test now independently limits host replay requests to one/two per day, while
+keeping the existing 250,000-read, 600-production-trip and 0/400-write ceilings.
+This makes reintroducing hundreds of host database calls a regression. The
+replay holdout separately proves consumed counts for ignored inserts and atomic
+batches, validates trigger writes independently of index billing, rejects a
+deliberately false affected-row count, and refuses other metadata access or
+reflection. Existing divergence, rollback and complete-trace holdouts remain.
+
+A matched macOS/Node 22.13.0 experiment added 75 ms to every host-side D1 call
+in isolated synthetic copies of the original and candidate fixtures. All
+workload assertions and the original 60-second deadline were retained. The old
+case took 48.846 seconds; the candidate took 1.662 seconds with identical cost
+counters. With a matched 125 ms host-call delay, the original case failed at its
+unchanged 60-second deadline (60.005 seconds observed); the candidate passed in
+2.210 seconds. This second holdout charged the same delay to the candidate's
+three replay requests as well as every host D1 binding call. The delay was
+injected only into synthetic test-host transports, not into production or the
+Worker-side D1 operations. These are focused transport-sensitivity measurements,
+not a complete CI speedup claim. Full Linux required-gate evidence is still
+required for the changed revision.

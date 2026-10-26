@@ -1,4 +1,4 @@
-import { replaySql, type SqlReplayChunk } from "./sql-replay";
+import { replaySql, sqlReplayChunkSchema } from "./sql-replay";
 
 export default {
   async fetch(
@@ -7,7 +7,10 @@ export default {
   ): Promise<Response> {
     try {
       return Response.json(
-        await replaySql(bindings.DB, await request.json<SqlReplayChunk>()),
+        await replaySql(
+          bindings.DB,
+          sqlReplayChunkSchema.parse(await request.json()),
+        ),
       );
     } catch (error) {
       return new Response(String(error), { status: 500 });
