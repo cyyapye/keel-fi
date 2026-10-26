@@ -26,6 +26,32 @@ copy-paste components. Demo state and fixture-only CSS stay in browser tests.
 Use the current theme tokens and check the rendered result. Export coverage and
 source freshness do not establish visual quality or complete state coverage.
 
+## Maintain the guide with UI changes
+
+The agent changing a shared component, approved composition or usage rule owns
+the affected guide inputs in the same change. The generated JSON is build
+output; never edit it directly.
+
+| Input                                           | Update when                                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `packages/ui/src`                               | The shared API, behavior or theme changes.                                                        |
+| This document and `docs/product/ui-and-copy.md` | An approved usage or design rule changes. Keep each rule in its canonical location.               |
+| `e2e/ui-catalogue/catalogue-manifest.ts`        | Exports, grouping, catalogue destinations or required states change.                              |
+| `e2e/ui-catalogue/agent-guidance.ts`            | When-to-use guidance or rule/example references change.                                           |
+| `e2e/ui-catalogue/*.tsx`                        | A component or composition needs a new or corrected rendered example. Synthetic state stays here. |
+
+Renaming or removing a control includes migrating its inventory, guidance and
+example references. Read the affected prose against actual behavior: a valid
+link does not establish that a recommendation is still correct. Reusing an
+existing pattern without changing its contract needs no guide edit.
+
+Query the affected entry with `make ui-guide UI_QUERY=...`, inspect its matching
+catalogue example when appearance or behavior changed, and run the relevant
+checks below. In particular, `make test TEST_ARGS=scripts/ui-guide.test.ts`
+checks export coverage and rule/example references. Keep the UI skill's existing
+scope rules for mechanical corrections and material changes. The handoff names
+the updated inputs and checks, or explains why no guide update was needed.
+
 ## Approved design and scope
 
 The current-theme catalogue revision v2 was approved on 2026-10-23. Its scope

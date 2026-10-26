@@ -82,6 +82,16 @@ and the independent rendered review required above. If the guide fails because
 an API, rule or example moved, repair its reference rather than inventing an
 API.
 
+Before handoff, maintain the affected design-system inputs in the same change.
+Follow
+[the guide upkeep map](../../../docs/product/ui-library.md#maintain-the-guide-with-ui-changes)
+for canonical rules, inventory, when-to-use guidance and live examples. Check
+that prose still matches behavior even when links and types pass. Regenerate
+through the guide command; never hand-edit its JSON. Re-query the affected entry
+and run the checks required by the change's scope. Existing-pattern reuse needs
+no guide edit when its contract is unchanged. Report the updated inputs, or why
+no update was needed. Backend-only work does not acquire this requirement.
+
 ## Follow the affected boundary
 
 - When changing collection loading, request behavior, or a read model, trace the
