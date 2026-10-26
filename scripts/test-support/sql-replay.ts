@@ -1,12 +1,16 @@
 import { emptyD1Cost, measureD1, type D1Cost } from "./d1-meter";
+import { z } from "zod";
 
 // Synthetic test traces only. Billing metadata is never synthesized by SQLite.
 export type SqlReplayStatement = {
   query: number;
   bindings: (string | number | null)[];
   rows: Record<string, unknown>[];
+  // Present only when application code consumed the affected-row count.
+  // D1 must confirm this branch input independently during replay.
+  changes?: number | undefined;
   // SQLite observed no table or trigger changes. D1 must independently confirm.
-  zeroWrite?: true;
+  zeroWrite?: true | undefined;
 };
 export type SqlReplayStep = {
   batch: boolean;
@@ -18,6 +22,36 @@ export type SqlReplayChunk = {
   offset: number;
   measureFrom: number;
 };
+
+export const sqlReplayChunkSchema = z
+  .object({
+    queries: z.array(z.string()),
+    steps: z
+      .array(
+        z
+          .object({
+            batch: z.boolean(),
+            statements: z.array(
+              z
+                .object({
+                  query: z.number().int().nonnegative(),
+                  bindings: z.array(
+                    z.union([z.string(), z.number().finite(), z.null()]),
+                  ),
+                  rows: z.array(z.record(z.string(), z.unknown())),
+                  changes: z.number().int().nonnegative().optional(),
+                  zeroWrite: z.literal(true).optional(),
+                })
+                .strict(),
+            ),
+          })
+          .strict(),
+      )
+      .max(500),
+    offset: z.number().int().nonnegative(),
+    measureFrom: z.number().int().nonnegative(),
+  })
+  .strict();
 
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) =>
@@ -82,6 +116,11 @@ export async function replaySql(database: D1Database, chunk: SqlReplayChunk) {
     if (results.length !== expected.length)
       throw new Error("Incomplete D1 statement results");
     for (const [statementIndex, result] of results.entries()) {
+      const changes = expected[statementIndex]!.changes;
+      if (changes !== undefined && result.meta.changes !== changes)
+        throw new Error(
+          `D1/SQLite changes mismatch at operation ${chunk.offset + index + (grouped.length > 1 ? statementIndex : 0)}, statement ${grouped.length > 1 ? 0 : statementIndex}: expected ${changes}, received ${result.meta.changes}`,
+        );
       if (
         expected[statementIndex]!.zeroWrite === true &&
         result.meta.rows_written !== 0

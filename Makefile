@@ -112,7 +112,12 @@ build:
 	$(PNPM) build
 
 check:
+	$(MAKE) ci-storage-test
 	$(PNPM) check
+
+.PHONY: ci-storage-test
+ci-storage-test:
+	python3 -I scripts/test_ci_diagnostics.py
 
 db-migrate:
 	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:migrate:local

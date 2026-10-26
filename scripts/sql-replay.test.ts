@@ -99,6 +99,113 @@ it("rejects D1 result divergence instead of trusting the SQLite behavior oracle"
   }
 }, 30_000);
 
+it("validates consumed affected-row counts against D1 while rejecting synthetic billing metadata", async () => {
+  const bundled = await build({
+    entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+  });
+  const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
+  const trace = createSqliteTrace();
+  const unsupported = createSqliteTrace();
+  try {
+    const db = trace.database;
+    await db
+      .prepare(
+        "CREATE TABLE changes_probe (id TEXT PRIMARY KEY, value INTEGER)",
+      )
+      .run();
+    await db
+      .prepare("CREATE INDEX changes_probe_value ON changes_probe(value)")
+      .run();
+    await db.prepare("CREATE TABLE changes_audit (value INTEGER)").run();
+    await db
+      .prepare(
+        "CREATE TRIGGER changes_insert AFTER INSERT ON changes_probe BEGIN INSERT INTO changes_audit VALUES (new.value); END",
+      )
+      .run();
+    trace.reset();
+    const inserted = await db
+      .prepare("INSERT INTO changes_probe VALUES ('synthetic', 1)")
+      .run();
+    expect(inserted.meta.changes).toBe(2);
+    const ignored = await db
+      .prepare("INSERT OR IGNORE INTO changes_probe VALUES ('synthetic', 2)")
+      .run();
+    expect(ignored.meta.changes).toBe(0);
+    const batch = await db.batch([
+      db.prepare("UPDATE changes_probe SET value = 3 WHERE id = 'synthetic'"),
+      db.prepare("UPDATE changes_probe SET value = 4 WHERE id = 'missing'"),
+    ]);
+    expect(batch.map((result) => result.meta.changes)).toEqual([1, 0]);
+    const cost = await trace.replay((body) =>
+      fixture.dispatchFetch("https://synthetic-replay.invalid", {
+        method: "POST",
+        body,
+      }),
+    );
+    expect(cost.roundTrips).toBe(3);
+    // Affected rows must not replace billed writes: indexes and triggers cost more.
+    expect(cost.rowsWritten).toBeGreaterThan(3);
+    expect(
+      await fixture.database
+        .prepare("SELECT COUNT(*) AS count FROM changes_audit")
+        .first("count"),
+    ).toBe(1);
+    await expect(
+      replaySql(fixture.database, {
+        queries: ["UPDATE changes_probe SET value = 5 WHERE id = 'synthetic'"],
+        steps: [
+          {
+            batch: false,
+            statements: [{ query: 0, bindings: [], rows: [], changes: 0 }],
+          },
+        ],
+        offset: 0,
+        measureFrom: 0,
+      }),
+    ).rejects.toThrow("D1/SQLite changes mismatch");
+    const result = await unsupported.database
+      .prepare(
+        "INSERT INTO users VALUES ('synthetic-probe', 'synthetic-probe-subject', 'synthetic@example.invalid', 'Synthetic Probe', '2026-01-01')",
+      )
+      .run();
+    expect(() => result.meta.rows_written).toThrow(
+      "does not emulate D1 metadata",
+    );
+    expect(() => Object.keys(result.meta)).toThrow(
+      "does not emulate D1 metadata",
+    );
+    expect(() => "rows_written" in result.meta).toThrow(
+      "does not emulate D1 metadata",
+    );
+    await expect(
+      unsupported.replay(() => Promise.resolve(Response.json({}))),
+    ).rejects.toThrow("Cannot replay a trace containing failed SQL");
+    const invalid = await fixture.dispatchFetch(
+      "https://synthetic-replay.invalid",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          queries: [],
+          steps: [],
+          offset: 0,
+          measureFrom: 0,
+          fakeBilling: 1,
+        }),
+      },
+    );
+    expect(invalid.status).toBe(500);
+  } finally {
+    unsupported.close();
+    trace.close();
+    await fixture.close();
+  }
+}, 30_000);
+
 it("rejects incomplete replay, missing billing metadata and failed SQL traces", async () => {
   const trace = createSqliteTrace();
   try {

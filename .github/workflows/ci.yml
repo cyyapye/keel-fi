@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pull-requests: read
 
 concurrency:
@@ -82,4 +83,5 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
           HOME: ${{ runner.workspace }}

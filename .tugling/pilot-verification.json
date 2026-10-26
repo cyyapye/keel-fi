@@ -98,7 +98,12 @@
         "scripts/ui-design-review.test.ts",
         "scripts/ui-design-review.ts",
         "scripts/watchdog-removal.test.ts",
-        "scripts/sandbox-proof-diagnostics.test.ts"
+        "scripts/sandbox-proof-diagnostics.test.ts",
+        "scripts/ci-artifact-budget.ts",
+        "scripts/ci-artifact-budget.test.ts",
+        ".github/actions/upload-bounded-artifact/action.yml",
+        ".github/workflows/post-merge.yml",
+        ".github/workflows/tugling-pilot.yml"
       ],
       "runtime": {
         "owner": "native-command",
@@ -134,7 +139,9 @@
         ".github/actions/verify-native-receipt/action.yml",
         "scripts/ci-resource-sampler.py",
         "scripts/test_pdf_sandbox_owner.py",
-        "scripts/pdf-sandbox-owner.py"
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/ci-diagnostics.py",
+        "scripts/test_ci_diagnostics.py"
       ],
       "runtime": {
         "owner": "native-command",
@@ -420,18 +427,20 @@
     },
     {
       "id": "document-resource-and-artifact-bounds",
-      "description": "Preserve reader/scanner isolation, input/output/time limits, bounded document capture/cache and backup count/bytes, integrity and exact owned cleanup.",
+      "description": "Preserve reader/scanner isolation, input/output/time limits, bounded document capture/cache and backup count/bytes, integrity and exact owned cleanup. Enforce bounded GitHub bundles, retention and aggregate artifact admission without deleting backups or foreign evidence.",
       "sources": [
         "docs/deployment/pdf-sandbox.md",
         "docs/deployment/backup-and-recovery.md",
-        "docs/security/private-document-baseline.md"
+        "docs/security/private-document-baseline.md",
+        "docs/engineering/github-storage-budget.md"
       ],
       "flows": [
         "pdf-sandbox-build",
         "native-unit-and-cost",
         "pdf-isolation",
         "browser-workflows",
-        "provider-document-runtime"
+        "provider-document-runtime",
+        "gate-and-artifact-integrity"
       ]
     },
     {

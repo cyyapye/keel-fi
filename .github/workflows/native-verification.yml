@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   required:
@@ -76,28 +77,23 @@ jobs:
           make pilot-verify > .tugling/local/pilot-required.json
       - name: Validate and publish the complete receipt
         run: python3 -I scripts/ci-verification.py publish
-      - uses: actions/upload-artifact@v4
+      - uses: ./keel/.github/actions/upload-bounded-artifact
         with:
+          kind: receipt
+          status: ${{ job.status }}
           name: native-required-${{ github.sha }}-${{ github.run_attempt }}
-          path: keel/.tugling/local/verification/required.json
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
-      - name: Retain native diagnostics
+          path: .tugling/local/verification/required.json
+      - name: Package bounded native diagnostics
+        id: diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        env:
+          DIAGNOSTIC_STATUS: ${{ job.status }}
+        run: python3 -I scripts/ci-diagnostics.py --status "$DIAGNOSTIC_STATUS"
+      - name: Retain native diagnostics
+        if: ${{ always() && steps.diagnostics.outcome == 'success' }}
+        uses: ./keel/.github/actions/upload-bounded-artifact
         with:
+          kind: diagnostics
+          status: ${{ job.status }}
           name: native-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
-          path: |
-            keel/.tugling/local/pilot-required.json
-            keel/.tugling/local/ci-resources.jsonl
-            keel/.tugling/local/verification/managed-v1/*.json
-            keel/.tugling/local/pilot/vitest.json
-            keel/.tugling/local/pilot/playwright.json
-            keel/.tugling/local/pilot/playwright-stateful-*.json
-            keel/.tugling/local/pilot/playwright-mocked.json
-            keel/.tugling/local/pilot/playwright-mocked-development.json
-            keel/.tugling/local/pilot/browser-results/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
+          path: .tugling/local/ci-upload/diagnostics.zip

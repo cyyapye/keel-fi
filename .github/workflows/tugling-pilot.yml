@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: tugling-pilot-${{ github.event.pull_request.number || github.ref }}
@@ -71,24 +72,19 @@ jobs:
       - name: Prove the required gate rejects increased idle polling
         if: ${{ inputs.regression_probe }}
         run: python3 -I scripts/pilot_regression_probe.py
-      - name: Retain synthetic verification evidence
+      - name: Package bounded pilot diagnostics
+        id: diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        env:
+          DIAGNOSTIC_STATUS: ${{ job.status }}
+        run: python3 -I scripts/ci-diagnostics.py --status "$DIAGNOSTIC_STATUS"
+      - name: Retain synthetic verification evidence
+        if: ${{ always() && steps.diagnostics.outcome == 'success' }}
+        uses: ./keel/.github/actions/upload-bounded-artifact
         with:
+          kind: diagnostics
+          status: ${{ job.status }}
           name:
             native-pilot-${{ github.event.pull_request.head.sha || github.sha
             }}-${{ github.run_attempt }}
-          path: |
-            keel/.tugling/local/pilot-required.json
-            keel/.tugling/local/pilot-probe-required.json
-            keel/.tugling/local/pilot-probe-summary.json
-            keel/.tugling/local/pilot-probe.log
-            keel/.tugling/local/verification/
-            keel/.tugling/local/pilot/vitest.json
-            keel/.tugling/local/pilot/playwright.json
-            keel/.tugling/local/pilot/playwright-stateful.json
-            keel/.tugling/local/pilot/playwright-mocked.json
-            keel/.tugling/local/pilot/browser-results/
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 7
+          path: .tugling/local/ci-upload/diagnostics.zip

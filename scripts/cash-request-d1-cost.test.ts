@@ -1,22 +1,54 @@
 import { expect, it, vi } from "vitest";
+import { build } from "esbuild";
 import { createApp } from "../apps/api/src/app";
 import { handleRequest } from "../apps/web/src/worker";
 import { loadCashAccounts, refreshDueCashAccounts } from "../apps/web/src/api";
 import type { PlaidCashClient } from "../apps/api/src/plaid-cash-sync";
 import type { Env } from "../apps/api/src/types";
 import { D1CashAccountsRepository } from "../packages/database/src/cash-accounts";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
+import { createCostDatabase } from "./test-support/d1-cost";
+import { createSqliteTrace } from "./test-support/sqlite-trace";
 import {
   COST_SUBJECT,
   COST_TIME,
   seedCostProposals,
 } from "./test-support/cost-fixtures";
 
-it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exceptions and historical proposals", async () => {
-  const fixture = await createCostDatabase();
+const replayWorker = build({
+  entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
+  bundle: true,
+  write: false,
+  format: "esm",
+  platform: "neutral",
+  target: "es2022",
+  conditions: ["workerd", "worker", "browser"],
+  mainFields: ["browser", "module", "main"],
+  external: ["node:*", "cloudflare:*"],
+  logLevel: "silent",
+}).then((result) => result.outputFiles[0]!.text);
+
+async function replayD1(trace: ReturnType<typeof createSqliteTrace>) {
+  const fixture = await createCostDatabase(await replayWorker);
+  let bridgeRequests = 0;
   try {
-    await seedCostProposals(fixture.database);
-    await fixture.database
+    const cost = await trace.replay((body) => {
+      bridgeRequests++;
+      return fixture.dispatchFetch("https://synthetic-replay.invalid", {
+        method: "POST",
+        body,
+      });
+    });
+    return { ...cost, bridgeRequests };
+  } finally {
+    await fixture.close();
+  }
+}
+
+it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exceptions and historical proposals", async () => {
+  const trace = createSqliteTrace();
+  try {
+    await seedCostProposals(trace.database);
+    await trace.database
       .prepare(
         `INSERT INTO cash_balance_review_decisions
       (id, household_id, proposal_id, proposal_row_id, reviewer_user_id, decision, change_note, decided_at, immutable)
@@ -28,8 +60,7 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
         JSON.stringify(Array.from({ length: 100 }, (_, index) => index)),
       )
       .run();
-    const measured = measureD1(fixture.database);
-    const repository = new D1CashAccountsRepository(measured.database);
+    const repository = new D1CashAccountsRepository(trace.database);
     const objectGet = vi.fn(() =>
       Promise.reject(new Error("Synthetic object-store outage")),
     );
@@ -38,7 +69,7 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
     );
     const client = { getAccounts } as unknown as PlaidCashClient;
     const env = {
-      DB: measured.database,
+      DB: trace.database,
       ENVIRONMENT: "preview",
       DOCUMENTS: { get: objectGet },
       INGESTION_QUEUE: {},
@@ -79,13 +110,13 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
     vi.useFakeTimers({ toFake: ["Date"] });
     for (const failed of [false, true]) {
       const start = Date.parse(COST_TIME) + (failed ? 8 * 86_400_000 : 0);
-      await fixture.database
+      await trace.database
         .prepare(
           "UPDATE connector_accounts SET last_synced_at = ? WHERE connector_type = 'plaid-cash'",
         )
         .bind(COST_TIME)
         .run();
-      measured.reset();
+      trace.reset();
       objectGet.mockClear();
       http = 0;
       authenticated = 0;
@@ -98,9 +129,14 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
       }
       expect(http).toBe(48);
       expect(authenticated).toBe(48);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(250_000);
-      expect(measured.cost.roundTrips).toBeLessThanOrEqual(600);
-      expect(measured.cost.rowsWritten).toBeLessThanOrEqual(failed ? 400 : 0);
+      // Every SQL operation, binding, result and consumed admission count is
+      // replayed beside real D1. Keep production trips separate from transport.
+      const cost = await replayD1(trace);
+      expect(cost.roundTrips).toBe(trace.roundTrips);
+      expect(cost.rowsRead).toBeLessThanOrEqual(250_000);
+      expect(cost.roundTrips).toBeLessThanOrEqual(600);
+      expect(cost.rowsWritten).toBeLessThanOrEqual(failed ? 400 : 0);
+      expect(cost.bridgeRequests).toBeLessThanOrEqual(failed ? 2 : 1);
       expect(objectGet).toHaveBeenCalledTimes(failed ? 20 : 0);
       expect(getAccounts).not.toHaveBeenCalled();
       log(
@@ -109,7 +145,7 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
             failed,
             http,
             workerInvocations: http * 2,
-            ...measured.cost,
+            ...cost,
           },
         }),
       );
@@ -118,6 +154,6 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
-    await fixture.close();
+    trace.close();
   }
 }, 60_000);

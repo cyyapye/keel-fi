@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   verify:
@@ -28,6 +29,7 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
           HOME: ${{ runner.workspace }}
 
   tugling-contract:
@@ -63,6 +65,7 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
       deployments: write
     environment:
       name: preview
@@ -170,15 +173,14 @@ jobs:
           cleanup_plaintext
           trap - EXIT
       - name: Retain encrypted pre-migration D1 backup
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload-bounded-artifact
         with:
+          kind: backup
+          status: ${{ job.status }}
           name: ${{ env.KEEL_PREVIEW_BACKUP_ARTIFACT_NAME }}
           path: |
             ${{ env.KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH }}
             ${{ env.KEEL_PREVIEW_BACKUP_MANIFEST_PATH }}
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
       - name: Apply forward-only D1 migrations
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -261,13 +263,13 @@ jobs:
           KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
         run: pnpm tsx scripts/preview-deployment-evidence.ts release
       - name: Retain preview release evidence
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload-bounded-artifact
         with:
+          kind: release
+          status: ${{ job.status }}
           name:
             preview-release-${{ github.sha }}-attempt-${{ github.run_attempt }}
           path: ${{ env.KEEL_PREVIEW_RELEASE_EVIDENCE_PATH }}
-          if-no-files-found: error
-          retention-days: 90
       - name: Remove private runner files
         if: always()
         run: |

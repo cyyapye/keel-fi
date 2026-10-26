@@ -56,6 +56,12 @@ Load the applicable guidance when the task crosses its boundary:
 - When preparing a PR or release, follow the verification and exact-revision
   evidence requirements in
   [.github/workflows/README.md](.github/workflows/README.md).
+- For CI artifacts or caches, follow
+  [github-storage-budget.md](docs/engineering/github-storage-budget.md). Use the
+  bounded upload action, keep success diagnostics for one day, and preserve
+  backup/failure retention. Budget aggregate retained bytes and run volume with
+  account headroom; a per-file limit or preflight count alone does not guarantee
+  the shared free allocation. Keep account hard spending stops.
 
 ## Codex and local workflow
 
