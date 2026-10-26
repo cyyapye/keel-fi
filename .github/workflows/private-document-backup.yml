@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 90
     environment: private-backup
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false

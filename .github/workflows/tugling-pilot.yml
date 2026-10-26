@@ -32,7 +32,7 @@ jobs:
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
     steps:
       - name: Check out exact PR head or merge-queue candidate
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: keel
@@ -40,18 +40,18 @@ jobs:
       - name: Assert intended project revision
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
       - name: Check out reviewed candidate as a sibling
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: cyyapye/tugling
           ref: 01af7eda080d3ef49d9fabcb7dfdf40e949a693c
           path: tugling-candidate
           persist-credentials: false
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           run_install: false
           version: 11.9.0
           package_json_file: keel/package.json
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.13.0
           cache: pnpm
@@ -73,7 +73,7 @@ jobs:
         run: python3 -I scripts/pilot_regression_probe.py
       - name: Retain synthetic verification evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name:
             native-pilot-${{ github.event.pull_request.head.sha || github.sha
