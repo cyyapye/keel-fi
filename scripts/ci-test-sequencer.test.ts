@@ -21,10 +21,10 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
   const original = [...files];
   const ordered = prioritizeCostFiles(files);
   expect(ordered).toEqual([
+    files[7],
     files[10],
     files[9],
     files[8],
-    files[7],
     files[6],
     files[5],
     files[2],
