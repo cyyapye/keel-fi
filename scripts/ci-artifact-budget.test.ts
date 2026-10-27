@@ -8,6 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -20,6 +21,47 @@ import {
 } from "./ci-artifact-budget";
 
 describe("GitHub artifact storage budgets", () => {
+  it("pauses optional uploads while refusing to discard required backup or release evidence", async () => {
+    const action = await readFile(
+      ".github/actions/upload-bounded-artifact/action.yml",
+      "utf8",
+    );
+    const script = action
+      .split("      run: |\n")[1]!
+      .split("    - name:")[0]!
+      .replace(/^ {8}/gm, "");
+    const root = await mkdtemp(join(tmpdir(), "keel-upload-pause-"));
+    try {
+      for (const kind of ["receipt", "diagnostics", "backup", "release"]) {
+        const result = spawnSync("bash", ["-e", "-c", script], {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            ARTIFACT_KIND: kind,
+            GITHUB_STEP_SUMMARY: join(root, "summary"),
+          },
+        });
+        expect(result.status).toBe(
+          kind === "backup" || kind === "release" ? 1 : 0,
+        );
+      }
+      expect(await readFile(join(root, "summary"), "utf8")).toContain(
+        "complete receipt travels through job outputs",
+      );
+      const deployment = await readFile(
+        ".github/workflows/post-merge.yml",
+        "utf8",
+      );
+      expect(deployment).toContain(
+        "github.ref == 'refs/heads/main' && vars.KEEL_PAUSE_ARTIFACT_UPLOADS !=",
+      );
+      expect(action).toContain("inputs.paused == 'true'");
+      // Repository variables are not available inside composite actions.
+      expect(action).not.toMatch(/\bvars\./);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("counts all 120 retained artifacts across pages, including foreign names, and excludes expired objects", async () => {
     const urls: string[] = [];
     const request: typeof fetch = (input) => {
@@ -151,6 +193,16 @@ describe("GitHub artifact storage budgets", () => {
       if (source.includes("upload-bounded-artifact")) {
         uploaders.push(file);
         expect(source).toContain("actions: read");
+        for (const step of source.split(/^ {6}- /m)) {
+          if (
+            !step.includes("uses: ./") ||
+            !step.includes("upload-bounded-artifact")
+          )
+            continue;
+          expect(step).toContain(
+            "paused: ${{ vars.KEEL_PAUSE_ARTIFACT_UPLOADS || 'false' }}",
+          );
+        }
       }
       if (source.includes("gitleaks/gitleaks-action@")) {
         expect(source).toContain('GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"');
@@ -166,8 +218,8 @@ describe("GitHub artifact storage budgets", () => {
       "utf8",
     );
     expect(action).toContain("pnpm exec tsx scripts/ci-artifact-budget.ts");
-    expect(action).toContain(
-      "if: ${{ always() && steps.budget.outcome == 'success' }}",
+    expect(action.replace(/\s+/g, " ")).toContain(
+      "if: ${{ always() && inputs.paused != 'true' && steps.budget.outcome == 'success' }}",
     );
     expect(action).toContain(
       "retention-days: ${{ steps.budget.outputs.retention-days }}",

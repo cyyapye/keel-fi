@@ -1769,8 +1769,9 @@ The SPV received 88 closing warrant shares.`);
   await section
     .getByRole("button", { name: "Review event", exact: true })
     .click();
-  // The baseline includes Save hovered after the preceding Review click.
-  // Establish that state explicitly instead of relying on reused coordinates.
+  // Settle the whole section before hovering Save. Otherwise the element
+  // screenshot scrolls it into view and moves the button away from the pointer.
+  await section.scrollIntoViewIfNeeded();
   await section
     .getByRole("button", { name: "Save event", exact: true })
     .hover();

@@ -36,6 +36,8 @@ jobs:
           path: keel
           persist-credentials: false
       - uses: ./keel/.github/actions/verify-native-receipt
+        with:
+          receipt: ${{ needs.native.outputs.receipt }}
 
   migrations:
     name: D1 migration and synthetic seed
@@ -54,6 +56,8 @@ jobs:
           path: keel
           persist-credentials: false
       - uses: ./keel/.github/actions/verify-native-receipt
+        with:
+          receipt: ${{ needs.native.outputs.receipt }}
 
   browser:
     name: Critical browser flows
@@ -72,6 +76,8 @@ jobs:
           path: keel
           persist-credentials: false
       - uses: ./keel/.github/actions/verify-native-receipt
+        with:
+          receipt: ${{ needs.native.outputs.receipt }}
 
   secret-scan:
     name: Secret scan

@@ -1,5 +1,26 @@
 # GitHub verification and deployment workflows
 
+## Temporary artifact storage pause
+
+Set the repository variable `KEEL_PAUSE_ARTIFACT_UPLOADS=true` when GitHub
+rejects uploads because the account storage allocation is exhausted. Native
+checks, secret scanning, exact-revision checks and required receipt validation
+still run. The complete receipt travels through bounded job outputs and is
+validated again by each named PR check. Missing, truncated or invalid outputs
+fail closed; no previous-run file or success flag substitutes for the receipt.
+
+The pause skips receipt/diagnostic artifact uploads, so downloadable traces and
+screenshots are unavailable; console logs and workflow summaries remain. Preview
+deployment also waits: it requires a retained encrypted pre-migration backup,
+which must not be skipped. The independent private-document backup workflow uses
+its existing private object storage and is unaffected. No artifacts are deleted.
+
+After GitHub confirms quota is available, delete the variable or set it to
+`false`, then dispatch post-merge verification on current main. The existing
+bounded retention policy resumes. Do not assume the first day of a month is the
+account's reset date or that deletion immediately restores its accrued
+allowance.
+
 `ci.yml` runs before merge for pull requests and merge-queue candidates. Its
 native verification runs once through `native-verification.yml` on the exact
 event SHA after the secret scan succeeds. The named Quality, D1 migration and

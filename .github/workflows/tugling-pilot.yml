@@ -82,6 +82,7 @@ jobs:
         if: ${{ always() && steps.diagnostics.outcome == 'success' }}
         uses: ./keel/.github/actions/upload-bounded-artifact
         with:
+          paused: ${{ vars.KEEL_PAUSE_ARTIFACT_UPLOADS || 'false' }}
           kind: diagnostics
           status: ${{ job.status }}
           name:
