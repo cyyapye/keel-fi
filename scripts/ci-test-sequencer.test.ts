@@ -13,10 +13,15 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
     { moduleId: "/synthetic/scripts/runtime-work-inventory.test.ts" },
     { moduleId: "/synthetic/scripts/cash-request-d1-cost.test.ts" },
     { moduleId: "/synthetic/packages/database/src/cash-accounts.test.ts" },
+    {
+      moduleId:
+        "/synthetic/scripts/automatic-investment-review-d1-cost.test.ts",
+    },
   ];
   const original = [...files];
   const ordered = prioritizeCostFiles(files);
   expect(ordered).toEqual([
+    files[10],
     files[9],
     files[8],
     files[7],

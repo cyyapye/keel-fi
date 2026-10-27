@@ -317,6 +317,15 @@ test("review duplicate sources and replacement history with no typing, saved rel
   expect((await historicalInfo.boundingBox())!.height).toBeGreaterThanOrEqual(
     44,
   );
+  if (info.project.name !== "mobile-chromium") {
+    // Hover was verified above. Pin the same popup with keyboard activation
+    // so full-page capture cannot close it by moving the pointer off its icon.
+    await page.keyboard.press("Escape");
+    await expect(popup).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    await historicalInfo.press("Enter");
+    await expect(popup).toBeVisible();
+  }
   await page.addStyleTag({
     // The popup is portaled, so capture the page. Keep unrelated sticky chrome
     // out of this capture; its scroll position varies after keyboard focus.
