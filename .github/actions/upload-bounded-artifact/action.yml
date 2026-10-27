@@ -1,6 +1,10 @@
 name: Upload bounded artifact
 description: Check explicit files and repository capacity before any upload.
 inputs:
+  paused:
+    description: Artifact-upload pause resolved by the calling workflow
+    required: false
+    default: "false"
   kind:
     description: receipt, diagnostics, backup or release
     required: true
@@ -18,7 +22,7 @@ runs:
   using: composite
   steps:
     - name: Explain temporary artifact pause
-      if: ${{ always() && vars.KEEL_PAUSE_ARTIFACT_UPLOADS == 'true' }}
+      if: ${{ always() && inputs.paused == 'true' }}
       shell: bash
       env:
         ARTIFACT_KIND: ${{ inputs.kind }}
@@ -29,7 +33,7 @@ runs:
         fi
         echo 'Artifact uploads temporarily paused. Checks still run; the complete receipt travels through job outputs. Downloadable diagnostics are unavailable. Preview deployments wait for backup storage to resume.' >> "$GITHUB_STEP_SUMMARY"
     - name: Enforce payload, retention and repository storage budgets
-      if: ${{ always() && vars.KEEL_PAUSE_ARTIFACT_UPLOADS != 'true' }}
+      if: ${{ always() && inputs.paused != 'true' }}
       id: budget
       shell: bash
       working-directory: ${{ github.action_path }}/../../..
@@ -41,8 +45,8 @@ runs:
       run: pnpm exec tsx scripts/ci-artifact-budget.ts
     - uses: actions/upload-artifact@v4
       if:
-        ${{ always() && vars.KEEL_PAUSE_ARTIFACT_UPLOADS != 'true' &&
-        steps.budget.outcome == 'success' }}
+        ${{ always() && inputs.paused != 'true' && steps.budget.outcome ==
+        'success' }}
       with:
         name: ${{ inputs.name }}
         path: ${{ steps.budget.outputs.paths }}

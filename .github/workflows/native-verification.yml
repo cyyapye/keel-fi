@@ -86,6 +86,7 @@ jobs:
         run: python3 -I scripts/ci-verification.py publish
       - uses: ./keel/.github/actions/upload-bounded-artifact
         with:
+          paused: ${{ vars.KEEL_PAUSE_ARTIFACT_UPLOADS || 'false' }}
           kind: receipt
           status: ${{ job.status }}
           name: native-required-${{ github.sha }}-${{ github.run_attempt }}
@@ -100,6 +101,7 @@ jobs:
         if: ${{ always() && steps.diagnostics.outcome == 'success' }}
         uses: ./keel/.github/actions/upload-bounded-artifact
         with:
+          paused: ${{ vars.KEEL_PAUSE_ARTIFACT_UPLOADS || 'false' }}
           kind: diagnostics
           status: ${{ job.status }}
           name: native-diagnostics-${{ github.sha }}-${{ github.run_attempt }}

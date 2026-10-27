@@ -55,7 +55,9 @@ describe("GitHub artifact storage budgets", () => {
       expect(deployment).toContain(
         "github.ref == 'refs/heads/main' && vars.KEEL_PAUSE_ARTIFACT_UPLOADS !=",
       );
-      expect(action).toContain("vars.KEEL_PAUSE_ARTIFACT_UPLOADS == 'true'");
+      expect(action).toContain("inputs.paused == 'true'");
+      // Repository variables are not available inside composite actions.
+      expect(action).not.toMatch(/\bvars\./);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -191,6 +193,16 @@ describe("GitHub artifact storage budgets", () => {
       if (source.includes("upload-bounded-artifact")) {
         uploaders.push(file);
         expect(source).toContain("actions: read");
+        for (const step of source.split(/^ {6}- /m)) {
+          if (
+            !step.includes("uses: ./") ||
+            !step.includes("upload-bounded-artifact")
+          )
+            continue;
+          expect(step).toContain(
+            "paused: ${{ vars.KEEL_PAUSE_ARTIFACT_UPLOADS || 'false' }}",
+          );
+        }
       }
       if (source.includes("gitleaks/gitleaks-action@")) {
         expect(source).toContain('GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"');
@@ -207,7 +219,7 @@ describe("GitHub artifact storage budgets", () => {
     );
     expect(action).toContain("pnpm exec tsx scripts/ci-artifact-budget.ts");
     expect(action.replace(/\s+/g, " ")).toContain(
-      "if: ${{ always() && vars.KEEL_PAUSE_ARTIFACT_UPLOADS != 'true' && steps.budget.outcome == 'success' }}",
+      "if: ${{ always() && inputs.paused != 'true' && steps.budget.outcome == 'success' }}",
     );
     expect(action).toContain(
       "retention-days: ${{ steps.budget.outputs.retention-days }}",

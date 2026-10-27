@@ -177,6 +177,7 @@ jobs:
       - name: Retain encrypted pre-migration D1 backup
         uses: ./.github/actions/upload-bounded-artifact
         with:
+          paused: ${{ vars.KEEL_PAUSE_ARTIFACT_UPLOADS || 'false' }}
           kind: backup
           status: ${{ job.status }}
           name: ${{ env.KEEL_PREVIEW_BACKUP_ARTIFACT_NAME }}
@@ -267,6 +268,7 @@ jobs:
       - name: Retain preview release evidence
         uses: ./.github/actions/upload-bounded-artifact
         with:
+          paused: ${{ vars.KEEL_PAUSE_ARTIFACT_UPLOADS || 'false' }}
           kind: release
           status: ${{ job.status }}
           name:
