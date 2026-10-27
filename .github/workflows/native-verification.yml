@@ -2,6 +2,10 @@ name: Native verification
 
 on:
   workflow_call:
+    outputs:
+      receipt:
+        description: Complete validated native receipt for this attempt
+        value: ${{ jobs.required.outputs.receipt }}
 
 permissions:
   contents: read
@@ -12,6 +16,8 @@ jobs:
     name: Complete native gate
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 65
+    outputs:
+      receipt: ${{ steps.receipt.outputs.receipt }}
     defaults:
       run:
         working-directory: keel
@@ -76,6 +82,7 @@ jobs:
           trap 'kill "$resource_sampler_pid" 2>/dev/null || true; wait "$resource_sampler_pid" 2>/dev/null || true' EXIT
           make pilot-verify > .tugling/local/pilot-required.json
       - name: Validate and publish the complete receipt
+        id: receipt
         run: python3 -I scripts/ci-verification.py publish
       - uses: ./keel/.github/actions/upload-bounded-artifact
         with:

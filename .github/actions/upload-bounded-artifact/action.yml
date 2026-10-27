@@ -17,8 +17,19 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Explain temporary artifact pause
+      if: ${{ always() && vars.KEEL_PAUSE_ARTIFACT_UPLOADS == 'true' }}
+      shell: bash
+      env:
+        ARTIFACT_KIND: ${{ inputs.kind }}
+      run: |
+        if [[ "$ARTIFACT_KIND" == backup || "$ARTIFACT_KIND" == release ]]; then
+          echo 'Required backup/release storage is paused; deployment must wait.' >&2
+          exit 1
+        fi
+        echo 'Artifact uploads temporarily paused. Checks still run; the complete receipt travels through job outputs. Downloadable diagnostics are unavailable. Preview deployments wait for backup storage to resume.' >> "$GITHUB_STEP_SUMMARY"
     - name: Enforce payload, retention and repository storage budgets
-      if: always()
+      if: ${{ always() && vars.KEEL_PAUSE_ARTIFACT_UPLOADS != 'true' }}
       id: budget
       shell: bash
       working-directory: ${{ github.action_path }}/../../..
@@ -29,7 +40,9 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
       run: pnpm exec tsx scripts/ci-artifact-budget.ts
     - uses: actions/upload-artifact@v4
-      if: ${{ always() && steps.budget.outcome == 'success' }}
+      if:
+        ${{ always() && vars.KEEL_PAUSE_ARTIFACT_UPLOADS != 'true' &&
+        steps.budget.outcome == 'success' }}
       with:
         name: ${{ inputs.name }}
         path: ${{ steps.budget.outputs.paths }}

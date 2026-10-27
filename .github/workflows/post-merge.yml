@@ -56,7 +56,9 @@ jobs:
 
   deploy-preview:
     name: Deploy exact SHA to preview
-    if: github.ref == 'refs/heads/main'
+    if:
+      github.ref == 'refs/heads/main' && vars.KEEL_PAUSE_ARTIFACT_UPLOADS !=
+      'true'
     needs:
       - verify
       - secret-scan

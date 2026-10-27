@@ -77,6 +77,12 @@ not auto-delete backup, active, foreign or failure artifacts to make a run
 green. Workflow logs, Packages, billing settings and other repositories are
 outside the repository artifact inventory.
 
+During an account quota block, the temporary
+[artifact-upload pause](../../.github/workflows/README.md#temporary-artifact-storage-pause)
+keeps native verification running and transports its complete receipt through
+bounded job outputs. Diagnostic downloads and preview deployments wait for
+storage to resume; mandatory database backups are never silently omitted.
+
 ## Run-volume envelope and enforcement
 
 For a planning example, 10 successful native runs/day at the full 1 MiB cap, one

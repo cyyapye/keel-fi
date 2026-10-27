@@ -2,6 +2,10 @@ name: Verify native receipt
 description:
   Validate complete evidence from this workflow attempt without rerunning native
   suites.
+inputs:
+  receipt:
+    description: Validated receipt output from the native job in this attempt
+    required: true
 runs:
   using: composite
   steps:
@@ -11,14 +15,11 @@ runs:
         ref: 01af7eda080d3ef49d9fabcb7dfdf40e949a693c
         path: tugling-candidate
         persist-credentials: false
-    - uses: actions/download-artifact@v5
-      with:
-        name: native-required-${{ github.sha }}-${{ github.run_attempt }}
-        path: keel/.tugling/local/verification
     - name: Validate exact revision, environment, attempt and required coverage
       shell: bash
       working-directory: keel
       env:
+        NATIVE_RECEIPT: ${{ inputs.receipt }}
         TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
         TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v7
       run: python3 -I scripts/ci-verification.py check
