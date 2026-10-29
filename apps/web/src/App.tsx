@@ -52,6 +52,7 @@ import type { HoldingsPage } from "@keel/domain/holdings-page";
 import { calculatePositionPerformance } from "@keel/domain/position-economics";
 import {
   buildHoldingsSearchIndex,
+  isCashExposure,
   searchHoldings,
   HOLDINGS_POSITION_PAGE_SIZE,
 } from "./collection-search";
@@ -2901,22 +2902,26 @@ function PositionPerformanceSummary({
 
 function HoldingDetailWorkspace({
   holding,
+  companyGroupingAction,
   onValueAccepted,
   related = [],
 }: {
   holding: Holding;
+  companyGroupingAction?: ReactNode;
   onValueAccepted: () => Promise<void>;
   related?: Holding[];
 }) {
   return holding.purchaseContext ? (
     <SpvHoldingDetail
       holding={holding}
+      companyGroupingAction={companyGroupingAction}
       onAccepted={onValueAccepted}
       related={related}
     />
   ) : (
     <LegacyHoldingDetailWorkspace
       holding={holding}
+      companyGroupingAction={companyGroupingAction}
       onValueAccepted={onValueAccepted}
     />
   );
@@ -2924,9 +2929,11 @@ function HoldingDetailWorkspace({
 
 function LegacyHoldingDetailWorkspace({
   holding,
+  companyGroupingAction,
   onValueAccepted,
 }: {
   holding: Holding;
+  companyGroupingAction?: ReactNode;
   onValueAccepted: () => Promise<void>;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -3080,6 +3087,7 @@ function LegacyHoldingDetailWorkspace({
         </p>
       </header>
 
+      {companyGroupingAction}
       <div className="holding-summary">
         <PositionPerformanceSummary
           holding={holding}
@@ -7032,6 +7040,47 @@ function Holdings({
   }
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
+  const publicPositionExposure =
+    selectedHolding === null
+      ? undefined
+      : data.investmentHoldings.exposureView.exposures.find(
+          (group) =>
+            group.exposure.exposureKind === "public_instrument" &&
+            !isCashExposure(group) &&
+            group.contributions.some(
+              (item) => item.positionId === selectedHolding.id,
+            ),
+        );
+  const publicPositionCount = new Set(
+    publicPositionExposure?.contributions.map((item) => item.positionId) ?? [],
+  ).size;
+  const publicCompanyLink =
+    publicPositionExposure === undefined
+      ? undefined
+      : data.investmentHoldings.exposureView.publicCompanyLinks?.find(
+          (link) =>
+            link.publicExposureId === publicPositionExposure?.exposure.id,
+        );
+  const companyGroupingAction = publicPositionExposure && selectedHolding && (
+    <ActionGroup
+      className="holding-company-grouping"
+      role="group"
+      aria-label="Company grouping"
+      wrap
+    >
+      <TextLink
+        aria-describedby="holding-company-grouping-scope"
+        href={`/holdings/entities?companies=1&public=${encodeURIComponent(publicPositionExposure.exposure.id)}&returnPosition=${encodeURIComponent(selectedHolding.id)}`}
+      >
+        {publicCompanyLink ? "Review company link" : "Group with company"}
+      </TextLink>
+      <span className="holding-metadata" id="holding-company-grouping-scope">
+        {publicPositionCount > 1
+          ? `Applies to all ${publicPositionCount} positions in this security.`
+          : "Applies to this security."}
+      </span>
+    </ActionGroup>
+  );
   const importerVisible = showImporter || requestedImportId !== null;
   const sourcesVisible =
     selectedHolding === null && !importerVisible && requestedView === "sources";
@@ -7189,6 +7238,13 @@ function Holdings({
 
   const closeHoldingDetail = () => {
     const returnFocusId = selectedHoldingId;
+    if (publicPositionExposure !== undefined) {
+      setExposureOpen(
+        publicCompanyLink?.companyExposureId ??
+          publicPositionExposure.exposure.id,
+        true,
+      );
+    }
     onPositionRouteChange(null);
     if (returnFocusId !== null) {
       let attempts = 0;
@@ -7269,6 +7325,7 @@ function Holdings({
       ) : selectedHolding !== null ? (
         <HoldingDetailWorkspace
           holding={selectedHolding}
+          companyGroupingAction={companyGroupingAction}
           related={
             selectedHolding.companyId
               ? data.holdings.filter(

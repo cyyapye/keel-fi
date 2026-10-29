@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Holding } from "@keel/domain";
 import type { calculatePositionPerformance } from "@keel/domain/position-economics";
 import {
@@ -27,10 +27,12 @@ import { decimal } from "./decimal-input";
 
 export function SpvHoldingDetail({
   holding,
+  companyGroupingAction,
   onAccepted,
   related = [],
 }: {
   holding: Holding;
+  companyGroupingAction?: ReactNode;
   onAccepted: () => Promise<void>;
   related?: Holding[];
 }) {
@@ -204,6 +206,7 @@ export function SpvHoldingDetail({
           </div>
         )}
       </header>
+      {companyGroupingAction}
       <section aria-label="Position summary" className="holding-value-summary">
         {record?.carryStatus === "before_carry" &&
           value(

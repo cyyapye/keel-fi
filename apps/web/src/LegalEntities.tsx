@@ -1,6 +1,7 @@
 import { legalReviewIssues } from "@keel/domain/automatic-investment-review";
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import { PublicCompanyLinkEditor } from "./PublicCompanyLinkEditor";
+import { HoldingSchema } from "@keel/domain";
 import { CompanyNames } from "./CompanyNames";
 import {
   DEFAULT_LEGAL_ENTITY_EXPORT_FIELDS,
@@ -2183,9 +2184,21 @@ function ProgressiveRows<T>({
 }
 
 export function LegalEntities(props: { navigationVersion: number }) {
-  const publicId = new URLSearchParams(window.location.search).get("public");
+  const params = new URLSearchParams(window.location.search);
+  const publicId = params.get("public");
+  const returnPosition = HoldingSchema.shape.id
+    .max(200)
+    .safeParse(params.get("returnPosition"));
   if (publicId)
-    return <PublicCompanyLinkEditor key={publicId} exposureId={publicId} />;
+    return (
+      <PublicCompanyLinkEditor
+        key={publicId}
+        exposureId={publicId}
+        {...(returnPosition.success
+          ? { returnPositionId: returnPosition.data }
+          : {})}
+      />
+    );
   return new URLSearchParams(window.location.search).get("companies") ===
     "1" ? (
     <CompanyNames />

@@ -434,14 +434,18 @@ h3 {
   text-underline-offset: 3px;
 }
 
-.button--plain,
-.button--plain:hover:not(:disabled) {
+.button--plain {
   padding: 0;
   color: inherit;
   font: inherit;
   white-space: normal;
   background: transparent;
   border-color: transparent;
+}
+
+.button--plain:hover:not(:disabled) {
+  color: inherit;
+  background: transparent;
 }
 
 .button--plain:focus-visible {

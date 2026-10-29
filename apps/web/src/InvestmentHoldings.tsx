@@ -1,4 +1,3 @@
-import { HoldingLinkButton } from "./HoldingLinkButton";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import {
   addMinorUnits,
@@ -38,11 +37,6 @@ import {
   Notice,
   RecordGroup,
   RecordRow,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   SectionHeader,
   SearchHighlight,
   SearchSelect,
@@ -652,7 +646,7 @@ function exposureTotalsLabel(
   return reported.join(" · ");
 }
 
-function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
+function exposureGrandTotal(data: InvestmentHoldingsView) {
   const reportedByCurrency = new Map<string, number>();
   for (const group of companyExposureGroups(data)) {
     for (const total of group.totals) {
@@ -673,14 +667,17 @@ function exposureGrandTotalLabel(data: InvestmentHoldingsView): string {
       !isCashPosition(position) &&
       (position.valueState !== "reported" || position.hasUnknownAllocation),
   ).length;
-  return formatCurrencyTotals(
-    reportedByCurrency,
+  return {
+    value: formatCurrencyTotals(
+      reportedByCurrency,
+      0,
+      companyExposureGroups(data).length === 0
+        ? formatHoldingCurrency(0, "USD")
+        : "Value unavailable",
+    ),
+    hasKnownValue: reportedByCurrency.size > 0,
     unavailableCount,
-    companyExposureGroups(data).length === 0
-      ? formatHoldingCurrency(0, "USD")
-      : "Value unavailable",
-    "position value",
-  );
+  };
 }
 
 function exposureDisplayName(
@@ -710,14 +707,6 @@ function positionDisplayName(position: InvestmentExposurePosition): string {
 }
 
 type ExposureSortDirection = "ascending" | "descending";
-
-const EXPOSURE_SORT_OPTIONS = [
-  { label: "Highest first", value: "descending" },
-  { label: "Lowest first", value: "ascending" },
-] as const satisfies ReadonlyArray<{
-  label: string;
-  value: ExposureSortDirection;
-}>;
 
 type SortableValue = {
   currency: string;
@@ -1285,17 +1274,6 @@ function ExposureView({
       ),
     [data, sortDirection],
   );
-  const publicExposureIds = useMemo(
-    () =>
-      new Set(
-        data.exposureView.exposures
-          .filter(
-            (group) => group.exposure.exposureKind === "public_instrument",
-          )
-          .map((group) => group.exposure.id),
-      ),
-    [data.exposureView.exposures],
-  );
   const matchingExposureGroups =
     searchMatches === null
       ? sortedExposureGroups
@@ -1613,12 +1591,6 @@ function ExposureView({
         ]
           .filter((label): label is string => label !== null)
           .join(" · ");
-        const publicExposureId =
-          group.exposure.exposureKind === "public_instrument"
-            ? group.exposure.id
-            : group.contributions.find((contribution) =>
-                publicExposureIds.has(contribution.exposureId),
-              )?.exposureId;
         return (
           <Collapsible
             className="exposure-group"
@@ -1828,18 +1800,6 @@ function ExposureView({
                     </Button>
                   </div>
                 )}
-                <ActionGroup className="exposure-group__actions" wrap>
-                  <HoldingLinkButton kind="holding" id={group.exposure.id} />
-                  {publicExposureId !== undefined && (
-                    <TextLink
-                      href={`/holdings/entities?companies=1&public=${encodeURIComponent(publicExposureId)}`}
-                    >
-                      {group.exposure.exposureKind === "public_instrument"
-                        ? "Group with company"
-                        : "Review company link"}
-                    </TextLink>
-                  )}
-                </ActionGroup>
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -1974,9 +1934,22 @@ function CashHoldingsView({
     <article key={position.id}>
       <span>
         <strong>
-          <SearchHighlight query={searchQuery}>
-            {positionDisplayName(position)}
-          </SearchHighlight>
+          {openableHoldingIds.has(position.id) ? (
+            <TextLink
+              aria-label={`View ${positionDisplayName(position)} holding details`}
+              className="cash-holdings__title-link"
+              data-holding-id={position.id}
+              onClick={() => onOpenHolding(position.id)}
+            >
+              <SearchHighlight query={searchQuery}>
+                {positionDisplayName(position)}
+              </SearchHighlight>
+            </TextLink>
+          ) : (
+            <SearchHighlight query={searchQuery}>
+              {positionDisplayName(position)}
+            </SearchHighlight>
+          )}
         </strong>
         <small>
           <SearchHighlight
@@ -1986,16 +1959,6 @@ function CashHoldingsView({
         </small>
       </span>
       <strong>{exposurePositionValue(position)}</strong>
-      {openableHoldingIds.has(position.id) && (
-        <TextLink
-          aria-label={`View ${positionDisplayName(position)} holding details`}
-          className="position-row__action"
-          data-holding-id={position.id}
-          onClick={() => onOpenHolding(position.id)}
-        >
-          View details
-        </TextLink>
-      )}
     </article>
   );
 
@@ -2667,6 +2630,7 @@ export function InvestmentHoldings({
     0,
   );
   const exposureCount = companyExposureGroups(data).length;
+  const exposureTotal = exposureGrandTotal(data);
   const investedEstimateCount = data.exposureView.positions.filter(
     (position) =>
       !isCashPosition(position) && position.valueSource === "invested_amount",
@@ -2866,37 +2830,27 @@ export function InvestmentHoldings({
         className="investment-views"
       >
         <SectionHeader
-          action={
-            <div className="investment-views__controls">
-              {exposureCount > 1 && (
-                <div className="exposure-sort">
-                  <span>Sort by value</span>
-                  <Select
-                    items={EXPOSURE_SORT_OPTIONS}
-                    onValueChange={(value) => {
-                      if (value === "ascending" || value === "descending") {
-                        setExposureSortDirection(value);
-                      }
-                    }}
-                    value={exposureSortDirection}
-                  >
-                    <SelectTrigger aria-label="Sort exposures and positions by value">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {EXPOSURE_SORT_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              <Stat
-                as="span"
-                className="investment-views__total"
-                detail={`${exposureCount} ${
+          className="investment-views__heading"
+          description="Legal positions stay separate inside each exposure."
+          descriptionPlacement="title-group"
+          eyebrow="Reviewed ownership"
+          headingProps={{ id: "investment-views-title" }}
+          title="Exposures"
+        />
+        <div className="investment-views__controls">
+          <Stat
+            as="span"
+            className="investment-views__total"
+            detail={
+              <>
+                {exposureTotal.unavailableCount > 0 && (
+                  <span>
+                    {exposureTotal.unavailableCount} position{" "}
+                    {exposureTotal.unavailableCount === 1 ? "value" : "values"}{" "}
+                    unavailable
+                  </span>
+                )}
+                <span>{`${exposureCount} ${
                   exposureCount === 1 ? "exposure" : "exposures"
                 } · ${positionCount} legal ${
                   positionCount === 1 ? "position" : "positions"
@@ -2906,21 +2860,37 @@ export function InvestmentHoldings({
                     : ` · ${investedEstimateCount} invested ${
                         investedEstimateCount === 1 ? "estimate" : "estimates"
                       }`
-                }`}
-                detailAs="span"
-                label="Portfolio exposure"
-                labelAs="small"
-                value={exposureGrandTotalLabel(data)}
-              />
-            </div>
-          }
-          className="investment-views__heading"
-          description="Legal positions stay separate inside each exposure. Open one for ownership and source details."
-          descriptionPlacement="title-group"
-          eyebrow="Reviewed ownership"
-          headingProps={{ id: "investment-views-title" }}
-          title="Exposures"
-        />
+                }`}</span>
+              </>
+            }
+            detailAs="span"
+            label={
+              exposureTotal.hasKnownValue && exposureTotal.unavailableCount > 0
+                ? "Known portfolio exposure"
+                : "Portfolio exposure"
+            }
+            labelAs="small"
+            value={exposureTotal.value}
+          />
+          {exposureCount > 1 && (
+            <Button
+              aria-label={`Sort exposures and positions by value, ${exposureSortDirection === "descending" ? "highest first" : "lowest first"}. Switch to ${exposureSortDirection === "descending" ? "lowest first" : "highest first"}.`}
+              className="exposure-sort"
+              onClick={() =>
+                setExposureSortDirection((current) =>
+                  current === "descending" ? "ascending" : "descending",
+                )
+              }
+              title={`Switch to ${exposureSortDirection === "descending" ? "lowest value first" : "highest value first"}`}
+              tone="plain"
+            >
+              Value{" "}
+              <span aria-hidden="true">
+                {exposureSortDirection === "descending" ? "↓" : "↑"}
+              </span>
+            </Button>
+          )}
+        </div>
         {exposureReviewNotice !== null && (
           <FormMessage
             className="private-exposure-review__notice"
