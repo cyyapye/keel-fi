@@ -1445,6 +1445,10 @@ h1,
   max-width: 820px;
 }
 
+.holding-company-grouping {
+  margin-top: 8px;
+}
+
 .holding-detail-heading h2 {
   margin-bottom: 9px;
   font-size: clamp(28px, 3.4vw, 36px);
@@ -2558,7 +2562,6 @@ h1,
 }
 
 .investment-institutions__heading > p:last-child,
-.investment-views__heading p,
 .investment-institutions__add p,
 .investment-institutions__notice,
 .investment-institutions__error {
@@ -2830,7 +2833,8 @@ h1,
   letter-spacing: -0.045em;
 }
 
-.cash-holdings__heading p:last-child,
+.cash-holdings__heading p:not(.eyebrow),
+.investment-views__heading p:not(.eyebrow),
 .cash-holdings__error {
   max-width: 680px;
   margin: 0;
@@ -2875,7 +2879,7 @@ h1,
 
 .cash-holdings__rows article {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 24px;
   padding: 15px 0;
@@ -2890,6 +2894,15 @@ h1,
 .cash-holdings__rows strong {
   font-size: var(--text-body);
   font-weight: 600;
+}
+
+.cash-holdings__title-link {
+  min-height: 44px;
+  font-size: inherit;
+  font-weight: inherit;
+  white-space: normal;
+  text-align: left;
+  text-decoration: underline;
 }
 
 .cash-holdings__rows small {
@@ -2923,10 +2936,7 @@ h1,
 }
 
 .investment-views__heading {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
-  align-items: end;
-  gap: 32px;
+  display: block;
 }
 
 .investment-views__heading p {
@@ -2936,18 +2946,20 @@ h1,
 .investment-views__controls {
   display: flex;
   align-items: end;
-  gap: 28px;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 24px;
 }
 
 .investment-views__total {
   display: grid;
-  justify-items: end;
-  min-width: 160px;
+  justify-items: start;
+  min-width: 0;
 }
 
 .investment-views__total small {
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2956,36 +2968,28 @@ h1,
 .investment-views__total strong {
   margin-top: 4px;
   color: var(--ink);
-  font-size: 20px;
+  font-size: 28px;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.025em;
-  text-align: right;
+  text-align: left;
 }
 
 .investment-views__total > span {
+  display: grid;
+  gap: 3px;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 11px;
-  text-align: right;
+  font-size: var(--text-sm);
+  text-align: left;
 }
 
 .exposure-sort {
-  display: grid;
+  flex: 0 0 auto;
   gap: 4px;
-  min-width: 150px;
-}
-
-.exposure-sort > span {
-  color: var(--faint);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.exposure-sort .select-trigger {
-  font-size: 12px;
-  font-weight: 700;
+  width: auto;
+  min-height: 44px;
+  min-width: 72px;
+  font-size: var(--text-sm);
 }
 
 .investment-views__loading,
@@ -3135,10 +3139,6 @@ h1,
   margin: 0 0 var(--space-3);
   color: var(--muted);
   font-size: var(--text-supporting);
-}
-
-.exposure-group__actions {
-  margin-top: var(--space-3);
 }
 
 .exposure-group__value-label {
@@ -7659,10 +7659,6 @@ h1,
     gap: 12px;
   }
 
-  .cash-holdings__rows .position-row__action {
-    grid-column: 1 / -1;
-  }
-
   .portfolio-access-detail {
     padding-top: 30px;
   }
@@ -7906,31 +7902,8 @@ h1,
     padding-top: 30px;
   }
 
-  .investment-views__heading {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
-
   .investment-views__controls {
-    display: grid;
-    grid-template-columns: 1fr;
-    align-items: end;
     gap: 16px;
-    width: 100%;
-  }
-
-  .investment-views__total {
-    justify-items: start;
-    min-width: 0;
-  }
-
-  .investment-views__total strong,
-  .investment-views__total > span {
-    text-align: left;
-  }
-
-  .exposure-sort {
-    min-width: 0;
   }
 
   .position-row__action {

@@ -210,9 +210,14 @@ function ManualPublicCompanyLinkEditor({
 
 export function PublicCompanyLinkEditor({
   exposureId,
+  returnPositionId,
 }: {
   exposureId: string;
+  returnPositionId?: string;
 }) {
+  const returnHref = returnPositionId
+    ? `/holdings?position=${encodeURIComponent(returnPositionId)}`
+    : "/holdings";
   const [catalog, setCatalog] = useState<PublicCompanyLinkCatalog | null>(null);
   const [match, setMatch] = useState<PublicCompanyMatch | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -313,7 +318,9 @@ export function PublicCompanyLinkEditor({
       aria-label="Review company grouping"
     >
       <div className="entity-review__navigation">
-        <TextLink href="/holdings">Back to holdings</TextLink>
+        <TextLink href={returnHref}>
+          {returnPositionId ? "Back to position" : "Back to holdings"}
+        </TextLink>
       </div>
       <PageHeader
         title="Company grouping"
@@ -349,7 +356,9 @@ export function PublicCompanyLinkEditor({
             title={`Grouped with ${linked.name}`}
             description="This holding now appears with the company’s other positions."
           />
-          <TextLink href="/holdings">View holdings</TextLink>
+          <TextLink href={returnHref}>
+            {returnPositionId ? "View position" : "View holdings"}
+          </TextLink>
           <Button tone="quiet" onClick={() => setManual(true)}>
             Change company
           </Button>

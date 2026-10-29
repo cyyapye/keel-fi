@@ -578,12 +578,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
 
   const exposureView = page.locator(".investment-views");
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
-  await expect(
-    exposureView.locator(".investment-views__heading"),
-  ).toContainText("3 exposures");
-  await expect(
-    exposureView.locator(".investment-views__heading"),
-  ).toContainText("5 legal positions");
+  await expect(exposureView.locator(".investment-views__total")).toContainText(
+    "3 exposures",
+  );
+  await expect(exposureView.locator(".investment-views__total")).toContainText(
+    "5 legal positions",
+  );
   const harborExposure = page.locator(".exposure-group").filter({
     has: page.getByText("Harbor Health Systems", { exact: true }),
   });
