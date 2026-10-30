@@ -128,6 +128,14 @@ encryption passphrase remains a separate protected environment secret. Follow
 the private bucket and policy. Missing configuration stops the release before
 migrations.
 
+For a storage-only credential check, manually dispatch
+`preview-backup-storage-check.yml` on `main`. It uses the same protected
+environment and serialized deployment lane, writes/read-backs one small
+synthetic canary, and never exports or mutates D1 or deploys Workers. Safe
+phase/status/provider codes identify the failing storage boundary without
+printing credentials or provider messages. See the
+[preflight runbook](../../docs/deployment/backup-and-recovery.md#protected-storage-preflight).
+
 Portfolio Watch website suggestions are optional. Set
 `KEEL_PREVIEW_BRAVE_SEARCH_API_KEY` to enable the Find website action. Without
 that secret, users can confirm a known official website directly in Coverage.

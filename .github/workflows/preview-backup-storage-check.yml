@@ -1,0 +1,37 @@
+name: Preview backup storage check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, keel-deploy]
+    timeout-minutes: 10
+    environment:
+      name: preview
+    concurrency:
+      group: keel-preview-deployment
+      cancel-in-progress: false
+    steps:
+      - name: Check out exact main SHA
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Confirm exact main SHA
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Check private storage with synthetic bytes
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          KEEL_PREVIEW_R2_BUCKET: ${{ secrets.KEEL_PREVIEW_R2_BUCKET }}
+          KEEL_PREVIEW_BACKUP_BUCKET: ${{ vars.KEEL_PREVIEW_BACKUP_BUCKET }}
+        run: pnpm tsx scripts/preview-deployment-storage.ts preflight

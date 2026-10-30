@@ -86,6 +86,27 @@ of worktrees and routine logs. Cloudflare D1 Time Travel and migration-time
 backups are additional recovery layers. Production backup storage and approval
 remain separate from this preview workflow.
 
+### Protected storage preflight
+
+Dispatch `preview-backup-storage-check.yml` on `main` to verify the actual
+protected deployment credential before another export. The manual-only check
+shares the serialized deployment lane and protected `preview` environment. It
+checks privacy, retention and capacity, derives a 15-minute credential for one
+exact key, then conditionally stores and fully reads back a constant synthetic
+payload under `backups/probes/<sha>/<run-id>-<attempt>/synthetic-check.bin`. The
+small canary counts toward capacity and expires under the existing 14-day backup
+policy. It is not a D1 recovery point and creates no backup receipt. The check
+never exports or changes D1, deploys Workers, reads the encryption passphrase,
+or uploads GitHub artifacts. A passing probe does not replace the release's full
+native gate, encrypted backup verification or protected smokes.
+
+Failures print only a fixed phase, HTTP status and numeric Cloudflare or
+allowlisted S3 error codes. Provider messages, bodies, object contents,
+credentials and exception stacks are omitted. Use the phase/code to distinguish
+policy reads, parent-token verification, temporary credential issuance and
+object PUT/read-back. Do not infer a missing permission solely from a generic
+failure, broaden permissions automatically, or bypass a failed backup gate.
+
 ## Private agreement recovery archive
 
 The opt-in `Private document backup` workflow adds a daily PDF-and-metadata
