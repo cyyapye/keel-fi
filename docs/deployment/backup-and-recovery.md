@@ -16,25 +16,75 @@ to ordinary issues, or store them unencrypted.
 
 ## Automatic preview release backup
 
-Before each preview migration, the post-merge workflow exports the remote D1
-database to ephemeral runner storage and encrypts it with GPG AES-256 using the
-GitHub `preview` environment passphrase. The workflow decrypts a verification
-copy and byte-compares it with the export, records plaintext and encrypted
-SHA-256 hashes, deletes both plaintext copies and the passphrase file, and
-uploads only the encrypted export plus its non-sensitive manifest. Retention is
-14 days.
+Before each preview migration, the post-merge workflow exports remote D1 to
+owner-only ephemeral runner files and encrypts it with GPG AES-256 using the
+GitHub `preview` environment passphrase. It decrypts a verification copy,
+byte-compares the export, records both SHA-256 hashes in a versioned manifest,
+and removes plaintext and passphrase files before uploading.
 
-The passphrase must be stored separately from downloaded artifacts, rotated
-under the private recovery procedure, and available to the recovery owner. A
-successful upload is a migration precondition. An encrypted artifact is not a
-restore drill: periodically download one, verify both recorded hashes, decrypt
-inside an approved restricted location, and restore into a new non-production D1
-database.
+`scripts/preview-deployment-storage.ts` stores the complete ciphertext and
+manifest in a separate private R2 bucket under
+`backups/<git-sha>/<run-id>-<attempt>/`. Every PUT is conditional on the key
+being absent. Each complete object is read back and checked for exact length and
+SHA-256; only then is the local storage receipt written and migration allowed.
+Failed or ambiguous writes never count as success, retry in place or delete a
+recovery point. A new workflow attempt has new keys. Partial ciphertext uploads
+remain protected until their normal expiry.
 
-Cloudflare D1 Time Travel and the backup captured by `d1 migrations apply` are
-additional recovery layers, not substitutes for testing the encrypted export.
-Production backup storage, retention, and approval remain separate from this
-preview workflow.
+The workflow's existing Cloudflare API token authenticates policy reads and
+creates 15-minute S3 credentials scoped to the exact files of that phase. The
+parent token remains inside the protected deployment environment; derived keys
+stay only in process memory and are never logged, written to disk or published.
+Encryption uses a separate protected passphrase. No permanent S3 key or extra
+Worker binding is required. A token without the required R2 permissions fails
+before migrations; the workflow does not expand its own permissions.
+
+After exact Worker-version smokes pass, the release JSON binds the verified
+backup receipt, ciphertext hash, migration names, Worker versions, Git SHA and
+workflow attempt. It is stored and read-back verified under
+`releases/<git-sha>/<run-id>-<attempt>/release.json`. A release-record storage
+failure fails the deployment job even when Workers have already changed; inspect
+the recorded versions before retrying. GitHub artifact availability is not a
+deployment dependency. Existing GitHub backup artifacts retain their original
+expiry and are not deleted.
+
+Provision the destination in the same approved Cloudflare account:
+
+1. Create a separate R2 bucket; never reuse the original-document bucket. Keep
+   `r2.dev` disabled and attach no public custom domain.
+2. Configure exactly two enabled expiry rules: `backups/` at 1,209,600 seconds
+   (14 days), and `releases/` at 7,776,000 seconds (90 days). Configure matching
+   age-based bucket locks with those same prefixes and durations. These policies
+   apply only to the new destination. Lifecycle deletion can lag its target.
+3. Set protected `preview` environment variable `KEEL_PREVIEW_BACKUP_BUCKET` to
+   that bucket. Its existing `CLOUDFLARE_API_TOKEN` must support R2
+   configuration reads and restricted temporary-credential issuance. Keep the
+   API token and `KEEL_PREVIEW_BACKUP_PASSPHRASE` outside Git and maintain the
+   recovery owner's offline passphrase copy. Do not broaden token permissions
+   automatically.
+4. Run exact-main post-merge verification and inspect the backup read-back step
+   before migration, the terminal protected smokes and durable release record.
+   Retain only non-sensitive proof in routine reports.
+
+Every publication checks the bucket is private and has the expected retention
+locks and expiry rules. It inventories all retained objects, including foreign
+keys and objects awaiting expiry, under a 300 MiB destination budget. At most
+five 1,000-item pages are read. Missing cursor metadata uses ordered keyset
+continuation followed by an empty terminal page; a short page alone is not
+completion. Malformed, duplicate, truncated or over-budget inventory fails
+closed. The serialized deployment lane is the sole writer; do not add an
+independent writer without atomic capacity admission. Backups and manifests must
+fit whole within 16 MiB; release JSON is capped at 256 KiB. No remote deletion
+is performed to obtain headroom.
+
+The passphrase must be available to the recovery owner separately from R2
+credentials. A verified ciphertext read-back is not a full restore drill:
+periodically download an exact object pair in restricted staging, check the
+ciphertext hash, decrypt with GPG and compare the plaintext hash, then restore
+into a new non-production D1 database. Keep SQL, credentials and plaintext out
+of worktrees and routine logs. Cloudflare D1 Time Travel and migration-time
+backups are additional recovery layers. Production backup storage and approval
+remain separate from this preview workflow.
 
 ## Private agreement recovery archive
 

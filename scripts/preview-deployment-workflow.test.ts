@@ -78,6 +78,9 @@ describe("post-merge preview deployment workflow", () => {
     expect(deployment).toContain(
       'echo "KEEL_API_WRANGLER_OUTPUT_PATH=$RUNNER_TEMP/keel-api-deploy.jsonl"',
     );
+    expect(jobConfiguration).toContain("if: github.ref == 'refs/heads/main'");
+    expect(deployment).not.toContain("KEEL_PAUSE_ARTIFACT_UPLOADS");
+    expect(deployment).not.toContain("upload-bounded-artifact");
     expect(deployment).not.toMatch(/db:seed|seed:local|synthetic\.sql/);
     expect(deployment).not.toContain("environment:\n      name: production");
     expect(deployment).not.toContain("KEEL_PREVIEW_ANGELLIST_");
@@ -134,6 +137,15 @@ describe("post-merge preview deployment workflow", () => {
     expect(backup).toBeGreaterThan(-1);
     expect(backupVerification).toBeGreaterThan(backup);
     expect(backupUpload).toBeGreaterThan(backupVerification);
+    expect(deployment.slice(backupUpload, migrations)).toContain(
+      "scripts/preview-deployment-storage.ts backup",
+    );
+    expect(deployment.slice(evidenceUpload, cleanup)).toContain(
+      "scripts/preview-deployment-storage.ts release",
+    );
+    expect(deployment).toContain("KEEL_PREVIEW_BACKUP_BUCKET");
+    expect(deployment).not.toContain("BACKUP_SECRET_ACCESS_KEY");
+    expect(deployment).not.toContain("continue-on-error");
     expect(migrations).toBeGreaterThan(backupUpload);
     expect(apiDeploy).toBeGreaterThan(migrations);
     expect(webDeploy).toBeGreaterThan(apiDeploy);
@@ -146,6 +158,9 @@ describe("post-merge preview deployment workflow", () => {
     expect(cleanupStep).toContain('"$KEEL_API_WRANGLER_OUTPUT_PATH"');
     expect(cleanupStep).toContain('"$KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH"');
     expect(cleanupStep).toContain('"$KEEL_PREVIEW_BACKUP_MANIFEST_PATH"');
+    expect(cleanupStep).toContain(
+      '"$KEEL_PREVIEW_BACKUP_STORAGE_RECEIPT_PATH"',
+    );
     expect(cleanupStep).toContain('"$KEEL_PREVIEW_RELEASE_EVIDENCE_PATH"');
     expect(cleanupStep).toContain('"$KEEL_WEB_WRANGLER_OUTPUT_PATH"');
   });

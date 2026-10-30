@@ -42,17 +42,18 @@ directory.
 
 ## Automatic preview deployment
 
-Every exact SHA pushed to `main` must first pass both post-merge verification
-jobs. The same workflow then enters the GitHub `preview` environment and runs
-one serialized deployment:
+Every exact SHA pushed to `main` must first pass complete native verification,
+secret scanning and the pinned project contract. The same workflow then enters
+the GitHub `preview` environment and runs one serialized deployment:
 
 1. Validate every environment value and generate ignored private Wrangler
    configuration.
 2. Export D1 to the isolated deployment runner, encrypt it with the independent
    preview backup passphrase, decrypt and byte-compare a verification copy,
-   record both hashes, delete plaintext copies, and retain only the encrypted
-   artifact for 14 days. The workflow removes the runner-local encrypted copy
-   and evidence files after their artifacts upload.
+   record both hashes, and delete plaintext copies. Store the complete encrypted
+   export and manifest in the separate private R2 bucket with 14-day retention
+   locks and expiry, then read them back and verify their lengths and hashes.
+   The workflow removes runner-local copies during its final cleanup.
 3. Apply every pending D1 migration. Ordinary deployments never seed, reset,
    import, or restore the remote preview database.
 4. Deploy the private API Worker with the merged SHA as its version tag, then
@@ -68,14 +69,17 @@ one serialized deployment:
    does not query a household, read a document, run a source scan, or mutate
    accepted records.
 7. Compare the API and web runtime SHA/version metadata with Wrangler's
-   deployment output, then retain a non-sensitive release-evidence artifact for
-   90 days.
+   deployment output, then store and read-back verify the non-sensitive release
+   record in private R2 with 90-day retention.
 
 The job is fail-closed: no migration occurs unless the encrypted backup uploads
-successfully, the web Worker cannot deploy until the API deploy succeeds, and a
-smoke or exact-version mismatch fails the deployment. Cloudflare D1 also keeps
-Time Travel history and captures a backup when migrations apply; the encrypted
-export is the separate release artifact.
+and complete read-back verify successfully. The web Worker cannot deploy until
+the API deploy succeeds, and a smoke or exact-version mismatch fails the
+deployment. Cloudflare D1 also keeps Time Travel history and captures a backup
+when migrations apply; the encrypted export is the separate release recovery
+point. GitHub artifact quota does not gate this storage path. The destination,
+capacity guard and scoped temporary credentials are defined in
+[backup and recovery](backup-and-recovery.md).
 
 ### Completed pre-live M9 cutover
 
