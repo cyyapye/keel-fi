@@ -5,6 +5,10 @@ import type {
 } from "./exposure-read-model";
 import { companyExposureGroups } from "./exposure-read-model";
 import type { InvestmentHoldingsView } from "./investment-holdings-view";
+import {
+  calculatePortfolioPerformance,
+  type PortfolioPerformance,
+} from "./portfolio-performance";
 
 const PARTS_PER_MILLION = 1_000_000n;
 
@@ -39,6 +43,7 @@ export type PortfolioDashboardSnapshot = {
   topFiveConcentrationPpm: number;
   unknownValueCount: number;
   otherCurrencyCount: number;
+  performance: PortfolioPerformance;
   topExposures: readonly PortfolioDashboardExposure[];
   liquidity: readonly PortfolioDashboardLiquiditySegment[];
   moversUp: readonly PortfolioDashboardMover[];
@@ -355,6 +360,7 @@ export function createPortfolioDashboardSnapshot(
     unknownValueCount:
       unknownInvestmentCount + unknownCashCount + unknownBankCashCount,
     otherCurrencyCount: otherCurrencies.size,
+    performance: calculatePortfolioPerformance(holdings, currency),
     topExposures: exposures.slice(0, 10),
     liquidity,
     moversUp: movers

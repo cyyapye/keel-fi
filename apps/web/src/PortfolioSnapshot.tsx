@@ -8,8 +8,12 @@ import {
   Button,
   ChartContainer,
   ChartTooltipContent,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   DataItem,
   DataList,
+  DisclosureIndicator,
   EmptyState,
   FormMessage,
   Notice,
@@ -67,6 +71,183 @@ function formatSignedMoney(valueMinor: number, currency: string): string {
   }
   const formatted = formatChartMoney(Math.abs(valueMinor), currency);
   return valueMinor > 0 ? `+${formatted}` : `−${formatted}`;
+}
+
+function formatReturn(valuePpm: number): string {
+  const value = BigInt(valuePpm);
+  const tenths = ((value < 0n ? -value : value) + 500n) / 1_000n;
+  return `${value < 0n ? "−" : value > 0n ? "+" : ""}${tenths / 10n}.${tenths % 10n}%`;
+}
+
+function formatMultiple(valuePpm: number | null): string {
+  if (valuePpm === null) return "—";
+  const hundredths = (BigInt(valuePpm) + 5_000n) / 10_000n;
+  return `${hundredths / 100n}.${(hundredths % 100n).toString().padStart(2, "0")}×`;
+}
+
+function PerformanceSummary({
+  snapshot,
+}: {
+  snapshot: PortfolioDashboardSnapshot;
+}) {
+  const { holdingReturn, privateTvpi, privateDpi } = snapshot.performance;
+  const money = (value: number) => formatChartMoney(value, snapshot.currency);
+  const coverage = (count: number, total: number, privateOnly = false) =>
+    total === 0
+      ? privateOnly
+        ? "No private holdings"
+        : "No investment holdings"
+      : `${count} of ${total} ${privateOnly ? "private " : ""}holdings`;
+  return (
+    <>
+      <DataList className="portfolio-snapshot__metrics">
+        <DataItem
+          label="Portfolio value"
+          value={
+            <>
+              <span>{money(snapshot.knownPortfolioValueMinor)}</span>
+              <small>Accepted values · {snapshot.currency}</small>
+            </>
+          }
+        />
+        <DataItem
+          label="Total return"
+          value={
+            <>
+              <span>
+                {holdingReturn.returnPpm === null
+                  ? "—"
+                  : formatReturn(holdingReturn.returnPpm)}
+              </span>
+              <small>
+                {holdingReturn.returnPpm === null
+                  ? "Needs values and capital"
+                  : `${formatSignedMoney(holdingReturn.gainMinor, snapshot.currency)} gain`}
+              </small>
+              <small>
+                {holdingReturn.estimatedCount > 0 ? "Estimated · " : ""}
+                {coverage(
+                  holdingReturn.eligibleCount,
+                  holdingReturn.totalCount,
+                )}
+              </small>
+            </>
+          }
+        />
+        <DataItem
+          label="Private TVPI"
+          value={
+            <>
+              <span>{formatMultiple(privateTvpi.multiplePpm)}</span>
+              <small>Total value / paid in</small>
+              <small>
+                {privateTvpi.estimatedCount > 0 ? "Estimated · " : ""}
+                {coverage(
+                  privateTvpi.eligibleCount,
+                  privateTvpi.totalCount,
+                  true,
+                )}
+              </small>
+            </>
+          }
+        />
+        <DataItem
+          label="Private DPI"
+          value={
+            <>
+              <span>{formatMultiple(privateDpi.multiplePpm)}</span>
+              <small>Cash returned / paid in</small>
+              <small>
+                {coverage(
+                  privateDpi.eligibleCount,
+                  privateDpi.totalCount,
+                  true,
+                )}
+              </small>
+            </>
+          }
+        />
+      </DataList>
+      <p className="portfolio-snapshot__performance-scope">
+        Performance covers current holdings in {snapshot.currency}, after carry
+        where applicable. Since investment; not annualized. Excludes closed
+        positions and cash.
+      </p>
+      <Collapsible className="portfolio-snapshot__basis">
+        <CollapsibleTrigger layout="inline">
+          Performance basis <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="portfolio-snapshot__basis-content">
+            <DataList className="portfolio-snapshot__basis-calculations">
+              {holdingReturn.eligibleCount > 0 && (
+                <DataItem
+                  label="Return"
+                  value={
+                    <>
+                      {money(holdingReturn.gainMinor)} gain ÷{" "}
+                      {money(holdingReturn.basisMinor)} capital
+                      <small>
+                        Capital: private net invested; public cost basis.
+                        Private capital is after upfront deductions and refunds;
+                        distributions exclude those refunds.
+                      </small>
+                    </>
+                  }
+                />
+              )}
+              {privateTvpi.eligibleCount > 0 && (
+                <DataItem
+                  label="TVPI"
+                  value={
+                    <>
+                      ({money(privateTvpi.valueMinor)} remaining +{" "}
+                      {money(privateTvpi.distributionsMinor)} returned) ÷{" "}
+                      {money(privateTvpi.paidInMinor)} paid in
+                    </>
+                  }
+                />
+              )}
+              {privateDpi.eligibleCount > 0 && (
+                <DataItem
+                  label="DPI"
+                  value={
+                    <>
+                      {money(privateDpi.distributionsMinor)} returned ÷{" "}
+                      {money(privateDpi.paidInMinor)} paid in
+                    </>
+                  }
+                />
+              )}
+            </DataList>
+            {privateDpi.eligibleCount > 0 && (
+              <p>Paid in includes paid fees. Returned cash includes refunds.</p>
+            )}
+            {holdingReturn.eligibleCount > 0 || privateDpi.eligibleCount > 0 ? (
+              <p>
+                Amounts rounded.
+                {(holdingReturn.eligibleCount < holdingReturn.totalCount ||
+                  privateTvpi.eligibleCount < privateTvpi.totalCount ||
+                  privateDpi.eligibleCount < privateDpi.totalCount) &&
+                  " Holdings with missing inputs are excluded."}
+              </p>
+            ) : (
+              <p>
+                No supported calculations yet. Add values and capital in
+                Holdings.
+              </p>
+            )}
+            {privateTvpi.eligibleCount !== privateDpi.eligibleCount && (
+              <p>
+                TVPI and DPI cover different holdings; DPI does not need a
+                current valuation.
+              </p>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </>
+  );
 }
 
 function ratioPpm(value: number, total: number): number {
@@ -506,26 +687,7 @@ export function PortfolioSnapshot({
       )}
       {!loading && error === null && snapshot !== null && (
         <>
-          <DataList className="portfolio-snapshot__metrics">
-            <DataItem
-              label="Reviewed total"
-              value={formatChartMoney(
-                snapshot.knownPortfolioValueMinor,
-                snapshot.currency,
-              )}
-            />
-            <DataItem
-              label="Mapped exposure"
-              value={formatChartMoney(
-                snapshot.knownExposureValueMinor,
-                snapshot.currency,
-              )}
-            />
-            <DataItem
-              label="Top five concentration"
-              value={formatProbability(snapshot.topFiveConcentrationPpm)}
-            />
-          </DataList>
+          <PerformanceSummary snapshot={snapshot} />
 
           <p className="portfolio-snapshot__trust">
             Reviewed values as of {formatDate(snapshot.asOf)}.
@@ -544,6 +706,19 @@ export function PortfolioSnapshot({
               eyebrow={`Economic exposure · ${snapshot.currency}`}
               title="Top 10 holdings"
             >
+              {snapshot.knownExposureValueMinor > 0 && (
+                <p className="portfolio-snapshot__exposure-context">
+                  Top five:{" "}
+                  {formatProbability(snapshot.topFiveConcentrationPpm)} of
+                  mapped value
+                  {" · "}
+                  {formatChartMoney(
+                    snapshot.knownExposureValueMinor,
+                    snapshot.currency,
+                  )}{" "}
+                  mapped
+                </p>
+              )}
               <TopExposureChart
                 onViewExposure={(exposureId) =>
                   onDrilldown({ type: "exposure", exposureId })
