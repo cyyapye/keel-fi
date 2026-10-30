@@ -64,9 +64,11 @@ existing OVH host:
 - `keel-ci` runs PR and post-merge verification without repository secrets,
   cloud credentials, `sudo`, or a rootful Docker socket. It owns a separate
   rootless Docker daemon for the isolated, synthetic PDF-reader tests.
-- `keel-deploy` runs only the protected `preview` environment deployment after
-  verification and secret scan pass. It has a separate service user, home,
-  runner root, and work directory, and it also has no Docker-socket access.
+- `keel-deploy` runs protected `preview` deployments after verification and
+  secret scan pass, plus the explicit main-only synthetic storage probe. The
+  probe cannot deploy application code or change D1. This lane has a separate
+  service user, home, runner root, and work directory, and it also has no
+  Docker-socket access.
 
 Both services are registered only to `cyyapye/keel-fi`. The host provides Docker
 Compose and Playwright system libraries; workflows install the pinned Node,
