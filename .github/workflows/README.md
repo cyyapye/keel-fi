@@ -64,9 +64,11 @@ existing OVH host:
 - `keel-ci` runs PR and post-merge verification without repository secrets,
   cloud credentials, `sudo`, or a rootful Docker socket. It owns a separate
   rootless Docker daemon for the isolated, synthetic PDF-reader tests.
-- `keel-deploy` runs only the protected `preview` environment deployment after
-  verification and secret scan pass. It has a separate service user, home,
-  runner root, and work directory, and it also has no Docker-socket access.
+- `keel-deploy` runs protected `preview` deployments after verification and
+  secret scan pass, plus the explicit main-only synthetic storage probe. The
+  probe cannot deploy application code or change D1. This lane has a separate
+  service user, home, runner root, and work directory, and it also has no
+  Docker-socket access.
 
 Both services are registered only to `cyyapye/keel-fi`. The host provides Docker
 Compose and Playwright system libraries; workflows install the pinned Node,
@@ -127,6 +129,14 @@ encryption passphrase remains a separate protected environment secret. Follow
 [backup and recovery](../../docs/deployment/backup-and-recovery.md) to provision
 the private bucket and policy. Missing configuration stops the release before
 migrations.
+
+For a storage-only credential check, manually dispatch
+`preview-backup-storage-check.yml` on `main`. It uses the same protected
+environment and serialized deployment lane, writes/read-backs one small
+synthetic canary, and never exports or mutates D1 or deploys Workers. Safe
+phase/status/provider codes identify the failing storage boundary without
+printing credentials or provider messages. See the
+[preflight runbook](../../docs/deployment/backup-and-recovery.md#protected-storage-preflight).
 
 Portfolio Watch website suggestions are optional. Set
 `KEEL_PREVIEW_BRAVE_SEARCH_API_KEY` to enable the Find website action. Without

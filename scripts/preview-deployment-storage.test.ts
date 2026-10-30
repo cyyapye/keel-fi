@@ -9,7 +9,9 @@ import {
 } from "./preview-deployment-evidence";
 import {
   admitPreviewStorage,
+  preflightPreviewStorage,
   PREVIEW_STORAGE_LIMIT,
+  publicStorageFailure,
   putVerifiedObject,
   storePreviewEvidence,
   temporaryPreviewCredentials,
@@ -146,6 +148,184 @@ async function fixture() {
 }
 
 describe("private preview deployment storage", () => {
+  it("reports only safe phases, statuses and allowlisted codes after provider failures", async () => {
+    const { env } = await fixture();
+    const secret = "synthetic-confidential-response-must-not-be-logged";
+    const key = `releases/${gitSha}/123-1/release.json`;
+    for (const [phase, status, body, expectedCodes] of [
+      [
+        "parent-token",
+        401,
+        JSON.stringify({
+          success: false,
+          errors: [{ code: 9109, message: secret }],
+        }),
+        [9109],
+      ],
+      ["parent-token", 401, secret, []],
+      [
+        "parent-token",
+        200,
+        JSON.stringify({ success: true, result: { id: secret } }),
+        [],
+      ],
+      [
+        "temporary-credentials",
+        403,
+        JSON.stringify({
+          success: false,
+          errors: [{ code: 10000, message: secret }],
+        }),
+        [10000],
+      ],
+    ] as const) {
+      let calls = 0;
+      const request: typeof fetch = () => {
+        calls += 1;
+        return Promise.resolve(
+          phase === "temporary-credentials" && calls === 1
+            ? Response.json({
+                success: true,
+                result: { id: "c".repeat(32), status: "active" },
+              })
+            : new Response(body, { status }),
+        );
+      };
+      const error = await temporaryPreviewCredentials(
+        env,
+        [key],
+        request,
+      ).catch((caught: unknown) => caught);
+      const report = publicStorageFailure(error);
+      expect(report).toMatchObject({
+        phase,
+        codes: expectedCodes,
+        publicationVerified: false,
+      });
+      expect(report.status).toBe(status === 200 ? null : status);
+      expect(JSON.stringify(report)).not.toContain(secret);
+      expect(calls).toBe(
+        phase === "temporary-credentials" || status === 401 ? 2 : 1,
+      );
+    }
+    for (const code of ["AccessDenied", secret]) {
+      const error = await putVerifiedObject(key, Buffer.from("synthetic"), () =>
+        Promise.resolve(
+          new Response(
+            `<Error><Code>${code}</Code><Message>${secret}</Message><Resource>${secret}</Resource></Error>`,
+            { status: 403 },
+          ),
+        ),
+      ).catch((caught: unknown) => caught);
+      const report = publicStorageFailure(error);
+      expect(report).toMatchObject({
+        phase: "object-put",
+        status: 403,
+        codes: code === "AccessDenied" ? [code] : [],
+      });
+      expect(JSON.stringify(report)).not.toContain(secret);
+    }
+    const error = await admitPreviewStorage(env, 1, () =>
+      Promise.resolve(
+        Response.json(
+          { success: false, errors: [{ code: 9109, message: secret }] },
+          { status: 403 },
+        ),
+      ),
+    ).catch((caught: unknown) => caught);
+    expect(publicStorageFailure(error)).toMatchObject({
+      status: 403,
+      codes: [9109],
+    });
+    expect(
+      JSON.stringify(publicStorageFailure(new Error(secret))),
+    ).not.toContain(secret);
+  });
+
+  it("preflights the protected credential with one synthetic object and no recovery receipt", async () => {
+    const { env } = await fixture();
+    const core = Object.fromEntries(
+      Object.entries(env).filter(([key]) => !key.endsWith("_PATH")),
+    );
+    const key = `backups/probes/${gitSha}/123-1/synthetic-check.bin`;
+    const api = management();
+    const scopes: unknown[] = [];
+    const credentials = {
+      accessKeyId: "synthetic-session-id",
+      secretAccessKey: "synthetic-session-secret-".repeat(2),
+      sessionToken: "synthetic-session-token-only",
+    };
+    const request: typeof fetch = (input, init) => {
+      const url =
+        input instanceof Request
+          ? input.url
+          : input instanceof URL
+            ? input.href
+            : input;
+      if (url.endsWith("/verify"))
+        return Promise.resolve(
+          Response.json({
+            success: true,
+            result: { id: "c".repeat(32), status: "active" },
+          }),
+        );
+      if (url.endsWith("/temp-access-credentials")) {
+        scopes.push(JSON.parse(init!.body as string));
+        return Promise.resolve(
+          Response.json({ success: true, result: credentials }),
+        );
+      }
+      return api.request(input, init);
+    };
+    const store = objectStore();
+    const factory = vi.fn(() => store.request);
+    await preflightPreviewStorage(core, request, factory);
+    expect(api.urls).toHaveLength(5);
+    expect(scopes).toEqual([
+      {
+        parentAccessKeyId: "c".repeat(32),
+        bucket: "synthetic-backups",
+        permission: "object-read-write",
+        objects: [key],
+        ttlSeconds: 900,
+      },
+    ]);
+    expect(factory).toHaveBeenCalledWith({
+      account: env.CLOUDFLARE_ACCOUNT_ID,
+      bucket: "synthetic-backups",
+      ...credentials,
+    });
+    expect(store.calls).toEqual([
+      { key, method: "PUT" },
+      { key, method: "GET" },
+    ]);
+    expect(store.stored.get(key)!.toString()).toBe(
+      "Keel synthetic deployment storage check v1\n",
+    );
+    await expect(
+      readFile(env.KEEL_PREVIEW_BACKUP_STORAGE_RECEIPT_PATH),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      temporaryPreviewCredentials(
+        core,
+        [key, `backups/${gitSha}/123-1/manifest.json`],
+        request,
+      ),
+    ).rejects.toThrow("scoped");
+    // An ambiguous/refused write fails without read-back or a success summary.
+    await rm(env.GITHUB_STEP_SUMMARY);
+    await expect(
+      preflightPreviewStorage(
+        { ...core, GITHUB_RUN_ATTEMPT: "2" },
+        request,
+        () => () => Promise.resolve(new Response(null, { status: 403 })),
+      ),
+    ).rejects.toThrow();
+    await expect(readFile(env.GITHUB_STEP_SUMMARY)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("mints short-lived credentials for exact attempt objects and signs requests with the session token", async () => {
     const { env } = await fixture();
     const key = `releases/${gitSha}/123-1/release.json`;
@@ -198,24 +378,32 @@ describe("private preview deployment storage", () => {
     });
     await privateR2(config)(key);
     expect(signed).toBe(1);
-    let accountCalls = 0;
-    const accountRequest: typeof fetch = (input, init) => {
-      accountCalls += 1;
-      return accountCalls === 1
-        ? Promise.resolve(new Response(null, { status: 403 }))
-        : request(input, init);
-    };
-    await temporaryPreviewCredentials(env, [key], accountRequest);
-    expect(accountCalls).toBe(3);
-    let denied = 0;
-    const unavailable: typeof fetch = () => {
-      denied += 1;
-      return Promise.resolve(new Response(null, { status: 401 }));
-    };
-    await expect(
-      temporaryPreviewCredentials(env, [key], unavailable),
-    ).rejects.toThrow();
-    expect(denied).toBe(1);
+    for (const status of [401, 403]) {
+      let accountCalls = 0;
+      const accountRequest: typeof fetch = (input, init) => {
+        accountCalls += 1;
+        if (accountCalls === 2)
+          expect(input).toBe(
+            `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/tokens/verify`,
+          );
+        return accountCalls === 1
+          ? Promise.resolve(new Response(null, { status }))
+          : request(input, init);
+      };
+      await temporaryPreviewCredentials(env, [key], accountRequest);
+      expect(accountCalls).toBe(3);
+    }
+    for (const status of [401, 403, 429, 500]) {
+      let denied = 0;
+      const unavailable: typeof fetch = () => {
+        denied += 1;
+        return Promise.resolve(new Response(null, { status }));
+      };
+      await expect(
+        temporaryPreviewCredentials(env, [key], unavailable),
+      ).rejects.toThrow();
+      expect(denied).toBe(status === 401 || status === 403 ? 2 : 1);
+    }
     await expect(
       temporaryPreviewCredentials(
         env,

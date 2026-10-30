@@ -58,6 +58,16 @@ number of retained objects within its 5,000-item envelope. Policy/authentication
 reads time out at 30 seconds; each PUT/read-back has a 120-second deadline. The
 existing 45-minute deployment job deadline remains unchanged.
 
+The explicit `preview-backup-storage-check.yml` probe shares that writer lane.
+It adds zero scheduled or idle requests. Each manual invocation makes at most 14
+provider requests: four policy reads, five inventory pages, three parent/
+temporary-credential calls, and one synthetic PUT plus read-back. Its constant
+43-byte payload transfers 86 bytes, is retained under the 14-day backup policy,
+and counts toward the same 300 MiB cap. No retry, D1 export/mutation or Worker
+deployment occurs. The job has a ten-minute deadline and the same per-request
+timeouts. Run it once to diagnose a storage change; repeated probes consume
+capacity and require the same reviewed run-volume envelope as release attempts.
+
 Backup/manifest bytes are bounded at 16 MiB combined and release bytes at 256
 KiB, so complete upload plus read-back traffic is at most 32.5 MiB per attempt.
 All retained objects count against 300 MiB; serialized admission refuses new

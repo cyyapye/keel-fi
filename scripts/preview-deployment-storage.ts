@@ -24,11 +24,13 @@ const EnvironmentSchema = z.object({
   GITHUB_SHA: ShaSchema,
   GITHUB_RUN_ID: IdSchema,
   GITHUB_RUN_ATTEMPT: IdSchema,
+  GITHUB_STEP_SUMMARY: z.string().min(1),
+});
+const PublicationEnvironmentSchema = EnvironmentSchema.extend({
   KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH: z.string().min(1),
   KEEL_PREVIEW_BACKUP_MANIFEST_PATH: z.string().min(1),
   KEEL_PREVIEW_BACKUP_STORAGE_RECEIPT_PATH: z.string().min(1),
   KEEL_PREVIEW_RELEASE_EVIDENCE_PATH: z.string().min(1),
-  GITHUB_STEP_SUMMARY: z.string().min(1),
 });
 type Environment = z.infer<typeof EnvironmentSchema>;
 type ObjectRequest = ReturnType<typeof privateR2>;
@@ -78,8 +80,62 @@ const PageSchema = z.object({
     .optional(),
 });
 
-async function boundedBytes(response: Response, maximum: number) {
-  if (!response.ok || response.body === null)
+type Phase =
+  | "configuration"
+  | "policy-managed"
+  | "policy-custom"
+  | "policy-lifecycle"
+  | "policy-lock"
+  | "inventory"
+  | "parent-token"
+  | "temporary-credentials"
+  | "object-put"
+  | "object-readback"
+  | "local-validation";
+
+class StorageFailure extends Error {
+  constructor(
+    readonly phase: Phase,
+    readonly status: number | null = null,
+    readonly codes: (number | string)[] = [],
+    message = "Private deployment storage request failed",
+  ) {
+    super(message);
+  }
+}
+
+// The CLI prints only this allowlisted structure, never provider messages,
+// response bodies, object contents, credentials, or exception stacks.
+export function publicStorageFailure(error: unknown) {
+  return {
+    error: "private-deployment-storage-failed",
+    phase: error instanceof StorageFailure ? error.phase : "local-validation",
+    status: error instanceof StorageFailure ? error.status : null,
+    codes: error instanceof StorageFailure ? error.codes : [],
+    publicationVerified: false,
+  };
+}
+
+async function atPhase<T>(phase: Phase, operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof StorageFailure) throw error;
+    throw new StorageFailure(
+      phase,
+      null,
+      [],
+      error instanceof Error ? error.message : undefined,
+    );
+  }
+}
+
+async function boundedBytes(
+  response: Response,
+  maximum: number,
+  requireSuccess = true,
+) {
+  if ((requireSuccess && !response.ok) || response.body === null)
     throw new Error("Private storage request failed");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -99,8 +155,79 @@ async function boundedBytes(response: Response, maximum: number) {
   return Buffer.concat(chunks);
 }
 
+async function managementJSON(
+  phase: Phase,
+  response: Response,
+  maximum: number,
+) {
+  return atPhase(phase, async () => {
+    let value: unknown;
+    try {
+      value = JSON.parse(
+        (await boundedBytes(response, maximum, false)).toString("utf8"),
+      );
+    } catch (error) {
+      if (!response.ok) throw new StorageFailure(phase, response.status);
+      throw error;
+    }
+    const envelope = z
+      .object({
+        success: z.boolean(),
+        errors: z
+          .array(z.object({ code: z.number().int().nonnegative() }))
+          .max(10)
+          .optional(),
+      })
+      .safeParse(value);
+    if (!response.ok || (envelope.success && !envelope.data.success))
+      throw new StorageFailure(
+        phase,
+        response.status,
+        envelope.success
+          ? (envelope.data.errors?.map(({ code }) => code) ?? [])
+          : [],
+      );
+    return value;
+  });
+}
+
+const S3CodeSchema = z.enum([
+  "AccessDenied",
+  "SignatureDoesNotMatch",
+  "InvalidAccessKeyId",
+  "InvalidToken",
+  "ExpiredToken",
+  "InvalidArgument",
+  "PreconditionFailed",
+  "ObjectLockedByBucketPolicy",
+  "NoSuchBucket",
+  "NoSuchKey",
+]);
+async function objectFailure(phase: Phase, response: Response): Promise<never> {
+  let codes: string[] = [];
+  try {
+    const body = (await boundedBytes(response, 16 * 1024, false)).toString(
+      "utf8",
+    );
+    const code = S3CodeSchema.safeParse(
+      /<Code>([^<]+)<\/Code>/u.exec(body)?.[1],
+    );
+    if (code.success) codes = [code.data];
+  } catch {
+    // Malformed, absent, or oversized error data never becomes log output.
+  }
+  throw new StorageFailure(
+    phase,
+    response.status,
+    codes,
+    "Private backup upload failed or read-back failed",
+  );
+}
+
 function configuration(raw: NodeJS.ProcessEnv) {
-  const config = EnvironmentSchema.parse(raw);
+  const parsed = EnvironmentSchema.safeParse(raw);
+  if (!parsed.success) throw new StorageFailure("configuration");
+  const config = parsed.data;
   if (config.KEEL_PREVIEW_BACKUP_BUCKET === config.KEEL_PREVIEW_R2_BUCKET)
     throw new Error("Backups require a separate private bucket");
   return config;
@@ -113,17 +240,26 @@ async function management(
   suffix: string,
   request: typeof fetch,
 ) {
-  const response = await request(
-    `https://api.cloudflare.com/client/v4/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${config.KEEL_PREVIEW_BACKUP_BUCKET}/${suffix}`,
-    {
-      headers: { Authorization: `Bearer ${config.CLOUDFLARE_API_TOKEN}` },
-      redirect: "error",
-      signal: AbortSignal.timeout(30_000),
-    },
-  );
-  return JSON.parse(
-    (await boundedBytes(response, 2 * 1024 ** 2)).toString("utf8"),
-  ) as unknown;
+  const phase: Phase = suffix.startsWith("objects?")
+    ? "inventory"
+    : suffix === "domains/managed"
+      ? "policy-managed"
+      : suffix === "domains/custom"
+        ? "policy-custom"
+        : suffix === "lifecycle"
+          ? "policy-lifecycle"
+          : "policy-lock";
+  return atPhase(phase, async () => {
+    const response = await request(
+      `https://api.cloudflare.com/client/v4/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/r2/buckets/${config.KEEL_PREVIEW_BACKUP_BUCKET}/${suffix}`,
+      {
+        headers: { Authorization: `Bearer ${config.CLOUDFLARE_API_TOKEN}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    return managementJSON(phase, response, 2 * 1024 ** 2);
+  });
 }
 
 export async function admitPreviewStorage(
@@ -238,13 +374,17 @@ export async function temporaryPreviewCredentials(
     `backups/${identity}/state.sql.gpg`,
     `backups/${identity}/manifest.json`,
     `releases/${identity}/release.json`,
+    `backups/probes/${identity}/synthetic-check.bin`,
   ]);
   if (
     objects.length < 1 ||
     objects.length > 2 ||
     new Set(objects).size !== objects.length ||
     objects.some((key) => !allowed.has(key)) ||
-    (objects.some((key) => key.startsWith("releases/")) && objects.length !== 1)
+    (objects.some((key) => key.startsWith("releases/")) &&
+      objects.length !== 1) ||
+    (objects.some((key) => key.startsWith("backups/probes/")) &&
+      objects.length !== 1)
   )
     throw new Error(
       "Temporary credentials must be scoped to this deployment attempt",
@@ -255,61 +395,62 @@ export async function temporaryPreviewCredentials(
     redirect: "error" as const,
     signal: AbortSignal.timeout(30_000),
   };
-  let verification = await request(`${base}/user/tokens/verify`, init);
-  if (verification.status === 403) {
-    await verification.body?.cancel();
-    verification = await request(
-      `${base}/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/tokens/verify`,
-      { ...init, signal: AbortSignal.timeout(30_000) },
+  const parent = await atPhase("parent-token", async () => {
+    let verification = await request(`${base}/user/tokens/verify`, init);
+    // Account-owned tokens can reject the user-token endpoint with either
+    // authentication status. Try only the fixed configured-account endpoint;
+    // both token types must still verify active before any credential is issued.
+    if (verification.status === 401 || verification.status === 403) {
+      await verification.body?.cancel();
+      verification = await request(
+        `${base}/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/tokens/verify`,
+        { ...init, signal: AbortSignal.timeout(30_000) },
+      );
+    }
+    return z
+      .object({
+        success: z.literal(true),
+        result: z.object({
+          id: z.string().regex(/^[a-f0-9]{32}$/u),
+          status: z.literal("active"),
+        }),
+      })
+      .parse(await managementJSON("parent-token", verification, RELEASE_LIMIT));
+  });
+  return atPhase("temporary-credentials", async () => {
+    const minted = await request(
+      `${base}/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/r2/temp-access-credentials`,
+      {
+        ...init,
+        method: "POST",
+        signal: AbortSignal.timeout(30_000),
+        headers: { ...init.headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parentAccessKeyId: parent.result.id,
+          bucket: config.KEEL_PREVIEW_BACKUP_BUCKET,
+          permission: "object-read-write",
+          objects,
+          ttlSeconds: 900,
+        }),
+      },
     );
-  }
-  const parent = z
-    .object({
-      success: z.literal(true),
-      result: z.object({
-        id: z.string().regex(/^[a-f0-9]{32}$/u),
-        status: z.literal("active"),
-      }),
-    })
-    .parse(
-      JSON.parse(
-        (await boundedBytes(verification, RELEASE_LIMIT)).toString("utf8"),
-      ) as unknown,
-    );
-  const minted = await request(
-    `${base}/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/r2/temp-access-credentials`,
-    {
-      ...init,
-      method: "POST",
-      signal: AbortSignal.timeout(30_000),
-      headers: { ...init.headers, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        parentAccessKeyId: parent.result.id,
-        bucket: config.KEEL_PREVIEW_BACKUP_BUCKET,
-        permission: "object-read-write",
-        objects,
-        ttlSeconds: 900,
-      }),
-    },
-  );
-  const credential = z
-    .object({
-      success: z.literal(true),
-      result: z.object({
-        accessKeyId: PrivateR2ConfigSchema.shape.accessKeyId,
-        secretAccessKey: PrivateR2ConfigSchema.shape.secretAccessKey,
-        sessionToken: z.string().min(16).max(16384),
-      }),
-    })
-    .parse(
-      JSON.parse(
-        (await boundedBytes(minted, RELEASE_LIMIT)).toString("utf8"),
-      ) as unknown,
-    );
-  return PrivateR2ConfigSchema.parse({
-    account: config.CLOUDFLARE_ACCOUNT_ID,
-    bucket: config.KEEL_PREVIEW_BACKUP_BUCKET,
-    ...credential.result,
+    const credential = z
+      .object({
+        success: z.literal(true),
+        result: z.object({
+          accessKeyId: PrivateR2ConfigSchema.shape.accessKeyId,
+          secretAccessKey: PrivateR2ConfigSchema.shape.secretAccessKey,
+          sessionToken: z.string().min(16).max(16384),
+        }),
+      })
+      .parse(
+        await managementJSON("temporary-credentials", minted, RELEASE_LIMIT),
+      );
+    return PrivateR2ConfigSchema.parse({
+      account: config.CLOUDFLARE_ACCOUNT_ID,
+      bucket: config.KEEL_PREVIEW_BACKUP_BUCKET,
+      ...credential.result,
+    });
   });
 }
 
@@ -319,27 +460,52 @@ export async function putVerifiedObject(
   request: ObjectRequest,
 ) {
   const digest = sha256(bytes);
-  const uploaded = await request(key, {
-    method: "PUT",
-    headers: {
-      "If-None-Match": "*",
-      "Content-Type": "application/octet-stream",
-      "X-Amz-Content-Sha256": digest,
-    },
-    body: new Blob([new Uint8Array(bytes)]),
-    signal: AbortSignal.timeout(120_000),
-  });
-  await uploaded.body?.cancel();
-  if (!uploaded.ok) throw new Error("Private backup upload failed");
-  const recovered = await boundedBytes(
-    await request(key, {
+  const uploaded = await atPhase("object-put", () =>
+    request(key, {
+      method: "PUT",
+      headers: {
+        "If-None-Match": "*",
+        "Content-Type": "application/octet-stream",
+        "X-Amz-Content-Sha256": digest,
+      },
+      body: new Blob([new Uint8Array(bytes)]),
       signal: AbortSignal.timeout(120_000),
     }),
-    bytes.length,
   );
+  if (!uploaded.ok) await objectFailure("object-put", uploaded);
+  await uploaded.body?.cancel();
+  const recovered = await atPhase("object-readback", async () => {
+    const response = await request(key, {
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok) await objectFailure("object-readback", response);
+    return boundedBytes(response, bytes.length);
+  });
   if (recovered.length !== bytes.length || sha256(recovered) !== digest)
-    throw new Error("Private backup read-back mismatch");
+    throw new StorageFailure(
+      "object-readback",
+      null,
+      [],
+      "Private backup read-back mismatch",
+    );
   return digest;
+}
+
+export async function preflightPreviewStorage(
+  raw: NodeJS.ProcessEnv,
+  request: typeof fetch = fetch,
+  createObjects: typeof privateR2 = privateR2,
+) {
+  const config = configuration(raw);
+  const bytes = Buffer.from("Keel synthetic deployment storage check v1\n");
+  const key = `backups/probes/${config.GITHUB_SHA}/${config.GITHUB_RUN_ID}-${config.GITHUB_RUN_ATTEMPT}/synthetic-check.bin`;
+  await admitPreviewStorage(raw, bytes.length, request);
+  const credentials = await temporaryPreviewCredentials(raw, [key], request);
+  await putVerifiedObject(key, bytes, createObjects(credentials));
+  await appendFile(
+    config.GITHUB_STEP_SUMMARY,
+    "\nPrivate deployment storage preflight passed: synthetic object PUT/read-back verified. No D1 export, migration, or Worker deployment was performed.\n",
+  );
 }
 
 async function fileBytes(path: string, maximum: number) {
@@ -357,7 +523,8 @@ export async function storePreviewEvidence(
   raw: NodeJS.ProcessEnv,
   dependencies?: { management: typeof fetch; objects: ObjectRequest },
 ) {
-  const config = configuration(raw);
+  configuration(raw);
+  const config = PublicationEnvironmentSchema.parse(raw);
   const objectRequest = async (keys: string[]) =>
     dependencies?.objects ??
     privateR2(await temporaryPreviewCredentials(raw, keys));
@@ -461,12 +628,14 @@ if (
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
   const kind = process.argv[2];
-  if (kind !== "backup" && kind !== "release")
-    throw new Error("Expected backup or release");
-  storePreviewEvidence(kind, process.env).catch(() => {
-    console.error(
-      "Private deployment storage verification failed; no success receipt was recorded.",
-    );
+  const operation =
+    kind === "preflight"
+      ? preflightPreviewStorage(process.env)
+      : kind === "backup" || kind === "release"
+        ? storePreviewEvidence(kind, process.env)
+        : Promise.reject(new StorageFailure("configuration"));
+  operation.catch((error: unknown) => {
+    console.error(JSON.stringify(publicStorageFailure(error)));
     process.exitCode = 1;
   });
 }
