@@ -37,7 +37,10 @@ parent token remains inside the protected deployment environment; derived keys
 stay only in process memory and are never logged, written to disk or published.
 Encryption uses a separate protected passphrase. No permanent S3 key or extra
 Worker binding is required. A token without the required R2 permissions fails
-before migrations; the workflow does not expand its own permissions.
+before migrations; the workflow does not expand its own permissions. User-token
+verification returning 401 or 403 selects the fixed account-token verification
+endpoint once. Both token types must verify active; invalid tokens still fail
+closed, while transport, rate-limit and server errors are not retried.
 
 After exact Worker-version smokes pass, the release JSON binds the verified
 backup receipt, ciphertext hash, migration names, Worker versions, Git SHA and
