@@ -94,7 +94,9 @@ describe("preview deployment evidence", () => {
 
     await writeBackupManifest({
       GITHUB_SHA: gitSha,
-      KEEL_PREVIEW_BACKUP_ARTIFACT_NAME: `preview-d1-backup-${gitSha}`,
+      GITHUB_RUN_ID: "123",
+      GITHUB_RUN_ATTEMPT: "1",
+      KEEL_PREVIEW_BACKUP_NAME: `preview-d1-backup-${gitSha}`,
       KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH: encryptedPath,
       KEEL_PREVIEW_BACKUP_MANIFEST_PATH: manifestPath,
       KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH: plaintextPath,
@@ -104,7 +106,10 @@ describe("preview deployment evidence", () => {
     expect(manifest).toMatchObject({
       environment: "preview",
       gitSha,
-      artifactName: `preview-d1-backup-${gitSha}`,
+      schemaVersion: 2,
+      runId: "123",
+      runAttempt: "1",
+      backupName: `preview-d1-backup-${gitSha}`,
     });
     expect(manifest.plaintextSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(manifest.encryptedSha256).toMatch(/^[0-9a-f]{64}$/);

@@ -11,13 +11,15 @@ fail closed; no previous-run file or success flag substitutes for the receipt.
 
 The pause skips receipt/diagnostic artifact uploads, so downloadable traces and
 screenshots are unavailable; console logs and workflow summaries remain. Preview
-deployment also waits: it requires a retained encrypted pre-migration backup,
-which must not be skipped. The independent private-document backup workflow uses
-its existing private object storage and is unaffected. No artifacts are deleted.
+deployment stores its encrypted D1 backup, manifest and release record in a
+separate private R2 bucket and does not depend on GitHub artifacts. Upload and
+complete read-back verification remain mandatory before migrations. The
+independent private-document backup workflow is unchanged. No existing artifacts
+are deleted.
 
 After GitHub confirms quota is available, delete the variable or set it to
-`false`, then dispatch post-merge verification on current main. The existing
-bounded retention policy resumes. Do not assume the first day of a month is the
+`false` to resume optional bounded diagnostic uploads. Preview deployment can
+run while the pause stays enabled. Do not assume the first day of a month is the
 account's reset date or that deletion immediately restores its accrued
 allowance.
 
@@ -91,19 +93,24 @@ verification finishes. After all three jobs pass, it automatically deploys that
 same SHA to the protected Cloudflare preview. A manual dispatch deploys only
 when it targets `main`.
 
-The preview deployment is serialized and fail-closed. It exports, encrypts, and
-round-trip verifies D1 before applying forward-only migrations, deploys the API
-before the web Worker, runs protected Access/dashboard/D1/R2/Queue smokes, and
-verifies both Worker version IDs and Git SHA. It never runs a remote seed,
-reset, import, or restore command. Encrypted backup artifacts are retained for
-14 days; non-sensitive release evidence is retained for 90 days.
+The preview deployment is serialized and fail-closed. It exports, encrypts and
+round-trip verifies D1, then stores the encrypted export and manifest privately
+and verifies their complete read-back before applying forward-only migrations.
+It deploys the API before the web Worker, runs protected Access/dashboard/D1/R2/
+Queue smokes, and verifies both Worker version IDs and Git SHA. It never runs a
+remote seed, reset, import or restore command. Private R2 retention locks and
+lifecycle rules retain backups for 14 days and release records for 90 days.
+Attempt-specific object keys and conditional PUTs refuse replacement. Bucket
+privacy, retention and the 300 MiB retained-byte budget are checked before each
+publication; missing or malformed storage evidence fails closed.
 
 ## GitHub `preview` environment
 
 Create a repository environment named `preview`, restrict its deployment branch
 to `main`, and configure the following environment value:
 
-- Variable: `KEEL_PREVIEW_URL` — the HTTPS origin only, with no path.
+- Variables: `KEEL_PREVIEW_URL` — the HTTPS origin only, with no path;
+  `KEEL_PREVIEW_BACKUP_BUCKET` — the separate private R2 backup bucket.
 - Secrets: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`,
   `KEEL_PREVIEW_API_WORKER`, `KEEL_PREVIEW_WEB_WORKER`, `KEEL_PREVIEW_D1_NAME`,
   `KEEL_PREVIEW_D1_ID`, `KEEL_PREVIEW_R2_BUCKET`, `KEEL_PREVIEW_QUEUE`,
@@ -111,6 +118,15 @@ to `main`, and configure the following environment value:
   `KEEL_PREVIEW_ACCESS_TEAM_DOMAIN`, `KEEL_PREVIEW_ACCESS_CLIENT_ID`,
   `KEEL_PREVIEW_ACCESS_CLIENT_SECRET`, `KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN`,
   and `KEEL_PREVIEW_BACKUP_PASSPHRASE`.
+
+The existing Cloudflare API token must support R2 policy reads and temporary
+credential issuance for the backup bucket. The job verifies its active parent
+API token and derives 15-minute S3 credentials for only that attempt's exact
+object keys. No permanent S3 key is added to GitHub, files, outputs or logs. The
+encryption passphrase remains a separate protected environment secret. Follow
+[backup and recovery](../../docs/deployment/backup-and-recovery.md) to provision
+the private bucket and policy. Missing configuration stops the release before
+migrations.
 
 Portfolio Watch website suggestions are optional. Set
 `KEEL_PREVIEW_BRAVE_SEARCH_API_KEY` to enable the Find website action. Without
@@ -146,10 +162,10 @@ GitHub does not expose environment secrets until the deployment job starts.
 Within the job, each secret is passed only to the local step that needs it. The
 generated Worker configuration is ignored by Git, the API secrets file exists
 only for the API deploy command, and plaintext D1 export/passphrase files are
-removed before artifact upload. The final always-run cleanup also removes the
-encrypted backup copy, manifests, Wrangler output, release evidence, and
-generated configuration from the persistent deployment runner after their
-artifacts have uploaded.
+removed before private backup upload. The final always-run cleanup also removes
+the encrypted backup copy, manifests, Wrangler output, release evidence, and
+generated configuration from the persistent deployment runner after storage has
+been verified. Cleanup never deletes remote recovery objects.
 
 See
 [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments),

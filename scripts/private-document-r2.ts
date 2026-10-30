@@ -7,6 +7,7 @@ export const PrivateR2ConfigSchema = z
     bucket: z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/u),
     accessKeyId: z.string().min(16).max(128),
     secretAccessKey: z.string().min(32).max(128),
+    sessionToken: z.string().min(16).max(16384).optional(),
   })
   .strict();
 
@@ -15,7 +16,11 @@ export const PrivateR2ConfigSchema = z
 export function privateR2(raw: z.infer<typeof PrivateR2ConfigSchema>) {
   const config = PrivateR2ConfigSchema.parse(raw);
   const client = new AwsClient({
-    ...config,
+    accessKeyId: config.accessKeyId,
+    secretAccessKey: config.secretAccessKey,
+    ...(config.sessionToken === undefined
+      ? {}
+      : { sessionToken: config.sessionToken }),
     service: "s3",
     region: "auto",
     retries: 0,
