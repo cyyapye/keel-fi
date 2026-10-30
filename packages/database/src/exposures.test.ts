@@ -2,7 +2,11 @@ import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixtur
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import {
+  DatabaseSync,
+  type SQLInputValue,
+  type StatementSync,
+} from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { D1ExposureRepository } from "./exposures";
@@ -3593,8 +3597,24 @@ describe("exact reviewed private exposure migration", () => {
 });
 
 describe("private provider position continuity migration", () => {
+  // Compile each statement once within this fresh synthetic fixture. Every
+  // binding, execution, constraint and migration still runs; SQLite reparses
+  // cached statements when the real migration changes its schema.
+  class MigrationDatabase extends DatabaseSync {
+    private readonly statements = new Map<string, StatementSync>();
+
+    override prepare(sql: string): StatementSync {
+      let statement = this.statements.get(sql);
+      if (statement === undefined) {
+        statement = super.prepare(sql);
+        this.statements.set(sql, statement);
+      }
+      return statement;
+    }
+  }
+
   it("backfills 90 exact provider matches and remains retry safe", async () => {
-    const database = new DatabaseSync(":memory:");
+    const database = new MigrationDatabase(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
     try {
       migrationFiles
