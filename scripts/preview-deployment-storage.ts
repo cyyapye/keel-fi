@@ -397,7 +397,10 @@ export async function temporaryPreviewCredentials(
   };
   const parent = await atPhase("parent-token", async () => {
     let verification = await request(`${base}/user/tokens/verify`, init);
-    if (verification.status === 403) {
+    // Account-owned tokens can reject the user-token endpoint with either
+    // authentication status. Try only the fixed configured-account endpoint;
+    // both token types must still verify active before any credential is issued.
+    if (verification.status === 401 || verification.status === 403) {
       await verification.body?.cancel();
       verification = await request(
         `${base}/accounts/${config.CLOUDFLARE_ACCOUNT_ID}/tokens/verify`,

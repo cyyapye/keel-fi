@@ -204,7 +204,9 @@ describe("private preview deployment storage", () => {
       });
       expect(report.status).toBe(status === 200 ? null : status);
       expect(JSON.stringify(report)).not.toContain(secret);
-      expect(calls).toBe(phase === "temporary-credentials" ? 2 : 1);
+      expect(calls).toBe(
+        phase === "temporary-credentials" || status === 401 ? 2 : 1,
+      );
     }
     for (const code of ["AccessDenied", secret]) {
       const error = await putVerifiedObject(key, Buffer.from("synthetic"), () =>
@@ -376,24 +378,32 @@ describe("private preview deployment storage", () => {
     });
     await privateR2(config)(key);
     expect(signed).toBe(1);
-    let accountCalls = 0;
-    const accountRequest: typeof fetch = (input, init) => {
-      accountCalls += 1;
-      return accountCalls === 1
-        ? Promise.resolve(new Response(null, { status: 403 }))
-        : request(input, init);
-    };
-    await temporaryPreviewCredentials(env, [key], accountRequest);
-    expect(accountCalls).toBe(3);
-    let denied = 0;
-    const unavailable: typeof fetch = () => {
-      denied += 1;
-      return Promise.resolve(new Response(null, { status: 401 }));
-    };
-    await expect(
-      temporaryPreviewCredentials(env, [key], unavailable),
-    ).rejects.toThrow();
-    expect(denied).toBe(1);
+    for (const status of [401, 403]) {
+      let accountCalls = 0;
+      const accountRequest: typeof fetch = (input, init) => {
+        accountCalls += 1;
+        if (accountCalls === 2)
+          expect(input).toBe(
+            `https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/tokens/verify`,
+          );
+        return accountCalls === 1
+          ? Promise.resolve(new Response(null, { status }))
+          : request(input, init);
+      };
+      await temporaryPreviewCredentials(env, [key], accountRequest);
+      expect(accountCalls).toBe(3);
+    }
+    for (const status of [401, 403, 429, 500]) {
+      let denied = 0;
+      const unavailable: typeof fetch = () => {
+        denied += 1;
+        return Promise.resolve(new Response(null, { status }));
+      };
+      await expect(
+        temporaryPreviewCredentials(env, [key], unavailable),
+      ).rejects.toThrow();
+      expect(denied).toBe(status === 401 || status === 403 ? 2 : 1);
+    }
     await expect(
       temporaryPreviewCredentials(
         env,
