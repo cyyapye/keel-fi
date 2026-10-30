@@ -79,7 +79,7 @@ export function HoldingsRouteShell({ status }: { status?: ReactNode }) {
       >
         <SectionHeader
           className="investment-views__heading"
-          description="Legal positions stay separate inside each exposure. Open one for ownership and source details."
+          description="Legal positions stay separate inside each exposure."
           descriptionPlacement="title-group"
           eyebrow="Reviewed ownership"
           headingProps={{ id: "investment-views-title" }}

@@ -146,6 +146,8 @@ not encode editable versus read-only state; present non-editable facts as text.
 Quiet buttons are low-emphasis, link-like actions with the same horizontal
 padding as other buttons of their size. Use TextLink when the action belongs
 inline with prose; do not shrink a button's padding to imitate a text link.
+Plain buttons inherit surrounding typography and preserve any assigned type size
+and weight on hover.
 
 Checkbox carries its own visible label, optional description and disabled/mixed
 states. Use `accessibleLabel` when a short visible label needs record context

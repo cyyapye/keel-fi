@@ -286,8 +286,13 @@ test("reviews an issuer link before grouping a public holding", async ({
       });
     },
   );
-  await page.goto("/holdings/entities?companies=1&public=exposure_nstr_public");
+  await page.goto(
+    "/holdings/entities?companies=1&public=exposure_nstr_public&returnPosition=position_nstr_public",
+  );
   const editor = page.getByLabel("Review company grouping", { exact: true });
+  await expect(
+    editor.getByRole("link", { name: "Back to position", exact: true }),
+  ).toHaveAttribute("href", "/holdings?position=position_nstr_public");
   await expect(
     editor.getByText(
       "Northstar Orbital Technologies Corp. - Ordinary Shares - Class A",
@@ -318,6 +323,9 @@ test("reviews an issuer link before grouping a public holding", async ({
     editor.getByRole("heading", { name: "Grouped with Northstar Robotics" }),
   ).toBeVisible();
   expect(reviewCount).toBe(1);
+  await expect(
+    editor.getByRole("link", { name: "View position", exact: true }),
+  ).toHaveAttribute("href", "/holdings?position=position_nstr_public");
   await page.reload();
   await expect(
     editor.getByRole("heading", { name: "Grouped with Northstar Robotics" }),
@@ -394,6 +402,9 @@ test("shows an unresolved issuer match without presenting a second grouping form
       }),
   );
   await page.goto("/holdings/entities?companies=1&public=demo_public");
+  await expect(
+    page.getByRole("link", { name: "Back to holdings", exact: true }),
+  ).toHaveAttribute("href", "/holdings");
   await expect(
     page.getByRole("heading", { name: "Match needs clarification" }),
   ).toBeVisible();

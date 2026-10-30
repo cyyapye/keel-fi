@@ -318,6 +318,31 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
+async function expectExposureSummaryLayout(page: Page) {
+  const geometry = await page
+    .locator(".investment-views")
+    .evaluate((section) => {
+      const bounds = (selector: string) => {
+        const { top, bottom, left, right, width, height } = section
+          .querySelector(selector)!
+          .getBoundingClientRect();
+        return { top, bottom, left, right, width, height };
+      };
+      return {
+        heading: bounds(".investment-views__heading"),
+        total: bounds(".investment-views__total"),
+        sort: bounds(".exposure-sort"),
+      };
+    });
+  // The aggregate belongs below the heading, with its own left-aligned reading order.
+  expect(geometry.total.top).toBeGreaterThanOrEqual(geometry.heading.bottom);
+  expect(geometry.total.left).toBe(geometry.heading.left);
+  expect(geometry.total.right).toBeLessThanOrEqual(geometry.sort.left);
+  // Keep the order control compact without sacrificing a mobile touch target.
+  expect(geometry.sort.width).toBeLessThanOrEqual(100);
+  expect(geometry.sort.height).toBeGreaterThanOrEqual(44);
+}
+
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-08-19T12:00:00.000Z"));
   await page.route("**/api/alpha", async (route) => {
@@ -546,8 +571,10 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
   await expect(group).toContainText("1 estimate");
   await expect(group).toContainText("$56k");
   await expect(
-    group.getByRole("link", { name: "Review company link" }),
-  ).toBeVisible();
+    group.getByRole("link", {
+      name: /Group with company|Review company link/u,
+    }),
+  ).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   await page.screenshot({
     path: testInfo.outputPath("review-mixed-company.png"),
@@ -588,6 +615,23 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
     animations: "disabled",
     caret: "hide",
   });
+  await group
+    .getByRole("button", { name: "View NSTR holding details" })
+    .click();
+  const linkedGrouping = page.getByRole("group", {
+    name: "Company grouping",
+    exact: true,
+  });
+  await expect(linkedGrouping).toContainText("Applies to this security.");
+  await expect(
+    linkedGrouping.getByRole("link", {
+      name: "Review company link",
+      exact: true,
+    }),
+  ).toHaveAttribute(
+    "href",
+    `/holdings/entities?companies=1&public=${encodeURIComponent(publicId)}&returnPosition=position_nstr_public`,
+  );
 });
 
 test("shows the Holdings shell while one read-only projection loads", async ({
@@ -880,45 +924,53 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     exposureView.getByRole("heading", { name: "Exposures", exact: true }),
   ).toBeVisible();
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
-  await expect(
-    exposureView.locator(".investment-views__heading"),
-  ).toContainText("5 exposures");
-  await expect(
-    exposureView.locator(".investment-views__heading"),
-  ).toContainText("7 legal positions");
   await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "Portfolio exposure$860k · 2 position values unavailable",
+    "5 exposures",
   );
+  await expect(exposureView.locator(".investment-views__total")).toContainText(
+    "7 legal positions",
+  );
+  await expect(exposureView.locator(".investment-views__total")).toContainText(
+    "Known portfolio exposure$860k2 position values unavailable",
+  );
+  await expect(
+    exposureView.locator(".investment-views__total > strong"),
+  ).toHaveText("$860k");
+  await expect(
+    exposureView.getByRole("button", {
+      name: "Copy holding link",
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
-  const exposureSort = exposureView.getByLabel(
-    "Sort exposures and positions by value",
-  );
-  await expect(exposureSort).toContainText("Highest first");
-  const restingSortBorder = await exposureSort.evaluate((element) => {
-    const styles = window.getComputedStyle(element);
-    return [
-      styles.borderTopWidth,
-      styles.borderRightWidth,
-      styles.borderBottomWidth,
-      styles.borderLeftWidth,
-    ];
+  const exposureSort = exposureView.getByRole("button", {
+    name: /^Sort exposures and positions by value/u,
   });
-  expect(restingSortBorder).toEqual(["0px", "0px", "0px", "0px"]);
-  await exposureSort.focus();
-  const focusedSortFrame = await exposureSort.evaluate((element) => {
-    const styles = window.getComputedStyle(element);
-    return {
-      border: [
-        styles.borderTopWidth,
-        styles.borderRightWidth,
-        styles.borderBottomWidth,
-        styles.borderLeftWidth,
-      ],
-      outline: styles.outlineStyle,
-    };
-  });
-  expect(focusedSortFrame.border).toEqual(restingSortBorder);
-  expect(focusedSortFrame.outline).toBe("none");
+  await expect(exposureSort).toHaveText("Value ↓");
+  const presentation = () =>
+    exposureSort.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const bounds = element.getBoundingClientRect();
+      return {
+        fontSize: style.fontSize,
+        fontWeight: style.fontWeight,
+        lineHeight: style.lineHeight,
+        letterSpacing: style.letterSpacing,
+        padding: style.padding,
+        width: bounds.width,
+        height: bounds.height,
+      };
+    });
+  const restingPresentation = await presentation();
+  await exposureSort.hover();
+  expect(await presentation()).toEqual(restingPresentation);
+  await page.mouse.move(0, 0);
+  expect(await presentation()).toEqual(restingPresentation);
+
+  await expect(exposureSort).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+  await expect(
+    exposureView.locator(".investment-views__controls").getByRole("combobox"),
+  ).toHaveCount(0);
   await expect(
     exposureView.locator(".exposure-group__summary strong").first(),
   ).toHaveText("NVDA");
@@ -1009,6 +1061,12 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "Fidelity brokerage",
     "Robinhood brokerage",
   ]);
+  await expect(
+    nvda.getByRole("button", { name: "Copy holding link", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    nvda.getByRole("link", { name: /Group with company|Review company link/u }),
+  ).toHaveCount(0);
   await expect(nvda.getByRole("list", { name: "NVDA positions" })).toHaveCSS(
     "background-color",
     "rgba(0, 0, 0, 0)",
@@ -1060,6 +1118,28 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(nvda).toContainText("/share");
   const cash = page.locator(".cash-holdings");
   await expect(cash.getByRole("heading", { name: "Cash" })).toBeVisible();
+  // Reject the old compact Exposures header and sort competing with the total.
+  const cashHeading = cash.locator(".cash-holdings__heading");
+  const exposureHeading = exposureView.locator(".investment-views__heading");
+  for (const selector of ["h2", ".eyebrow", "p:not(.eyebrow)"]) {
+    for (const property of [
+      "font-size",
+      "font-weight",
+      "line-height",
+      "color",
+    ]) {
+      await expect(exposureHeading.locator(selector)).toHaveCSS(
+        property,
+        await cashHeading
+          .locator(selector)
+          .evaluate(
+            (element, name) => getComputedStyle(element).getPropertyValue(name),
+            property,
+          ),
+      );
+    }
+  }
+  await expectExposureSummaryLayout(page);
   await expect(cash).toContainText("Portfolio cash$28.55k");
   await expect(cash.locator(".cash-holdings__rows strong").first()).toHaveCSS(
     "font-size",
@@ -1107,18 +1187,14 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       has: page.getByText("US Dollar", { exact: true }),
     }),
   ).toHaveCount(0);
+  // One activation must reverse the actual group and child-position order.
   await exposureSort.click();
-  await expect(
-    page.getByRole("option", { name: "Lowest first" }),
-  ).toBeVisible();
-  await expect(page).toHaveScreenshot("investment-holdings-sort-open.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await page.getByRole("option", { name: "Lowest first" }).click();
-  await expect(exposureSort).toContainText("Lowest first");
+  await expect(exposureSort).toHaveText("Value ↑");
+  await expect(exposureSort).toHaveAccessibleName(
+    "Sort exposures and positions by value, lowest first. Switch to highest first.",
+  );
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await expect(page.getByRole("option")).toHaveCount(0);
   await expect(
     exposureView.locator(".exposure-group__summary strong").first(),
   ).toHaveText("Beacon Robotics");
@@ -1127,43 +1203,40 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "$240k",
     "$315k",
   ]);
+  await expectNoHorizontalOverflow(page);
+  await expect(page).toHaveScreenshot(
+    "investment-holdings-sort-ascending.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
   await exposureSort.click();
-  await page.getByRole("option", { name: "Highest first" }).click();
-  await expect(exposureSort).toContainText("Highest first");
+  await expect(exposureSort).toHaveText("Value ↓");
+  await expect(
+    exposureView.locator(".exposure-group__summary strong").first(),
+  ).toHaveText("NVDA");
+  await expect(nvda.locator(".position-row__value")).toContainText([
+    "$315k",
+    "$240k",
+    "$185k",
+  ]);
   await exposureSort.focus();
-  await page.keyboard.press("ArrowDown");
-  await expect(
-    page.getByRole("option", { name: "Highest first" }),
-  ).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await expect(
-    page.getByRole("option", { name: "Lowest first" }),
-  ).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(exposureSort).toContainText("Lowest first");
-  await exposureSort.focus();
-  await page.keyboard.press("ArrowUp");
-  await expect(
-    page.getByRole("option", { name: "Lowest first" }),
-  ).toBeFocused();
-  await page.keyboard.press("ArrowUp");
-  await expect(
-    page.getByRole("option", { name: "Highest first" }),
-  ).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(exposureSort).toContainText("Highest first");
-  await expect
-    .poll(() =>
-      exposureSort.evaluate(
-        (element) => window.getComputedStyle(element).boxShadow,
-      ),
-    )
-    .not.toBe("none");
+  await exposureSort.press("Space");
+  await expect(exposureSort).toHaveText("Value ↑");
+  await expect(exposureSort).toBeFocused();
+  await exposureSort.press("Enter");
+  await expect(exposureSort).toHaveText("Value ↓");
+  await expect(exposureSort).toBeFocused();
+  await expect(exposureSort).toHaveCSS("outline-style", "solid");
   expect(
-    await exposureSort.evaluate(
-      (element) => window.getComputedStyle(element).boxShadow,
+    await exposureSort.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).outlineWidth),
     ),
-  ).not.toContain("inset");
+  ).toBeGreaterThanOrEqual(1);
+  await expect(page.getByRole("option")).toHaveCount(0);
   await exposureSort.evaluate((element) => {
     (element as HTMLElement).blur();
   });
@@ -1251,6 +1324,20 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       name: "View U S Dollar holding details",
     }),
   ).toHaveCount(2);
+  await expect(
+    cash.getByRole("button", { name: "View U S Dollar holding details" }),
+  ).toHaveText(["U S Dollar", "U S Dollar"]);
+  await expect(cash.getByText("View details", { exact: true })).toHaveCount(0);
+  await expect(
+    cash
+      .locator("article")
+      .filter({
+        has: page.getByRole("button", {
+          name: "View U S Dollar holding details",
+        }),
+      })
+      .getByRole("button"),
+  ).toHaveCount(2);
   await expect(exposureView).not.toContainText("USD ");
   expect(
     await exposureView
@@ -1263,7 +1350,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toBe(true);
   const targetHeights = await page
     .locator(
-      ".investment-institutions .button:visible, .cash-holdings .button:visible, .position-row__action:visible",
+      ".investment-institutions .button:visible, .cash-holdings .button:visible, .cash-holdings__title-link:visible, .position-row__action:visible",
     )
     .evaluateAll((elements) =>
       elements.map((element) => element.getBoundingClientRect().height),
@@ -1342,13 +1429,92 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       name: "View NVDA holding details",
     })
     .first();
+  const selectedPositionId =
+    (await nvdaDetailAction.getAttribute("data-holding-id"))!;
+  const publicExposureId = holdingsView.exposureView.exposures.find(
+    (group) =>
+      group.exposure.exposureKind === "public_instrument" &&
+      group.contributions.some(
+        (item) => item.positionId === selectedPositionId,
+      ),
+  )!.exposure.id;
   await nvdaDetailAction.click();
   await expect(
-    page.getByRole("heading", {
-      level: 2,
-      name: "NVIDIA common stock",
-    }),
+    page.getByRole("heading", { level: 2, name: "NVIDIA common stock" }),
   ).toBeFocused();
+  const grouping = page.getByRole("group", {
+    name: "Company grouping",
+    exact: true,
+  });
+  await expect(grouping).toContainText(
+    "Applies to all 3 positions in this security.",
+  );
+  const groupingLink = grouping.getByRole("link", {
+    name: "Group with company",
+    exact: true,
+  });
+  await expect(groupingLink).toHaveAttribute(
+    "href",
+    `/holdings/entities?companies=1&public=${encodeURIComponent(publicExposureId)}&returnPosition=${encodeURIComponent(selectedPositionId)}`,
+  );
+  await expect(page.locator(".holding-detail-workspace")).toHaveScreenshot(
+    "public-position-company-grouping.png",
+    { animations: "disabled", caret: "hide" },
+  );
+  await page.route("**/api/companies/public-links", (route) =>
+    route.fulfill({
+      json: {
+        securities: [
+          {
+            exposureId: publicExposureId,
+            name: "NVIDIA common stock",
+            companyId: null,
+            reviewId: null,
+            positionCount: 3,
+          },
+        ],
+        companies: [],
+      },
+    }),
+  );
+  await page.route(
+    `**/api/companies/public-links/${encodeURIComponent(publicExposureId)}/recommendation`,
+    (route) =>
+      route.fulfill({
+        json: {
+          id: "synthetic_no_match",
+          exposureId: publicExposureId,
+          status: "no_match",
+          companyId: null,
+          companyName: null,
+          reason: "Choose a company using synthetic issuer evidence.",
+          sourceUrl: null,
+          sourceTitle: null,
+        },
+      }),
+  );
+  await groupingLink.click();
+  await expect(
+    page.getByRole("heading", { name: "Company grouping", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("No confident match yet", { exact: true }),
+  ).toBeVisible();
+  const backToPosition = page.getByRole("link", {
+    name: "Back to position",
+    exact: true,
+  });
+  await expect(backToPosition).toHaveAttribute(
+    "href",
+    `/holdings?position=${encodeURIComponent(selectedPositionId)}`,
+  );
+  await backToPosition.click();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "NVIDIA common stock" }),
+  ).toBeFocused();
+  await expect(page).toHaveURL(
+    new RegExp(`position=${selectedPositionId}$`, "u"),
+  );
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(nvdaDetailAction).toBeFocused();
 
@@ -1357,10 +1523,14 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       name: "View U S Dollar holding details",
     })
     .first();
-  await cashDetailAction.click();
+  await cashDetailAction.focus();
+  await cashDetailAction.press("Enter");
   await expect(
     page.getByRole("heading", { level: 2, name: "US Dollar" }),
   ).toBeFocused();
+  await expect(
+    page.getByRole("group", { name: "Company grouping", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Add value evidence" }),
   ).toHaveCount(0);
@@ -1384,6 +1554,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     page.getByRole("heading", { level: 2, name: "Beacon Robotics" }),
   ).toBeFocused();
+  await expect(
+    page.getByRole("group", { name: "Company grouping", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("region", { name: "Position summary" }),
   ).toBeVisible();
@@ -1738,12 +1911,12 @@ test("keeps reviewed history in exposures without showing fake brokerage account
 
   const exposureView = page.locator(".investment-views");
   await expect(exposureView.getByRole("tab")).toHaveCount(0);
-  await expect(
-    exposureView.locator(".investment-views__heading"),
-  ).toContainText("1 exposure");
-  await expect(
-    exposureView.locator(".investment-views__heading"),
-  ).toContainText("14 legal positions");
+  await expect(exposureView.locator(".investment-views__total")).toContainText(
+    "1 exposure",
+  );
+  await expect(exposureView.locator(".investment-views__total")).toContainText(
+    "14 legal positions",
+  );
   const exposure = page.locator(".exposure-group").filter({
     has: page.getByText("Demo Pharmacy", { exact: true }),
   });
@@ -1877,9 +2050,7 @@ test("keeps failed canonical holdings out of view and retries", async ({
   await expect(errorState.getByRole("alert")).toContainText(
     "Reviewed holdings are temporarily unavailable.",
   );
-  await expect(
-    errorState.locator(".investment-views__heading > span"),
-  ).toHaveCount(0);
+  await expect(errorState.locator(".investment-views__total")).toHaveCount(0);
   await expect(errorState.locator(".exposure-groups")).toHaveCount(0);
   await expect(errorState.locator(".unallocated-positions")).toHaveCount(0);
   await expect(
@@ -2231,4 +2402,28 @@ test("search bounds positions within a single large exposure and preserves the l
     50,
   );
   await expect(target).toBeFocused();
+});
+
+test("keeps the exposure summary below the heading with compact sorting", async ({
+  page,
+}, testInfo) => {
+  if (testInfo.project.name === "chromium") {
+    await page.setViewportSize({ width: 1053, height: 954 });
+  }
+  await page.goto("/holdings");
+  const summary = page.locator(".investment-views__total");
+  await expect(summary).toContainText("5 exposures");
+  await expectExposureSummaryLayout(page);
+  await expect(
+    page.getByRole("button", {
+      name: /^Sort exposures and positions by value/u,
+    }),
+  ).toHaveAccessibleName(
+    "Sort exposures and positions by value, highest first. Switch to lowest first.",
+  );
+  await expectNoHorizontalOverflow(page);
+  await expect(page.locator(".investment-views__controls")).toHaveScreenshot(
+    "holdings-compact-summary.png",
+    { animations: "disabled", caret: "hide" },
+  );
 });
