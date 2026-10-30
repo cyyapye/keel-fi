@@ -33,11 +33,11 @@ candidate workflow is manual-only, so ordinary PRs no longer run a second full
 verification suite. See
 [CI performance](../../docs/engineering/ci-performance.md).
 
-All artifact uploads use the repository's bounded upload action. Successful
-diagnostics expire after one day; failure/cancellation diagnostics are compacted
-to at most 12 MiB and kept seven days. Backups keep their 14-day retention.
-Payload limits, repository capacity admission, account billing boundaries and
-native enforcement are defined in the
+All GitHub artifact uploads use the repository's bounded upload action.
+Successful diagnostics expire after one day; failure/cancellation diagnostics
+are compacted to at most 12 MiB and kept seven days. Backups keep their 14-day
+retention. Payload limits, repository capacity admission, account billing
+boundaries and native enforcement are defined in the
 [GitHub storage budget](../../docs/engineering/github-storage-budget.md).
 
 `tugling.yml` separately verifies the project adapter, synthetic dogfood case,
