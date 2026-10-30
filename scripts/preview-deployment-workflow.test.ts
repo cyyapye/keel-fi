@@ -3,6 +3,35 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("post-merge preview deployment workflow", () => {
+  it("isolates the manual protected storage probe from D1 and Worker deployment", async () => {
+    const workflow = await readFile(
+      ".github/workflows/preview-backup-storage-check.yml",
+      "utf8",
+    );
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
+    expect(workflow).toContain(
+      "runs-on: [self-hosted, Linux, X64, keel-deploy]",
+    );
+    expect(workflow).toContain("name: preview");
+    expect(workflow).toContain("ref: ${{ github.sha }}");
+    expect(workflow).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
+    expect(workflow).toContain("group: keel-preview-deployment");
+    expect(workflow).toContain("cancel-in-progress: false");
+    expect(workflow).toContain("timeout-minutes: 10");
+    expect(workflow).toContain(
+      "scripts/preview-deployment-storage.ts preflight",
+    );
+    expect(workflow.match(/secrets\.[A-Z0-9_]+/gu)?.sort()).toEqual([
+      "secrets.CLOUDFLARE_ACCOUNT_ID",
+      "secrets.CLOUDFLARE_API_TOKEN",
+      "secrets.KEEL_PREVIEW_R2_BUCKET",
+    ]);
+    expect(workflow).not.toMatch(
+      /schedule:|push:|pull_request:|wrangler|artifact|D1_|PASSPHRASE|continue-on-error/u,
+    );
+  });
+
   it("routes verification and deployment to isolated Keel runner lanes", async () => {
     const [pullRequestWorkflow, postMergeWorkflow] = await Promise.all([
       readFile(".github/workflows/ci.yml", "utf8"),
