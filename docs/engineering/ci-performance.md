@@ -374,6 +374,23 @@ stale-evidence behavior remain covered by their dedicated integration tests.
 
 ## Failure and recovery
 
+Preview release run `41014840234` failed twice on the unchanged 90-match private
+provider continuity migration fixture's five-second deadline. The storage-only
+protected check had already passed; neither attempt reached D1 export,
+migrations or deployment. Both bounded failure bundles were preserved.
+
+That fresh in-memory fixture now reuses prepared statements, following the cash
+fixture's existing pattern. All SQL executions, bound values, constraints and
+read-model round trips remain. It still seeds 180 positions across three
+providers, executes the actual migration twice, checks 90 exact continuities and
+180 retained snapshots, and runs foreign-key/integrity checks. Cached reads must
+observe the real schema change; the existing before/after assertions prove that
+behavior. No test identity, timeout, retry, exclusion, worker count or complete
+gate budget changes. A focused macOS run measured 360.681 ms before and 296.190
+ms after; all 28 exposure tests pass. These are local measurements, not a Linux
+headroom or complete-CI speedup claim. Exact-revision Linux verification remains
+required before release.
+
 PR run `39363608558` exhausted the unchanged 900-second gate with unit and
 browser work incomplete. Unit work started at 138.7 seconds after waiting for
 PDF images; PDF isolation waited for a slot until 195.2 seconds and finished at
