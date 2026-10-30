@@ -1,13 +1,14 @@
 # GitHub storage budget
 
-Keel must stay within the account's included storage. All repository uploads use
-`.github/actions/upload-bounded-artifact`; no workflow may upload a directory or
-use `actions/upload-artifact` directly. The action checks actual file bytes,
-validates and paginates GitHub's complete repository artifact inventory, counts
-all nonexpired artifacts regardless of their name or workflow, and stops before
-upload if the proposed total exceeds **300 MiB**. Unavailable, malformed or
-incomplete inventory fails closed. It requires only `actions: read` in addition
-to normal artifact-upload credentials. It never deletes remote artifacts.
+Keel must stay within the account's included storage. All GitHub artifact
+uploads use `.github/actions/upload-bounded-artifact`; no workflow may upload a
+directory or use `actions/upload-artifact` directly. The action checks actual
+file bytes, validates and paginates GitHub's complete repository artifact
+inventory, counts all nonexpired artifacts regardless of their name or workflow,
+and stops before upload if the proposed total exceeds **300 MiB**. Unavailable,
+malformed or incomplete inventory fails closed. It requires only `actions: read`
+in addition to normal artifact-upload credentials. It never deletes remote
+artifacts.
 
 | Artifact                                            | Payload ceiling | Retention |
 | --------------------------------------------------- | --------------- | --------- |
@@ -18,10 +19,11 @@ to normal artifact-upload credentials. It never deletes remote artifacts.
 | Exact deployment receipt                            | 256 KiB         | 90 days   |
 
 The admission check reserves another 64 KiB per upload for outer ZIP overhead.
-Backups must fit whole; they are never truncated. A refused backup upload stops
-deployment before migrations. Existing backup, checksum and deployment ordering
-remain required. Secret scans keep their existing findings, job summaries and
-failure gates; their implicit SARIF artifact uploads are disabled.
+The backup/release rows describe retained legacy GitHub artifacts. New preview
+backups and release records use the separate private R2 budget below. Legacy
+backups keep their original expiry and are never deleted to reclaim quota.
+Secret scans keep their existing findings, job summaries and failure gates;
+their implicit SARIF artifact uploads are disabled.
 
 ## Diagnostic contents
 
@@ -80,21 +82,38 @@ outside the repository artifact inventory.
 During an account quota block, the temporary
 [artifact-upload pause](../../.github/workflows/README.md#temporary-artifact-storage-pause)
 keeps native verification running and transports its complete receipt through
-bounded job outputs. Diagnostic downloads and preview deployments wait for
-storage to resume; mandatory database backups are never silently omitted.
+bounded job outputs. Diagnostic downloads wait for GitHub storage to resume.
+Preview uses private R2 backup and release storage, with verified database
+backups still required before migrations.
 
 ## Run-volume envelope and enforcement
 
-For a planning example, 10 successful native runs/day at the full 1 MiB cap, one
-failed/cancelled run/day at 12 MiB, one 5 MiB backup/day and a daily 20 KiB
-release receipt retain about **200 MiB**, including seven days of 256 KiB native
-receipts and ZIP reserves. Real backup sizes and failure frequency vary; every
-upload records the observed retained/proposed bytes and chosen retention in its
-job summary. The 300 MiB guard stops increased volume rather than silently
-expanding storage. A sustained failure day of 10 failed runs/day would retain
-840 MiB of diagnostics alone over seven days and is deliberately unsupported.
-Additional workflows, caches, backup growth or higher run rates require a new
-aggregate budget with explicit headroom.
+For a planning example, 10 successful native runs/day at the full 1 MiB cap and
+one failed/cancelled run/day at 12 MiB retain about **120 MiB**, including seven
+days of 256 KiB receipts and ZIP reserves. Legacy backup/release artifacts still
+count until their normal expiry. Every GitHub upload records observed retained
+and proposed bytes. The 300 MiB guard stops increased volume rather than
+silently expanding storage. A sustained failure day of 10 failed runs/day would
+retain 840 MiB of diagnostics alone over seven days and is unsupported.
+Additional workflows, caches or run rates require a reviewed aggregate budget.
+
+## Preview backup storage outside GitHub
+
+Preview deployment uses a separate private R2 bucket with a **300 MiB** retained
+object admission budget, including all names and objects awaiting lifecycle
+expiry. Its whole backup/manifest ceiling remains 16 MiB with 14-day retention;
+release records remain capped at 256 KiB with 90-day retention. Matching bucket
+locks protect the retention window. The script refuses missing privacy or
+retention configuration and never truncates or deletes backups for admission.
+See [backup and recovery](../deployment/backup-and-recovery.md).
+
+A planning envelope of two deployments/day, each with a 5 MiB backup and a 20
+KiB release record, retains about 144 MiB, leaving more than 150 MiB within the
+destination budget for manifests, lifecycle lag and retries. The maximum payload
+on every attempt can exceed that envelope; admission then fails closed. This is
+a destination budget, not an account-wide storage reservation. Preserve existing
+account spending controls and include other R2 workloads before increasing the
+cap or adding writers. GitHub quota and spending settings are unchanged.
 
 `make ci-storage-test` exercises the real packager on success, failure,
 cancellation, partial output, repeat packaging, foreign files, links and 120

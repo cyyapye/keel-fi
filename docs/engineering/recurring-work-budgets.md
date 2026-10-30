@@ -43,6 +43,38 @@ those paths:
 Read the workload sections affected by the change; the measured envelopes below
 do not automatically apply to another producer or deployment.
 
+## Preview release storage
+
+The automatic main-push release and explicit manual dispatch share one
+serialized writer. They add zero idle-day requests and no background polling.
+Each backup or release-record phase reads four fixed R2 policy endpoints and at
+most five inventory pages. It verifies the active parent API token (at most two
+endpoints for user/account token types), then issues one 900-second temporary
+credential scoped to that phase's exact object keys. There is no credential
+cache or automatic request retry. Four object operations store/read the backup
+and manifest; two store/read the final release record. The complete new storage
+boundary has at most **30 provider requests per attempt**, independently of the
+number of retained objects within its 5,000-item envelope. Policy/authentication
+reads time out at 30 seconds; each PUT/read-back has a 120-second deadline. The
+existing 45-minute deployment job deadline remains unchanged.
+
+Backup/manifest bytes are bounded at 16 MiB combined and release bytes at 256
+KiB, so complete upload plus read-back traffic is at most 32.5 MiB per attempt.
+All retained objects count against 300 MiB; serialized admission refuses new
+publication before exceeding it. Failure never retries, deletes a recovery point
+or mutates D1. At the documented two-attempt/day planning envelope, maximum
+storage-boundary work is 60 requests/day, including an outage day; existing
+export, migration, build and smoke work is unchanged. More attempts consume
+retained headroom and fail closed when it is exhausted. These limits do not
+reserve account-wide Cloudflare capacity.
+
+Native regression coverage exercises 120 retained objects, empty inventory,
+cursor and keyset continuation, fixed page bounds, privacy/retention failures,
+credential scope/TTL and request signing, refused/ambiguous PUTs, corrupted or
+oversized read-back, and exact-attempt release evidence. A successful local
+check is not activation: deployment must retain and read back the actual
+encrypted export before its first migration.
+
 ## Holding detail interactions
 
 Holding valuation evidence loads once when its editor mounts. History loads one

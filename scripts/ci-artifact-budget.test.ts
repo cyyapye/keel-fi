@@ -52,8 +52,12 @@ describe("GitHub artifact storage budgets", () => {
         ".github/workflows/post-merge.yml",
         "utf8",
       );
+      expect(deployment).not.toContain("KEEL_PAUSE_ARTIFACT_UPLOADS");
       expect(deployment).toContain(
-        "github.ref == 'refs/heads/main' && vars.KEEL_PAUSE_ARTIFACT_UPLOADS !=",
+        "scripts/preview-deployment-storage.ts backup",
+      );
+      expect(deployment).toContain(
+        "scripts/preview-deployment-storage.ts release",
       );
       expect(action).toContain("inputs.paused == 'true'");
       // Repository variables are not available inside composite actions.
@@ -210,7 +214,6 @@ describe("GitHub artifact storage budgets", () => {
     }
     expect(uploaders.sort()).toEqual([
       "native-verification.yml",
-      "post-merge.yml",
       "tugling-pilot.yml",
     ]);
     const action = await readFile(

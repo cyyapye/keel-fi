@@ -33,21 +33,46 @@ const DeploymentEnvironmentSchema = z.object({
 
 const BackupEnvironmentSchema = z.object({
   GITHUB_SHA: GitShaSchema,
-  KEEL_PREVIEW_BACKUP_ARTIFACT_NAME: z.string().min(1).max(256),
+  GITHUB_RUN_ID: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+  GITHUB_RUN_ATTEMPT: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+  KEEL_PREVIEW_BACKUP_NAME: z.string().min(1).max(256),
   KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH: z.string().min(1),
   KEEL_PREVIEW_BACKUP_MANIFEST_PATH: z.string().min(1),
   KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH: z.string().min(1),
 });
 
-const BackupManifestSchema = z.object({
-  schemaVersion: z.literal(1),
+export const BackupManifestSchema = z.object({
+  schemaVersion: z.literal(2),
   environment: z.literal("preview"),
   gitSha: GitShaSchema,
   exportedAt: z.iso.datetime(),
-  artifactName: z.string().min(1).max(256),
+  runId: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+  runAttempt: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+  backupName: z.string().min(1).max(256),
   plaintextSha256: Sha256Schema,
   encryptedSha256: Sha256Schema,
 });
+
+export const StorageReceiptSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    provider: z.literal("r2"),
+    bucket: z.string().regex(/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/u),
+    gitSha: GitShaSchema,
+    runId: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+    runAttempt: z.string().regex(/^[1-9][0-9]{0,19}$/u),
+    backupKey: z.string().min(1).max(1024),
+    manifestKey: z.string().min(1).max(1024),
+    encryptedSha256: Sha256Schema,
+    verifiedAt: z.iso.datetime(),
+  })
+  .refine((value) => {
+    const prefix = `backups/${value.gitSha}/${value.runId}-${value.runAttempt}`;
+    return (
+      value.backupKey === `${prefix}/state.sql.gpg` &&
+      value.manifestKey === `${prefix}/manifest.json`
+    );
+  }, "Backup object keys do not match the deployment attempt");
 
 const ReleaseEnvironmentSchema = DeploymentEnvironmentSchema.extend({
   GITHUB_REPOSITORY: z.string().min(3),
@@ -56,6 +81,8 @@ const ReleaseEnvironmentSchema = DeploymentEnvironmentSchema.extend({
   GITHUB_SERVER_URL: z.string().url(),
   GITHUB_STEP_SUMMARY: z.string().min(1),
   KEEL_PREVIEW_BACKUP_MANIFEST_PATH: z.string().min(1),
+  KEEL_PREVIEW_BACKUP_STORAGE_RECEIPT_PATH: z.string().min(1),
+  KEEL_PREVIEW_BACKUP_BUCKET: z.string().min(1),
   KEEL_PREVIEW_RELEASE_EVIDENCE_PATH: z.string().min(1),
 });
 
@@ -131,11 +158,13 @@ export async function writeBackupManifest(
   }
 
   const manifest = BackupManifestSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     environment: "preview",
     gitSha: configuration.GITHUB_SHA,
     exportedAt: new Date().toISOString(),
-    artifactName: configuration.KEEL_PREVIEW_BACKUP_ARTIFACT_NAME,
+    runId: configuration.GITHUB_RUN_ID,
+    runAttempt: configuration.GITHUB_RUN_ATTEMPT,
+    backupName: configuration.KEEL_PREVIEW_BACKUP_NAME,
     plaintextSha256,
     encryptedSha256,
   });
@@ -151,16 +180,32 @@ export async function writeReleaseEvidence(
   repositoryRoot = process.cwd(),
 ): Promise<void> {
   const configuration = ReleaseEnvironmentSchema.parse(rawEnvironment);
-  const [versions, backupContents, migrationEntries] = await Promise.all([
-    readDeploymentVersions(rawEnvironment),
-    readFile(configuration.KEEL_PREVIEW_BACKUP_MANIFEST_PATH, "utf8"),
-    readdir(resolve(repositoryRoot, "packages/database/migrations")),
-  ]);
+  const [versions, backupContents, storageContents, migrationEntries] =
+    await Promise.all([
+      readDeploymentVersions(rawEnvironment),
+      readFile(configuration.KEEL_PREVIEW_BACKUP_MANIFEST_PATH, "utf8"),
+      readFile(configuration.KEEL_PREVIEW_BACKUP_STORAGE_RECEIPT_PATH, "utf8"),
+      readdir(resolve(repositoryRoot, "packages/database/migrations")),
+    ]);
   const backup = BackupManifestSchema.parse(
     JSON.parse(backupContents) as unknown,
   );
-  if (backup.gitSha !== configuration.GITHUB_SHA) {
-    throw new Error("Backup manifest belongs to a different Git SHA.");
+  const storage = StorageReceiptSchema.parse(
+    JSON.parse(storageContents) as unknown,
+  );
+  if (
+    backup.gitSha !== configuration.GITHUB_SHA ||
+    storage.gitSha !== configuration.GITHUB_SHA ||
+    storage.runId !== configuration.GITHUB_RUN_ID ||
+    storage.runAttempt !== configuration.GITHUB_RUN_ATTEMPT ||
+    backup.runId !== storage.runId ||
+    backup.runAttempt !== storage.runAttempt ||
+    storage.bucket !== configuration.KEEL_PREVIEW_BACKUP_BUCKET ||
+    storage.encryptedSha256 !== backup.encryptedSha256
+  ) {
+    throw new Error(
+      "Backup evidence belongs to a different deployment attempt.",
+    );
   }
   const migrationNames = migrationEntries
     .filter((name) => name.endsWith(".sql"))
@@ -171,7 +216,7 @@ export async function writeReleaseEvidence(
 
   const runUrl = `${configuration.GITHUB_SERVER_URL}/${configuration.GITHUB_REPOSITORY}/actions/runs/${configuration.GITHUB_RUN_ID}/attempts/${configuration.GITHUB_RUN_ATTEMPT}`;
   const evidence = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     environment: "preview",
     gitSha: configuration.GITHUB_SHA,
     deployedAt: new Date().toISOString(),
@@ -181,7 +226,7 @@ export async function writeReleaseEvidence(
       webVersionId: versions.webVersionId,
     },
     d1: {
-      backupArtifact: backup.artifactName,
+      backupStorage: storage,
       backupEncryptedSha256: backup.encryptedSha256,
       migrations: migrationNames,
     },
@@ -211,7 +256,7 @@ export async function writeReleaseEvidence(
       `- Git SHA: \`${configuration.GITHUB_SHA}\``,
       `- API Worker version: \`${versions.apiVersionId}\``,
       `- Web Worker version: \`${versions.webVersionId}\``,
-      `- Encrypted D1 backup: \`${backup.artifactName}\``,
+      `- Encrypted D1 backup: private R2 \`${storage.backupKey}\` (read-back verified)`,
       `- Migrations represented: ${migrationNames.length}`,
       "- Access, dashboard, D1, R2, Queue, and exact-version smokes: passed",
       "",
