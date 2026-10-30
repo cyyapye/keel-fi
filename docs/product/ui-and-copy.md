@@ -341,6 +341,15 @@ choices require review. Explain the boundary for the current action; “Review
 needed” is appropriate for an exception. Do not imply that every routine update
 requires a human click or that a source default is an accepted decision.
 
+## Portfolio summary
+
+Lead the Overview portfolio snapshot with value and supported performance. Keep
+mapping coverage and concentration beside the holdings chart. Follow the
+[portfolio performance definitions](portfolio-performance.md) for
+current-holding scope, eligible coverage, paid-in versus net-capital bases, and
+refund/carry treatment. Do not imply a complete lifetime portfolio return from
+current positions. Unknown inputs produce unavailable metrics, not zero returns.
+
 ## Definition of done
 
 A change is material when it affects hierarchy, layout, spacing, typography,

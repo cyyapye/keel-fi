@@ -14,6 +14,8 @@ import type {
   InvestmentPositionView,
 } from "./position-read-model";
 import type { CanonicalExposure, PositionExposureMapping } from "./index";
+import { calculatePortfolioPerformance } from "./portfolio-performance";
+import { unknownInvestmentTerms } from "./investment-details";
 
 const asOf = "2026-08-23T12:00:00.000Z";
 
@@ -344,5 +346,245 @@ describe("createPortfolioDashboardSnapshot", () => {
         changePpm: -142_857,
       }),
     ]);
+  });
+});
+
+function performanceFixture() {
+  const view = holdingsFixture();
+  const publicPosition = view.exposureView.positions.find(
+    (p) => p.id === "alpha",
+  )!;
+  Object.assign(publicPosition, {
+    valueMinor: 20_000,
+    allocatedValueMinor: 20_000,
+    unallocatedValueMinor: 0,
+    providerCostBasisMinor: 10_000,
+    realizedValueMinor: 1_000,
+  });
+  const privatePosition = view.exposureView.positions.find(
+    (p) => p.id === "beta",
+  )!;
+  Object.assign(privatePosition, {
+    positionKind: "spv_interest",
+    isPrivateCompanyPosition: true,
+    valueMinor: 18_000,
+    allocatedValueMinor: 18_000,
+    unallocatedValueMinor: 0,
+    realizedValueMinor: 3_000,
+    reviewedInvestment: {
+      snapshotId: privatePosition.snapshotId,
+      receiptId: "reviewed_synthetic",
+      cashPaidMinor: 12_000,
+      additionalPaidFeesMinor: 0,
+      upfrontDeductionsMinor: 2_000,
+      returnedCapitalMinor: 1_000,
+      includedReturnedCapitalMinor: 1_000,
+      additionalReturnedCapitalMinor: 0,
+      netCapitalMinor: 9_000,
+      terms: {
+        ...unknownInvestmentTerms(),
+        carryPpm: 200_000,
+        carryBasis: "net_capital",
+        reportedValueReview: {
+          sourceSnapshotId: privatePosition.snapshotId,
+          valueMinor: 18_000,
+          sourceLabel: "Synthetic after-carry report",
+          effectiveDate: "2026-08-23",
+          carryStatus: "after_carry",
+        },
+      },
+    },
+  });
+  return {
+    view: InvestmentHoldingsViewSchema.parse(view),
+    publicPosition,
+    privatePosition,
+  };
+}
+
+describe("current-holdings portfolio performance", () => {
+  it("weights summed capital and keeps paid-in multiples separate from net-capital return", () => {
+    const { view } = performanceFixture();
+    const result = calculatePortfolioPerformance(view, "USD");
+    expect(result.holdingReturn).toMatchObject({
+      totalCount: 3,
+      eligibleCount: 2,
+      estimatedCount: 0,
+      valueMinor: 38_000,
+      distributionsMinor: 3_000,
+      basisMinor: 19_000,
+      gainMinor: 22_000,
+      returnPpm: 1_157_894,
+    });
+    expect(result.privateTvpi).toMatchObject({
+      totalCount: 2,
+      eligibleCount: 1,
+      paidInMinor: 12_000,
+      valueMinor: 18_000,
+      distributionsMinor: 3_000,
+      multiplePpm: 1_750_000,
+    });
+    expect(result.privateDpi).toMatchObject({
+      totalCount: 2,
+      eligibleCount: 1,
+      paidInMinor: 12_000,
+      distributionsMinor: 3_000,
+      multiplePpm: 250_000,
+    });
+  });
+
+  it("counts a refund once whether included or excluded by the distribution source", () => {
+    const { view } = performanceFixture();
+    const expected = calculatePortfolioPerformance(view, "USD");
+    const position = view.exposureView.positions.find((p) => p.id === "beta")!;
+    position.realizedValueMinor = 2_000;
+    position.reviewedInvestment!.includedReturnedCapitalMinor = 0;
+    position.reviewedInvestment!.additionalReturnedCapitalMinor = 1_000;
+    expect(calculatePortfolioPerformance(view, "USD")).toEqual(expected);
+  });
+
+  it("estimates after-carry value from a reviewed before-carry mark without deducting upfront fees again", () => {
+    const { view } = performanceFixture();
+    const position = view.exposureView.positions.find((p) => p.id === "beta")!;
+    position.valueMinor = 20_000;
+    position.reviewedInvestment!.terms.reportedValueReview!.valueMinor = 20_000;
+    position.reviewedInvestment!.terms.reportedValueReview!.carryStatus =
+      "before_carry";
+    const result = calculatePortfolioPerformance(view, "USD");
+    expect(result.privateTvpi).toMatchObject({
+      valueMinor: 17_800,
+      multiplePpm: 1_733_333,
+      estimatedCount: 1,
+    });
+    expect(result.holdingReturn).toMatchObject({
+      gainMinor: 21_800,
+      returnPpm: 1_147_368,
+      estimatedCount: 1,
+    });
+  });
+
+  it.each(["value", "carry", "stale"])(
+    "withholds TVPI for missing %s evidence while preserving supported DPI",
+    (missing) => {
+      const { view } = performanceFixture();
+      const position = view.exposureView.positions.find(
+        (p) => p.id === "beta",
+      )!;
+      if (missing === "value") {
+        position.valueMinor = null;
+        position.valueState = "not_reported";
+      } else if (missing === "carry") {
+        position.reviewedInvestment!.terms.reportedValueReview!.carryStatus =
+          "unknown";
+      } else {
+        position.reviewedInvestment!.terms.reportedValueReview!.sourceSnapshotId =
+          "stale_snapshot";
+      }
+      const result = calculatePortfolioPerformance(view, "USD");
+      expect(result.privateTvpi.multiplePpm).toBeNull();
+      expect(result.privateDpi.multiplePpm).toBe(250_000);
+      expect(result.holdingReturn.eligibleCount).toBe(1);
+    },
+  );
+
+  it.each(["stale", "refund", "paid-in"])(
+    "does not invent private performance when %s inputs are unsupported",
+    (missing) => {
+      const { view } = performanceFixture();
+      const position = view.exposureView.positions.find(
+        (p) => p.id === "beta",
+      )!;
+      if (missing === "stale")
+        position.reviewedInvestment!.snapshotId = "older_snapshot";
+      if (missing === "refund")
+        position.reviewedInvestment!.returnedCapitalReconciliationPending = true;
+      if (missing === "paid-in")
+        position.reviewedInvestment!.cashPaidMinor = null;
+      const result = calculatePortfolioPerformance(view, "USD");
+      expect(result.privateDpi.multiplePpm).toBeNull();
+      expect(result.privateTvpi.multiplePpm).toBeNull();
+    },
+  );
+
+  it("shows supported zero distributions and losses, but never replaces missing basis with zero", () => {
+    const { view } = performanceFixture();
+    const position = view.exposureView.positions.find((p) => p.id === "alpha")!;
+    view.exposureView.positions = [position];
+    position.valueMinor = 5_000;
+    position.realizedValueMinor = 0;
+    expect(
+      calculatePortfolioPerformance(view, "USD").holdingReturn,
+    ).toMatchObject({
+      gainMinor: -5_000,
+      returnPpm: -500_000,
+    });
+    position.providerCostBasisMinor = null;
+    expect(
+      calculatePortfolioPerformance(view, "USD").holdingReturn.returnPpm,
+    ).toBeNull();
+    const empty = calculatePortfolioPerformance(view, "EUR");
+    expect(empty.holdingReturn.totalCount).toBe(0);
+    expect(empty.privateDpi.multiplePpm).toBeNull();
+  });
+
+  it("does not turn invested-amount fallback into a supported zero return", () => {
+    const { view } = performanceFixture();
+    view.exposureView.positions.forEach((p) => {
+      p.valueSource = "invested_amount";
+    });
+    expect(
+      calculatePortfolioPerformance(view, "USD").holdingReturn.eligibleCount,
+    ).toBe(0);
+  });
+
+  it("distinguishes known zero cash returned from unavailable paid-in capital", () => {
+    const { view } = performanceFixture();
+    const position = view.exposureView.positions.find((p) => p.id === "beta")!;
+    position.realizedValueMinor = 0;
+    position.reviewedInvestment!.includedReturnedCapitalMinor = 0;
+    position.reviewedInvestment!.returnedCapitalMinor = 0;
+    const result = calculatePortfolioPerformance(view, "USD");
+    expect(result.privateDpi.multiplePpm).toBe(0);
+    expect(result.privateDpi.eligibleCount).toBe(1);
+    position.reviewedInvestment!.cashPaidMinor = 0;
+    expect(
+      calculatePortfolioPerformance(view, "USD").privateDpi.multiplePpm,
+    ).toBeNull();
+  });
+
+  it("scales across 120 legal holdings without multiplying amounts by exposure mappings or historical records", () => {
+    const { view } = performanceFixture();
+    const original = view.exposureView.positions.find((p) => p.id === "alpha")!;
+    view.exposureView.positions = Array.from({ length: 120 }, (_, i) => ({
+      ...original,
+      id: `scale_${i}`,
+      mappedExposureIds: ["a", "b", "c"],
+    }));
+    const container = view.positionView.connections[0]!.containers[0]!;
+    const historical = structuredClone(container.positions[0]!);
+    historical.id = "closed_synthetic";
+    historical.snapshot.providerStatus = "realized";
+    historical.snapshot.realizedValueMinor = 900_000_000;
+    container.positions.push(historical);
+    const result = calculatePortfolioPerformance(view, "USD");
+    expect(result.holdingReturn).toMatchObject({
+      totalCount: 120,
+      eligibleCount: 120,
+      basisMinor: 1_200_000,
+      gainMinor: 1_320_000,
+      returnPpm: 1_100_000,
+    });
+  });
+
+  it("rejects totals beyond safe integer money rather than rounding them", () => {
+    const { view } = performanceFixture();
+    const position = view.exposureView.positions.find((p) => p.id === "alpha")!;
+    position.valueMinor = Number.MAX_SAFE_INTEGER;
+    position.providerCostBasisMinor = Number.MAX_SAFE_INTEGER;
+    position.realizedValueMinor = 0;
+    view.exposureView.positions = [position, { ...position, id: "second" }];
+    expect(() => calculatePortfolioPerformance(view, "USD")).toThrow(
+      /safe integer/,
+    );
   });
 });

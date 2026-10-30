@@ -6,6 +6,8 @@ import type {
 
 import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
+import { InvestmentHoldingsViewSchema } from "../packages/domain/src/investment-holdings-view";
+import { unknownInvestmentTerms } from "../packages/domain/src/investment-details";
 
 const asOf = "2026-08-16T12:00:00.000Z";
 
@@ -126,6 +128,37 @@ const priorValuesByPosition = {
 
 const holdingsView = investmentHoldingsViewFor(holdings, priorValuesByPosition);
 const unchangedHoldingsView = investmentHoldingsViewFor(holdings);
+
+function performanceHoldingsView() {
+  const view = structuredClone(holdingsView);
+  for (const position of view.exposureView.positions) {
+    if (position.valueMinor === null) continue;
+    const value = BigInt(position.valueMinor);
+    if (position.positionKind === "direct") {
+      position.providerCostBasisMinor = Number((value * 4n) / 5n);
+      continue;
+    }
+    position.realizedValueMinor = Number(value / 10n);
+    position.reviewedInvestment = {
+      snapshotId: position.snapshotId,
+      receiptId: `receipt_${position.id}`,
+      cashPaidMinor: Number(value / 2n),
+      upfrontDeductionsMinor: Number(value / 10n),
+      netCapitalMinor: Number((value * 4n) / 10n),
+      terms: {
+        ...unknownInvestmentTerms(),
+        reportedValueReview: {
+          sourceSnapshotId: position.snapshotId,
+          valueMinor: position.valueMinor,
+          sourceLabel: "Synthetic after-carry value",
+          effectiveDate: "2026-08-16",
+          carryStatus: "after_carry",
+        },
+      },
+    };
+  }
+  return InvestmentHoldingsViewSchema.parse(view);
+}
 
 let holdingsRequestCount = 0;
 let baselineRequestCount = 0;
@@ -260,14 +293,27 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
+  await page.route("**/api/investment-holdings", async (route) => {
+    holdingsRequestCount += 1;
+    await route.fulfill({ json: performanceHoldingsView() });
+  });
   await page.goto("/");
 
   const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
   await expect(
     snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
   ).toBeVisible();
-  await expect(snapshot).toContainText("Reviewed total");
+  await expect(snapshot).toContainText("Portfolio value");
+  await expect(snapshot).not.toContainText("Reviewed total");
   await expect(snapshot).not.toContainText("Known portfolio");
+  const headline = snapshot.locator(".portfolio-snapshot__metrics");
+  await expect(headline).not.toContainText("Mapped");
+  await expect(headline).not.toContainText("concentration");
+  await expect(headline).toContainText("+76.8%");
+  await expect(headline).toContainText("11 of 12 holdings");
+  await expect(headline).toContainText("2.20×");
+  await expect(headline).toContainText("0.20×");
+  await expect(snapshot).toContainText("Excludes closed positions and cash");
   await expect(snapshot).toContainText("$3.6M");
   await expect(snapshot).toContainText("$3.0M");
   await expect(snapshot).toContainText("61.8%");
@@ -320,6 +366,124 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
       ".topbar { position: absolute !important; visibility: hidden !important; }",
   });
   await expect(snapshot).toHaveScreenshot("portfolio-snapshot.png", {
+    animations: "disabled",
+  });
+  const basis = snapshot.getByRole("button", { name: "Performance basis" });
+  await basis.press("Enter");
+  await expect(basis).toHaveAttribute("aria-expanded", "true");
+  await expect(snapshot).toContainText("$780k paid in");
+  const calculationDetail = snapshot.locator(
+    ".portfolio-snapshot__basis-content",
+  );
+  // The calculation detail should be scannable, not the former prose manual.
+  expect(
+    (await calculationDetail.innerText()).trim().split(/\s+/).length,
+  ).toBeLessThan(110);
+  await expectNoHorizontalOverflow(page);
+  await expect(snapshot.locator(".portfolio-snapshot__basis")).toHaveScreenshot(
+    "portfolio-performance-basis.png",
+    { animations: "disabled" },
+  );
+});
+
+test("preserves supported DPI when current private values cannot support TVPI", async ({
+  page,
+}) => {
+  const view = performanceHoldingsView();
+  for (const position of view.exposureView.positions) {
+    if (position.reviewedInvestment?.terms.reportedValueReview) {
+      position.reviewedInvestment.terms.reportedValueReview.carryStatus =
+        "unknown";
+    }
+  }
+  await page.route("**/api/investment-holdings", (route) =>
+    route.fulfill({ json: view }),
+  );
+  await page.goto("/");
+  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+  const metrics = snapshot.locator(".portfolio-snapshot__metrics");
+  await expect(metrics).toContainText("+25.0%");
+  await expect(metrics).toContainText("5 of 12 holdings");
+  await expect(
+    metrics
+      .locator("[data-slot='data-item']")
+      .filter({ hasText: "Private TVPI" }),
+  ).toContainText("—");
+  await expect(metrics).toContainText("0.20×");
+  await expect(metrics).not.toContainText("0.00×");
+  await expectNoHorizontalOverflow(page);
+  await page.addStyleTag({
+    content: ".topbar { visibility: hidden !important; }",
+  });
+  await expect(snapshot).toHaveScreenshot(
+    "portfolio-performance-incomplete.png",
+    { animations: "disabled" },
+  );
+  await snapshot.getByRole("button", { name: "Performance basis" }).click();
+  await expect(snapshot).toContainText("TVPI and DPI cover different holdings");
+  await expectNoHorizontalOverflow(page);
+  await expect(snapshot.locator(".portfolio-snapshot__basis")).toHaveScreenshot(
+    "portfolio-performance-basis-incomplete.png",
+    { animations: "disabled" },
+  );
+});
+
+test("keeps empty performance unavailable and recovers from a snapshot failure", async ({
+  page,
+}) => {
+  let fail = true;
+  await page.route("**/api/investment-holdings", async (route) => {
+    holdingsRequestCount += 1;
+    await route.fulfill(
+      fail
+        ? { status: 503, json: { error: "unavailable" } }
+        : { json: performanceHoldingsView() },
+    );
+  });
+  await page.goto("/");
+  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+  await expect(snapshot).toContainText("Portfolio snapshot unavailable.");
+  await expect(snapshot.locator(".portfolio-snapshot__metrics")).toHaveCount(0);
+  await expect(snapshot).toHaveScreenshot("portfolio-performance-failed.png", {
+    animations: "disabled",
+  });
+  fail = false;
+  await snapshot.getByRole("button", { name: "Try again" }).click();
+  await expect(snapshot).toContainText("+76.8%");
+  expect(holdingsRequestCount).toBe(2);
+  expect(baselineRequestCount).toBe(2);
+  const empty = InvestmentHoldingsViewSchema.parse({
+    version: 1,
+    authorizationStatus: "available",
+    positionView: { asOf, connections: [] },
+    exposureView: { asOf, positions: [], exposures: [] },
+  });
+  await page.route("**/api/investment-holdings", (route) =>
+    route.fulfill({ json: empty }),
+  );
+  await page.route("**/api/portfolio-baseline", (route) =>
+    route.fulfill({
+      json: {
+        ...baseline,
+        positions: [],
+        cashAccounts: [],
+        suggestedOtherFiEligibleLiquidMinor: 0,
+      },
+    }),
+  );
+  await page.reload();
+  const metrics = snapshot.locator(".portfolio-snapshot__metrics");
+  await expect(metrics).toContainText("No investment holdings");
+  await expect(
+    metrics.getByText("No private holdings", { exact: true }),
+  ).toHaveCount(2);
+  await expect(metrics).not.toContainText("0.0%");
+  await expect(metrics).not.toContainText("0.00×");
+  await expectNoHorizontalOverflow(page);
+  await page.addStyleTag({
+    content: ".topbar { visibility: hidden !important; }",
+  });
+  await expect(snapshot).toHaveScreenshot("portfolio-performance-empty.png", {
     animations: "disabled",
   });
 });

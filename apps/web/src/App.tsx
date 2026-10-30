@@ -1039,7 +1039,19 @@ function GoalHeroContent({
       <div className="hero__runway">
         <span>Current measure</span>
         <strong>
-          {formatGoalValue(version.currentValueInteger, version.targetUnit)}
+          {version.targetUnit === "months" ? (
+            <>
+              {new Intl.NumberFormat("en-US").format(
+                version.currentValueInteger,
+              )}{" "}
+              <span aria-hidden="true" className="hero__measure-unit">
+                mo
+              </span>
+              <span className="visually-hidden">months</span>
+            </>
+          ) : (
+            formatGoalValue(version.currentValueInteger, version.targetUnit)
+          )}
         </strong>
         <small>
           {target === null
