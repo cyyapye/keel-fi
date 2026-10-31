@@ -733,7 +733,11 @@ async function stageProviderTemplateUpload(
   provider: ProviderHoldingsTemplateProvider,
   upload: Awaited<ReturnType<typeof readProviderTemplateCsvUpload>>,
 ) {
-  const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+  const label = {
+    tokenfolio: "Tokenfolio",
+    sydecar: "Sydecar",
+    wefunder: "Wefunder",
+  }[provider];
   let parsed: Awaited<ReturnType<typeof parseProviderHoldingsTemplateCsv>>;
   try {
     parsed = await parseProviderHoldingsTemplateCsv(provider, upload.bytes);
@@ -819,7 +823,9 @@ function providerPortfolioAgentProvider(
 }
 
 function providerPortfolioLabel(provider: ProviderPortfolioAgentProvider) {
-  return provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+  return { tokenfolio: "Tokenfolio", sydecar: "Sydecar", wefunder: "Wefunder" }[
+    provider
+  ];
 }
 
 function providerBrowserTarget(rawProvider: string): MacAgentTarget | null {
@@ -5002,6 +5008,10 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
     reviewProviderTemplateUpload(context, "tokenfolio"),
   );
 
+  app.post("/api/holding-imports/wefunder", (context) =>
+    reviewProviderTemplateUpload(context, "wefunder"),
+  );
+
   app.post("/api/holding-imports/sydecar", (context) =>
     reviewProviderTemplateUpload(context, "sydecar"),
   );
@@ -5018,6 +5028,10 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
 
   app.get("/api/holding-import-templates/tokenfolio", (context) =>
     downloadProviderTemplate(context, "tokenfolio"),
+  );
+
+  app.get("/api/holding-import-templates/wefunder", (context) =>
+    downloadProviderTemplate(context, "wefunder"),
   );
 
   app.get("/api/holding-import-templates/sydecar", (context) =>

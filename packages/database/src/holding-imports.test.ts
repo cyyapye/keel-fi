@@ -85,6 +85,7 @@ const migrationFiles = [
   "packages/database/migrations/0076_proxy_share_estimates.sql",
   "packages/database/migrations/0083_selected_position_valuations.sql",
   "packages/database/migrations/0086_live_price_proxies.sql",
+  "packages/database/migrations/0087_wefunder_holdings.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -105,6 +106,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0083_selected_position_valuations.sql",
               "packages/database/migrations/0086_live_price_proxies.sql",
               "packages/database/migrations/0078_reviewed_position_links.sql",
+              "packages/database/migrations/0087_wefunder_holdings.sql",
               "packages/database/migrations/0079_unified_investment_details.sql",
               "packages/database/migrations/0080_renamed_investment_links.sql",
               "packages/database/migrations/0068_exception_baseline_empty.sql",
@@ -484,7 +486,7 @@ function robinhoodStageInput(
 }
 
 function providerTemplateStageInput(
-  provider: "tokenfolio" | "sydecar",
+  provider: "tokenfolio" | "sydecar" | "wefunder",
 ): HoldingImportStageInput {
   const source = stageInput(
     provider === "tokenfolio" ? "4".repeat(64) : "5".repeat(64),
@@ -493,7 +495,7 @@ function providerTemplateStageInput(
   if (sourceRow === undefined) {
     throw new Error("Synthetic template fixture is missing its row.");
   }
-  const tokenfolio = provider === "tokenfolio";
+  const tokenfolio = provider !== "sydecar";
   return {
     ...source,
     provider,
@@ -538,7 +540,11 @@ function providerTemplateStageInput(
         adapterType: "manual",
         protectedSourceKey: tokenfolio ? "8".repeat(64) : "9".repeat(64),
         institutionKey: provider,
-        institutionLabel: tokenfolio ? "Tokenfolio" : "Sydecar",
+        institutionLabel: {
+          tokenfolio: "Tokenfolio",
+          sydecar: "Sydecar",
+          wefunder: "Wefunder",
+        }[provider],
         lifecycleState: "pending",
         credentialReference: null,
       },
@@ -981,7 +987,7 @@ describe("AngelList holding import persistence", () => {
     );
   });
 
-  it.each(["tokenfolio", "sydecar"] as const)(
+  it.each(["tokenfolio", "sydecar", "wefunder"] as const)(
     "stages %s template evidence for review before accepting a provider-scoped position",
     async (provider) => {
       const staged = await repository.stageHoldingImport(
@@ -994,11 +1000,11 @@ describe("AngelList holding import persistence", () => {
         summary: { createCount: 1, rowCount: 1 },
         rows: [
           {
-            investedOn: provider === "tokenfolio" ? "2025-02-01" : null,
+            investedOn: provider !== "sydecar" ? "2025-02-01" : null,
             investedOnState:
-              provider === "tokenfolio" ? "reported" : "not_reported",
-            reportedManagementFeePpm: provider === "tokenfolio" ? null : 20_000,
-            reportedCarryPpm: provider === "tokenfolio" ? null : 200_000,
+              provider !== "sydecar" ? "reported" : "not_reported",
+            reportedManagementFeePpm: provider !== "sydecar" ? null : 20_000,
+            reportedCarryPpm: provider !== "sydecar" ? null : 200_000,
           },
         ],
       });
@@ -1026,15 +1032,18 @@ describe("AngelList holding import persistence", () => {
       );
 
       const expected =
-        provider === "tokenfolio"
+        provider !== "sydecar"
           ? {
               adapter_type: "manual",
-              file_name: "tokenfolio-holdings.csv",
-              institution_key: "tokenfolio",
+              file_name: `${provider}-holdings.csv`,
+              institution_key: provider,
               opened_on: "2025-02-01",
               position_kind: "direct",
-              source_label: "Tokenfolio template",
-              parser_schema: "tokenfolio_keel_template_v1",
+              source_label:
+                provider === "wefunder"
+                  ? "Wefunder template"
+                  : "Tokenfolio template",
+              parser_schema: `${provider}_keel_template_v1`,
               management_fee_ppm: null,
               carry_ppm: null,
             }
@@ -1087,9 +1096,73 @@ describe("AngelList holding import persistence", () => {
         expect.objectContaining({
           provider,
           classification: "private_paper",
-          sourceLabel: provider === "tokenfolio" ? "Tokenfolio" : "Sydecar",
+          sourceLabel: {
+            tokenfolio: "Tokenfolio",
+            sydecar: "Sydecar",
+            wefunder: "Wefunder",
+          }[provider],
         }),
       );
+
+      if (provider === "wefunder") {
+        const baseline = await new D1PortfolioBaselineRepository(
+          new TestD1Database(sqlite) as unknown as D1Database,
+        ).confirm("synthetic-access-subject", {
+          sourceRevision: baselineState.sourceRevision!,
+          baseForecastSnapshotId: baselineState.baseForecastSnapshotId!,
+          baseForecastSnapshotVersion:
+            baselineState.baseForecastSnapshotVersion!,
+          otherFiEligibleLiquidMinor: 0,
+          duplicateReviewConfirmed: true,
+          cashOverlapReviewConfirmed: true,
+          changeNote: "Reviewed synthetic Wefunder baseline.",
+        });
+        expect(
+          sqlite
+            .prepare(
+              "SELECT provider FROM portfolio_baseline_items WHERE baseline_id = ? AND provider = 'wefunder'",
+            )
+            .all(baseline.baseline.id),
+        ).toHaveLength(1);
+        const beforeMigration = sqlite
+          .prepare("SELECT * FROM portfolio_baseline_items ORDER BY id")
+          .all();
+        sqlite.exec(
+          readFileSync(
+            resolve(
+              process.cwd(),
+              "packages/database/migrations/0087_wefunder_holdings.sql",
+            ),
+            "utf8",
+          ),
+        );
+        expect(
+          sqlite
+            .prepare("SELECT * FROM portfolio_baseline_items ORDER BY id")
+            .all(),
+        ).toEqual(beforeMigration);
+        expect(() =>
+          sqlite.exec("UPDATE portfolio_baseline_items SET value_minor = 0"),
+        ).toThrow("immutable");
+        expect(() =>
+          sqlite.exec("DELETE FROM portfolio_baseline_items"),
+        ).toThrow("immutable");
+        expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+        // Re-uploading the same evidence retains its original import and position.
+        const repeated = await repository.stageHoldingImport(
+          "synthetic-access-subject",
+          providerTemplateStageInput(provider),
+        );
+        expect(repeated.created).toBe(false);
+        expect(repeated.preview.id).toBe(staged.preview.id);
+        expect(
+          sqlite
+            .prepare(
+              "SELECT COUNT(*) count FROM holding_positions WHERE provider='wefunder'",
+            )
+            .get(),
+        ).toEqual({ count: 1 });
+      }
 
       const exposureReview = await new D1ExposureRepository(
         new TestD1Database(sqlite) as unknown as D1Database,
@@ -1097,7 +1170,7 @@ describe("AngelList holding import persistence", () => {
       expect(exposureReview.positions).toContainEqual(
         expect.objectContaining({
           reportedExposureName:
-            provider === "tokenfolio"
+            provider !== "sydecar"
               ? "Synthetic Robotics"
               : "Example Climate Fund",
         }),
@@ -1112,7 +1185,7 @@ describe("AngelList holding import persistence", () => {
         .find(
           (position) =>
             position.legalVehicleName ===
-            (provider === "tokenfolio"
+            (provider !== "sydecar"
               ? "Synthetic Robotics direct shares"
               : "Example Climate Fund SPV I"),
         );
@@ -1219,70 +1292,73 @@ describe("AngelList holding import persistence", () => {
     ).resolves.toMatchObject({ positions: [] });
   });
 
-  it("previews 120 imported positions within a fixed D1 read budget", async () => {
-    const base = providerTemplateStageInput("sydecar");
-    const baseRow = base.rows[0];
-    const baseScopeRow = base.canonicalScope.rows[0];
-    if (baseRow === undefined || baseScopeRow === undefined) {
-      throw new Error("Synthetic Sydecar scale fixture is incomplete.");
-    }
-    const rows = Array.from({ length: 120 }, (_, index) => {
-      const suffix = index.toString().padStart(3, "0");
-      return {
-        ...baseRow,
-        rowNumber: index + 3,
-        naturalKeySha256: (index + 1).toString(16).padStart(64, "0"),
-        companyOrFund: `Synthetic Scale Company ${suffix}`,
-        fundName: `Synthetic Scale SPV ${suffix}`,
-      };
-    });
-    const staged = await repository.stageHoldingImport(
-      "synthetic-access-subject",
-      {
-        ...base,
-        objectKey: "holding-imports/sydecar/synthetic-scale.csv",
-        sha256: "a1".repeat(32),
-        byteSize: 120_000,
-        rows,
-        canonicalScope: {
-          ...base.canonicalScope,
-          rows: rows.map((row) => ({
-            sourceRowNumber: row.rowNumber,
-            protectedAccountKey: baseScopeRow.protectedAccountKey,
-            protectedPositionKey: row.naturalKeySha256,
-          })),
+  it.each(["sydecar", "wefunder"] as const)(
+    "previews 120 %s positions within a fixed D1 read budget",
+    async (provider) => {
+      const base = providerTemplateStageInput(provider);
+      const baseRow = base.rows[0];
+      const baseScopeRow = base.canonicalScope.rows[0];
+      if (baseRow === undefined || baseScopeRow === undefined) {
+        throw new Error("Synthetic Sydecar scale fixture is incomplete.");
+      }
+      const rows = Array.from({ length: 120 }, (_, index) => {
+        const suffix = index.toString().padStart(3, "0");
+        return {
+          ...baseRow,
+          rowNumber: index + 3,
+          naturalKeySha256: (index + 1).toString(16).padStart(64, "0"),
+          companyOrFund: `Synthetic Scale Company ${suffix}`,
+          fundName: `Synthetic Scale SPV ${suffix}`,
+        };
+      });
+      const staged = await repository.stageHoldingImport(
+        "synthetic-access-subject",
+        {
+          ...base,
+          objectKey: `holding-imports/${provider}/synthetic-scale.csv`,
+          sha256: "a1".repeat(32),
+          byteSize: 120_000,
+          rows,
+          canonicalScope: {
+            ...base.canonicalScope,
+            rows: rows.map((row) => ({
+              sourceRowNumber: row.rowNumber,
+              protectedAccountKey: baseScopeRow.protectedAccountKey,
+              protectedPositionKey: row.naturalKeySha256,
+            })),
+          },
         },
-      },
-    );
+      );
 
-    database.resetRoundTripCount();
-    const preview = await repository.getHoldingImport(
-      "synthetic-access-subject",
-      staged.preview.id,
-    );
-    expect(preview.rows).toHaveLength(120);
-    expect(
-      preview.rows.every((row) => row.currentExposureNames.length === 0),
-    ).toBe(true);
-    expect(database.roundTripCount).toBeLessThanOrEqual(5);
+      database.resetRoundTripCount();
+      const preview = await repository.getHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+      );
+      expect(preview.rows).toHaveLength(120);
+      expect(
+        preview.rows.every((row) => row.currentExposureNames.length === 0),
+      ).toBe(true);
+      expect(database.roundTripCount).toBeLessThanOrEqual(5);
 
-    const groupingSql = database.preparedSql
-      .filter(
-        (sql) =>
-          sql.includes("row.id AS import_row_id") &&
-          sql.includes("later_mapping.supersedes_mapping_id"),
-      )
-      .at(-1);
-    expect(groupingSql).toBeDefined();
-    const plan = sqlite
-      .prepare(`EXPLAIN QUERY PLAN ${groupingSql ?? "SELECT 1"}`)
-      .all(staged.preview.id, "hh_demo") as Array<{ detail: string }>;
-    expect(
-      plan.some((row) =>
-        /SCAN (later_mapping|later_ownership)/u.test(row.detail),
-      ),
-    ).toBe(false);
-  });
+      const groupingSql = database.preparedSql
+        .filter(
+          (sql) =>
+            sql.includes("row.id AS import_row_id") &&
+            sql.includes("later_mapping.supersedes_mapping_id"),
+        )
+        .at(-1);
+      expect(groupingSql).toBeDefined();
+      const plan = sqlite
+        .prepare(`EXPLAIN QUERY PLAN ${groupingSql ?? "SELECT 1"}`)
+        .all(staged.preview.id, "hh_demo") as Array<{ detail: string }>;
+      expect(
+        plan.some((row) =>
+          /SCAN (later_mapping|later_ownership)/u.test(row.detail),
+        ),
+      ).toBe(false);
+    },
+  );
 
   it("rejects a provider template staged under another source identity", async () => {
     const input = providerTemplateStageInput("tokenfolio");
@@ -2158,7 +2234,7 @@ describe("exception-based source updates", () => {
     ).toEqual({ count: 1 });
   });
 
-  it.each(["tokenfolio", "sydecar"] as const)(
+  it.each(["tokenfolio", "sydecar", "wefunder"] as const)(
     "accepts clear %s rows from partial coverage without inventing omissions",
     async (provider) => {
       const input = providerTemplateStageInput(provider);
@@ -3557,7 +3633,9 @@ describe("reviewed portfolio baseline persistence", () => {
       ) as Array<{ detail: string }>;
     expect(
       baselineItemsPlan.some((row) =>
-        row.detail.includes("portfolio_baseline_items_baseline_idx"),
+        row.detail.includes(
+          "SEARCH item USING INDEX sqlite_autoindex_portfolio_baseline_items_2 (baseline_id=?)",
+        ),
       ),
     ).toBe(true);
     expect(

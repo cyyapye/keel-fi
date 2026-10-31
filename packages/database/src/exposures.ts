@@ -485,7 +485,11 @@ async function buildPrivateExposureExactBatchPlan(
   for (const position of positions) {
     // These providers' investment labels can name a vehicle/deal rather than
     // its target company. Their memo/agreement evidence is reviewed separately.
-    if (position.provider === "sydecar" || position.provider === "tokenfolio")
+    if (
+      position.provider === "sydecar" ||
+      position.provider === "tokenfolio" ||
+      position.provider === "wefunder"
+    )
       continue;
     if (
       position.reported_exposure_name === null ||
@@ -988,7 +992,7 @@ export class D1ExposureRepository {
            AND (
              position.position_kind = 'spv_interest'
              OR (
-               position.provider IN ('angellist', 'tokenfolio', 'sydecar')
+               position.provider IN ('angellist', 'tokenfolio', 'sydecar', 'wefunder')
                AND position.position_kind = 'direct'
              )
            )`,
@@ -2446,7 +2450,7 @@ export class D1ExposureRepository {
                AND (
                  position.position_kind = 'spv_interest'
                  OR (
-                   position.provider IN ('angellist', 'tokenfolio', 'sydecar')
+                   position.provider IN ('angellist', 'tokenfolio', 'sydecar', 'wefunder')
                    AND position.position_kind = 'direct'
                  )
                )

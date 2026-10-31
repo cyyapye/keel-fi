@@ -157,7 +157,7 @@ export async function readAngelListCsvUpload(request: Request): Promise<{
 
 export async function readProviderTemplateCsvUpload(
   request: Request,
-  provider: "tokenfolio" | "sydecar",
+  provider: "tokenfolio" | "sydecar" | "wefunder",
 ): Promise<{ bytes: Uint8Array; retrievedAt: string }> {
   try {
     const upload = await readAngelListCsvUpload(request);
@@ -166,7 +166,11 @@ export async function readProviderTemplateCsvUpload(
     if (!(error instanceof HoldingImportUploadError)) {
       throw error;
     }
-    const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+    const label = {
+      tokenfolio: "Tokenfolio",
+      sydecar: "Sydecar",
+      wefunder: "Wefunder",
+    }[provider];
     const message =
       error.code === "file_too_large"
         ? "The CSV must be 1 MB or smaller."

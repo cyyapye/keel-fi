@@ -170,7 +170,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         `SELECT p.id, p.legal_vehicle_name, p.owner_label, p.currency, p.position_kind, p.provider, p.opened_on,
       purchase.receipt_json purchase_json, source_document.source_label,
              (SELECT json_object('reviewId',link.review_id,'sourcePositionId',link.source_position_id,
-               'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' ELSE 'AngelList' END,'observedAt',ls.observed_at,
+               'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' WHEN 'wefunder' THEN 'Wefunder' ELSE 'AngelList' END,'observedAt',ls.observed_at,
                'state',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_state ELSE 'not_reported' END,
                'minor',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_minor ELSE NULL END)
                FROM holding_position_link_heads link

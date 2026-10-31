@@ -102,6 +102,24 @@ These interactions add zero idle-day or unattended failure-day network requests.
 The link-copy confirmation uses one cancellable 1.6-second local timer after a
 successful copy, with zero network or storage operations.
 
+## Explicit connection recovery
+
+The shared browser `requestKeel` helper owns one fetch for the existing Holdings
+and legal-entity reads, initial preloads, and legal-entity creation. This moves
+call sites in the runtime inventory; it adds no request, timer, polling, sign-in
+probe or automatic authentication refresh. A rejected preload retains the
+existing one-read fallback (at most two attempts per initial page load). A save
+still submits once per explicit action and never automatically replays an
+uncertain write. Recovery uses the existing retry or a user-initiated page
+reload, which runs the ordinary initial-load budget. Idle and unattended failure
+days add zero requests, proxy invocations, D1 reads/writes or storage
+operations.
+
+Manual Wefunder imports reuse the existing bounded template upload and
+`private-holdings-auto-v1` ingestion/review path. They add one upload per
+explicit Import action, with the same 500-row limit and existing acceptance
+budgets, and zero scheduled work or provider-browser operations.
+
 ## Provider agent contract
 
 PDF reader/scanner admission uses one local owner per rootless daemon across all

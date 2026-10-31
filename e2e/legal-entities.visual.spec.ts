@@ -1910,3 +1910,50 @@ for (const outcome of ["popup_closed", "denied"] as const) {
     expect(writes).toEqual([]);
   });
 }
+
+test("retains a new legal entity draft when the save loses its connection", async ({
+  page,
+}) => {
+  let saves = 0;
+  await page.route("**/api/legal-entities", (route) => {
+    if (route.request().method() === "POST") {
+      saves += 1;
+      return route.abort("failed");
+    }
+    return route.fulfill({ json: initialInventory });
+  });
+  await page.route("**/api/legal-entity-export/options", (route) =>
+    route.fulfill({ json: { googleSheetsClientId: null } }),
+  );
+  await page.goto("/holdings/entities");
+  await page.getByRole("button", { name: "Add entity", exact: true }).click();
+  const editor = page.locator(".legal-entity-editor");
+  await editor
+    .getByLabel("Legal name", { exact: true })
+    .fill("Synthetic Community SPV LLC");
+  await editor.getByRole("button", { name: "Add entity", exact: true }).click();
+  await expect(editor).toContainText("Keel could not confirm the save.");
+  await expect(editor).toContainText(
+    "check for the record before trying again.",
+  );
+  await expect(editor.getByLabel("Legal name", { exact: true })).toHaveValue(
+    "Synthetic Community SPV LLC",
+  );
+  await expect(
+    editor.getByRole("button", { name: "Add entity", exact: true }),
+  ).toBeEnabled();
+  expect(saves).toBe(1);
+  const recoveryGap = await editor.evaluate((element) => {
+    const fields = element.querySelector(".legal-entity-editor__fields");
+    const message = element.querySelector(".form-message");
+    return fields && message
+      ? message.getBoundingClientRect().top -
+          fields.getBoundingClientRect().bottom
+      : 0;
+  });
+  expect(recoveryGap).toBeGreaterThanOrEqual(16);
+  await expectNoHorizontalOverflow(page);
+  await expect(editor).toHaveScreenshot("legal-entity-connection-error.png", {
+    animations: "disabled",
+  });
+});

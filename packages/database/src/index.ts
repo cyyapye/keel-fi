@@ -868,6 +868,7 @@ export class D1AlphaRepository implements AlphaRepository {
                    WHEN 'plaid_investments' THEN 'Plaid Investments'
                    WHEN 'tokenfolio' THEN 'Tokenfolio template'
                    WHEN 'sydecar' THEN 'Sydecar template'
+                   WHEN 'wefunder' THEN 'Wefunder template'
                    ELSE 'AngelList export'
                  END AS source_label,
                  COALESCE(

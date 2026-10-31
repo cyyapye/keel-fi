@@ -52,7 +52,11 @@ export class D1PositionLinkRepository {
         const sourceProvider = reviewedHistory
           ? connection.institutionKey.replace(/^reviewed-history:/u, "")
           : connection.institutionKey;
-        if (!["tokenfolio", "sydecar", "angellist"].includes(sourceProvider))
+        if (
+          !["tokenfolio", "sydecar", "angellist", "wefunder"].includes(
+            sourceProvider,
+          )
+        )
           return [];
         return connection.containers.flatMap((container) =>
           container.positions.map((position) => ({

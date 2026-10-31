@@ -252,3 +252,38 @@ describe("provider holdings template CSV", () => {
     ).rejects.toMatchObject({ code: "file_too_large" });
   });
 });
+
+it("parses a manually completed Wefunder template with unknown value and date", async () => {
+  const row = tokenfolioRow.split(",");
+  row[5] = "";
+  row[9] = "";
+  const bytes = encoder.encode(
+    `${providerHoldingsTemplateCsv("wefunder")}${row.join(",")}\n`,
+  );
+  const parsed = await parseProviderHoldingsTemplateCsv("wefunder", bytes);
+  expect(parsed).toMatchObject({
+    provider: "wefunder",
+    formatVersion: 1,
+    rows: [
+      {
+        investedMinor: 125_000,
+        investDate: null,
+        investDateState: "not_reported",
+        unrealizedValueMinor: null,
+        unrealizedValueState: "not_reported",
+        dealMetadata: { managementFeePpm: null, carryPpm: null },
+      },
+    ],
+  });
+  await expect(
+    parseProviderHoldingsTemplateCsv("tokenfolio", bytes),
+  ).rejects.toThrow();
+  await expect(
+    parseProviderHoldingsTemplateCsv(
+      "wefunder",
+      encoder.encode(
+        new TextDecoder().decode(bytes).replace("template v1", "template v3"),
+      ),
+    ),
+  ).rejects.toThrow();
+});

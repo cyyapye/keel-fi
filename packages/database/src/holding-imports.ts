@@ -36,6 +36,7 @@ const ANGELLIST_ECONOMICS_DERIVATION = "angellist_export_carry_v1";
 const TOKENFOLIO_PROVIDER = "tokenfolio";
 const TOKENFOLIO_PARSER_SCHEMA = "tokenfolio_keel_template_v1";
 const TOKENFOLIO_SOURCE_LABEL = "Tokenfolio template";
+const WEFUNDER_PROVIDER = "wefunder";
 const SYDECAR_PROVIDER = "sydecar";
 const SYDECAR_PARSER_SCHEMA_V1 = "sydecar_keel_template_v1";
 const SYDECAR_PARSER_SCHEMA_V2 = "sydecar_keel_template_v2";
@@ -53,6 +54,7 @@ const NON_BLOCKING_PLAID_INVESTMENTS_ISSUES = new Set([
 ]);
 
 const PrivateHoldingImportProviderSchema = z.enum([
+  WEFUNDER_PROVIDER,
   ANGELLIST_PROVIDER,
   TOKENFOLIO_PROVIDER,
   SYDECAR_PROVIDER,
@@ -62,6 +64,11 @@ type PrivateHoldingImportProvider = z.output<
 >;
 
 const PRIVATE_HOLDING_IMPORT_METADATA = {
+  [WEFUNDER_PROVIDER]: {
+    fileName: "wefunder-holdings.csv",
+    parserSchema: "wefunder_keel_template_v1",
+    sourceLabel: "Wefunder template",
+  },
   [ANGELLIST_PROVIDER]: {
     fileName: "angellist-investments.csv",
     parserSchema: ANGELLIST_PARSER_SCHEMA,
@@ -527,7 +534,7 @@ async function sha256(value: string): Promise<string> {
 async function snapshotFingerprint(
   row: PrivateInvestmentImportRow,
   protectedPositionKey: string,
-  provider: "angellist" | "tokenfolio" | "sydecar",
+  provider: PrivateHoldingImportProvider,
 ): Promise<string> {
   return sha256(
     JSON.stringify([
@@ -693,7 +700,7 @@ export class D1HoldingImportRepository {
              ON document.id = import.source_document_id
            WHERE import.household_id = ?
              AND import.provider IN (
-               'angellist', 'tokenfolio', 'sydecar', 'plaid_investments'
+               'angellist', 'tokenfolio', 'sydecar', 'wefunder', 'plaid_investments'
              )
              AND document.review_status = 'pending_review'
            ORDER BY import.created_at DESC

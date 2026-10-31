@@ -517,7 +517,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              position.owner_label,
              accepted_row.exposure_label AS reported_exposure_name,
              (SELECT json_object('reviewId',link.review_id,'sourcePositionId',link.source_position_id,
-               'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' ELSE 'AngelList' END,'observedAt',ls.observed_at,
+               'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' WHEN 'wefunder' THEN 'Wefunder' ELSE 'AngelList' END,'observedAt',ls.observed_at,
                'state',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_state ELSE 'not_reported' END,
                'minor',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_minor ELSE NULL END)
                FROM holding_position_link_heads link

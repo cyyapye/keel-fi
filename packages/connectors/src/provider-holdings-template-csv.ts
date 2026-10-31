@@ -13,6 +13,7 @@ export const MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_ROWS = 500;
 export const MAX_PROVIDER_HOLDINGS_TEMPLATE_CSV_CELL_BYTES = 4_096;
 
 export const ProviderHoldingsTemplateProviderSchema = z.enum([
+  "wefunder",
   "tokenfolio",
   "sydecar",
 ]);
@@ -39,10 +40,12 @@ export const SYDECAR_HOLDINGS_TEMPLATE_CSV_V2_HEADERS = [
 ] as const;
 
 export const PROVIDER_HOLDINGS_TEMPLATE_CSV_PREAMBLES = {
+  wefunder: "Keel Wefunder holdings template v1",
   sydecar: "Keel Sydecar holdings template v2",
   tokenfolio: "Keel Tokenfolio holdings template v1",
 } as const;
 export const PROVIDER_HOLDINGS_CAPTURE_CSV_PREAMBLES = {
+  wefunder: null,
   sydecar: "Keel Sydecar holdings template v3",
   tokenfolio: "Keel Tokenfolio holdings template v3",
 } as const;
@@ -210,7 +213,9 @@ type CsvRecord = {
 type CsvMode = "field_start" | "unquoted" | "quoted" | "after_quote";
 
 function providerLabel(provider: ProviderHoldingsTemplateProvider): string {
-  return provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+  return { tokenfolio: "Tokenfolio", sydecar: "Sydecar", wefunder: "Wefunder" }[
+    provider
+  ];
 }
 
 function parseCsvRecords(
@@ -580,7 +585,7 @@ async function parseTemplateRow(
   }
   const raw = parsedRaw.data;
   const investmentDate =
-    provider === "sydecar" && raw.investmentDate === ""
+    provider !== "tokenfolio" && raw.investmentDate === ""
       ? null
       : raw.investmentDate;
   if (
@@ -765,7 +770,10 @@ export async function parseProviderHoldingsTemplateCsv(
               preambleValue === LEGACY_SYDECAR_HOLDINGS_TEMPLATE_CSV_PREAMBLE
             ? (1 as const)
             : null;
-  if (formatVersion === null) {
+  if (
+    formatVersion === null ||
+    (provider === "wefunder" && formatVersion !== 1)
+  ) {
     throw new ProviderHoldingsTemplateCsvParseError(
       "invalid_preamble",
       `Choose the Keel ${label} holdings template without changing its first line.`,

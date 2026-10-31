@@ -175,26 +175,26 @@ function syntheticAngelListCsv(): string {
 }
 
 function syntheticProviderTemplateCsv(
-  provider: "tokenfolio" | "sydecar",
+  provider: "tokenfolio" | "sydecar" | "wefunder",
   asOfDate = "2026-08-20",
 ): string {
   const row = [
-    provider === "tokenfolio" ? "Synthetic Robotics" : "Example Climate Fund",
-    provider === "tokenfolio"
+    provider !== "sydecar" ? "Synthetic Robotics" : "Example Climate Fund",
+    provider !== "sydecar"
       ? "Synthetic Robotics direct shares"
       : "Example Climate Fund SPV I",
-    provider === "tokenfolio" ? "Direct" : "SPV",
-    provider === "tokenfolio"
+    provider !== "sydecar" ? "Direct" : "SPV",
+    provider !== "sydecar"
       ? "Synthetic Family Trust"
       : "Synthetic Investment Profile",
     "Live",
     "2025-02-01",
     asOfDate,
-    provider === "tokenfolio" ? "$1250.00" : "$5000.00",
-    provider === "tokenfolio" ? "" : "$7500.00",
-    provider === "tokenfolio" ? "$1800.25" : "",
+    provider !== "sydecar" ? "$1250.00" : "$5000.00",
+    provider !== "sydecar" ? "" : "$7500.00",
+    provider !== "sydecar" ? "$1800.25" : "",
     "",
-    provider === "tokenfolio" ? "Common stock" : "Membership interest",
+    provider !== "sydecar" ? "Common stock" : "Membership interest",
     ...(provider === "sydecar" ? ["2%", "20%"] : []),
   ];
   return `${providerHoldingsTemplateCsv(provider)}${row.join(",")}\n`;
@@ -1037,7 +1037,7 @@ describe("Keel API", () => {
     );
   });
 
-  it.each(["tokenfolio", "sydecar"] as const)(
+  it.each(["tokenfolio", "sydecar", "wefunder"] as const)(
     "stages a bounded %s template in private storage before review",
     async (provider) => {
       const providerPreview: HoldingImportPreview = {
@@ -1088,7 +1088,7 @@ describe("Keel API", () => {
         "synthetic-access-subject",
         expect.objectContaining({
           provider,
-          formatVersion: provider === "tokenfolio" ? 1 : 2,
+          formatVersion: provider !== "sydecar" ? 1 : 2,
           effectiveDate: "2026-08-20",
           byteSize: new TextEncoder().encode(template).byteLength,
           canonicalScope: expect.objectContaining({
@@ -1102,14 +1102,13 @@ describe("Keel API", () => {
           rows: [
             expect.objectContaining({
               companyOrFund:
-                provider === "tokenfolio"
+                provider !== "sydecar"
                   ? "Synthetic Robotics"
                   : "Example Climate Fund",
-              positionKind:
-                provider === "tokenfolio" ? "direct" : "spv_interest",
+              positionKind: provider !== "sydecar" ? "direct" : "spv_interest",
               dealMetadata: expect.objectContaining({
-                managementFeePpm: provider === "tokenfolio" ? null : 20_000,
-                carryPpm: provider === "tokenfolio" ? null : 200_000,
+                managementFeePpm: provider !== "sydecar" ? null : 20_000,
+                carryPpm: provider !== "sydecar" ? null : 200_000,
               }),
             }),
           ],
@@ -1118,7 +1117,7 @@ describe("Keel API", () => {
     },
   );
 
-  it.each(["tokenfolio", "sydecar"] as const)(
+  it.each(["tokenfolio", "sydecar", "wefunder"] as const)(
     "downloads the versioned %s template without caching it",
     async (provider) => {
       const response = await createApp().request(

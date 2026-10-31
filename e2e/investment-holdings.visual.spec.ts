@@ -2427,3 +2427,29 @@ test("keeps the exposure summary below the heading with compact sorting", async 
     { animations: "disabled", caret: "hide" },
   );
 });
+
+test("explains connection recovery for Holdings and recovers on reload", async ({
+  page,
+}) => {
+  let offline = true;
+  await page.route("**/api/holdings-page", (route) =>
+    offline ? route.abort("failed") : route.fallback(),
+  );
+  await page.goto("/holdings");
+  const errorState = page.locator(".investment-views");
+  await expect(errorState.getByRole("alert")).toContainText(
+    "Keel could not be reached.",
+  );
+  await expect(errorState.getByRole("alert")).toContainText(
+    "reload the page to refresh your session",
+  );
+  await expectNoHorizontalOverflow(page);
+  await expect(errorState).toHaveScreenshot(
+    "investment-holdings-connection-error.png",
+    { animations: "disabled" },
+  );
+  offline = false;
+  await page.reload();
+  await expect(errorState.getByRole("alert")).toHaveCount(0);
+  await expect(errorState.locator(".exposure-group").first()).toBeVisible();
+});

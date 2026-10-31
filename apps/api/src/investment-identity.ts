@@ -13,6 +13,7 @@ const AngelListOwnershipLabelSchema = z.string().trim().min(1).max(1_000);
 const INVESTMENT_KEY_SALT = "keel-provider-account-key-v1";
 const ANGELLIST_SOURCE_ID = "angellist-investments-export";
 const PROVIDER_TEMPLATE_SOURCE_IDS = {
+  wefunder: "wefunder-keel-holdings-template-v1",
   sydecar: "sydecar-keel-holdings-template-v1",
   tokenfolio: "tokenfolio-keel-holdings-template-v1",
 } as const;

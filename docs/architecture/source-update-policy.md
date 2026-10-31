@@ -6,10 +6,11 @@ operations run during ingestion or an authenticated POST, never a GET.
 
 ## Holdings
 
-Plaid retains its existing automatic policy. AngelList, Tokenfolio, and Sydecar
-use `private-holdings-auto-v1`. It accepts normalized USD rows with a valid
-source and ownership scope, including clearly identified new legal positions.
-Partial templates can update reported positions but cannot establish omissions.
+Plaid retains its existing automatic policy. AngelList, Tokenfolio, Sydecar, and
+Wefunder use `private-holdings-auto-v1`. It accepts normalized USD rows with a
+valid source and ownership scope, including clearly identified new legal
+positions. Partial templates can update reported positions but cannot establish
+omissions.
 
 Duplicate keys, invalid scope or currency, instrument changes, and possible
 identity replacements remain exceptions. A newly reported key is not assumed to
@@ -31,6 +32,25 @@ database calls inside a position loop. A synthetic 120-position case asserts a
 fixed round-trip budget and an indexed latest-observation query plan. Opening
 Holdings can recover its bounded pending queue of at most 20 imports through
 separate authenticated POSTs, after the initial read has rendered.
+
+### Manual Wefunder template
+
+Use **Holdings → Sources → Import holdings → Wefunder** to download Keel’s CSV
+template. Copy one row per legal position, retaining the first two lines. Enter
+the actual legal position separately from its company and owner; choose Direct,
+SPV, or Fund to match the investment. Enter funded cash in Invested USD, and
+leave unknown current values and investment dates blank. Supply the dated source
+observation as As Of Date; do not substitute an unknown valuation date. This is
+a manually completed Keel template, not a native Wefunder export or automated
+connector.
+
+The upload retains private evidence before the existing deterministic policy
+accepts clear rows. Duplicate and identity exceptions remain reviewable. Company
+grouping and legal identity retain their existing review boundaries; creating a
+legal entity alone does not create a financial holding. Re-uploading the same
+file converges on the same records. Template coverage is partial and never
+removes an omitted position. Migration `0087` must precede the API/web release;
+it preserves baseline history and its immutable guards.
 
 ## Investment identity and terms
 

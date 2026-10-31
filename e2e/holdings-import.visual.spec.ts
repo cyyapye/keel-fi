@@ -491,8 +491,18 @@ test("imports provider templates without asking to approve clear positions", asy
   for (const [provider, fixture] of [
     ["tokenfolio", tokenfolioImportPreview],
     ["sydecar", sydecarImportPreview],
+    [
+      "wefunder",
+      {
+        ...tokenfolioImportPreview,
+        id: "holding_import_synthetic_wefunder",
+        provider: "wefunder",
+      },
+    ],
   ] as const) {
+    let uploads = 0;
     await page.route(`**/api/holding-imports/${provider}`, (route) => {
+      uploads += 1;
       expect(route.request().method()).toBe("POST");
       return route.fulfill({
         status: 201,
@@ -514,21 +524,38 @@ test("imports provider templates without asking to approve clear positions", asy
     await page.goto("/holdings/sources");
     await page.getByRole("button", { name: "Import holdings" }).click();
     await page.getByLabel("Source").click();
-    const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+    const label = {
+      tokenfolio: "Tokenfolio",
+      sydecar: "Sydecar",
+      wefunder: "Wefunder",
+    }[provider];
     await page.getByRole("option", { name: label, exact: true }).click();
     await expect(
       page.getByRole("link", { name: `Download ${label} template` }),
     ).toHaveAttribute("href", `/api/holding-import-templates/${provider}`);
-    if (provider === "tokenfolio")
+    if (provider === "tokenfolio" || provider === "wefunder")
       await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
-        "holdings-import-tokenfolio-template.png",
+        `holdings-import-${provider}-template.png`,
         { animations: "disabled", maxDiffPixelRatio: 0.025 },
       );
+    await expect(
+      page.getByRole("button", { name: "Import file", exact: true }),
+    ).toBeDisabled();
+    expect(uploads).toBe(0);
+    const fileTarget = await page.locator('input[type="file"]').boundingBox();
+    expect(fileTarget).not.toBeNull();
+    if (test.info().project.name === "mobile-chromium") {
+      expect(fileTarget!.height).toBeGreaterThanOrEqual(44);
+    }
+    await expectNoHorizontalOverflow(page);
     await page.locator('input[type="file"]').setInputFiles({
       name: `${provider}-holdings.csv`,
       mimeType: "text/csv",
       buffer: Buffer.from("synthetic template"),
     });
+    await expect(
+      page.getByRole("button", { name: "Import file", exact: true }),
+    ).toBeEnabled();
     await page
       .getByRole("button", { name: "Import file", exact: true })
       .click();

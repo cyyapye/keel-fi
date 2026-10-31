@@ -132,8 +132,11 @@ export async function buildProviderTemplateCanonicalScope(input: {
       };
     }),
   );
-  const institutionLabel =
-    input.provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+  const institutionLabel = {
+    tokenfolio: "Tokenfolio",
+    sydecar: "Sydecar",
+    wefunder: "Wefunder",
+  }[input.provider];
 
   return HoldingImportCanonicalScopeSchema.parse({
     connection: {

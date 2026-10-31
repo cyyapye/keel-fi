@@ -7078,6 +7078,10 @@ h1,
   line-height: 1.6;
 }
 
+.legal-entity-editor__fields + .form-message {
+  margin-top: var(--space-4);
+}
+
 .legal-entity-editor__actions {
   margin-top: 28px;
 }
