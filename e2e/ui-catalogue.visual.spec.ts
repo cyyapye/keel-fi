@@ -173,6 +173,7 @@ test("foundations distinguish selection from keyboard focus", async ({
   await expect(history).toHaveAttribute("aria-selected", "false");
   await expect(profile).toHaveAttribute("aria-selected", "true");
   await expect(history).toHaveCSS("outline-style", "solid");
+  await expect(history).toHaveCSS("box-shadow", "none");
   await expect(
     tabs.getByRole("tab", { name: "Unavailable", exact: true }),
   ).toBeDisabled();
@@ -204,6 +205,20 @@ test("quiet buttons keep action spacing and textareas use the filled surface", a
   const actions = page.locator(".catalogue-example").filter({ has: quiet });
   await expect(actions).toHaveScreenshot(
     "shared-action-spacing.png",
+    screenshotOptions,
+  );
+  await primary.focus();
+  await primary.press("Tab");
+  const secondary = page.getByRole("button", {
+    name: "Secondary",
+    exact: true,
+  });
+  await expect(secondary).toBeFocused();
+  await expect(secondary).toHaveCSS("outline-style", "solid");
+  await expect(secondary).toHaveCSS("outline-width", "1px");
+  await expect(secondary).toHaveCSS("box-shadow", "none");
+  await expect(actions).toHaveScreenshot(
+    "shared-keyboard-focus.png",
     screenshotOptions,
   );
   const notes = page.getByRole("textbox", { name: "Notes", exact: true });

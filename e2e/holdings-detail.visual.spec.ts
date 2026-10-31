@@ -896,6 +896,8 @@ test("leads with the investment and opens a truthful holding detail", async ({
     name: "Harbor Health Systems",
   });
   await expect(detailHeading).toBeFocused();
+  await expect(detailHeading).toHaveCSS("box-shadow", "none");
+  await expect(detailHeading).toHaveCSS("outline-style", "none");
   await expect(
     page.getByRole("button", { name: "Back to holdings" }),
   ).toHaveAttribute("data-slot", "text-link");
