@@ -104,9 +104,10 @@ button {
   textarea,
   summary,
   [contenteditable="true"],
-  [tabindex]
+  [tabindex]:not([tabindex="-1"])
 ):focus-visible {
-  box-shadow: 0 10px 24px rgb(38 34 56 / 16%);
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
 }
 
 h1,

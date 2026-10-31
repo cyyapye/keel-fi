@@ -193,6 +193,11 @@ pressed state. The catalogue's foundation demo uses manual tab activation so
 focus movement and selection can be inspected separately; see the
 [WAI-ARIA tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/).
 
+The shared keyboard-focus fallback uses a crisp outline, without a blurred
+shadow. It does not decorate headings or other non-interactive navigation
+targets with `tabindex="-1"`. Interactive controls retain their visible
+keyboard-focus treatment, including controls using roving tab order.
+
 Use tabs for related alternate views with one panel visible. Keep a short tab
 set only while full labels and usable touch targets fit without wrapping,
 truncation or horizontal scrolling. For crowded section navigation, use the
