@@ -2239,6 +2239,13 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
   await expect(page.locator(".holdings-search [role=status]")).toHaveText(
     "0 results",
   );
+  if (process.platform === "darwin") {
+    await page.addStyleTag({
+      // Keep sidebar text on one composited layer so native macOS glyph
+      // rasterization is stable in both isolated and full-suite captures.
+      content: ".sidebar { transform: translateZ(0); }",
+    });
+  }
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: testInfo.outputPath("review-search-empty.png"),
