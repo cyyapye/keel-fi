@@ -473,10 +473,8 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
 });
 
 test("captures explicit Tokenfolio quote dates and split basis without substituting the import date", async ({
-  isMobile,
   page,
 }) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
   for (const [basis, units] of [
     ["Before split", 1],
     ["After 10-for-1 split", 10],
