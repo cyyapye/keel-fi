@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { seedCostHoldings, COST_SUBJECT } from "./test-support/cost-fixtures";
+import { measureD1 } from "./test-support/d1-cost";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
 import { D1PriceProxyRepository } from "../packages/database/src/price-proxies";
 import {
   PurchaseLotSchema,
@@ -10,7 +11,7 @@ import {
 import { unknownInvestmentTerms } from "../packages/domain/src/investment-details";
 
 it("bounds 120 linked recalculations including triggers, tied history, failure recovery and empty reads", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createCostFixtureDatabase();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
   try {
@@ -23,7 +24,21 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
       shareClass: "Common",
       shareBasis: basis,
     };
-    await seedCostHoldings(db, COST_SUBJECT, 1, false, { sharePrices });
+    const seed = (
+      subject: string,
+      revision: number,
+      prices: typeof sharePrices,
+      interruptPricePropagation = false,
+    ) =>
+      fixture.setup({
+        operation: "holdings",
+        subject,
+        revision,
+        fixedTime: new Date().toISOString(),
+        interruptPricePropagation,
+        observations: { sharePrices: prices },
+      });
+    await seed(COST_SUBJECT, 1, sharePrices);
     const positions = (
       await db
         .prepare(
@@ -137,20 +152,6 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     );
     // Interrupt only propagation after the import is accepted: replay must pick
     // up durable source heads without re-fetching the provider or losing value.
-    const interrupted = new Proxy(db, {
-      get(target, key) {
-        if (key === "prepare")
-          return (sql: string) => {
-            if (sql.includes("SELECT link.household_id"))
-              throw new Error("synthetic projection interruption");
-            return target.prepare(sql);
-          };
-        const value: unknown = Reflect.get(target, key);
-        return typeof value === "function"
-          ? (value as (...args: unknown[]) => unknown).bind(target)
-          : value;
-      },
-    });
     await fixture.execute(`INSERT INTO users VALUES ('proxy-other-user','proxy-other-subject','proxy-other@example.invalid','Synthetic Other','2026-09-01');
       INSERT INTO households VALUES ('proxy-other','proxy-other-user','Synthetic Other','USD','2026-09-01')`);
     const measured = measureD1(db);
@@ -158,20 +159,32 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     const costs = [];
     for (const revision of [2, 3, 4, 5]) {
       // Unrelated household history grows alongside every returned position.
-      await seedCostHoldings(db, "proxy-other-subject", revision, false, {
-        sharePrices,
-      });
+      await seed("proxy-other-subject", revision, sharePrices);
       // Tie both application and observation timestamps to exercise the ID
       // tiebreaker as history grows, not just the leading timestamp.
       await expect(
-        seedCostHoldings(interrupted, COST_SUBJECT, revision, false, {
-          sharePrices: {
+        seed(
+          COST_SUBJECT,
+          revision,
+          {
             ...sharePrices,
             markMicros: 200_000_000 + revision * 1_000_000,
             markDate: `2026-09-${String(revision).padStart(2, "0")}`,
           },
-        }),
+          true,
+        ),
       ).rejects.toThrow("synthetic projection interruption");
+      expect(
+        await db
+          .prepare(
+            `SELECT COUNT(DISTINCT applied_at) appliedTimes,
+        COUNT(DISTINCT snapshot.observed_at) observedTimes
+        FROM holding_import_applications application
+        JOIN holding_position_snapshots snapshot ON snapshot.id=application.snapshot_id
+        WHERE application.household_id='hh_demo'`,
+          )
+          .first(),
+      ).toEqual({ appliedTimes: 1, observedTimes: 1 });
       measured.reset();
       expect(await propagator.refresh(COST_SUBJECT)).toEqual({
         recalculated: 120,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ShareBasisSchema } from "../../packages/domain/src/valuation-record";
 import { D1InvestmentConnectionsRepository } from "../../packages/database/src/investment-connections";
 import { D1ProviderPortfolioAgentRepository } from "../../packages/database/src/provider-portfolio-agent";
 import { measureD1 } from "./d1-meter";
@@ -18,11 +19,23 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
     subject: z.string().optional(),
     revision: z.number().int().positive().optional(),
     legacy: z.boolean().optional(),
+    fixedTime: z.iso.datetime().optional(),
+    interruptPricePropagation: z.boolean().optional(),
     observations: z
       .object({
         status: z.enum(["Live", "Realized"]).optional(),
         investedMinor: z.number().int().optional(),
         allocationMinor: z.number().int().optional(),
+        sharePrices: z
+          .object({
+            costMicros: z.number().int().nullable(),
+            markMicros: z.number().int().nullable(),
+            markDate: z.iso.date().nullable(),
+            shareClass: z.string().nullable(),
+            shareBasis: ShareBasisSchema.nullable().optional(),
+          })
+          .strict()
+          .optional(),
       })
       .optional(),
   }),
@@ -52,25 +65,87 @@ export default {
     let result: Record<string, unknown>;
     if (operation.operation === "holdings") {
       const observations = operation.observations;
-      const importId = await seedCostHoldings(
-        bindings.DB,
-        operation.subject,
-        operation.revision,
-        operation.legacy,
-        observations
-          ? {
-              ...(observations.status === undefined
-                ? {}
-                : { status: observations.status }),
-              ...(observations.investedMinor === undefined
-                ? {}
-                : { investedMinor: observations.investedMinor }),
-              ...(observations.allocationMinor === undefined
-                ? {}
-                : { allocationMinor: observations.allocationMinor }),
-            }
-          : undefined,
-      );
+      const database = operation.interruptPricePropagation
+        ? new Proxy(bindings.DB, {
+            get(target, key) {
+              if (key === "prepare")
+                return (sql: string) => {
+                  if (sql.includes("SELECT link.household_id"))
+                    throw new Error("synthetic projection interruption");
+                  return target.prepare(sql);
+                };
+              const value: unknown = Reflect.get(target, key);
+              return typeof value === "function"
+                ? (value as (...args: unknown[]) => unknown).bind(target)
+                : value;
+            },
+          })
+        : bindings.DB;
+      // Preserve tied application timestamps when fixture setup moves beside
+      // D1. This clock is scoped to a sequential synthetic setup request.
+      const originalDate = Date;
+      const fixedTime = operation.fixedTime;
+      if (fixedTime)
+        globalThis.Date = new Proxy(originalDate, {
+          construct(target, args): Date {
+            return Reflect.construct(
+              target,
+              args.length ? args : [fixedTime],
+            ) as Date;
+          },
+          get(target, key, receiver): unknown {
+            return key === "now"
+              ? () => originalDate.parse(fixedTime)
+              : Reflect.get(target, key, receiver);
+          },
+        });
+      let importId: string;
+      try {
+        importId = await seedCostHoldings(
+          database,
+          operation.subject,
+          operation.revision,
+          operation.legacy,
+          observations
+            ? {
+                ...(observations.status === undefined
+                  ? {}
+                  : { status: observations.status }),
+                ...(observations.investedMinor === undefined
+                  ? {}
+                  : { investedMinor: observations.investedMinor }),
+                ...(observations.allocationMinor === undefined
+                  ? {}
+                  : { allocationMinor: observations.allocationMinor }),
+                ...(observations.sharePrices === undefined
+                  ? {}
+                  : {
+                      sharePrices: {
+                        costMicros: observations.sharePrices.costMicros,
+                        markMicros: observations.sharePrices.markMicros,
+                        markDate: observations.sharePrices.markDate,
+                        shareClass: observations.sharePrices.shareClass,
+                        ...(observations.sharePrices.shareBasis === undefined
+                          ? {}
+                          : {
+                              shareBasis: observations.sharePrices.shareBasis,
+                            }),
+                      },
+                    }),
+              }
+            : undefined,
+        );
+      } catch (error) {
+        if (
+          operation.interruptPricePropagation &&
+          error instanceof Error &&
+          error.message === "synthetic projection interruption"
+        )
+          return new Response(error.message, { status: 409 });
+        throw error;
+      } finally {
+        globalThis.Date = originalDate;
+      }
       result = { operation: operation.operation, importId };
     } else if (operation.operation === "portfolio-watch") {
       const importId = await seedCostHoldings(bindings.DB);
