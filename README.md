@@ -188,6 +188,33 @@ between starts. Stop the server before `make db-reset SCENARIO=entity-review` if
 you want to restore this demo; resetting discards only that scenario's local
 practice changes.
 
+For the Tokenfolio proxy walkthrough, run `make dev SCENARIO=price-proxies` and
+open `/holdings` on the printed web URL. The native D1 scenario contains three
+Preferred Demo Atlas SPVs following one Common-share Tokenfolio source. All
+quantities are documented estimates; earlier manual valuations remain in
+history. Demo Atlas II has a received refund, unresolved fees and an unknown
+carry hurdle. Demo Atlas III has a provisional deployed-capital assumption.
+
+The source's
+$42,000 reported balance is dated September 20, 2026, separately
+from its October 10 share price. Edit that source's valuation and change only
+the share price from $200
+to $250, then reload the related holdings:
+
+| Synthetic position | Estimated shares |    At $200 |    At $250 |
+| ------------------ | ---------------: | ---------: | ---------: |
+| Demo Atlas I SPV   |             84.4 | $16,880.00 | $21,100.00 |
+| Demo Atlas II SPV  |           23.625 |  $4,725.00 |  $5,906.25 |
+| Demo Atlas III SPV |            7.875 |  $1,575.00 |  $1,968.75 |
+
+To try the equivalent split, set the source price to
+$25 and its **Source
+details → Price share basis** to **After 10-for-1 split**. Leave the original
+quantities intact; the values should match the $250
+column. Inspect **Sources & history** for the accepted inputs and prior
+calculations. After stopping the server, `make db-reset SCENARIO=price-proxies`
+restores this scenario to $200 and discards only its local practice changes.
+
 The command prints both URLs. The primary checkout uses web port 4177 and API
 port 8789. Linked worktrees derive stable alternate ports from their paths so
 several Codex worktrees can run concurrently. Override either port when needed:
