@@ -38,7 +38,8 @@ export function holdingHistorySummary(
     if (
       prior &&
       (prior.remainingSharesMicros !== lot.remainingSharesMicros ||
-        prior.sharesAsOf !== lot.sharesAsOf)
+        prior.sharesAsOf !== lot.sharesAsOf ||
+        differs(prior.quantityDetails, lot.quantityDetails))
     )
       changes.push(
         `${prefix}Shares${lot.remainingSharesMicros !== null ? ` ${decimal(lot.remainingSharesMicros, 6)}` : " cleared"}`,

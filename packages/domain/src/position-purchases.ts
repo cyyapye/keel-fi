@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { PositionLinkReceiptSchema } from "./position-link-receipt";
 import { InvestmentFeeSchema, investmentFeeAmount } from "./investment-fees";
-import { ValuationStateSchema, type ValuationRecord } from "./valuation-record";
+import {
+  ShareBasisSchema,
+  ValuationStateSchema,
+  type ValuationRecord,
+} from "./valuation-record";
 import {
   InvestmentTermsSchema,
   reconcileInvestmentCapital,
@@ -19,6 +23,15 @@ const text = z.string().trim().min(1).max(500);
 // integer minor units; never round a sub-cent share price before multiplication.
 export const PurchaseLotSchema = z
   .object({
+    quantityDetails: z
+      .object({
+        status: z.enum(["estimated", "confirmed"]),
+        derivation: text,
+        evidence: z.string().trim().min(1).max(12_000).nullable(),
+        shareBasis: ShareBasisSchema,
+      })
+      .strict()
+      .optional(),
     id: z.string().min(1).max(100),
     fees: z.array(InvestmentFeeSchema).max(12).optional(),
     feesComplete: z.boolean().optional(),
@@ -255,7 +268,13 @@ export const AcceptPurchasesSchema = z
     details: PurchaseDetailsSchema,
   })
   .strict();
+export const PriceProxyStatusSchema = z.object({
+  lastObservationAt: z.iso.datetime(),
+  lastSuccessfulSyncAt: z.iso.datetime().nullable(),
+  stale: z.boolean(),
+});
 export const PurchaseContextSchema = z.object({
+  priceProxyStatus: PriceProxyStatusSchema.nullable().optional(),
   reportedValueSnapshotId: z.string().min(1).optional(),
   reportedValueMinor: money.nullable().optional(),
   reportedSourceLabel: text.optional(),
@@ -312,6 +331,12 @@ export function valuationSharesKey(details: PurchaseReceipt["details"]) {
         quantity: purchaseShares(lot)?.quantityMicros ?? null,
         shareClass: lot.shareClass?.trim().toLowerCase() ?? null,
         date: lot.sharesAsOf,
+        ...(lot.quantityDetails
+          ? {
+              basis: lot.quantityDetails.shareBasis,
+              status: lot.quantityDetails.status,
+            }
+          : {}),
       }))
       .sort((a, b) => a.id.localeCompare(b.id)),
   });
@@ -321,59 +346,143 @@ export function calculateValuationFromShares(
   details: PurchaseReceipt["details"],
   record: ValuationRecord,
 ) {
-  if (
-    !details.coversPosition ||
-    !details.lots.length ||
-    record.priceMicros === null ||
-    !record.shareClass ||
-    !record.priceDate
-  )
-    return null;
-  let quantity = 0n;
+  const result = assessValuationFromShares(details, record);
+  return result.ok ? result.calculation : null;
+}
+
+export function assessValuationFromShares(
+  details: PurchaseReceipt["details"],
+  record: ValuationRecord,
+) {
+  const failure = (code: string, message: string) => ({
+    ok: false as const,
+    code,
+    message,
+  });
+  if (record.priceMicros === null)
+    return failure("missing_price", "This source has no accepted share price.");
+  if (!record.priceDate)
+    return failure(
+      "missing_price_date",
+      "The source price has no date. Save its share-price date in the source holding's valuation.",
+    );
+  if (!details.lots.length || details.lots.some((lot) => !purchaseShares(lot)))
+    return failure(
+      "missing_quantity",
+      "Record the position's economic shares in Investment. A documented estimate is supported.",
+    );
+  if (!details.coversPosition)
+    return failure(
+      "incomplete_coverage",
+      "The recorded shares do not cover the whole position. Review share coverage in Investment.",
+    );
+  if (!record.shareClass)
+    return failure(
+      "missing_share_class",
+      "The source price needs its share class.",
+    );
+  let numerator = 0n,
+    denominator = 1n;
+  let estimatedShares = false;
+  const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b));
   for (const lot of details.lots) {
-    const shares = purchaseShares(lot);
+    const shares = purchaseShares(lot)!;
+    if (!lot.sharesAsOf)
+      return failure(
+        "missing_quantity_date",
+        "The shares need an effective date in Investment.",
+      );
     if (
-      !shares ||
-      !lot.sharesAsOf ||
       lot.sharesAsOf > record.priceDate ||
-      (lot.purchasedOn !== null && lot.purchasedOn > record.priceDate) ||
-      !lot.shareClass ||
-      (record.origin !== "proxy" &&
-        lot.shareClass.trim().toLowerCase() !==
-          record.shareClass.trim().toLowerCase())
+      (lot.purchasedOn && lot.purchasedOn > record.priceDate)
     )
-      return null;
-    quantity += BigInt(shares.quantityMicros);
+      return failure(
+        "quantity_date",
+        "These shares take effect after this price. Use a later price or the applicable historical quantity.",
+      );
+    if (!lot.shareClass)
+      return failure(
+        "missing_share_class",
+        "Record the position's share class in Investment.",
+      );
+    if (
+      lot.shareClass.trim().toLowerCase() !==
+        record.shareClass.trim().toLowerCase() &&
+      (record.origin !== "proxy" ||
+        (record.followSource && !record.crossClassProxy))
+    )
+      return failure(
+        "cross_class",
+        "This source prices a different share class. Explicitly accept it as an indicative cross-class proxy.",
+      );
+    const basis = lot.quantityDetails?.shareBasis;
+    if (
+      (record.followSource && (!basis || !record.shareBasis)) ||
+      Boolean(basis) !== Boolean(record.shareBasis) ||
+      (basis && record.shareBasis && basis.key !== record.shareBasis.key)
+    )
+      return failure(
+        "incompatible_basis",
+        "The shares and source price need the same documented split basis. Review their basis in Investment and the source valuation.",
+      );
+    const units = BigInt(basis?.unitsPerOriginal ?? 1);
+    const quoteUnits = BigInt(record.shareBasis?.unitsPerOriginal ?? 1);
+    numerator =
+      numerator * units +
+      BigInt(shares.quantityMicros) * quoteUnits * denominator;
+    denominator *= units;
+    const common = gcd(numerator, denominator);
+    numerator /= common;
+    denominator /= common;
+    estimatedShares ||=
+      lot.quantityDetails?.status === "estimated" || shares.derived;
   }
+  const divisor = denominator * 10_000_000_000n;
   const value =
-    (quantity * BigInt(record.priceMicros) + 5_000_000_000n) / 10_000_000_000n;
+    (numerator * BigInt(record.priceMicros) + divisor / 2n) / divisor;
+  const quantity = (numerator + denominator / 2n) / denominator;
   if (
     value > BigInt(Number.MAX_SAFE_INTEGER) ||
     quantity > BigInt(Number.MAX_SAFE_INTEGER)
   )
-    return null;
-  return { valueMinor: Number(value), quantityMicros: Number(quantity) };
+    return failure(
+      "precision",
+      "This calculation exceeds supported precision.",
+    );
+  return {
+    ok: true as const,
+    calculation: {
+      valueMinor: Number(value),
+      quantityMicros: Number(quantity),
+      estimatedShares,
+    },
+  };
 }
 
 export function selectedPositionValuation(
   receipt: PurchaseReceipt | null | undefined,
   snapshotId: string,
 ) {
-  if (
-    !receipt ||
-    receipt.snapshotId !== snapshotId ||
-    receipt.details.valuation?.snapshotId !== snapshotId
-  )
-    return null;
+  if (!receipt) return null;
   const selection = receipt.details.valuation?.selected;
   const record = receipt.details.valuation?.records.find(
     (r) => r.id === selection?.recordId,
   );
   if (!selection || !record) return null;
+  // A deliberately linked quantity model remains applicable until superseded;
+  // a provider's newer balance observation does not change ownership.
+  if (
+    !record.followSource &&
+    (receipt.snapshotId !== snapshotId ||
+      receipt.details.valuation?.snapshotId !== snapshotId)
+  )
+    return null;
   const calculated =
     selection.method === "shares" &&
     selection.sharesKey === valuationSharesKey(receipt.details) &&
-    (receipt.details.investmentSnapshotId ?? receipt.snapshotId) === snapshotId
+    (record.followSource ||
+      (receipt.details.investmentSnapshotId ?? receipt.snapshotId) ===
+        snapshotId)
       ? calculateValuationFromShares(receipt.details, record)
       : null;
   const valueMinor =
@@ -388,6 +497,7 @@ export function selectedPositionValuation(
       selection.method === "shares" ? record.priceDate! : record.effectiveDate,
     valueMinor,
     quantityMicros: calculated?.quantityMicros ?? null,
+    estimatedShares: calculated?.estimatedShares ?? false,
     carryStatus:
       selection.method === "shares"
         ? ("before_carry" as const)
@@ -770,6 +880,8 @@ export function purchaseAllInPrice(lot: PurchaseLot): number | null {
 }
 
 export const SharePriceEvidenceSchema = z.object({
+  shareBasis: ShareBasisSchema.nullable().optional(),
+  priceSourcePositionId: text.optional(),
   id: text,
   positionId: text,
   positionLabel: text,
@@ -874,6 +986,13 @@ export function reviewedInvestmentFromReceipt(
     0n,
   );
   return {
+    ...(receipt.details.valuation?.records.some(
+      (r) =>
+        r.id === receipt.details.valuation?.selected?.recordId &&
+        r.followSource,
+    )
+      ? { appliesUntilSuperseded: true as const }
+      : {}),
     snapshotId: receipt.details.investmentSnapshotId ?? receipt.snapshotId,
     receiptId: receipt.id,
     terms: receipt.details.investmentTerms,

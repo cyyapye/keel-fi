@@ -126,6 +126,11 @@ async function setup(
   page: Page,
   configure?: (receipt: PurchaseReceipt) => void,
   relatedNames: string[] = [],
+  proxyOptions: {
+    priceDate?: string | null;
+    shareClass?: string;
+    stale?: boolean;
+  } = {},
 ) {
   await page.clock.setFixedTime(new Date("2026-10-08T12:00:00.000Z"));
   let receipt = initialReceipt();
@@ -133,6 +138,8 @@ async function setup(
   let reject = false,
     revision = 1;
   const history = [receipt];
+  let pendingSave: Promise<void> | null = null;
+  let releaseSave: (() => void) | undefined;
   const holding = () =>
     HoldingSchema.parse({
       id: "synthetic-holding",
@@ -157,6 +164,16 @@ async function setup(
       realizedValueMinor: 0,
       instrumentType: "SPV interest",
       purchaseContext: {
+        ...(proxyOptions.stale &&
+        receipt.details.valuation?.selected?.recordId.startsWith("proxy:")
+          ? {
+              priceProxyStatus: {
+                stale: true,
+                lastObservationAt: "2026-10-02T12:00:00.000Z",
+                lastSuccessfulSyncAt: "2026-10-01T12:00:00.000Z",
+              },
+            }
+          : {}),
         snapshotId: "snapshot",
         reportedValueMinor: 1_688_000,
         reportedSourceLabel: "Synthetic GP",
@@ -229,9 +246,13 @@ async function setup(
               observedAt: "2026-09-30T12:00:00.000Z",
               capturedAt: "2026-10-01T12:00:00.000Z",
               markMicros: 210_000_000 + (revision - 1) * 1_000_000,
-              markDate: "2026-09-30",
+              markDate:
+                proxyOptions.priceDate !== undefined
+                  ? proxyOptions.priceDate
+                  : "2026-09-30",
               costMicros: null,
-              shareClass: "Preferred",
+              shareClass: proxyOptions.shareClass ?? "Preferred",
+              shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
             },
           ],
           watch: [
@@ -286,6 +307,7 @@ async function setup(
         });
         return;
       }
+      if (pendingSave) await pendingSave;
       const previous = receipt;
       receipt = PurchaseReceiptSchema.parse({
         ...receipt,
@@ -344,6 +366,15 @@ async function setup(
   ).toBeVisible();
   return {
     receipt: () => receipt,
+    pauseSave: () => {
+      pendingSave = new Promise<void>((resolve) => {
+        releaseSave = resolve;
+      });
+    },
+    resumeSave: () => {
+      releaseSave?.();
+      pendingSave = null;
+    },
     positions: () =>
       investmentHoldings().positionView.connections.flatMap((c) =>
         c.containers.flatMap((c) => c.positions),
@@ -522,6 +553,10 @@ test("returns use complete fee estimates without treating unknown fees as zero",
   await select(page, "Upfront fees", "Some fees are unknown");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.locator(".holding-value-return")).toHaveCount(0);
+  await expect(
+    page.getByRole("group", { name: "Invested capital" }),
+  ).toContainText("Cash retained · includes fees$9,000.00");
+  await screenshot(page, "investment-retained-cash.png");
 });
 
 test("unknown refund inclusion withholds returns in the holding and exposure summaries", async ({
@@ -778,7 +813,18 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
 test("sources restore GP facts and estimates without duplicate forms or acknowledgments", async ({
   page,
 }) => {
-  const state = await setup(page);
+  const state = await setup(page, (r) => {
+    r.details.lots[0]!.quantityDetails = {
+      status: "estimated",
+      derivation: "Synthetic net allocation divided by entry price",
+      evidence: "Synthetic subscription",
+      shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+    };
+    r.details.valuation!.records[0]!.shareBasis = {
+      key: "issuer-original",
+      unitsPerOriginal: 1,
+    };
+  });
   await page.getByRole("button", { name: "Edit valuation" }).click();
   await select(page, "Source", "Tokenfolio · Other SPV");
   await expect(
@@ -791,7 +837,7 @@ test("sources restore GP facts and estimates without duplicate forms or acknowle
   await screenshot(page, "valuation-proxy.png");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(
-    page.getByRole("group", { name: "Proxy estimate · Before carry" }),
+    page.getByRole("group", { name: "Tokenfolio price proxy · Before carry" }),
   ).toContainText("$17,724.00");
   await page.getByRole("button", { name: "Edit valuation" }).click();
   await select(page, "Source", "My estimate");
@@ -909,7 +955,18 @@ test("after carry totals remain selectable and known unpaid costs remain visible
 test("source conflicts recover with current prices while preserving user input", async ({
   page,
 }) => {
-  const state = await setup(page);
+  const state = await setup(page, (r) => {
+    r.details.lots[0]!.quantityDetails = {
+      status: "estimated",
+      derivation: "Synthetic net allocation divided by entry price",
+      evidence: "Synthetic subscription",
+      shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+    };
+    r.details.valuation!.records[0]!.shareBasis = {
+      key: "issuer-original",
+      unitsPerOriginal: 1,
+    };
+  });
   await page.getByRole("button", { name: "Edit valuation" }).click();
   await select(page, "Source", "Tokenfolio · Other SPV");
   state.reject(true);
@@ -1014,3 +1071,133 @@ for (const scenario of [
     });
   });
 }
+
+test("cross-class proxies disclose estimated shares, retain failed drafts and persist the selected method", async ({
+  page,
+}) => {
+  const state = await setup(
+    page,
+    (r) => {
+      r.details.lots[0]!.quantityDetails = {
+        status: "estimated",
+        derivation: "Synthetic net allocation divided by entry price",
+        evidence: "Synthetic subscription",
+        shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+      };
+      r.details.valuation!.records[0]!.shareBasis = {
+        key: "issuer-original",
+        unitsPerOriginal: 1,
+      };
+    },
+    [],
+    { shareClass: "Common", stale: true },
+  );
+  await page.getByRole("button", { name: "Edit valuation" }).click();
+  await select(page, "Source", "Tokenfolio · Other SPV");
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  await expect(save).toBeDisabled();
+  await expect(
+    page.getByRole("form", { name: "Edit valuation" }),
+  ).toContainText("Explicitly accept it as an indicative cross-class proxy");
+  await screenshot(page, "valuation-proxy-cross-class.png");
+  await select(
+    page,
+    "Different share class",
+    "Use as an indicative cross-class proxy",
+  );
+  await expect(save).toBeEnabled();
+  state.reject(true);
+  await save.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "This source price changed",
+  );
+  await expect(
+    page.getByRole("combobox", { name: "Different share class" }),
+  ).toContainText("Use as an indicative cross-class proxy");
+  await expect(save).toBeDisabled();
+  await screenshot(page, "valuation-proxy-failed.png");
+  state.reject(false);
+  await page
+    .getByRole("button", { name: "Reload sources", exact: true })
+    .click();
+  await expect(save).toBeEnabled();
+  state.pauseSave();
+  await save.click();
+  await expect(page.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await screenshot(page, "valuation-proxy-saving.png");
+  state.resumeSave();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation" }),
+  ).toBeVisible();
+  expect(
+    state
+      .receipt()
+      .details.valuation!.records.find((r) => r.origin === "proxy"),
+  ).toMatchObject({
+    followSource: true,
+    crossClassProxy: true,
+    priceSourcePositionId: "another-spv",
+  });
+  await page.reload();
+  const summary = page.getByRole("group", {
+    name: "Tokenfolio price proxy · Before carry",
+    exact: true,
+  });
+  await expect(summary).toContainText("$17,724.00");
+  await expect(summary).toContainText("Estimated shares");
+  await expect(summary).toContainText(
+    "Stale source · Last valid estimate retained.",
+  );
+  await expect(
+    page.getByRole("group", {
+      name: "Estimated value · After carry",
+      exact: true,
+    }),
+  ).toContainText("$16,415.40");
+  await screenshot(page, "valuation-proxy-saved.png");
+  await page.getByRole("button", { name: "Edit investment" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(
+    page.getByRole("combobox", { name: "Quantity status", exact: true }),
+  ).toContainText("Estimated shares");
+  await expect(
+    page.getByRole("textbox", { name: "Quantity derivation", exact: true }),
+  ).toHaveValue("Synthetic net allocation divided by entry price");
+  await screenshot(page, "investment-quantity-provenance.png");
+});
+
+test("missing price dates name the source problem without blaming saved shares", async ({
+  page,
+}) => {
+  await setup(
+    page,
+    (r) => {
+      r.details.lots[0]!.quantityDetails = {
+        status: "estimated",
+        derivation: "Synthetic allocation",
+        evidence: null,
+        shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+      };
+      r.details.valuation!.records[0]!.shareBasis = {
+        key: "issuer-original",
+        unitsPerOriginal: 1,
+      };
+    },
+    [],
+    { priceDate: null },
+  );
+  await page.getByRole("button", { name: "Edit valuation" }).click();
+  await select(page, "Source", "Tokenfolio · Other SPV");
+  await expect(
+    page.getByRole("button", { name: "Save", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("form", { name: "Edit valuation" }),
+  ).toContainText("The source price has no date.");
+  await expect(
+    page.getByRole("form", { name: "Edit valuation" }),
+  ).not.toContainText("needs dated shares");
+  await screenshot(page, "valuation-proxy-missing-date.png");
+});

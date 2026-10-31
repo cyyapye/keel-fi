@@ -62,6 +62,22 @@ function facts(receipt: PurchaseReceipt | null, multiple: boolean) {
     );
     field("shares", "Shares", lot.remainingSharesMicros, (v) => decimal(v, 6));
     field("sharesDate", "Shares as of", lot.sharesAsOf, formatDate);
+    field("quantityStatus", "Quantity status", lot.quantityDetails?.status);
+    field(
+      "quantityDerivation",
+      "Quantity derivation",
+      lot.quantityDetails?.derivation,
+    );
+    field(
+      "quantityEvidence",
+      "Quantity evidence",
+      lot.quantityDetails?.evidence,
+    );
+    field(
+      "quantityBasis",
+      "Shares per original share",
+      lot.quantityDetails?.shareBasis.unitsPerOriginal,
+    );
     field(
       "unchangedShares",
       "Original shares still held",
@@ -268,9 +284,39 @@ function facts(receipt: PurchaseReceipt | null, multiple: boolean) {
       formatDate,
     );
     put(key + "class", label + "Share class", record.shareClass);
+    put(
+      key + "basis",
+      label + "Price units per original share",
+      record.shareBasis?.unitsPerOriginal,
+    );
+    put(key + "follow", label + "Follows accepted prices", record.followSource);
+    put(
+      key + "crossClass",
+      label + "Indicative cross-class proxy",
+      record.crossClassProxy,
+    );
     put(key + "carry", label + "Carry", record.carryStatus);
     put(key + "url", label + "Source link", record.sourceUrl);
     put(key + "captured", label + "Source captured", record.sourceCapturedAt);
+  }
+  if (valuation?.calculation) {
+    put(
+      "calculation:value",
+      "Gross proxy value",
+      valuation.calculation.valueMinor,
+      formatMoney,
+    );
+    put(
+      "calculation:shares",
+      "Shares in price basis",
+      valuation.calculation.quantityMicros,
+      (v) => decimal(v, 6),
+    );
+    put(
+      "calculation:estimated",
+      "Estimated shares",
+      valuation.calculation.estimatedShares,
+    );
   }
   if (valuation?.selected) {
     const record = valuation.records.find(

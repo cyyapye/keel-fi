@@ -79,6 +79,10 @@ const migrationFiles = [
   "packages/database/migrations/0078_reviewed_position_links.sql",
   "packages/database/migrations/0079_unified_investment_details.sql",
   "packages/database/migrations/0080_renamed_investment_links.sql",
+  "packages/database/migrations/0075_provider_share_prices.sql",
+  "packages/database/migrations/0076_proxy_share_estimates.sql",
+  "packages/database/migrations/0083_selected_position_valuations.sql",
+  "packages/database/migrations/0086_live_price_proxies.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 

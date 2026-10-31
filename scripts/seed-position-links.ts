@@ -13,6 +13,14 @@ import { D1PositionPurchaseRepository } from "../packages/database/src/position-
 import { PurchaseLotSchema } from "../packages/domain/src/position-purchases";
 import { unknownInvestmentTerms } from "../packages/domain/src/investment-details";
 export const LINK_DEMO_SUBJECT = "synthetic-access-subject";
+export type LinkDemoCase = {
+  provider: "sydecar" | "tokenfolio";
+  name: string;
+  company: string;
+  amount: number;
+  value: number | null;
+  date: string;
+};
 const digest = (text: string) =>
   createHash("sha256").update(text).digest("hex");
 export const LINK_DEMO_CASES = [
@@ -69,9 +77,10 @@ export async function seedPositionLinks(
   db: D1Database,
   revision = 1,
   purchasePractice = false,
+  demoCases: readonly LinkDemoCase[] = LINK_DEMO_CASES,
 ) {
   for (const provider of ["sydecar", "tokenfolio"] as const) {
-    const cases = LINK_DEMO_CASES.filter((c) => c.provider === provider);
+    const cases = demoCases.filter((c) => c.provider === provider);
     const input: HoldingImportStageInput = {
       provider,
       formatVersion: provider === "sydecar" ? 3 : purchasePractice ? 4 : 1,
@@ -159,9 +168,7 @@ export async function seedPositionLinks(
     const reviews = new D1InvestmentReviewRepository(db);
     const companies = new Map<string, string>();
     for (const position of positions) {
-      const item = LINK_DEMO_CASES.find(
-        (c) => c.name === position.legalVehicleName,
-      );
+      const item = demoCases.find((c) => c.name === position.legalVehicleName);
       if (!item) continue;
       const context = await reviews.getContext(LINK_DEMO_SUBJECT, position.id);
       const existing = companies.get(item.company);
@@ -243,7 +250,9 @@ export async function seedPurchaseRefundPractice(db: D1Database) {
     },
   );
 }
-export async function buildPositionLinksSeed(purchasePractice = false) {
+export async function buildRecordedSeed(
+  seed: (db: D1Database) => Promise<void>,
+) {
   const d1 = legalDocumentTestDatabase();
   const statements: string[] = [];
   const prepare = d1.prepare.bind(d1);
@@ -284,8 +293,7 @@ export async function buildPositionLinksSeed(purchasePractice = false) {
     });
   d1.prepare = (sql) => track(prepare(sql));
   try {
-    if (purchasePractice) await seedPurchaseRefundPractice(d1.asD1());
-    else await seedPositionLinks(d1.asD1());
+    await seed(d1.asD1());
     return [
       "-- Fabricated position-link practice records.",
       "PRAGMA defer_foreign_keys=ON;",
@@ -294,6 +302,11 @@ export async function buildPositionLinksSeed(purchasePractice = false) {
   } finally {
     d1.sqlite.close();
   }
+}
+export async function buildPositionLinksSeed(purchasePractice = false) {
+  return buildRecordedSeed((db) =>
+    purchasePractice ? seedPurchaseRefundPractice(db) : seedPositionLinks(db),
+  );
 }
 if (
   process.argv[1] &&

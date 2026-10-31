@@ -648,12 +648,12 @@ it("projects only owned source prices with one bounded query across 120 position
     .prepare(`EXPLAIN QUERY PLAN ${query.sql}`)
     .all(COST_SUBJECT, p.id) as { detail: string }[];
   expect(plan.some((row) => /SCAN candidate/u.test(row.detail))).toBe(false);
-  expect(
-    plan.some((row) => /SEARCH candidate USING INDEX/u.test(row.detail)),
-  ).toBe(true);
+  expect(plan.some((row) => /SEARCH head USING INDEX/u.test(row.detail))).toBe(
+    true,
+  );
   expect(prices).toHaveLength(1);
   expect(prices[0]).toMatchObject({
-    id: row.import_row_id,
+    id: `import:${row.import_row_id}`,
     markMicros: 35000000,
     costMicros: 20000000,
     shareClass: "Series B",

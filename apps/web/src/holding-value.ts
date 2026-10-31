@@ -17,7 +17,7 @@ export function gpRecord(
     context.receipt?.details.valuation?.snapshotId === context.snapshotId
       ? context.receipt?.details.valuation?.records.find((r) => r.id === "gp")
       : undefined;
-  if (retained && !evidence) return retained;
+  if (retained) return retained;
   const adjustment = holding.positionValueContext?.acceptedAdjustment;
   const total = adjustment?.valueMinor ?? context.reportedValueMinor ?? null;
   const priorReview =
@@ -31,10 +31,16 @@ export function gpRecord(
       ? priorReview
       : undefined;
   const price = evidence?.prices.find(
-    (p) => p.positionId === holding.id && p.markMicros !== null,
+    (p) =>
+      p.positionId ===
+        (holding.linkedReportedValue?.sourcePositionId ?? holding.id) &&
+      p.markMicros !== null,
   );
   return {
     id: "gp",
+    shareBasis: price?.shareBasis ?? null,
+    priceSourcePositionId:
+      price?.priceSourcePositionId ?? price?.positionId ?? null,
     origin: "gp",
     totalMinor: total,
     priceMicros: price?.markMicros ?? null,
@@ -80,7 +86,11 @@ export function holdingValueSummary(holding: Holding) {
       : null);
   const investment = reviewedInvestmentFromReceipt(receipt);
   const reviewed =
-    investment?.snapshotId === context.snapshotId ? investment : undefined;
+    investment &&
+    (investment.appliesUntilSuperseded ||
+      investment.snapshotId === context.snapshotId)
+      ? investment
+      : undefined;
   const after = record
     ? estimateProceedsAfterCarry({
         valueMinor: record.valueMinor,

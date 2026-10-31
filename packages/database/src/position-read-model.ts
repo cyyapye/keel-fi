@@ -1,4 +1,7 @@
-import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
+import {
+  PriceProxyStatusSchema,
+  PurchaseReceiptSchema,
+} from "@keel/domain/position-purchases";
 import {
   LinkedReportedValueSchema,
   investmentSourceFreshness,
@@ -58,6 +61,7 @@ type InvestmentContainerRow = {
 
 type InvestmentPositionRow = {
   purchase_receipt_json?: string | null;
+  price_proxy_status_json?: string | null;
   linked_value_json: string | null;
   renamed_company_json: string | null;
   container_id: string;
@@ -324,6 +328,9 @@ function positionFromRow(
       ticker: row.ticker,
       costBasisMinor: row.cost_basis_minor,
     },
+    priceProxyStatus: row.price_proxy_status_json
+      ? PriceProxyStatusSchema.parse(JSON.parse(row.price_proxy_status_json))
+      : null,
     purchaseReceipt:
       row.purchase_receipt_json == null
         ? null
@@ -497,6 +504,13 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
           .prepare(
             `SELECT
              purchase_review.receipt_json AS purchase_receipt_json,
+             CASE WHEN proxy_link.position_id IS NOT NULL THEN json_object(
+               'lastObservationAt',proxy_observation.observed_at,
+               'lastSuccessfulSyncAt',proxy_agent.last_completed_at,
+               'stale',json(CASE WHEN proxy_agent.last_error_code IS NOT NULL
+                 OR proxy_head.quote_id IS NOT json_extract(purchase_review.receipt_json,'$.details.valuation.calculation.quoteId')
+                 OR (proxy_observation.id IS NOT proxy_head.quote_id AND proxy_observation.price_micros IS NOT proxy_quote.price_micros AND (proxy_observation.price_date IS NULL OR proxy_observation.price_date>=proxy_quote.price_date))
+                 THEN 'true' ELSE 'false' END)) END AS price_proxy_status_json,
              ownership.container_id,
              position.id AS position_id,
              position.legal_vehicle_name,
@@ -601,6 +615,12 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            FROM holding_positions position
            LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id=position.id AND purchase_head.household_id=position.household_id
            LEFT JOIN holding_purchase_reviews purchase_review ON purchase_review.id=purchase_head.review_id
+           LEFT JOIN holding_price_proxy_links proxy_link ON proxy_link.position_id=position.id
+           LEFT JOIN holding_price_source_heads proxy_head ON proxy_head.source_position_id=proxy_link.source_position_id
+           LEFT JOIN holding_price_quotes proxy_quote ON proxy_quote.id=proxy_head.quote_id
+           LEFT JOIN holding_price_quotes proxy_observation ON proxy_observation.id=proxy_head.observation_id
+           LEFT JOIN holding_positions proxy_position ON proxy_position.id=proxy_link.source_position_id
+           LEFT JOIN provider_portfolio_agents proxy_agent ON proxy_agent.household_id=position.household_id AND proxy_agent.provider=proxy_position.provider
            JOIN holding_position_ownerships ownership
              ON ownership.position_id = position.id
             AND NOT EXISTS (

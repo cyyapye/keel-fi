@@ -80,14 +80,21 @@ export function SpvHoldingDetail({
     record?.origin === "judgment"
       ? "My estimate"
       : record?.origin === "proxy"
-        ? "Proxy estimate"
+        ? `${record.sourceLabel} price proxy`
         : record?.method === "shares"
           ? "Estimated value"
           : "Reported value";
   const source = record && (
     <p className="holding-metadata">
       {formatDate(record.effectiveDate)}
-      {record.origin !== "judgment" ? ` · ${record.sourceLabel}` : ""}
+      {record.origin !== "judgment" && record.origin !== "proxy"
+        ? ` · ${record.sourceLabel}`
+        : ""}
+      {record.origin === "proxy" &&
+      "estimatedShares" in record &&
+      record.estimatedShares
+        ? " · Estimated shares"
+        : ""}
     </p>
   );
   const editButton = !editing && (
@@ -123,6 +130,28 @@ export function SpvHoldingDetail({
         </strong>
       )}
       {provenance && source}
+      {provenance && record?.origin === "proxy" && record.crossClassProxy && (
+        <p className="holding-metadata">
+          Indicative cross-class proxy · Security rights may differ
+        </p>
+      )}
+      {provenance && holding.purchaseContext?.priceProxyStatus && (
+        <p className="holding-metadata">
+          {holding.purchaseContext.priceProxyStatus.stale
+            ? "Stale source · Last valid estimate retained. "
+            : ""}
+          Observed{" "}
+          {formatDate(
+            holding.purchaseContext.priceProxyStatus.lastObservationAt.slice(
+              0,
+              10,
+            ),
+          )}
+          {holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt
+            ? ` · Last sync ${formatDate(holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt.slice(0, 10))}`
+            : ""}
+        </p>
+      )}
       {title.includes("After carry") &&
         unpaid.map((f) => (
           <p className="holding-metadata" key={f.id}>

@@ -2,8 +2,20 @@ import { z } from "zod";
 
 const money = z.number().int().safe().nonnegative().max(10_000_000_000_000);
 const text = z.string().trim().min(1).max(500);
+// A stable issuer basis, not a security class. A split changes the ratio, never
+// the stored dollar balance or the original quantity. Replays are idempotent.
+export const ShareBasisSchema = z
+  .object({
+    key: text,
+    unitsPerOriginal: z.number().int().positive().max(1_000_000),
+  })
+  .strict();
 export const ValuationRecordSchema = z
   .object({
+    shareBasis: ShareBasisSchema.nullable().optional(),
+    priceSourcePositionId: text.nullable().optional(),
+    followSource: z.boolean().optional(),
+    crossClassProxy: z.boolean().optional(),
     id: z.string().min(1).max(200),
     origin: z.enum(["gp", "proxy", "judgment"]),
     totalMinor: money.nullable(),
@@ -34,6 +46,16 @@ export const ValuationRecordSchema = z
   })
   .strict()
   .superRefine((record, ctx) => {
+    if (
+      record.followSource &&
+      (record.origin !== "proxy" ||
+        !record.priceSourcePositionId ||
+        record.priceSourcePositionId !== record.sourcePositionId)
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Choose an accepted price source to follow.",
+      });
     if (record.totalMinor === null && record.priceMicros === null)
       ctx.addIssue({
         code: "custom",
@@ -66,6 +88,17 @@ export const ValuationSelectionSchema = z
   .strict();
 export const ValuationStateSchema = z
   .object({
+    calculation: z
+      .object({
+        policy: z.literal("linked-price-proxy-v1"),
+        quoteId: text,
+        quantityReceiptId: text,
+        valueMinor: money,
+        quantityMicros: z.number().int().safe().nonnegative(),
+        estimatedShares: z.boolean(),
+      })
+      .strict()
+      .optional(),
     snapshotId: z.string().min(1),
     records: z.array(ValuationRecordSchema).max(30),
     selected: ValuationSelectionSchema.nullable(),

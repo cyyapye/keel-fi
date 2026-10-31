@@ -70,6 +70,7 @@ describe("independent valuation facts", () => {
     expect(calculateValuationFromShares(r.details, record())).toEqual({
       valueMinor: 1_688_000,
       quantityMicros: 84_400_000,
+      estimatedShares: false,
     });
     r.details.valuation!.selected = {
       recordId: "gp",
