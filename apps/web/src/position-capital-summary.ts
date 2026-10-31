@@ -18,7 +18,7 @@ export const capitalSummaryLabel = (summary: CapitalSummary) =>
     ? "Net invested"
     : summary.kind === "estimated_net"
       ? "Estimated net invested"
-      : "Invested · before fees";
+      : "Cash retained · includes fees";
 
 /** Display only. Estimated capital never supplies accepted capital or shares. */
 export function purchaseCapitalSummary(lot: PurchaseLot): CapitalSummary {
@@ -95,9 +95,14 @@ export function positionCapitalSummary(
 ): CapitalSummary | null {
   if (
     !receipt ||
-    receipt.snapshotId !== snapshotId ||
-    (receipt.details.investmentSnapshotId ?? receipt.snapshotId) !==
-      snapshotId ||
+    (!receipt.details.valuation?.records.some(
+      (r) =>
+        r.id === receipt.details.valuation?.selected?.recordId &&
+        r.followSource,
+    ) &&
+      (receipt.snapshotId !== snapshotId ||
+        (receipt.details.investmentSnapshotId ?? receipt.snapshotId) !==
+          snapshotId)) ||
     !receipt.details.cashCoversPosition ||
     !receipt.details.lots.length
   )

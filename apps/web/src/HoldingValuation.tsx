@@ -7,6 +7,7 @@ import {
 } from "@keel/domain/valuation-record";
 import {
   calculateValuationFromShares,
+  assessValuationFromShares,
   PositionValuationEvidenceSchema,
   PurchaseReceiptSchema,
   type PurchaseReceipt,
@@ -20,6 +21,7 @@ import {
   CollapsibleTrigger,
   DisclosureIndicator,
   Notice,
+  Spinner,
   TextLink,
 } from "@keel/ui";
 import { HoldingDate, HoldingInput, HoldingSelect } from "./HoldingFields";
@@ -39,6 +41,8 @@ type Draft = {
   url: string;
   watch: string;
   method: "total" | "shares";
+  basis: string;
+  crossClass: string;
 };
 function draftFor(
   record: ValuationRecord,
@@ -46,6 +50,8 @@ function draftFor(
 ): Draft {
   return {
     record,
+    basis: record.shareBasis ? String(record.shareBasis.unitsPerOriginal) : "",
+    crossClass: record.crossClassProxy ? "accepted" : "",
     total: decimal(record.totalMinor, 2),
     price: decimal(record.priceMicros, 6),
     date: record.effectiveDate,
@@ -79,6 +85,7 @@ export function HoldingValuationEditor({
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
+  const [reloadingSources, setReloadingSources] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -94,10 +101,18 @@ export function HoldingValuationEditor({
         if (!controller.signal.aborted) {
           setEvidence(body);
           setLoadError(false);
+          if (reload > 0) {
+            setReloadingSources(false);
+            setStale(false);
+            setError(null);
+          }
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setLoadError(true);
+        if (!controller.signal.aborted) {
+          setLoadError(true);
+          setReloadingSources(false);
+        }
       });
     return () => controller.abort();
   }, [holding.id, reload]);
@@ -127,6 +142,11 @@ export function HoldingValuationEditor({
     const record: ValuationRecord = {
       id,
       origin: "proxy",
+      followSource: true,
+      priceSourcePositionId: price.priceSourcePositionId ?? price.positionId,
+      shareBasis: price.shareBasis ?? null,
+      crossClassProxy:
+        saved?.records.find((r) => r.id === id)?.crossClassProxy ?? false,
       totalMinor: null,
       priceMicros: price.markMicros,
       effectiveDate: price.markDate ?? price.observedAt.slice(0, 10),
@@ -157,9 +177,7 @@ export function HoldingValuationEditor({
       [source]: {
         ...draft,
         [key]: value,
-        ...(key === "date" && draft.priceDate === draft.date
-          ? { priceDate: value }
-          : {}),
+
         ...(key === "total"
           ? { method: value.trim() ? "total" : "shares" }
           : {}),
@@ -171,9 +189,32 @@ export function HoldingValuationEditor({
   const changedEvidence =
     draft.price !== decimal(draft.record.priceMicros, 6) ||
     (draft.priceDate || null) !== draft.record.priceDate ||
-    draft.shareClass !== (draft.record.shareClass ?? "");
+    draft.shareClass !== (draft.record.shareClass ?? "") ||
+    draft.basis !==
+      (draft.record.shareBasis
+        ? String(draft.record.shareBasis.unitsPerOriginal)
+        : "");
   const candidate = {
     ...draft.record,
+    ...(draft.basis || draft.record.shareBasis !== undefined
+      ? {
+          shareBasis: draft.basis
+            ? {
+                key: draft.record.shareBasis?.key ?? "issuer-original",
+                unitsPerOriginal: Number(draft.basis),
+              }
+            : null,
+        }
+      : {}),
+    ...(record.origin === "proxy"
+      ? { crossClassProxy: draft.crossClass === "accepted" }
+      : {}),
+    ...(changedEvidence && draft.record.sourcePositionId
+      ? {
+          priceSourcePositionId:
+            draft.record.priceSourcePositionId ?? draft.record.sourcePositionId,
+        }
+      : {}),
     totalMinor: total,
     priceMicros: price,
     effectiveDate: draft.date,
@@ -194,7 +235,10 @@ export function HoldingValuationEditor({
   const latestPrice = evidence?.prices.find((p) =>
     record.origin === "proxy"
       ? p.positionId === record.sourcePositionId
-      : p.positionId === holding.id,
+      : p.positionId ===
+        (record.priceSourcePositionId ??
+          holding.linkedReportedValue?.sourcePositionId ??
+          holding.id),
   );
   const updatedPrice =
     latestPrice?.markMicros !== null &&
@@ -210,6 +254,9 @@ export function HoldingValuationEditor({
       priceMicros: updatedPrice.markMicros,
       priceDate: updatedPrice.markDate,
       shareClass: updatedPrice.shareClass,
+      shareBasis: updatedPrice.shareBasis ?? null,
+      priceSourcePositionId:
+        updatedPrice.priceSourcePositionId ?? updatedPrice.positionId,
       sourceEvidenceId: updatedPrice.id,
       sourcePositionId: updatedPrice.positionId,
       sourceCapturedAt: updatedPrice.capturedAt,
@@ -222,6 +269,7 @@ export function HoldingValuationEditor({
         price: decimal(next.priceMicros, 6),
         priceDate: next.priceDate!,
         shareClass: next.shareClass ?? "",
+        basis: next.shareBasis ? String(next.shareBasis.unitsPerOriginal) : "",
       },
     }));
     setError(null);
@@ -237,9 +285,17 @@ export function HoldingValuationEditor({
   const details = receipt?.details ?? { coversPosition: false, lots: [] };
   const calculation =
     parsed.success &&
-    (details.investmentSnapshotId ?? receipt?.snapshotId) === context.snapshotId
+    (record.followSource ||
+      (details.investmentSnapshotId ?? receipt?.snapshotId) ===
+        context.snapshotId)
       ? calculateValuationFromShares(details, parsed.data.record)
       : null;
+  const assessment = assessValuationFromShares(details, candidate);
+  const crossClass = details.lots.some(
+    (lot) =>
+      lot.shareClass?.trim().toLowerCase() !==
+      draft.shareClass.trim().toLowerCase(),
+  );
   const comparable =
     draft.classification === "before_carry" && draft.date === draft.priceDate;
   const difference =
@@ -257,7 +313,16 @@ export function HoldingValuationEditor({
     saved?.selected?.recordId !== source ||
     saved.selected.method !== draft.method;
   const save = async () => {
-    if (!valid || !parsed.success || busy || !changed) return;
+    if (
+      !valid ||
+      !parsed.success ||
+      busy ||
+      !changed ||
+      stale ||
+      reloadingSources ||
+      (record.origin === "proxy" && updatedPrice)
+    )
+      return;
     setBusy(true);
     setDrafts((old) => ({ ...old, [source]: draft }));
     setError(null);
@@ -357,8 +422,36 @@ export function HoldingValuationEditor({
               {draft.priceDate
                 ? formatDate(draft.priceDate)
                 : "Price date unavailable"}{" "}
-              · Proxy for this position
+              {draft.basis &&
+                ` · ${draft.basis === "1" ? "Before split" : `${draft.basis} shares per original share`}`}
             </p>
+            <p className="holding-metadata">
+              Follows future accepted prices from this source.
+            </p>
+            {crossClass && (
+              <HoldingSelect
+                label="Different share class"
+                value={draft.crossClass}
+                onChange={(v) => update("crossClass", v)}
+                options={[
+                  { value: "", label: "Choose proxy treatment" },
+                  {
+                    value: "accepted",
+                    label: "Use as an indicative cross-class proxy",
+                  },
+                ]}
+              />
+            )}
+            {crossClass && (
+              <p className="holding-metadata">
+                {draft.shareClass} price for{" "}
+                {details.lots
+                  .map((l) => l.shareClass)
+                  .filter((v, i, a) => a.indexOf(v) === i)
+                  .join(" / ")}{" "}
+                shares. Security rights may differ.
+              </p>
+            )}
           </div>
         ) : (
           <>
@@ -411,6 +504,24 @@ export function HoldingValuationEditor({
                     label="Share class"
                     value={draft.shareClass}
                     onChange={(v) => update("shareClass", v)}
+                  />
+                  <HoldingSelect
+                    label="Price share basis"
+                    value={draft.basis}
+                    onChange={(v) => update("basis", v)}
+                    options={[
+                      { value: "", label: "Not documented" },
+                      { value: "1", label: "Before split" },
+                      { value: "10", label: "After 10-for-1 split" },
+                      ...(draft.basis && !["1", "10"].includes(draft.basis)
+                        ? [
+                            {
+                              value: draft.basis,
+                              label: `${draft.basis} shares per original share`,
+                            },
+                          ]
+                        : []),
+                    ]}
                   />
                   {record.origin === "gp" && (
                     <HoldingInput
@@ -507,47 +618,53 @@ export function HoldingValuationEditor({
         {!choices && draft.method === "shares" && calculation && (
           <div className="holding-valuation-preview">
             <p className="holding-metadata">
-              {record.origin === "proxy" ? "Proxy estimate" : "Estimated value"}{" "}
+              {record.origin === "proxy"
+                ? `${record.sourceLabel} price proxy`
+                : "Estimated value"}{" "}
               · Before carry
             </p>
             <strong className="holding-choice-amount">
               {formatMoney(calculation.valueMinor)}
             </strong>
             <p className="holding-metadata">
+              {calculation.estimatedShares ? "Estimated shares · " : ""}
               {decimal(calculation.quantityMicros, 6)} shares ×{" "}
               {formatSharePrice(price!)}/share
             </p>
           </div>
         )}
-        {draft.method === "shares" &&
-          draft.price.trim() &&
-          !calculation &&
-          parsed.success && (
-            <p>
-              This calculation needs dated shares covering this position in
-              Investment.
-            </p>
-          )}
+        {draft.method === "shares" && draft.price.trim() && !calculation && (
+          <p>
+            {!assessment.ok
+              ? assessment.message
+              : "The investment source changed. Review share coverage in Investment."}
+          </p>
+        )}
         {drafts[source] && !parsed.success && (
           <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
         )}
-        {error && (
+        {(error || stale) && (
           <Notice tone="error">
-            {error}
+            {error ??
+              "The source changed. Reload the available sources before saving."}
             {stale && (
               <Button
                 tone="quiet"
+                disabled={reloadingSources}
                 onClick={() => {
+                  setReloadingSources(true);
                   void onAccepted()
                     .then(() => {
                       setReload((n) => n + 1);
-                      setStale(false);
-                      setError(null);
                     })
-                    .catch(() => setError("Sources could not be reloaded."));
+                    .catch(() => {
+                      setReloadingSources(false);
+                      setError("Sources could not be reloaded.");
+                    });
                 }}
               >
-                Reload sources
+                {reloadingSources && <Spinner />}
+                {reloadingSources ? "Reloading sources…" : "Reload sources"}
               </Button>
             )}
           </Notice>
@@ -556,8 +673,16 @@ export function HoldingValuationEditor({
           <Button
             type="submit"
             tone="primary"
-            disabled={!valid || !changed || busy}
+            disabled={
+              !valid ||
+              !changed ||
+              busy ||
+              stale ||
+              reloadingSources ||
+              (record.origin === "proxy" && Boolean(updatedPrice))
+            }
           >
+            {busy && <Spinner />}
             {busy ? "Saving…" : "Save"}
           </Button>
           <Button tone="quiet" disabled={busy} onClick={onClose}>

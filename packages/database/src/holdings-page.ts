@@ -118,6 +118,7 @@ function importedHoldingFrom(
     purchaseContext:
       position.kind === "spv_interest" && position.snapshot.currency === "USD"
         ? {
+            priceProxyStatus: position.priceProxyStatus ?? null,
             snapshotId: position.snapshot.id,
             currency: "USD",
             openedOn: position.openedOn,

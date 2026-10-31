@@ -472,6 +472,38 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
   }
 });
 
+test("captures explicit Tokenfolio quote dates and split basis without substituting the import date", async ({
+  isMobile,
+  page,
+}) => {
+  test.skip(isMobile, "The local capture always uses a desktop viewport.");
+  for (const [basis, units] of [
+    ["Before split", 1],
+    ["After 10-for-1 split", 10],
+  ] as const) {
+    await page.route("https://app.tokenfolio.co/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: tokenfolioPage().replace(
+          "<div><dt>Entry Price</dt>",
+          `<div><dt>Mark date</dt><dd>Aug 18, 2026</dd></div><div><dt>Share class</dt><dd>Common</dd></div><div><dt>Share basis</dt><dd>${basis}</dd></div><div><dt>Entry Price</dt>`,
+        ),
+      }),
+    );
+    await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
+    const parsed = await parseProviderHoldingsTemplateCsv(
+      "tokenfolio",
+      await captureTokenfolio(page, "2026-08-21"),
+    );
+    expect(parsed.rows[0]!.dealMetadata?.sharePrices).toMatchObject({
+      markDate: "2026-08-18",
+      shareClass: "Common",
+      shareBasis: { key: "issuer-original", unitsPerOriginal: units },
+    });
+    await page.unrouteAll();
+  }
+});
+
 test("Tokenfolio waits for each drawer URL to open and clear before associating agreements", async ({
   isMobile,
   page,

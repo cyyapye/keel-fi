@@ -200,6 +200,7 @@ type CaptureRow = {
   identityKey: string;
   providerInvestmentId: string;
   sharePrices?: {
+    shareBasis?: { key: string; unitsPerOriginal: number } | null;
     costMicros: number | null;
     markMicros: number | null;
     markDate: string | null;
@@ -1424,8 +1425,20 @@ async function captureTokenfolio(
       }
     }
     const shareClass = await readOptional(/^Share class$/iu);
+    const basisText = await readOptional(
+      /^(?:Share basis|Price basis|Stock split basis)$/iu,
+    );
+    const shareBasis =
+      basisText && /^(?:pre[- ]split|before split)$/iu.test(basisText)
+        ? { key: "issuer-original", unitsPerOriginal: 1 }
+        : basisText &&
+            /^(?:post[- ]split|after) 10[- ](?:for|to)[- ]1(?: split)?$/iu.test(
+              basisText,
+            )
+          ? { key: "issuer-original", unitsPerOriginal: 10 }
+          : null;
     const capturedRow: CaptureRow = {
-      sharePrices: { costMicros, markMicros, markDate, shareClass },
+      sharePrices: { costMicros, markMicros, markDate, shareClass, shareBasis },
       investment: company,
       legalPosition: requiredText(`Tokenfolio position in ${company}`),
       positionType: "SPV",

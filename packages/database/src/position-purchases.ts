@@ -8,6 +8,7 @@ import {
   type AcceptPurchases,
   type PurchaseReceipt,
   calculateValuationFromShares,
+  assessValuationFromShares,
   valuationSharesKey,
   purchaseFeeSummary,
 } from "@keel/domain/position-purchases";
@@ -15,6 +16,7 @@ import {
   AcceptValuationSchema,
   type AcceptValuation,
 } from "@keel/domain/valuation-record";
+import { D1PriceProxyRepository } from "./price-proxies";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
 
 export class PositionPurchaseError extends Error {
@@ -173,8 +175,20 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       const evidence = await this.valuationEvidence(subject, positionId);
       if (record.sourceEvidenceId) {
         const source = evidence.prices.find(
-          (p) => p.id === record.sourceEvidenceId,
+          (p) =>
+            p.id === record.sourceEvidenceId ||
+            p.id === `import:${record.sourceEvidenceId}`,
         );
+        const linkedGpSource =
+          source && record.origin === "gp" && source.positionId !== positionId
+            ? await this.db
+                .prepare(
+                  `SELECT 1 FROM holding_position_link_heads
+                WHERE target_position_id=? AND source_position_id=? AND state='linked' AND use_source_value=1`,
+                )
+                .bind(positionId, source.positionId)
+                .first()
+            : null;
         if (
           !source ||
           source.positionId !== record.sourcePositionId ||
@@ -182,7 +196,10 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
           source.markMicros !== record.priceMicros ||
           source.markDate !== record.priceDate ||
           source.shareClass !== record.shareClass ||
+          JSON.stringify(source.shareBasis ?? null) !==
+            JSON.stringify(record.shareBasis ?? null) ||
           (source.positionId !== positionId &&
+            !linkedGpSource &&
             (record.origin !== "proxy" || record.totalMinor !== null))
         )
           throw new PositionPurchaseError(
@@ -209,7 +226,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       prior?.snapshotId ??
       input.expectedSnapshotId;
     const calculation =
-      investmentSnapshotId === input.expectedSnapshotId
+      record.followSource || investmentSnapshotId === input.expectedSnapshotId
         ? calculateValuationFromShares(details, record)
         : null;
     if (
@@ -218,7 +235,12 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
     )
       throw new PositionPurchaseError(
         "unsupported",
-        "This valuation needs supported, dated shares in Investment.",
+        (() => {
+          const result = assessValuationFromShares(details, record);
+          return result.ok
+            ? "The investment source changed. Review its share coverage in Investment."
+            : result.message;
+        })(),
       );
     const preserved = [...(details.valuation?.records ?? [])];
     const reported = details.investmentTerms?.reportedValueReview;
@@ -250,7 +272,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         "unsupported",
         "Edit an existing valuation source.",
       );
-    return this.append(subject, positionId, {
+    const receipt = await this.append(subject, positionId, {
       expectedSnapshotId: input.expectedSnapshotId,
       expectedReceiptId: input.expectedReceiptId,
       expectedTermsId: input.expectedTermsId,
@@ -271,9 +293,22 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
             sharesKey:
               input.method === "shares" ? valuationSharesKey(details) : null,
           },
+          ...(record.followSource && calculation
+            ? {
+                calculation: {
+                  policy: "linked-price-proxy-v1" as const,
+                  quoteId: record.sourceEvidenceId!,
+                  quantityReceiptId: prior!.id,
+                  ...calculation,
+                },
+              }
+            : {}),
         },
       },
     });
+    if (record.origin === "gp" && record.priceMicros !== null)
+      await new D1PriceProxyRepository(this.db).refresh(subject);
+    return receipt;
   }
   async valuationEvidence(subject: string, positionId: string) {
     const prices = await this.evidence(subject, positionId);
@@ -296,8 +331,8 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
     });
   }
   async evidence(subject: string, positionId: string) {
-    // Materialize related IDs and their latest applications once. CROSS JOIN
-    // keeps D1 from starting at all source history and multiplying legal positions.
+    // Only accepted source heads: history growth cannot multiply this read.
+    // Related IDs require reviewed issuer mappings, never name matching.
     const result = await this.db
       .prepare(
         `
@@ -316,28 +351,27 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       ), related_ids AS MATERIALIZED (
         SELECT id,household_id FROM target
         UNION
+        SELECT l.source_position_id,l.household_id FROM target t
+        CROSS JOIN holding_position_link_heads l ON l.target_position_id=t.id AND l.household_id=t.household_id
+          AND l.state='linked' AND l.use_source_value=1
+        UNION
         SELECT m.position_id,m.household_id FROM related_exposures related_exposure
         CROSS JOIN holding_position_exposure_heads m ON m.household_id=related_exposure.household_id AND m.exposure_id=related_exposure.id AND m.status='active'
       ), related AS MATERIALIZED (
-        SELECT p.id,p.household_id,p.legal_vehicle_name FROM related_ids related_id
+        SELECT p.id,p.household_id,p.legal_vehicle_name,p.provider FROM related_ids related_id
         CROSS JOIN holding_positions p ON p.id=related_id.id AND p.household_id=related_id.household_id
-      ), latest AS MATERIALIZED (
-        SELECT related_position.*, (SELECT candidate.id FROM holding_import_applications candidate
-          JOIN holding_position_snapshots cs ON cs.id=candidate.snapshot_id
-          WHERE candidate.position_id=related_position.id
-          ORDER BY candidate.applied_at DESC,cs.observed_at DESC,candidate.id DESC LIMIT 1) application_id
-        FROM related related_position
-        WHERE NOT EXISTS (SELECT 1 FROM holding_position_continuities c WHERE c.predecessor_position_id=related_position.id)
       )
-      SELECT e.import_row_id id,priced_position.id positionId,priced_position.legal_vehicle_name positionLabel,
-        CASE i.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' ELSE i.provider END sourceLabel,
-        s.observed_at observedAt,i.created_at capturedAt,e.evidence_json
-      FROM latest priced_position CROSS JOIN holding_import_applications a ON a.id=priced_position.application_id
-      CROSS JOIN holding_position_snapshots s ON s.id=a.snapshot_id
-      CROSS JOIN holding_import_share_prices e ON e.import_row_id=a.import_row_id AND e.household_id=priced_position.household_id
-      CROSS JOIN holding_import_rows r ON r.id=e.import_row_id
-      CROSS JOIN holding_imports i ON i.id=r.import_id
-      ORDER BY s.observed_at DESC,e.import_row_id LIMIT 120
+      SELECT q.id,priced_position.id positionId,priced_position.legal_vehicle_name positionLabel,
+        CASE priced_position.provider WHEN 'tokenfolio' THEN 'Tokenfolio' ELSE q.source_label END sourceLabel,q.observed_at observedAt,q.observed_at capturedAt,
+        json_object('costMicros',json_extract(e.evidence_json,'$.costMicros'),
+          'markMicros',q.price_micros,'markDate',q.price_date,'shareClass',q.share_class,
+          'shareBasis',json(q.basis_json),'priceSourcePositionId',q.source_position_id) evidence_json
+      FROM related priced_position
+      CROSS JOIN holding_price_source_heads head ON head.source_position_id=priced_position.id AND head.household_id=priced_position.household_id
+      CROSS JOIN holding_price_quotes q ON q.id=COALESCE(head.quote_id,head.observation_id)
+      LEFT JOIN holding_import_share_prices e ON e.import_row_id=q.import_row_id
+      WHERE NOT EXISTS(SELECT 1 FROM holding_position_continuities c WHERE c.predecessor_position_id=priced_position.id)
+      ORDER BY q.price_date DESC,q.accepted_at DESC,q.id LIMIT 120
     `,
       )
       .bind(subject, positionId)
@@ -448,11 +482,35 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
               );
       }
     }
+    const selectedRecord = prior?.details.valuation?.records.find(
+      (r) => r.id === prior.details.valuation?.selected?.recordId,
+    );
     if (
       prior?.details.valuation?.selected?.method === "shares" &&
       valuationSharesKey(input.details) !== valuationSharesKey(prior.details)
     )
-      input.details.valuation = { ...prior.details.valuation, selected: null };
+      if (selectedRecord?.followSource) {
+        const result = assessValuationFromShares(input.details, selectedRecord);
+        if (!result.ok)
+          throw new PositionPurchaseError("unsupported", result.message);
+        input.details.valuation = {
+          ...prior.details.valuation,
+          selected: {
+            ...prior.details.valuation.selected,
+            sharesKey: valuationSharesKey(input.details),
+          },
+          calculation: {
+            policy: "linked-price-proxy-v1",
+            quoteId: selectedRecord.sourceEvidenceId!,
+            quantityReceiptId: prior.id,
+            ...result.calculation,
+          },
+        };
+      } else
+        input.details.valuation = {
+          ...prior.details.valuation,
+          selected: null,
+        };
     return this.append(subject, positionId, input);
   }
 
@@ -493,7 +551,9 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       for (const lot of referenced) {
         const mark = lot.mark!;
         const source = evidence.find(
-          (item) => item.id === mark.sourceEvidenceId,
+          (item) =>
+            item.id === mark.sourceEvidenceId ||
+            item.id === `import:${mark.sourceEvidenceId}`,
         );
         if (
           !source ||
@@ -525,6 +585,12 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       details: input.details,
       acceptedAt: new Date().toISOString(),
     });
+    if (
+      receipt.details.valuation?.calculation &&
+      input.details.investmentSnapshotId === input.expectedSnapshotId
+    ) {
+      receipt.details.valuation.calculation.quantityReceiptId = receipt.id;
+    }
     try {
       await this.db
         .prepare(

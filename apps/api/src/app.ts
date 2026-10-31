@@ -1,3 +1,4 @@
+import { D1PriceProxyRepository } from "@keel/database";
 import { AcceptPositionLinkSchema } from "@keel/domain/position-links";
 import { D1PositionLinkRepository, PositionLinkError } from "@keel/database";
 import { searchIssuerEvidence } from "./public-company-search";
@@ -2875,6 +2876,13 @@ export function createApp(options: AppOptions = {}) {
       query.success ? query.data : undefined,
     );
     return context.json(history, 200, { "Cache-Control": "private, no-store" });
+  });
+
+  app.post("/api/valuation-proxies/refresh", async (context) => {
+    const result = await new D1PriceProxyRepository(context.env.DB).refresh(
+      context.get("identity").subject,
+    );
+    return context.json(result, 200, { "Cache-Control": "private, no-store" });
   });
 
   app.post(

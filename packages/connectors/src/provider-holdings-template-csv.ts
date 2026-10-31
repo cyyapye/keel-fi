@@ -1,3 +1,4 @@
+import { ShareBasisSchema } from "@keel/domain/valuation-record";
 import {
   IsoDateSchema,
   NonNegativeMoneyMinorSchema,
@@ -51,6 +52,7 @@ const LEGACY_SYDECAR_HOLDINGS_TEMPLATE_CSV_PREAMBLE =
 
 export const ProviderSharePricesSchema = z
   .object({
+    shareBasis: ShareBasisSchema.nullable().optional(),
     costMicros: z
       .number()
       .int()

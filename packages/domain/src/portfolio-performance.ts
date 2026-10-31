@@ -113,7 +113,11 @@ export function calculatePortfolioPerformance(
     const record = records.get(position.id);
     const investment = position.reviewedInvestment;
     const reviewed =
-      investment?.snapshotId === position.snapshotId ? investment : undefined;
+      investment &&
+      (investment.appliesUntilSuperseded ||
+        investment.snapshotId === position.snapshotId)
+        ? investment
+        : undefined;
     const supportedValue =
       position.valueState === "reported" &&
       position.valueMinor !== null &&

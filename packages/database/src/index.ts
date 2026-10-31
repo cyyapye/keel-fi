@@ -78,6 +78,7 @@ export * from "./plan-actual-monitoring";
 export * from "./position-value-adjustments";
 export * from "./position-economics";
 export * from "./position-purchases";
+export * from "./price-proxies";
 export * from "./legal-entities";
 export * from "./investment-review";
 export * from "./automatic-investment-review";

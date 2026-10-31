@@ -256,7 +256,8 @@ export function positionContributionBasis(input: {
   const context = input.economicsContext;
   const reviewed = context?.reviewedInvestment;
   if (reviewed)
-    return reviewed.snapshotId === context?.snapshotId
+    return reviewed.appliesUntilSuperseded ||
+      reviewed.snapshotId === context?.snapshotId
       ? reviewed.cashPaidMinor
       : null;
   if (context?.acceptedTerms?.capitalBasis === "net_invested") {
@@ -291,7 +292,9 @@ export function calculatePositionPerformance(input: {
   const funded = input.economicsContext?.fundedMinor ?? input.fundedMinor;
   const reviewed = input.economicsContext?.reviewedInvestment;
   const currentReview =
-    reviewed && reviewed.snapshotId === input.economicsContext?.snapshotId
+    reviewed &&
+    (reviewed.appliesUntilSuperseded ||
+      reviewed.snapshotId === input.economicsContext?.snapshotId)
       ? reviewed
       : null;
   const netCapital =

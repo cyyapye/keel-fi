@@ -1,3 +1,4 @@
+import { D1PriceProxyRepository } from "./price-proxies";
 import { reviewedRenameScopes } from "./reviewed-rename-scope";
 import {
   isPlaidInvestmentsFiPlanningSecurityType,
@@ -2151,12 +2152,14 @@ export class D1HoldingImportRepository {
     const identity = await this.findIdentity(accessSubject);
     const importProvider = await this.db
       .prepare(
-        `SELECT provider
+        `SELECT provider, EXISTS(SELECT 1 FROM holding_import_rows price_row
+           JOIN holding_import_share_prices price ON price.import_row_id=price_row.id
+           WHERE price_row.import_id=holding_imports.id) has_share_prices
          FROM holding_imports
          WHERE id = ? AND household_id = ?`,
       )
       .bind(importId, identity.household_id)
-      .first<{ provider: string }>();
+      .first<{ provider: string; has_share_prices: number }>();
     if (importProvider === null) {
       throw new Error("Holding import not found.");
     }
@@ -2268,6 +2271,8 @@ export class D1HoldingImportRepository {
         accessSubject,
         importId,
       );
+      if (importProvider.has_share_prices)
+        await new D1PriceProxyRepository(this.db).refresh(accessSubject);
       return this.getApplyResult(identity.household_id, importId);
     }
     if (
@@ -2638,6 +2643,8 @@ export class D1HoldingImportRepository {
       accessSubject,
       importId,
     );
+    if (importProvider.has_share_prices)
+      await new D1PriceProxyRepository(this.db).refresh(accessSubject);
     return this.getApplyResult(identity.household_id, importId);
   }
 

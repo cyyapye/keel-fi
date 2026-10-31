@@ -17,6 +17,13 @@ export async function seedCostHoldings(
     status?: "Live" | "Realized";
     investedMinor?: number;
     allocationMinor?: number;
+    sharePrices?: {
+      costMicros: number | null;
+      markMicros: number | null;
+      markDate: string | null;
+      shareClass: string | null;
+      shareBasis?: { key: string; unitsPerOriginal: number } | null;
+    };
   } = {},
 ) {
   const legacyConnectionId = "reconciled-holding-connection-v1:hh_demo:sydecar";
@@ -42,6 +49,9 @@ export async function seedCostHoldings(
     { length: 120 },
     (_, index) => ({
       rowNumber: index + 3,
+      ...(observations.sharePrices
+        ? { providerInvestmentId: `synthetic-price-${index}` }
+        : {}),
       naturalKeySha256: syntheticDigest(index + 1),
       companyOrFund: `Synthetic cost company ${index}`,
       fundName: `Synthetic cost SPV ${index}`,
@@ -63,6 +73,9 @@ export async function seedCostHoldings(
       market: null,
       positionKind: "spv_interest",
       dealMetadata: {
+        ...(observations.sharePrices
+          ? { sharePrices: observations.sharePrices }
+          : {}),
         allocationMinor: observations.allocationMinor ?? 100_000,
         instrument: "Membership interest",
         roundSizeMinor: null,
@@ -70,15 +83,15 @@ export async function seedCostHoldings(
         valuationOrCapMinor: null,
         discount: null,
         carry: null,
-        managementFeePpm: 0,
-        carryPpm: 0,
+        managementFeePpm: observations.sharePrices ? null : 0,
+        carryPpm: observations.sharePrices ? null : 0,
         shareClass: null,
       },
     }),
   );
   const input: HoldingImportStageInput = {
-    provider: "sydecar",
-    formatVersion: 2,
+    provider: observations.sharePrices ? "tokenfolio" : "sydecar",
+    formatVersion: observations.sharePrices ? 4 : 2,
     objectKey: `synthetic-cost/${subject}/${revision}.csv`,
     sha256: syntheticDigest(revision + 20_000),
     byteSize: 120_000,
@@ -90,8 +103,8 @@ export async function seedCostHoldings(
         mode: "ensure",
         adapterType: "manual",
         protectedSourceKey: "9".repeat(64),
-        institutionKey: "sydecar",
-        institutionLabel: "Sydecar",
+        institutionKey: observations.sharePrices ? "tokenfolio" : "sydecar",
+        institutionLabel: observations.sharePrices ? "Tokenfolio" : "Sydecar",
         lifecycleState: "pending",
         credentialReference: null,
       },

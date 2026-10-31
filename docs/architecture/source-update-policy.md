@@ -470,7 +470,7 @@ capital refunds reduce that basis and are excluded from return distributions;
 unknown inclusion keeps return pending. Source investment amounts with an
 unknown gross/net basis never become net capital automatically.
 
-### Explicit proxy share estimates
+### Legacy one-time proxy share estimates
 
 A reviewer can choose **Use as proxy estimate** on imported per-share evidence
 when it is the closest available price. The purchase review records the source
@@ -489,3 +489,53 @@ manual values retain precedence. Later source evidence does not silently reprice
 the proxy; changing it requires another recorded purchase decision. Migration
 `0076` must precede the API/web release. Read and write query budgets are
 unchanged.
+
+### Linked price proxy method
+
+The valuation editor can explicitly select a persistent source with
+`linked-price-proxy-v1`. Migration `0086` projects accepted import prices and
+reviewed GP price corrections into an immutable quote ledger keyed by the stable
+provider position. A reviewed link resolves a visible holding back to that
+source; unrelated company labels never establish comparability. Reported
+balance, price, quantity and observation dates remain independent. A price
+correction never updates or re-dates the source holding's reported dollar
+balance.
+
+The user's source selection authorizes subsequent deterministic calculations,
+not changes to accepted cash, refunds, fees, carry or investment identity. Each
+calculation appends a purchase receipt with the quote and quantity receipt IDs,
+policy, normalized quantity and integer minor-unit value. It preserves manual
+valuation records but the selected proxy controls the current value until a new
+recorded selection supersedes it. The reviewed quantity and investment terms
+remain applicable across balance observations until superseded; a new quote does
+not require the same quantity to be entered with a later date.
+
+Documented estimated shares retain their status, derivation, evidence, effective
+date and split basis. A confirmed replacement supersedes that lot instead of
+adding another allocation. Different share classes require an explicit
+indicative-proxy decision and remain separately classified. Quantity and quote
+bases use ratios to the same original issuer basis. Normalize their ratio with
+integer arithmetic once, then round the final currency amount; never rescale
+reported dollar balances or persist a second split-adjusted allocation.
+
+The existing scheduled Tokenfolio capture includes per-share prices and any
+explicit mark date, share class and split basis supplied by the portal. Unknown
+metadata remains unknown, including when an email or reviewed correction has a
+known date that the portal does not supply. There is no automatic email reader.
+Accepted imports and reviewed price corrections invoke bounded write-side
+recalculation. Newer dated quotes advance the source; a same-date reviewed
+correction may supersede it. Older or undated observations cannot replace a
+dated quote. A changed price with missing or incompatible inputs retains the
+last valid estimate and exposes a stale source with observation and successful
+sync times. The user can correct source metadata through the existing valuation
+editor; failed source syncs use the existing Sources recovery controls.
+
+A failed propagation can be retried by replaying the accepted import or the
+authenticated `POST /api/valuation-proxies/refresh` maintenance operation.
+Compare-and-swap guards preserve concurrent user edits and reject changed
+quotes. GETs only read projections. Relationships are capped at 500 per
+household; the 120-position real-D1 holdout grows tied observation history and
+an unrelated household and enforces two round trips, at most 6,000 rows read and
+1,000 rows written, including integrity triggers and index maintenance. A no-op
+uses one round trip and writes nothing. This method does not alter provider
+schedules or acceptance boundaries.

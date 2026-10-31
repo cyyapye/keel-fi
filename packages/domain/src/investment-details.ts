@@ -27,6 +27,7 @@ export const InvestmentTermsSchema = z
   .strict();
 
 export const ReviewedInvestmentSchema = z.object({
+  appliesUntilSuperseded: z.literal(true).optional(),
   snapshotId: z.string().min(1),
   receiptId: z.string().min(1),
   cashPaidMinor: money.nullable(),

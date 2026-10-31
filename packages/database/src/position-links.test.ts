@@ -12,6 +12,7 @@ import { D1PositionPurchaseRepository } from "./position-purchases";
 import { D1HoldingsPageRepository } from "./holdings-page";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
+import { gpRecord } from "../../../apps/web/src/holding-value";
 import type { AcceptPositionLink } from "@keel/domain/position-links";
 let db: LegalDocumentTestD1;
 let repo: D1PositionLinkRepository;
@@ -332,4 +333,70 @@ it("removes reviewed duplicate baseline contributions without rewriting prior ba
       )
       .get(refreshed.latestBaseline!.id, link.sourcePositionId)?.n,
   ).toBe(0);
+});
+
+it("keeps a reviewed price on the provider identity when its visible linked holding is edited", async () => {
+  const linked = await input("Demo Atlas AI source", "Demo Atlas II SPV");
+  await repo.accept(LINK_DEMO_SUBJECT, linked);
+  const purchases = new D1PositionPurchaseRepository(db.asD1());
+  const page = await new D1HoldingsPageRepository(db.asD1()).getPage(
+    LINK_DEMO_SUBJECT,
+    "available",
+  );
+  const holding = page.holdings.find((h) => h.id === linked.targetPositionId)!;
+  const record = {
+    ...gpRecord(holding),
+    priceMicros: 200_000_000,
+    priceDate: "2026-09-10",
+    shareClass: "Common",
+    shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+    priceSourcePositionId: linked.sourcePositionId,
+  };
+  const first = await purchases.acceptValuation(
+    LINK_DEMO_SUBJECT,
+    linked.targetPositionId,
+    {
+      expectedSnapshotId: linked.expectedTargetSnapshotId,
+      expectedReceiptId: null,
+      record,
+      method: "total",
+    },
+  );
+  const quote = (
+    await purchases.valuationEvidence(
+      LINK_DEMO_SUBJECT,
+      linked.targetPositionId,
+    )
+  ).prices.find((q) => q.positionId === linked.sourcePositionId)!;
+  expect(quote).toMatchObject({
+    markMicros: 200_000_000,
+    markDate: "2026-09-10",
+    sourceLabel: "Tokenfolio",
+  });
+  const second = await purchases.acceptValuation(
+    LINK_DEMO_SUBJECT,
+    linked.targetPositionId,
+    {
+      expectedSnapshotId: linked.expectedTargetSnapshotId,
+      expectedReceiptId: first.id,
+      record: {
+        ...record,
+        sourceEvidenceId: quote.id,
+        sourcePositionId: quote.positionId,
+        sourceCapturedAt: quote.capturedAt,
+      },
+      method: "total",
+    },
+  );
+  expect(second.details.valuation!.records[0]!.totalMinor).toBe(4_200_000);
+  expect(second.details.valuation!.records[0]!.effectiveDate).toBe(
+    record.effectiveDate,
+  );
+  expect(
+    db.sqlite
+      .prepare(
+        "SELECT source_position_id FROM holding_price_quotes WHERE review_id=?",
+      )
+      .get(first.id)?.source_position_id,
+  ).toBe(linked.sourcePositionId);
 });

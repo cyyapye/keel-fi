@@ -224,7 +224,9 @@ export function InvestmentCalculationPreview({
   compact?: boolean;
   capitalSummary?: CapitalSummary | null;
 }) {
-  const current = reviewed.snapshotId === currentSnapshotId;
+  const current =
+    reviewed.appliesUntilSuperseded ||
+    reviewed.snapshotId === currentSnapshotId;
   const money = (n: number | null) =>
     n === null || !current ? "Unknown" : formatCurrency(n, "USD");
   const summaryMoney = (n: number) =>

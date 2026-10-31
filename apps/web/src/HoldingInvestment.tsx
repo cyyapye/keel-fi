@@ -120,6 +120,10 @@ type LotDraft = {
   price: string;
   shares: string;
   shareDate: string;
+  quantityStatus: string;
+  quantityDerivation: string;
+  quantityEvidence: string;
+  shareBasis: string;
   shareClass: string;
   date: string;
   source: string;
@@ -164,6 +168,12 @@ const draftLot = (lot: PurchaseLot): LotDraft => {
     price: decimal(lot.priceMicros, 6),
     shares: decimal(lot.remainingSharesMicros, 6),
     shareDate: lot.sharesAsOf ?? "",
+    quantityStatus: lot.quantityDetails?.status ?? "",
+    quantityDerivation: lot.quantityDetails?.derivation ?? "",
+    quantityEvidence: lot.quantityDetails?.evidence ?? "",
+    shareBasis: lot.quantityDetails
+      ? String(lot.quantityDetails.shareBasis.unitsPerOriginal)
+      : "",
     shareClass: lot.shareClass ?? "",
     date: lot.purchasedOn ?? "",
     source: lot.sourceLabel ?? "",
@@ -239,6 +249,22 @@ function parsedLot(d: LotDraft) {
       : undefined,
     priceMicros: scaled(d.price, 6),
     remainingSharesMicros: scaled(d.shares, 6),
+    quantityDetails:
+      d.quantityStatus ||
+      d.shareBasis ||
+      d.quantityDerivation ||
+      d.quantityEvidence
+        ? {
+            status: d.quantityStatus,
+            derivation: d.quantityDerivation,
+            evidence: d.quantityEvidence || null,
+            shareBasis: {
+              key:
+                d.original.quantityDetails?.shareBasis.key ?? "issuer-original",
+              unitsPerOriginal: Number(d.shareBasis),
+            },
+          }
+        : undefined,
     sharesAsOf: d.shareDate || null,
     shareClass: d.shareClass || null,
     purchasedOn: d.date || null,
@@ -283,6 +309,11 @@ export function HoldingInvestment({
   const receipt = context.receipt;
   const staleInvestment =
     receipt &&
+    !receipt.details.valuation?.records.some(
+      (r) =>
+        r.id === receipt.details.valuation?.selected?.recordId &&
+        r.followSource,
+    ) &&
     (receipt.details.investmentSnapshotId ?? receipt.snapshotId) !==
       context.snapshotId;
   const terms = receipt?.details.investmentTerms ?? unknownInvestmentTerms();
@@ -647,6 +678,45 @@ export function HoldingInvestment({
                         value={d.shareDate}
                         onChange={(v) => update(i, "shareDate", v)}
                       />
+                      <HoldingSelect
+                        label="Quantity status"
+                        value={d.quantityStatus}
+                        onChange={(v) => update(i, "quantityStatus", v)}
+                        options={[
+                          { value: "", label: "Not documented" },
+                          { value: "estimated", label: "Estimated shares" },
+                          { value: "confirmed", label: "Confirmed allocation" },
+                        ]}
+                      />
+                      <HoldingSelect
+                        label="Quantity share basis"
+                        value={d.shareBasis}
+                        onChange={(v) => update(i, "shareBasis", v)}
+                        options={[
+                          { value: "", label: "Not documented" },
+                          { value: "1", label: "Before split" },
+                          { value: "10", label: "After 10-for-1 split" },
+                          ...(d.shareBasis &&
+                          !["1", "10"].includes(d.shareBasis)
+                            ? [
+                                {
+                                  value: d.shareBasis,
+                                  label: `${d.shareBasis} shares per original share`,
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+                      <HoldingInput
+                        label="Quantity derivation"
+                        value={d.quantityDerivation}
+                        onChange={(v) => update(i, "quantityDerivation", v)}
+                      />
+                      <HoldingInput
+                        label="Quantity evidence"
+                        value={d.quantityEvidence}
+                        onChange={(v) => update(i, "quantityEvidence", v)}
+                      />
                       <HoldingInput
                         label="Purchase source"
                         value={d.source}
@@ -866,7 +936,11 @@ function InvestmentFacts({ lot }: { lot: PurchaseLot }) {
       )}
       {shares && (
         <DataItem
-          label="Shares"
+          label={
+            lot.quantityDetails?.status === "estimated"
+              ? "Estimated shares"
+              : "Shares"
+          }
           value={
             <>
               {decimal(shares.quantityMicros, 6)}
