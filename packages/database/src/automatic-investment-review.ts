@@ -25,9 +25,13 @@ import {
   investmentEvidenceRevision,
   investmentCompanyEvidenceRevision,
 } from "@keel/domain/investment-review";
-import { exactLegalEntityTypeFromName } from "@keel/domain/legal-entities";
+import {
+  exactLegalEntityTypeFromName,
+  type LegalEntityType,
+} from "@keel/domain/legal-entities";
 import {
   LegalEntityNameEvidenceSchema,
+  importedLegalEntityNameEvidence,
   reviewedInvestmentNameEvidence,
 } from "@keel/domain/position-read-model";
 import {
@@ -45,6 +49,7 @@ type Row = {
   provider: string;
   position_kind: string;
   legal_vehicle_name: string;
+  imported_legal_vehicle_name: string;
   exposure_label: string;
   owner_label: string;
   currency: string;
@@ -102,6 +107,12 @@ type Company = {
   aliases_json?: string;
 };
 type JsonRow = Record<string, string | number | null>;
+type NamedEntity = {
+  legal_name: string;
+  legal_entity_id: string;
+  entity_version_id: string;
+  entity_type: LegalEntityType;
+};
 
 // D1 caps each bound string at 2 MB. Keep JSON bindings below that limit,
 // including UTF-8 expansion, while retaining one atomic database batch.
@@ -131,7 +142,7 @@ export function automaticReviewJsonBatches(
 }
 
 // A bounded write-side projection. These queries never run on a GET path.
-const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_name, p.owner_label, p.currency, p.opened_on,
+const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_name, r.legal_vehicle_name imported_legal_vehicle_name, p.owner_label, p.currency, p.opened_on,
   a.id application_id, r.import_id, r.exposure_label, s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status, s.observed_at,
   provider_identity.provider_investment_id, observation.id observation_id,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) <= 131072 THEN observation.evidence_json ELSE NULL END evidence_json,
@@ -176,7 +187,11 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
       SELECT 1 FROM holding_position_economics_proposals later JOIN holding_position_economics_reviews accepted_later ON accepted_later.proposal_id = later.id AND accepted_later.decision = 'accepted' WHERE later.supersedes_proposal_id = proposal.id
     ) ORDER BY accepted.decided_at DESC, proposal.id DESC LIMIT 1)
   LEFT JOIN holding_position_economics_reviews terms_review ON terms_review.proposal_id = terms.id AND terms_review.decision = 'accepted'
-  WHERE p.household_id = ? AND p.position_kind <> 'direct' AND p.id > ?
+  WHERE p.household_id = ? AND p.id > ?
+    AND (p.position_kind <> 'direct' OR (p.provider = 'wefunder' AND (
+      decision.id IS NOT NULL OR EXISTS (SELECT 1 FROM legal_entity_name_heads named
+        WHERE named.household_id = p.household_id AND named.legal_name = r.legal_vehicle_name)
+    )))
     AND (? IS NULL OR r.import_id = ?)
     AND NOT EXISTS (SELECT 1 FROM holding_position_continuities WHERE predecessor_position_id = p.id)
   ORDER BY p.id LIMIT ?`;
@@ -247,13 +262,12 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         LegalEntityNameEvidenceSchema.parse(
           row.evidence_json !== null
             ? JSON.parse(row.evidence_json)
-            : row.provider === "angellist"
-              ? {
-                  state: "provider_reported",
-                  legalName: row.legal_vehicle_name,
-                  sourceField: "Fund Name",
-                }
-              : { state: "unavailable", legalName: null, sourceField: null },
+            : importedLegalEntityNameEvidence(
+                row.provider,
+                row.provider === "wefunder"
+                  ? row.imported_legal_vehicle_name
+                  : row.legal_vehicle_name,
+              ),
         ),
       ]),
     );
@@ -273,10 +287,28 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
     const [entities, companies, mappings, incoming] = await Promise.all([
       this.db
         .prepare(
-          `SELECT names.value legal_name, (SELECT legal_entity_id FROM legal_entity_versions WHERE household_id = ? AND legal_name = names.value ORDER BY legal_entity_id LIMIT 1) legal_entity_id FROM json_each(?) names`,
+          `SELECT names.value legal_name, current.legal_entity_id, current.version_id entity_version_id, current.entity_type,
+            EXISTS (SELECT 1 FROM legal_entity_versions historical WHERE historical.household_id = ? AND historical.legal_name = names.value) historical_name
+            FROM json_each(?) names LEFT JOIN legal_entity_name_heads current
+              ON current.legal_entity_id IN (
+                SELECT candidate.legal_entity_id FROM legal_entity_name_heads candidate
+                WHERE candidate.household_id = ? AND candidate.legal_name = names.value
+                ORDER BY candidate.legal_entity_id LIMIT 2
+              )
+            ORDER BY names.value, current.legal_entity_id`,
         )
-        .bind(identity.household_id, JSON.stringify(names))
-        .all<{ legal_name: string; legal_entity_id: string | null }>(),
+        .bind(
+          identity.household_id,
+          JSON.stringify(names),
+          identity.household_id,
+        )
+        .all<{
+          legal_name: string;
+          legal_entity_id: string | null;
+          entity_version_id: string | null;
+          entity_type: LegalEntityType | null;
+          historical_name: number;
+        }>(),
       loadCompanyIdentityChoices(this.db, identity.household_id).then(
         (results) => ({ results }),
       ),
@@ -324,12 +356,30 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
       ]),
     );
     const entityIdsByName = new Map<string, string[]>();
-    for (const entity of entities.results)
-      if (entity.legal_entity_id !== null)
+    const currentEntitiesByName = new Map<string, NamedEntity[]>();
+    const historicalNames = new Set<string>();
+    for (const entity of entities.results) {
+      if (entity.historical_name) historicalNames.add(entity.legal_name);
+      if (
+        entity.legal_entity_id !== null &&
+        entity.entity_version_id !== null &&
+        entity.entity_type !== null
+      ) {
         entityIdsByName.set(entity.legal_name, [
           ...(entityIdsByName.get(entity.legal_name) ?? []),
           entity.legal_entity_id,
         ]);
+        currentEntitiesByName.set(entity.legal_name, [
+          ...(currentEntitiesByName.get(entity.legal_name) ?? []),
+          {
+            legal_name: entity.legal_name,
+            legal_entity_id: entity.legal_entity_id,
+            entity_version_id: entity.entity_version_id,
+            entity_type: entity.entity_type,
+          },
+        ]);
+      }
+    }
     const candidateNames = new Map<string, number>();
     for (const value of evidence.values())
       if (value.legalName !== null)
@@ -434,8 +484,9 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         resolvedName,
       );
       const guard = {
-        // Recover accepted exact-company decisions without reopening optional fees.
-        evaluationVersion: 5,
+        // Re-evaluate legacy Wefunder name evidence while preserving exact-company
+        // recovery and the separate optional-fee review boundary.
+        evaluationVersion: 7,
         reportedCompanyIds: (
           companiesByName.get(companyNameKey(row.exposure_label)) ?? []
         )
@@ -469,6 +520,14 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
           .sort((a, b) => a.id.localeCompare(b.id)),
         namedEntityIds:
           legalName === null ? [] : (entityIdsByName.get(legalName) ?? []),
+        namedEntityVersions:
+          legalName === null
+            ? []
+            : (currentEntitiesByName.get(legalName) ?? []).map((entity) => ({
+                id: entity.legal_entity_id,
+                versionId: entity.entity_version_id,
+                entityType: entity.entity_type,
+              })),
         namedCompanyIds:
           companyChoice === null
             ? []
@@ -498,6 +557,10 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
       const policyId = crypto.randomUUID();
       const entityType =
         legalName === null ? null : exactLegalEntityTypeFromName(legalName);
+      const matchingEntities =
+        legalName === null ? [] : (currentEntitiesByName.get(legalName) ?? []);
+      const existingEntity =
+        matchingEntities.length === 1 ? matchingEntities[0]! : null;
       if (row.entity_decision_id !== null) {
         if (identityConflict)
           issues.push(
@@ -509,10 +572,58 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
           );
         else resolved.push("identity");
       } else if (
+        row.provider === "wefunder" &&
+        originalEvidence.state === "template_reported" &&
+        legalName === row.imported_legal_vehicle_name &&
+        existingEntity !== null &&
+        (entityType === null || entityType === existingEntity.entity_type) &&
+        !row.evidence_oversized &&
+        guard.incoming.length === 0 &&
+        documents.length === 0
+      ) {
+        const sourceDecisionId = crypto.randomUUID();
+        details.existingIdentity = {
+          policy: "wefunder-legal-entity-exact-v1",
+          legalName,
+          sourceDecisionId,
+          entityId: existingEntity.legal_entity_id,
+          entityVersionId: existingEntity.entity_version_id,
+          entityType: existingEntity.entity_type,
+        };
+        add("legal_entity_source_decisions", {
+          id: sourceDecisionId,
+          household_id: identity.household_id,
+          source_kind: "holding_position",
+          source_reference: row.id,
+          source_name: row.imported_legal_vehicle_name,
+          source_label: "Wefunder template",
+          source_as_of: row.observed_at.slice(0, 10),
+          relationship:
+            row.position_kind === "direct"
+              ? "direct_interest"
+              : "investment_vehicle",
+          current_owner: row.owner_label,
+          interest_status:
+            row.provider_status === "live" ? "current" : "historical",
+          opened_on: row.opened_on,
+          decision: "linked",
+          legal_entity_id: existingEntity.legal_entity_id,
+          version: 1,
+          supersedes_decision_id: null,
+          decided_by_user_id: identity.user_id,
+          decided_at: recordedAt,
+          immutable: 1,
+          decision_source: "policy",
+          automatic_review_id: policyId,
+        });
+        finalGuard.entityDecisionId = sourceDecisionId;
+        finalGuard.entityVersionId = existingEntity.entity_version_id;
+        resolved.push("identity");
+      } else if (
         legalName !== null &&
         !row.evidence_oversized &&
         entityType !== null &&
-        !entityIdsByName.has(legalName) &&
+        !historicalNames.has(legalName) &&
         candidateNames.get(legalName) === 1 &&
         guard.incoming.length === 0 &&
         (originalEvidence.state === "provider_reported" ||
@@ -580,6 +691,9 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         finalGuard.entityDecisionId = sourceDecisionId;
         finalGuard.entityVersionId = entityVersionId;
         finalGuard.namedEntityIds = [entityId];
+        finalGuard.namedEntityVersions = [
+          { id: entityId, versionId: entityVersionId, entityType },
+        ];
         resolved.push("identity");
       } else
         issues.push(
@@ -591,6 +705,40 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
               : "Confirm the entity type or whether this is an existing legal vehicle.",
           ),
         );
+
+      const finish = async () => {
+        const summary = AutomaticInvestmentReviewSchema.parse({
+          id: policyId,
+          policyVersion: INVESTMENT_REVIEW_POLICY,
+          snapshotId: row.snapshot_id,
+          evaluatedAt: recordedAt,
+          resolved,
+          issues,
+        });
+        result.changedCount++;
+        if (legalReviewIssues(summary).length === 0) result.resolvedCount++;
+        else result.exceptionCount++;
+        add("automatic_investment_reviews", {
+          id: policyId,
+          household_id: identity.household_id,
+          position_id: row.id,
+          snapshot_id: row.snapshot_id,
+          policy_version: INVESTMENT_REVIEW_POLICY,
+          source_revision: await investmentEvidenceRevision(guard),
+          expected_guard_json: JSON.stringify(guard),
+          result_guard_json: JSON.stringify(finalGuard),
+          summary_json: JSON.stringify(summary),
+          details_json: JSON.stringify(details),
+          version: (row.auto_version ?? 0) + 1,
+          supersedes_id: row.auto_id,
+          recorded_by_user_id: identity.user_id,
+          recorded_at: recordedAt,
+        });
+      };
+      if (row.position_kind === "direct") {
+        await finish();
+        continue;
+      }
 
       if (
         (review?.participationStatus !== "unknown" && review !== null) ||
@@ -1000,33 +1148,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
           ),
         );
       else resolved.push("documents");
-      const summary = AutomaticInvestmentReviewSchema.parse({
-        id: policyId,
-        policyVersion: INVESTMENT_REVIEW_POLICY,
-        snapshotId: row.snapshot_id,
-        evaluatedAt: recordedAt,
-        resolved,
-        issues,
-      });
-      result.changedCount++;
-      if (legalReviewIssues(summary).length === 0) result.resolvedCount++;
-      else result.exceptionCount++;
-      add("automatic_investment_reviews", {
-        id: policyId,
-        household_id: identity.household_id,
-        position_id: row.id,
-        snapshot_id: row.snapshot_id,
-        policy_version: INVESTMENT_REVIEW_POLICY,
-        source_revision: await investmentEvidenceRevision(guard),
-        expected_guard_json: JSON.stringify(guard),
-        result_guard_json: JSON.stringify(finalGuard),
-        summary_json: JSON.stringify(summary),
-        details_json: JSON.stringify(details),
-        version: (row.auto_version ?? 0) + 1,
-        supersedes_id: row.auto_id,
-        recorded_by_user_id: identity.user_id,
-        recorded_at: recordedAt,
-      });
+      await finish();
     }
     const order = [
       "automatic_investment_reviews",
@@ -1080,7 +1202,7 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
           : table === "legal_entity_versions"
             ? `INSERT INTO legal_entity_versions (id, household_id, legal_entity_id, version, legal_name, entity_type, relationship, current_owner, jurisdiction, formed_on, ein_last_four, ownership_interest_ppm, interest_status, tax_classification, notes, supersedes_version_id, recorded_by_user_id, recorded_at, immutable) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.legal_entity_id'), json_extract(value, '$.version'), json_extract(value, '$.legal_name'), json_extract(value, '$.entity_type'), json_extract(value, '$.relationship'), json_extract(value, '$.current_owner'), json_extract(value, '$.jurisdiction'), json_extract(value, '$.formed_on'), json_extract(value, '$.ein_last_four'), json_extract(value, '$.ownership_interest_ppm'), json_extract(value, '$.interest_status'), json_extract(value, '$.tax_classification'), json_extract(value, '$.notes'), json_extract(value, '$.supersedes_version_id'), json_extract(value, '$.recorded_by_user_id'), json_extract(value, '$.recorded_at'), json_extract(value, '$.immutable') FROM json_each(?)`
             : table === "legal_entity_source_decisions"
-              ? `INSERT INTO legal_entity_source_decisions (id, household_id, source_kind, source_reference, source_name, source_label, source_as_of, relationship, current_owner, interest_status, opened_on, decision, legal_entity_id, version, supersedes_decision_id, decided_by_user_id, decided_at, immutable, decision_source) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.source_kind'), json_extract(value, '$.source_reference'), json_extract(value, '$.source_name'), json_extract(value, '$.source_label'), json_extract(value, '$.source_as_of'), json_extract(value, '$.relationship'), json_extract(value, '$.current_owner'), json_extract(value, '$.interest_status'), json_extract(value, '$.opened_on'), json_extract(value, '$.decision'), json_extract(value, '$.legal_entity_id'), json_extract(value, '$.version'), json_extract(value, '$.supersedes_decision_id'), json_extract(value, '$.decided_by_user_id'), json_extract(value, '$.decided_at'), json_extract(value, '$.immutable'), json_extract(value, '$.decision_source') FROM json_each(?)`
+              ? `INSERT INTO legal_entity_source_decisions (id, household_id, source_kind, source_reference, source_name, source_label, source_as_of, relationship, current_owner, interest_status, opened_on, decision, legal_entity_id, version, supersedes_decision_id, decided_by_user_id, decided_at, immutable, decision_source, automatic_review_id) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.source_kind'), json_extract(value, '$.source_reference'), json_extract(value, '$.source_name'), json_extract(value, '$.source_label'), json_extract(value, '$.source_as_of'), json_extract(value, '$.relationship'), json_extract(value, '$.current_owner'), json_extract(value, '$.interest_status'), json_extract(value, '$.opened_on'), json_extract(value, '$.decision'), json_extract(value, '$.legal_entity_id'), json_extract(value, '$.version'), json_extract(value, '$.supersedes_decision_id'), json_extract(value, '$.decided_by_user_id'), json_extract(value, '$.decided_at'), json_extract(value, '$.immutable'), json_extract(value, '$.decision_source'), json_extract(value, '$.automatic_review_id') FROM json_each(?)`
               : table === "companies"
                 ? `INSERT INTO companies (id, household_id, legal_name, website_host, status, created_at, updated_at) SELECT json_extract(value, '$.id'), json_extract(value, '$.household_id'), json_extract(value, '$.legal_name'), json_extract(value, '$.website_host'), json_extract(value, '$.status'), json_extract(value, '$.created_at'), json_extract(value, '$.updated_at') FROM json_each(?)`
                 : table === "canonical_exposures"

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { automaticLegalName } from "./automatic-investment-review";
 
 import {
   investmentSourceFreshness,
+  importedLegalEntityNameEvidence,
+  LegalEntityNameEvidenceSchema,
   InvestmentPositionViewSchema,
 } from "./position-read-model";
 
@@ -45,6 +48,44 @@ const basePosition = {
 };
 
 describe("investment position view contract", () => {
+  it("keeps conflicting agreement evidence above a manually reported template name", () => {
+    const imported = importedLegalEntityNameEvidence(
+      "wefunder",
+      "Synthetic Named Vehicle LLC",
+    );
+    expect(automaticLegalName(imported)).toBe("Synthetic Named Vehicle LLC");
+    const conflicting = LegalEntityNameEvidenceSchema.parse({
+      ...imported,
+      documents: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          fileName: "synthetic-agreement.pdf",
+          sha256: "a".repeat(64),
+          page: 1,
+          quote: "Issuer: Synthetic Different Vehicle LLC",
+          citations: [
+            {
+              legalName: "Synthetic Different Vehicle LLC",
+              role: "issuer",
+              page: 1,
+              quote: "Issuer: Synthetic Different Vehicle LLC",
+            },
+          ],
+          scan: {
+            version: 1,
+            engineVersion: "1.0.0",
+            databaseVersion: 1,
+            databaseUpdatedAt: "2026-08-20T00:00:00.000Z",
+            scannedAt: "2026-08-20T12:00:00.000Z",
+            sha256: "a".repeat(64),
+            outcome: "clean",
+          },
+        },
+      ],
+    });
+    expect(automaticLegalName(conflicting)).toBeNull();
+  });
+
   it("keeps connection, container, and legal-position identity separate", () => {
     const view = InvestmentPositionViewSchema.parse({
       asOf: "2026-08-16T12:00:00.000Z",

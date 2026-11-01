@@ -166,7 +166,8 @@ function positionSourceSummary(
       legalName === null ? null : exactLegalEntityTypeFromName(legalName),
     sourceLabel: position.source.label,
     sourceAsOf: position.source.effectiveDate,
-    relationship: "investment_vehicle",
+    relationship:
+      position.kind === "direct" ? "direct_interest" : "investment_vehicle",
     currentOwner: position.ownerLabel ?? null,
     interestStatus:
       position.snapshot.providerStatus === "live" ? "current" : "historical",
@@ -247,7 +248,14 @@ export function legalEntitySourceCandidates(
         });
       }
       for (const position of container.positions) {
-        if (position.kind !== "direct") {
+        if (
+          position.kind !== "direct" ||
+          (position.legalEntityNameEvidence.state === "template_reported" &&
+            (position.automaticReview?.resolved.includes("identity") ||
+              position.automaticReview?.issues.some(
+                (item) => item.section === "identity",
+              )))
+        ) {
           candidates.push(positionSourceSummary(position));
         }
       }
