@@ -637,21 +637,32 @@ keeps the existing 24-document per-run limit and sandbox limits.
 `scripts/automatic-investment-review-d1-cost.test.ts` measures the actual
 client, web/API path and D1 metadata for a 120-position household. One
 foreground session making 20 deliberate visits in a virtual day sends 40 HTTP
-requests (80 conservative web/API invocations), reads 175,760 D1 rows and writes
+requests (80 conservative web/API invocations), reads 190,060 D1 rows and writes
 zero rows. An idle open tab adds zero requests. A complete request outage makes
 one failed request per visit with no automatic retry or application write.
 Independent ceilings are 350,000 reads and zero writes for unchanged visits.
 
-A synthetic 120-row source import with 24 captured agreements costs 6,118
-index-inclusive writes before automatic review. Automatic review adds 1,286, for
-7,404 total, inside the unchanged 8,000-write accepted-capture allowance. A
-separate one-time 120-agreement backlog costs 4,454 automatic-review writes; its
+A synthetic 120-row source import with 24 captured agreements costs 6,358
+index-inclusive writes before automatic review. Automatic review adds 1,506, for
+7,864 total, inside the unchanged 8,000-write accepted-capture allowance. A
+separate one-time 120-agreement backlog costs 5,538 automatic-review writes; its
 documents already exist and are not fetched again. Reserve up to 8,000 of the
 existing 20,000 useful-work writes for one such backlog session, leaving at
 least 12,000 for other useful work. Its 350,000-read visit ceiling also comes
 from the existing 3-million useful-work reserve. This does not add a new
 deployment or multiply the three-agent envelope. Repeated bulk imports or larger
 foreground inventories require the existing combined-budget review.
+
+Wefunder exact-entity linking uses that same bounded resolver, with zero added
+requests, timers, provider calls or object reads. Its 120-position real-D1 case
+uses eight round trips, 6,726 reads and 1,320 index-inclusive writes. After 24
+tied-date profile versions per entity and a same-named unrelated household,
+another 120 accepted positions use 7,690 reads and 1,320 writes. Both retain the
+existing ten-round-trip, 25,000-read and 6,000-write ceilings. Unchanged retries
+and empty matches retain the 8,000-read ceiling and write nothing. Current-name
+projection maintenance runs only during migration or existing profile writes;
+its index maintenance is included in the source-capture and backlog totals
+above.
 
 The runtime inventory change is one authenticated recovery fetch, the existing
 initial-load timer's callback, and a single abort deadline. It introduces no

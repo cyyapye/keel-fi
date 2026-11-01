@@ -9,6 +9,184 @@ import type { Env } from "../apps/api/src/types";
 import { measureD1 } from "./test-support/d1-cost";
 import { D1AutomaticInvestmentReviewRepository } from "../packages/database/src/automatic-investment-review";
 import { createAutomaticInvestmentCostDatabase } from "./test-support/automatic-investment-cost-database";
+import { D1HoldingImportRepository } from "../packages/database/src/holding-imports";
+import { syntheticWefunderImport } from "./test-support/wefunder-holdings";
+
+it("bounds exact Wefunder entity links with current-name history and unrelated households", async () => {
+  const fixture = await createAutomaticInvestmentCostDatabase();
+  try {
+    const identity = await fixture.database
+      .prepare(
+        "SELECT h.id household_id, h.owner_user_id user_id FROM households h JOIN users u ON u.id = h.owner_user_id WHERE u.access_subject = ?",
+      )
+      .bind("synthetic-access-subject")
+      .first<{ household_id: string; user_id: string }>();
+    if (identity === null) throw new Error("Synthetic household missing");
+    const names = Array.from(
+      { length: 120 },
+      (_, index) => `Synthetic Wefunder Vehicle ${index} LLC`,
+    );
+    const targets = names.map((legalName) => ({
+      entityId: crypto.randomUUID(),
+      versionId: crypto.randomUUID(),
+      legalName,
+    }));
+    const putEntities = async (
+      household: string,
+      user: string,
+      records: typeof targets,
+    ) =>
+      fixture.database.batch([
+        fixture.database
+          .prepare(
+            "INSERT INTO legal_entities(id, household_id, created_by_user_id, created_at, immutable) SELECT json_extract(value, '$.entityId'), ?, ?, '2026-08-20T12:00:00.000Z', 1 FROM json_each(?)",
+          )
+          .bind(household, user, JSON.stringify(records)),
+        fixture.database
+          .prepare(
+            "INSERT INTO legal_entity_versions(id, household_id, legal_entity_id, version, legal_name, entity_type, relationship, interest_status, recorded_by_user_id, recorded_at, immutable) SELECT json_extract(value, '$.versionId'), ?, json_extract(value, '$.entityId'), 1, json_extract(value, '$.legalName'), 'llc', 'investment_vehicle', 'current', ?, '2026-08-20T12:00:00.000Z', 1 FROM json_each(?)",
+          )
+          .bind(household, user, JSON.stringify(records)),
+      ]);
+    await putEntities(identity.household_id, identity.user_id, targets);
+    const imports = new D1HoldingImportRepository(fixture.database);
+    const stage = async (
+      prefix: string,
+      missing = false,
+      reviewedAdditionalPositions = false,
+    ) => {
+      const input = await syntheticWefunderImport({
+        count: 120,
+        positionType: "Direct",
+        legalName: (index) =>
+          missing ? `Synthetic Unmatched Vehicle ${index} LLC` : names[index]!,
+        investmentPrefix: prefix,
+      });
+      const staged = await imports.stageHoldingImport(
+        "synthetic-access-subject",
+        input,
+      );
+      if (reviewedAdditionalPositions) {
+        await imports.applyHoldingImport(
+          "synthetic-access-subject",
+          staged.preview.id,
+          {
+            currency: "USD",
+            decisions: staged.preview.rows.map((row) => ({
+              rowId: row.id,
+              decision: "accepted",
+              rationale:
+                "Reviewed synthetic additional positions for the cost holdout.",
+            })),
+          },
+        );
+      } else {
+        await imports.autoAdjudicatePrivateHoldingImport(
+          "synthetic-access-subject",
+          staged.preview.id,
+        );
+      }
+      expect(
+        (
+          await imports.getHoldingImport(
+            "synthetic-access-subject",
+            staged.preview.id,
+          )
+        )?.status,
+      ).toBe("applied");
+      return staged.preview.id;
+    };
+    const measured = measureD1(fixture.database);
+    const automatic = new D1AutomaticInvestmentReviewRepository(
+      measured.database,
+    );
+    const resolve = (importId: string) =>
+      automatic.resolve("synthetic-access-subject", null, importId);
+    const initialImport = await stage("Synthetic Initial Position");
+    measured.reset();
+    expect(await resolve(initialImport)).toMatchObject({
+      processedCount: 120,
+      changedCount: 120,
+      resolvedCount: 120,
+    });
+    console.info(JSON.stringify({ wefunderExactLinks: measured.cost }));
+    expect(measured.cost.roundTrips).toBeLessThanOrEqual(10);
+    expect(measured.cost.rowsRead).toBeLessThanOrEqual(25_000);
+    expect(measured.cost.rowsWritten).toBeLessThanOrEqual(6_000);
+    const namesQuery = [...measured.byQuery.keys()].find((sql) =>
+      sql.includes("LEFT JOIN legal_entity_name_heads current"),
+    )!;
+    const plan = await fixture.database
+      .prepare(`EXPLAIN QUERY PLAN ${namesQuery}`)
+      .bind(identity.household_id, JSON.stringify(names), identity.household_id)
+      .all<{ detail: string }>();
+    expect(
+      plan.results.some((row) =>
+        row.detail.includes("legal_entity_name_heads_household_name_idx"),
+      ),
+    ).toBe(true);
+    expect(
+      plan.results.some((row) =>
+        /SCAN (current|historical)\b/u.test(row.detail),
+      ),
+    ).toBe(false);
+
+    // Grow a complete, tied-date profile chain per returned entity. Names stay
+    // identical, so a name index over all versions alone would grow with history.
+    await fixture.database.batch(
+      Array.from({ length: 24 }, (_, offset) =>
+        fixture.database
+          .prepare(
+            `INSERT INTO legal_entity_versions(id, household_id, legal_entity_id, version, legal_name, entity_type, relationship, interest_status, supersedes_version_id, recorded_by_user_id, recorded_at, immutable)
+       SELECT printf('synthetic-wf-version-%d-%s', ?, v.legal_entity_id), v.household_id, v.legal_entity_id, v.version + 1, v.legal_name, v.entity_type, v.relationship, v.interest_status, v.id, v.recorded_by_user_id, v.recorded_at, 1
+       FROM json_each(?) ids JOIN legal_entity_name_heads h ON h.legal_entity_id = json_extract(ids.value, '$.entityId') JOIN legal_entity_versions v ON v.id = h.version_id`,
+          )
+          .bind(offset + 2, JSON.stringify(targets)),
+      ),
+    );
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES ('wf-other-user', 'wf-other-subject', 'wf-other@example.test', 'Synthetic Other', '2026-08-20T12:00:00.000Z')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES ('wf-other-household', 'wf-other-user', 'Synthetic Other', 'USD', '2026-08-20T12:00:00.000Z')",
+      ),
+    ]);
+    await putEntities(
+      "wf-other-household",
+      "wf-other-user",
+      targets.map((item) => ({
+        ...item,
+        entityId: crypto.randomUUID(),
+        versionId: crypto.randomUUID(),
+      })),
+    );
+    const grownImport = await stage("Synthetic Later Position", false, true);
+    measured.reset();
+    expect(await resolve(grownImport)).toMatchObject({
+      processedCount: 120,
+      changedCount: 120,
+      resolvedCount: 120,
+    });
+    console.info(
+      JSON.stringify({ wefunderExactLinksWithHistory: measured.cost }),
+    );
+    expect(measured.cost.roundTrips).toBeLessThanOrEqual(10);
+    expect(measured.cost.rowsRead).toBeLessThanOrEqual(25_000);
+    expect(measured.cost.rowsWritten).toBeLessThanOrEqual(6_000);
+    measured.reset();
+    expect((await resolve(grownImport)).changedCount).toBe(0);
+    expect(measured.cost.rowsRead).toBeLessThanOrEqual(8_000);
+    expect(measured.cost.rowsWritten).toBe(0);
+    const emptyImport = await stage("Synthetic No Entity Match", true);
+    measured.reset();
+    expect((await resolve(emptyImport)).processedCount).toBe(0);
+    expect(measured.cost.rowsRead).toBeLessThanOrEqual(8_000);
+    expect(measured.cost.rowsWritten).toBe(0);
+  } finally {
+    await fixture.close();
+  }
+}, 120_000);
 
 it("bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1", async () => {
   const fixture = await createAutomaticInvestmentCostDatabase();

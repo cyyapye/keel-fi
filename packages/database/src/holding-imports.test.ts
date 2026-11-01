@@ -3,11 +3,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createHash } from "node:crypto";
+import { syntheticWefunderImport } from "../../../scripts/test-support/wefunder-holdings";
+import { D1AutomaticInvestmentReviewRepository } from "./automatic-investment-review";
 import {
-  parseProviderHoldingsTemplateCsv,
-  providerHoldingsTemplateCsv,
-} from "@keel/connectors";
+  LegalEntityProfileInputSchema,
+  type LegalEntityType,
+} from "@keel/domain/legal-entities";
 
 import {
   D1HoldingImportRepository,
@@ -75,6 +76,7 @@ const migrationFiles = [
   "packages/database/migrations/0051_legal_structure_review_guard.sql",
   "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
   "packages/database/migrations/0053_connected_investment_reviews.sql",
+  "packages/database/migrations/0054_legal_entity_link_version_guard.sql",
   "packages/database/migrations/0055_exception_based_source_updates.sql",
   "packages/database/migrations/0056_exception_based_cash_balances.sql",
   "packages/database/migrations/0059_automatic_investment_reviews.sql",
@@ -92,6 +94,7 @@ const migrationFiles = [
   "packages/database/migrations/0083_selected_position_valuations.sql",
   "packages/database/migrations/0086_live_price_proxies.sql",
   "packages/database/migrations/0087_wefunder_holdings.sql",
+  "packages/database/migrations/0088_wefunder_exact_entity_links.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
 
@@ -113,6 +116,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0086_live_price_proxies.sql",
               "packages/database/migrations/0078_reviewed_position_links.sql",
               "packages/database/migrations/0087_wefunder_holdings.sql",
+              "packages/database/migrations/0088_wefunder_exact_entity_links.sql",
               "packages/database/migrations/0079_unified_investment_details.sql",
               "packages/database/migrations/0080_renamed_investment_links.sql",
               "packages/database/migrations/0068_exception_baseline_empty.sql",
@@ -594,81 +598,391 @@ describe("AngelList holding import persistence", () => {
     sqlite.close();
   });
 
-  it.each([1, 120])(
-    "links %i accepted Wefunder legal positions to an existing entity only after confirmation",
-    async (count) => {
-      const subject = "synthetic-access-subject";
-      const d1 = database as unknown as D1Database;
-      const positions = new D1InvestmentPositionViewRepository(d1);
-      const entities = new D1LegalEntityRepository(d1);
-      const emptyView = await positions.list(subject);
-      const legalName = "Synthetic Named Vehicle LLC";
-      const createEntity = (name: string) =>
-        entities.create(
-          subject,
-          {
-            source: null,
-            profile: {
-              legalName: name,
-              entityType: "llc",
-              relationship: "investment_vehicle",
-              currentOwner: null,
-              jurisdiction: null,
-              formedOn: null,
-              einLastFour: null,
-              ownershipInterestPpm: null,
-              interestStatus: "current",
-              taxClassification: null,
-              notes: null,
-            },
+  const stageWefunder = async (
+    count = 1,
+    positionType: "Direct" | "SPV" | "Fund" = "SPV",
+    legalName = "Synthetic Named Vehicle LLC",
+    targetType: LegalEntityType = "llc",
+  ) => {
+    const subject = "synthetic-access-subject";
+    const d1 = database as unknown as D1Database;
+    const positions = new D1InvestmentPositionViewRepository(d1);
+    const entities = new D1LegalEntityRepository(d1);
+    const emptyView = await positions.list(subject);
+    const createEntity = (name: string, entityType: LegalEntityType = "llc") =>
+      entities.create(
+        subject,
+        {
+          source: null,
+          profile: {
+            legalName: name,
+            entityType,
+            relationship: "investment_vehicle",
+            currentOwner: null,
+            jurisdiction: null,
+            formedOn: null,
+            einLastFour: null,
+            ownershipInterestPpm: null,
+            interestStatus: "current",
+            taxClassification: null,
+            notes: null,
           },
-          emptyView,
-        );
-      const existing = await createEntity(legalName);
-      const companyOnly = await createEntity(
-        "Synthetic Operating Company 0 LLC",
-      );
-      const entityIdsBeforeImport = sqlite
-        .prepare("SELECT id FROM legal_entities ORDER BY id")
-        .all();
-      const csv =
-        providerHoldingsTemplateCsv("wefunder") +
-        Array.from({ length: count }, (_, index) =>
-          [
-            `Synthetic Operating Company ${index} LLC`,
-            legalName,
-            "SPV",
-            "Synthetic Family Trust",
-            "Live",
-            "",
-            "2026-08-20",
-            "$1250.00",
-            "",
-            "",
-            "",
-            "Membership interest",
-          ].join(","),
-        ).join("\n") +
-        "\n";
-      const parsed = await parseProviderHoldingsTemplateCsv(
-        "wefunder",
-        new TextEncoder().encode(csv),
-      );
-      const base = providerTemplateStageInput("wefunder");
-      const staged = await repository.stageHoldingImport(subject, {
-        ...base,
-        ...parsed,
-        sha256: createHash("sha256").update(csv).digest("hex"),
-        byteSize: new TextEncoder().encode(csv).byteLength,
-        canonicalScope: {
-          ...base.canonicalScope,
-          rows: parsed.rows.map((row) => ({
-            sourceRowNumber: row.rowNumber,
-            protectedAccountKey: "6".repeat(64),
-            protectedPositionKey: row.naturalKeySha256,
-          })),
         },
+        emptyView,
+      );
+    const existing = await createEntity(legalName, targetType);
+    const companyOnly = await createEntity("Synthetic Operating Company 0 LLC");
+    const entityIdsBeforeImport = sqlite
+      .prepare("SELECT id FROM legal_entities ORDER BY id")
+      .all();
+    const staged = await repository.stageHoldingImport(
+      subject,
+      await syntheticWefunderImport({ count, positionType, legalName }),
+    );
+    return {
+      subject,
+      d1,
+      positions,
+      entities,
+      legalName,
+      existing,
+      companyOnly,
+      entityIdsBeforeImport,
+      staged,
+      createEntity,
+    };
+  };
+
+  const acceptWefunder = async (
+    fixture: Awaited<ReturnType<typeof stageWefunder>>,
+  ) => {
+    await repository.autoAdjudicatePrivateHoldingImport(
+      fixture.subject,
+      fixture.staged.preview.id,
+    );
+    const view = await fixture.positions.list(fixture.subject);
+    const position = view.connections
+      .flatMap((connection) =>
+        connection.containers.flatMap((container) => container.positions),
+      )
+      .find((item) => item.source.label === "Wefunder template")!;
+    return { view, position };
+  };
+
+  it("automatically links a direct Wefunder corporation by its exact reviewed legal name", async () => {
+    const fixture = await stageWefunder(
+      1,
+      "Direct",
+      "Synthetic Named Vehicle Inc.",
+      "corporation",
+    );
+    await new D1AlphaRepository(fixture.d1).reconcileHoldingImport(
+      fixture.subject,
+      fixture.staged.preview.id,
+    );
+    const inventory = await fixture.entities.getState(
+      fixture.subject,
+      fixture.positions.list(fixture.subject),
+    );
+    const entity = inventory.entities.find(
+      (item) => item.id === fixture.existing.id,
+    )!;
+    expect(entity.versionId).toBe(fixture.existing.versionId);
+    expect(entity.sources).toHaveLength(1);
+    expect(entity.sources[0]?.financials?.fundedMinor).toBe(125_000);
+  });
+
+  it("keeps a conflicting Wefunder entity type in review", async () => {
+    const fixture = await stageWefunder(
+      1,
+      "SPV",
+      "Synthetic Named Vehicle LLC",
+      "corporation",
+    );
+    const { position } = await acceptWefunder(fixture);
+    await new D1AutomaticInvestmentReviewRepository(fixture.d1).resolve(
+      fixture.subject,
+    );
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE source_reference = ?",
+        )
+        .get(position.id),
+    ).toEqual({ count: 0 });
+  });
+  const renameWefunderEntity = async (
+    fixture: Awaited<ReturnType<typeof stageWefunder>>,
+  ) => {
+    const { id, versionId } = fixture.existing;
+    return fixture.entities.update(fixture.subject, id, {
+      expectedVersionId: versionId,
+      profile: LegalEntityProfileInputSchema.strip().parse({
+        ...fixture.existing,
+        legalName: "Synthetic Renamed Vehicle LLC",
+      }),
+    });
+  };
+
+  it.each([
+    ["SPV", "duplicate"],
+    ["SPV", "renamed"],
+    ["Direct", "duplicate"],
+    ["Direct", "renamed"],
+  ] as const)(
+    "does not auto-link a Wefunder %s position to a %s current entity match",
+    async (kind, change) => {
+      const fixture = await stageWefunder(1, kind);
+      if (change === "duplicate") await fixture.createEntity(fixture.legalName);
+      else await renameWefunderEntity(fixture);
+      const profiles = sqlite
+        .prepare("SELECT * FROM legal_entity_versions ORDER BY id")
+        .all();
+      const { position } = await acceptWefunder(fixture);
+      await new D1AutomaticInvestmentReviewRepository(fixture.d1).resolve(
+        fixture.subject,
+      );
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE source_reference = ?",
+          )
+          .get(position.id),
+      ).toEqual({ count: 0 });
+      expect(
+        sqlite.prepare("SELECT * FROM legal_entity_versions ORDER BY id").all(),
+      ).toEqual(profiles);
+    },
+  );
+
+  it.each(["SPV", "Direct"] as const)(
+    "preserves a manual exclusion for an exact Wefunder %s entity match",
+    async (kind) => {
+      const fixture = await stageWefunder(1, kind);
+      const accepted = await acceptWefunder(fixture);
+      const position = accepted.position;
+      let view = accepted.view;
+      let expectedDecisionId: string | null = null;
+      if (kind === "Direct") {
+        await new D1AutomaticInvestmentReviewRepository(fixture.d1).resolve(
+          fixture.subject,
+        );
+        expectedDecisionId = (
+          sqlite
+            .prepare(
+              "SELECT id FROM legal_entity_source_decisions WHERE source_reference = ?",
+            )
+            .get(position.id) as { id: string }
+        ).id;
+        view = await fixture.positions.list(fixture.subject);
+      }
+      const reviewed = await fixture.entities.reviewSource(
+        fixture.subject,
+        {
+          source: { kind: "holding_position", id: position.id },
+          expectedDecisionId,
+          decision: { kind: "not_llc" },
+        },
+        view,
+      );
+      await new D1AutomaticInvestmentReviewRepository(fixture.d1).resolve(
+        fixture.subject,
+      );
+      expect(
+        sqlite
+          .prepare(
+            "SELECT id, decision, decision_source FROM legal_entity_source_decisions WHERE source_reference = ? ORDER BY version DESC LIMIT 1",
+          )
+          .all(position.id),
+      ).toEqual([
+        {
+          id: reviewed.decisionId,
+          decision: "not_llc",
+          decision_source: "manual",
+        },
+      ]);
+    },
+  );
+
+  it.each(["rename", "duplicate"] as const)(
+    "rechecks an exact Wefunder entity match after a racing %s",
+    async (change) => {
+      const fixture = await stageWefunder();
+      const { position } = await acceptWefunder(fixture);
+      const original = database.batch.bind(database);
+      let race = true;
+      database.batch = async (statements) => {
+        if (race) {
+          race = false;
+          if (change === "rename") await renameWefunderEntity(fixture);
+          else await fixture.createEntity(fixture.legalName);
+        }
+        return original(statements);
+      };
+      try {
+        await new D1AutomaticInvestmentReviewRepository(fixture.d1).resolve(
+          fixture.subject,
+        );
+      } finally {
+        database.batch = original;
+      }
+      expect(race).toBe(false);
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE source_reference = ?",
+          )
+          .get(position.id),
+      ).toEqual({ count: 0 });
+    },
+  );
+
+  it("lets a racing manual exclusion win over an automatic Wefunder match", async () => {
+    const fixture = await stageWefunder();
+    const { view, position } = await acceptWefunder(fixture);
+    const original = database.batch.bind(database);
+    let race = true;
+    let manualDecisionId: string | null = null;
+    database.batch = async (statements) => {
+      if (race) {
+        race = false;
+        manualDecisionId = (
+          await fixture.entities.reviewSource(
+            fixture.subject,
+            {
+              source: { kind: "holding_position", id: position.id },
+              expectedDecisionId: null,
+              decision: { kind: "not_llc" },
+            },
+            view,
+          )
+        ).decisionId;
+      }
+      return original(statements);
+    };
+    try {
+      await new D1AutomaticInvestmentReviewRepository(fixture.d1).resolve(
+        fixture.subject,
+      );
+    } finally {
+      database.batch = original;
+    }
+    expect(manualDecisionId).not.toBeNull();
+    expect(
+      sqlite
+        .prepare(
+          "SELECT id, decision_source FROM legal_entity_source_decisions WHERE source_reference = ?",
+        )
+        .all(position.id),
+    ).toEqual([{ id: manualDecisionId, decision_source: "manual" }]);
+  });
+
+  it.each(["missing", "reused"] as const)(
+    "rejects a %s policy receipt for a Wefunder entity link",
+    async (receipt) => {
+      const fixture = await stageWefunder();
+      await new D1AlphaRepository(fixture.d1).reconcileHoldingImport(
+        fixture.subject,
+        fixture.staged.preview.id,
+      );
+      const original = sqlite
+        .prepare(
+          "SELECT id FROM legal_entity_source_decisions WHERE legal_entity_id = ?",
+        )
+        .get(fixture.existing.id) as { id: string };
+      expect(() =>
+        sqlite
+          .prepare(
+            `INSERT INTO legal_entity_source_decisions
+      (id, household_id, source_kind, source_reference, source_name, source_label, source_as_of, relationship, current_owner, interest_status, opened_on, decision, legal_entity_id, version, supersedes_decision_id, decided_by_user_id, decided_at, immutable, decision_source, automatic_review_id)
+      SELECT ?, household_id, source_kind, source_reference, source_name, source_label, source_as_of, relationship, current_owner, interest_status, opened_on, decision, legal_entity_id, version + 1, id, decided_by_user_id, decided_at, immutable, decision_source, ${receipt === "missing" ? "NULL" : "automatic_review_id"}
+      FROM legal_entity_source_decisions WHERE id = ?`,
+          )
+          .run(crypto.randomUUID(), original.id),
+      ).toThrow(/automatic Wefunder entity receipt/u);
+    },
+  );
+
+  it("backfills current legal names without rewriting profile history", async () => {
+    const legacy = createSqliteFixture(
+      migrationFiles.filter((path) => !path.includes("0088_")),
+    );
+    try {
+      const d1 = new TestD1Database(legacy) as unknown as D1Database;
+      const entities = new D1LegalEntityRepository(d1);
+      const view = await new D1InvestmentPositionViewRepository(d1).list(
+        "synthetic-access-subject",
+      );
+      const previous = (
+        await entities.getState("synthetic-access-subject", view)
+      ).entities[0]!;
+      const updated = await entities.update(
+        "synthetic-access-subject",
+        previous.id,
+        {
+          expectedVersionId: previous.versionId,
+          profile: LegalEntityProfileInputSchema.strip().parse({
+            ...previous,
+            legalName: "Synthetic Current Name LLC",
+          }),
+        },
+      );
+      const history = legacy
+        .prepare("SELECT * FROM legal_entity_versions ORDER BY id")
+        .all();
+      legacy.exec(
+        readFileSync(
+          resolve(
+            process.cwd(),
+            "packages/database/migrations/0088_wefunder_exact_entity_links.sql",
+          ),
+          "utf8",
+        ),
+      );
+      expect(
+        legacy
+          .prepare(
+            "SELECT version_id, legal_name FROM legal_entity_name_heads WHERE legal_entity_id = ?",
+          )
+          .get(updated.id),
+      ).toEqual({
+        version_id: updated.versionId,
+        legal_name: updated.legalName,
       });
+      expect(
+        legacy.prepare("SELECT * FROM legal_entity_versions ORDER BY id").all(),
+      ).toEqual(history);
+      expect(() =>
+        legacy
+          .prepare(
+            "UPDATE legal_entity_name_heads SET legal_name = 'Synthetic Unverified Name' WHERE legal_entity_id = ?",
+          )
+          .run(updated.id),
+      ).toThrow("name head mismatch");
+    } finally {
+      legacy.close();
+    }
+  });
+
+  it.each([
+    [1, "SPV"],
+    [120, "SPV"],
+    [1, "Direct"],
+    [1, "Fund"],
+  ] as const)(
+    "automatically links %i accepted Wefunder %s positions to one exact existing entity",
+    async (count, positionType) => {
+      const {
+        subject,
+        d1,
+        positions,
+        entities,
+        legalName,
+        existing,
+        companyOnly,
+        entityIdsBeforeImport,
+        staged,
+      } = await stageWefunder(count, positionType);
       await new D1AlphaRepository(d1).reconcileHoldingImport(
         subject,
         staged.preview.id,
@@ -711,20 +1025,15 @@ describe("AngelList holding import persistence", () => {
       const before = await entities.getState(subject, view);
       expect(
         before.entities.find((entity) => entity.id === existing.id)?.sources,
-      ).toHaveLength(0);
+      ).toHaveLength(count);
       expect(before.exactBatch).toMatchObject({
-        sourceCount: count,
-        existingEntityCount: 1,
+        sourceCount: 0,
+        existingEntityCount: 0,
         newEntityCount: 0,
       });
       const snapshots = sqlite
         .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
         .all();
-      await entities.applyExactBatch(
-        subject,
-        { expectedRevision: before.exactBatch.revision },
-        view,
-      );
       const reloaded = await entities.getState(
         subject,
         positions.list(subject),
@@ -748,7 +1057,7 @@ describe("AngelList holding import persistence", () => {
       expect(
         sqlite
           .prepare(
-            "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE legal_entity_id = ? AND decision_source = 'manual'",
+            "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE legal_entity_id = ? AND decision_source = 'policy' AND automatic_review_id IS NOT NULL",
           )
           .get(existing.id),
       ).toEqual({ count });

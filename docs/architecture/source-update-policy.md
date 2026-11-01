@@ -55,12 +55,22 @@ it preserves baseline history and its immutable guards.
 The accepted **Legal Position** field is available as legal-name evidence,
 labelled as a manually completed Wefunder template rather than an agreement or
 provider-verified name. The **Investment** and **Held Through** columns do not
-identify the legal vehicle. An exact existing-entity match can be confirmed in
-the existing legal-entity review without a separate PDF. Importing does not
-silently link or merge existing entities. Existing document conflicts and manual
-identity decisions retain their precedence. The bounded explicit resolver also
-recovers this evidence for previously accepted Wefunder rows; no re-import or
-GET-side repair is required.
+identify the legal vehicle. `wefunder-legal-entity-exact-v1` automatically links
+a position when exactly one current entity in the household has the identical
+legal name and a compatible reviewed type. This applies to Direct, SPV and Fund
+positions and needs no separate PDF. The receipt pins the accepted CSV row,
+entity version, policy and source-link decision in one transaction. It does not
+create or merge entity profiles, change ownership or tax details, or merge
+financial positions. Duplicate names, historical names that have been renamed,
+conflicting evidence/types and existing manual identity decisions retain their
+review boundaries. Company grouping remains a separate decision.
+
+The bounded explicit resolver also recovers previously accepted Wefunder rows;
+no re-import or GET-side repair is required. Migration `0088` maintains an
+indexed current-name projection from append-only entity versions and verifies
+that the match is still unique when the link is committed. It must precede the
+API/web release. Existing new-entity, evidence, revision and financial guards
+remain enforced.
 
 ## Investment identity and terms
 
