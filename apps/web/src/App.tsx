@@ -1689,7 +1689,8 @@ function administratorValueLabel(holding: Holding): string {
   }
   if (
     holding.administratorNavState === "not_set" &&
-    (holding.sourceLabel === "Tokenfolio template" ||
+    (holding.sourceLabel === "Wefunder template" ||
+      holding.sourceLabel === "Tokenfolio template" ||
       holding.sourceLabel === "Sydecar template")
   ) {
     return "Not reported";
@@ -1776,6 +1777,7 @@ function holdingImportProviderName(
     plaid_investments: "investment account",
     sydecar: "Sydecar",
     tokenfolio: "Tokenfolio",
+    wefunder: "Wefunder",
   }[provider];
 }
 
@@ -1783,6 +1785,7 @@ const HOLDING_IMPORT_PROVIDER_OPTIONS = [
   { label: "AngelList", value: "angellist" },
   { label: "Tokenfolio", value: "tokenfolio" },
   { label: "Sydecar", value: "sydecar" },
+  { label: "Wefunder", value: "wefunder" },
 ] satisfies ReadonlyArray<{
   label: string;
   value: UploadHoldingImportProvider;
@@ -1796,6 +1799,7 @@ function holdingImportSourceLabel(
     plaid_investments: "Investment account",
     sydecar: "Sydecar template",
     tokenfolio: "Tokenfolio template",
+    wefunder: "Wefunder template",
   }[provider];
 }
 
@@ -1927,7 +1931,8 @@ function HoldingImportWorkspace({
                 if (
                   nextProvider !== "angellist" &&
                   nextProvider !== "tokenfolio" &&
-                  nextProvider !== "sydecar"
+                  nextProvider !== "sydecar" &&
+                  nextProvider !== "wefunder"
                 ) {
                   return;
                 }
@@ -2012,7 +2017,11 @@ function HoldingImportWorkspace({
             >
               Cancel
             </Button>
-            <Button disabled={working !== "idle"} tone="primary" type="submit">
+            <Button
+              disabled={working !== "idle" || selectedFile === null}
+              tone="primary"
+              type="submit"
+            >
               {working === "previewing" ? "Importing…" : "Import file"}
             </Button>
           </ActionGroup>
@@ -2973,6 +2982,7 @@ function LegacyHoldingDetailWorkspace({
     holding.positionValueContext !== null &&
     holding.positionValueContext !== undefined;
   const isProviderTemplateHolding =
+    holding.sourceLabel === "Wefunder template" ||
     holding.sourceLabel === "Tokenfolio template" ||
     holding.sourceLabel === "Sydecar template";
   const sourceSectionTitle = isPlaidInvestmentsHolding(holding)

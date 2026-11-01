@@ -1,3 +1,4 @@
+import { requestKeel } from "./api-request";
 import { isHoldingsPath } from "./app-navigation";
 
 let alphaPreload: Promise<Response | null> | null = null;
@@ -17,7 +18,7 @@ export function startInitialDataPreload(): void {
 }
 
 function preload(path: string): Promise<Response | null> {
-  return fetch(path, {
+  return requestKeel(path, {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
   }).catch(() => null);

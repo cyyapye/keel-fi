@@ -1,3 +1,4 @@
+import { requestKeel } from "./api-request";
 import {
   AcceptPositionLinkSchema,
   PositionLinkReceiptSchema,
@@ -239,7 +240,7 @@ export async function loadHoldingsPage(
   const preloaded = takeHoldingsPagePreload();
   const response =
     (preloaded === null ? null : await preloaded) ??
-    (await fetch("/api/holdings-page", {
+    (await requestKeel("/api/holdings-page", {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
       signal: signal ?? null,
@@ -259,7 +260,7 @@ export async function loadLegalEntities(
   const preloaded = takeLegalEntitiesPreload();
   const response =
     (preloaded === null ? null : await preloaded) ??
-    (await fetch("/api/legal-entities", {
+    (await requestKeel("/api/legal-entities", {
       credentials: "same-origin",
       headers: { Accept: "application/json" },
       signal: signal ?? null,
@@ -365,7 +366,7 @@ export async function createDocumentInvestment(
 export async function createLegalEntity(
   input: CreateLegalEntityInput,
 ): Promise<LegalEntityRecord> {
-  const response = await fetch("/api/legal-entities", {
+  const response = await requestKeel("/api/legal-entities", {
     method: "POST",
     credentials: "same-origin",
     headers: {
@@ -1161,7 +1162,7 @@ export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {
 }
 
 export type UploadHoldingImportProvider =
-  "angellist" | "tokenfolio" | "sydecar";
+  "angellist" | "tokenfolio" | "sydecar" | "wefunder";
 
 export async function previewHoldingImport(
   provider: UploadHoldingImportProvider,
@@ -1181,6 +1182,7 @@ export async function previewHoldingImport(
       angellist: "AngelList",
       sydecar: "Sydecar",
       tokenfolio: "Tokenfolio",
+      wefunder: "Wefunder",
     }[provider];
     throw await responseError(
       response,

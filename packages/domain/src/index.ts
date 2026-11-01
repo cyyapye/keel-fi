@@ -963,6 +963,7 @@ export const PrivateExposureExactBatchResultSchema = z
   });
 
 export const HoldingImportProviderSchema = z.enum([
+  "wefunder",
   "angellist",
   "tokenfolio",
   "sydecar",
