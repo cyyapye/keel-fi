@@ -486,6 +486,8 @@ function exposurePositionPerformance(position: InvestmentExposurePosition) {
     fundedMinor: position.investedMinor,
     economicsContext:
       position.positionKind === "spv_interest" &&
+      position.committedMinor !== null &&
+      position.investedMinor !== null &&
       (position.committedMinor > 0 || position.reviewedInvestment !== undefined)
         ? {
             reviewedInvestment: position.reviewedInvestment,
@@ -498,9 +500,10 @@ function exposurePositionPerformance(position: InvestmentExposurePosition) {
           }
         : null,
     allowFundedAmountEstimate:
-      position.isPrivateCompanyPosition ||
-      position.positionKind === "spv_interest" ||
-      position.positionKind === "fund_interest",
+      position.manualContext == null &&
+      (position.isPrivateCompanyPosition ||
+        position.positionKind === "spv_interest" ||
+        position.positionKind === "fund_interest"),
   });
 }
 
@@ -2061,6 +2064,7 @@ function CashHoldingsView({
 
 export function InvestmentHoldings({
   acceptedCashAccounts,
+  onAddHolding,
   data,
   holdings,
   mode,
@@ -2080,6 +2084,7 @@ export function InvestmentHoldings({
   visiblePositionCounts,
 }: {
   acceptedCashAccounts: readonly AcceptedCashAccount[];
+  onAddHolding?: () => void;
   data: InvestmentHoldingsView;
   holdings: readonly Holding[];
   mode: "exposures" | "sources";
@@ -2799,10 +2804,15 @@ export function InvestmentHoldings({
           icon={null}
           title="Your holdings, in one place"
         >
-          Connect an account or import a statement. Reviewed holdings will
-          appear here.
-          <br />
-          <TextLink href="/holdings/sources">Manage sources</TextLink>
+          Add an investment you own, connect an account, or import a statement.
+          <ActionGroup>
+            {onAddHolding && (
+              <Button data-add-holding onClick={onAddHolding} tone="primary">
+                Add holding
+              </Button>
+            )}
+            <TextLink href="/holdings/sources">Manage sources</TextLink>
+          </ActionGroup>
         </EmptyState>
       </section>
     );

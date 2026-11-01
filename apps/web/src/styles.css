@@ -9788,6 +9788,9 @@ h1,
   gap: 28px;
   margin: 28px 0;
 }
+.holding-detail-actions {
+  margin-top: 24px;
+}
 .holding-value-metric {
   min-width: 0;
 }
@@ -10021,4 +10024,67 @@ h1,
 
 .import-row-selection {
   margin-top: var(--space-2);
+}
+
+.manual-holding-workspace {
+  max-width: 760px;
+}
+
+.manual-holding-back {
+  margin-bottom: 24px;
+}
+
+.manual-holding-form {
+  max-width: 640px;
+  margin-top: 32px;
+}
+
+.manual-holding-fields {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px 20px;
+}
+
+.manual-holding-wide {
+  grid-column: 1 / -1;
+}
+
+.manual-holding-financial {
+  margin-top: 24px;
+}
+
+.manual-holding-section {
+  margin-top: 24px;
+}
+
+.manual-holding-section h2 {
+  margin-bottom: 16px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.manual-holding-section > .holding-metadata {
+  margin: -8px 0 20px;
+}
+
+.manual-holding-actions {
+  margin-top: 32px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 700px) {
+  .manual-holding-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .manual-holding-form .input {
+    font-size: 16px;
+  }
+}
+
+.manual-holding-form [data-slot="radio-group"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
 }

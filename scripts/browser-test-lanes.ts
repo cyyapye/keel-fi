@@ -23,6 +23,7 @@ export const BROWSER_TEST_LANES = {
     "holdings-detail.visual.spec.ts",
     "holdings-import.visual.spec.ts",
     "investment-review.visual.spec.ts",
+    "manual-holdings.visual.spec.ts",
   ],
   "mocked-development": ["investment-holdings.visual.spec.ts"],
   "stateful-development": [
@@ -42,6 +43,7 @@ export const BROWSER_TEST_LANES = {
     "provider-legal-documents.spec.ts",
   ],
   "stateful-b": [
+    "manual-holdings.spec.ts",
     "obligations.visual.spec.ts",
     "overview-links.visual.spec.ts",
     "plan-inputs.visual.spec.ts",

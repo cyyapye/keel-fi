@@ -139,3 +139,88 @@ it("shows the chosen source, amount and carry treatment for a valuation change",
     "Valuation · Demo GP $2,000.00 · before carry",
   );
 });
+
+it("names a single creation valuation once while qualifying isolated deltas and multiple records", () => {
+  const initial = receipt();
+  initial.details.valuation = {
+    snapshotId: "snapshot",
+    selected: { recordId: "mine", method: "total", sharesKey: null },
+    records: [
+      {
+        id: "mine",
+        origin: "judgment",
+        totalMinor: 3_000_001,
+        priceMicros: null,
+        effectiveDate: "2026-10-15",
+        priceDate: null,
+        shareClass: null,
+        carryStatus: "before_carry",
+        sourceLabel: "Entered by you",
+        sourceUrl: null,
+        sourceEvidenceId: null,
+        sourcePositionId: null,
+        sourceCapturedAt: null,
+        watchEvidenceId: null,
+      },
+    ],
+  };
+  const changes = holdingHistoryChanges(initial, null);
+  expect(changes).toEqual(
+    expect.arrayContaining([
+      {
+        key: "value:mine:source",
+        label: "Valuation source",
+        before: null,
+        after: "Entered by you",
+      },
+      {
+        key: "value:mine:total",
+        label: "Position total",
+        before: null,
+        after: "$30,000.01",
+      },
+      {
+        key: "value:mine:date",
+        label: "Valuation date",
+        before: null,
+        after: "Oct 15, 2026",
+      },
+      {
+        key: "value:mine:carry",
+        label: "Carry",
+        before: null,
+        after: "Before carry",
+      },
+      {
+        key: "selected:source",
+        label: "Selected valuation",
+        before: null,
+        after: "Entered by you",
+      },
+    ]),
+  );
+  expect(
+    changes.some((change) => change.label.startsWith("Entered by you ·")),
+  ).toBe(false);
+  const updated = structuredClone(initial);
+  updated.details.valuation!.records[0]!.totalMinor = 3_200_002;
+  expect(holdingHistoryChanges(updated, initial)).toEqual([
+    {
+      key: "value:mine:total",
+      label: "Entered by you · Position total",
+      before: "$30,000.01",
+      after: "$32,000.02",
+    },
+  ]);
+  const multiple = structuredClone(initial);
+  multiple.details.valuation!.records.push({
+    ...multiple.details.valuation!.records[0]!,
+    id: "other",
+    sourceLabel: "Other personal estimate",
+  });
+  const labels = holdingHistoryChanges(multiple, null).map(
+    (change) => change.label,
+  );
+  expect(labels).toContain("Entered by you · Position total");
+  expect(labels).toContain("Other personal estimate · Position total");
+});

@@ -50,6 +50,7 @@ function add(left: number, right: number): number {
 
 function isPrivate(position: InvestmentExposurePosition): boolean {
   return (
+    position.manualContext?.classification === "private_paper" ||
     position.isPrivateCompanyPosition ||
     position.positionKind === "spv_interest" ||
     (position.positionKind === "fund_interest" && position.ticker === null)
@@ -167,6 +168,7 @@ export function calculatePortfolioPerformance(
       // Refunds remain cash returned in this basis. Add only refunds the source
       // explicitly excludes; a refund already reported must not be counted twice.
       if (
+        position.realizedValueMinor !== null &&
         reviewed?.cashPaidMinor != null &&
         reviewed.cashPaidMinor > 0 &&
         !reviewed.returnedCapitalReconciliationPending &&
@@ -208,17 +210,20 @@ export function calculatePortfolioPerformance(
       realizedValueMinor: position.realizedValueMinor,
       providerCostBasisMinor: position.providerCostBasisMinor,
       fundedMinor: position.investedMinor,
-      economicsContext: privatePosition
-        ? {
-            reviewedInvestment: investment,
-            snapshotId: position.snapshotId,
-            currency,
-            committedMinor: position.committedMinor,
-            fundedMinor: position.investedMinor,
-            acceptedTerms: position.acceptedEconomicsTerms ?? null,
-            reportedTerms: position.reportedEconomicsTerms ?? null,
-          }
-        : null,
+      economicsContext:
+        privatePosition &&
+        position.committedMinor !== null &&
+        position.investedMinor !== null
+          ? {
+              reviewedInvestment: investment,
+              snapshotId: position.snapshotId,
+              currency,
+              committedMinor: position.committedMinor,
+              fundedMinor: position.investedMinor,
+              acceptedTerms: position.acceptedEconomicsTerms ?? null,
+              reportedTerms: position.reportedEconomicsTerms ?? null,
+            }
+          : null,
       allowFundedAmountEstimate: false,
     });
     if (

@@ -713,7 +713,10 @@ for (const kind of ["public", "private", "cash"] as const) {
     page,
   }) => {
     const alphaResponse = await page.request.get("/api/alpha");
-    const alphaFixture = await alphaResponse.json();
+    const alphaFixture = {
+      ...(await alphaResponse.json()),
+      holdings: [],
+    };
     const base = kind === "cash" ? cashChangeReadyState : automaticReadyState;
     const source =
       kind === "private"

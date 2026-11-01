@@ -186,27 +186,36 @@ export function sourceInvestmentAmount(
   provider: string | undefined,
   investedMinor: number,
   allocationMinor: number,
-): number {
-  return provider === "angellist" ? investedMinor : allocationMinor;
+): number;
+export function sourceInvestmentAmount(
+  provider: string | undefined,
+  investedMinor: number | null,
+  allocationMinor: number | null,
+): number | null;
+export function sourceInvestmentAmount(
+  provider: string | undefined,
+  investedMinor: number | null,
+  allocationMinor: number | null,
+): number | null {
+  return provider === "angellist" || provider === "manual"
+    ? investedMinor
+    : allocationMinor;
 }
-
 export function investmentAmount(position: {
   snapshot: {
-    investmentAmountMinor?: number | undefined;
-    allocationMinor: number;
+    investmentAmountMinor?: number | null | undefined;
+    allocationMinor: number | null;
   };
   investmentReview?:
-    | {
-        amountCorrection?: { amountMinor: number } | null | undefined;
-      }
+    | { amountCorrection?: { amountMinor: number } | null | undefined }
     | null
     | undefined;
-}): number {
-  return (
-    position.investmentReview?.amountCorrection?.amountMinor ??
-    position.snapshot.investmentAmountMinor ??
-    position.snapshot.allocationMinor
-  );
+}): number | null {
+  if (position.investmentReview?.amountCorrection)
+    return position.investmentReview.amountCorrection.amountMinor;
+  return position.snapshot.investmentAmountMinor === undefined
+    ? position.snapshot.allocationMinor
+    : position.snapshot.investmentAmountMinor;
 }
 
 export const InvestmentReviewStateSchema = z
@@ -364,7 +373,9 @@ export const InvestmentReviewContextSchema = z
     positionLabel: z.string().min(1).max(1_000),
     purchaseContext: PurchaseContextSchema.nullable().optional(),
     realizedMinor: z.number().int().safe().nonnegative().nullable().optional(),
-    positionKind: z.enum(["spv_interest", "fund_interest"]).optional(),
+    positionKind: z
+      .enum(["direct", "spv_interest", "fund_interest"])
+      .optional(),
     investmentEvents: z.array(InvestmentEventSchema).max(100).optional(),
     valuationAsOf: z.iso.datetime({ offset: true }).nullable().optional(),
     openedOn: z.iso.date().nullable().optional(),

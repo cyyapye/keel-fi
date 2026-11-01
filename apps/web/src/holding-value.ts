@@ -115,11 +115,11 @@ export function holdingValueSummary(holding: Holding) {
     calculatePositionPerformance({
       currentValueMinor: valueMinor,
       currentValueReported: true,
-      realizedValueMinor: holding.realizedValueMinor ?? 0,
+      realizedValueMinor: holding.realizedValueMinor ?? null,
       providerCostBasisMinor: holding.costBasisMinor ?? null,
       fundedMinor: holding.investedMinor ?? null,
       economicsContext: holding.positionEconomicsContext ?? null,
-      allowFundedAmountEstimate: true,
+      allowFundedAmountEstimate: !holding.manualContext,
     });
   return {
     record,

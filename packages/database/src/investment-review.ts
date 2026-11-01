@@ -167,7 +167,10 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
   private async load(identity: Identity, positionId: string) {
     const position = await this.db
       .prepare(
-        `SELECT p.id, p.legal_vehicle_name, p.owner_label, p.currency, p.position_kind, p.provider, p.opened_on,
+        `SELECT p.id, COALESCE(manual_identity.legal_vehicle_name,p.legal_vehicle_name) legal_vehicle_name,
+      COALESCE(manual_identity.owner_label,p.owner_label) owner_label,p.currency,
+      COALESCE(manual_identity.position_kind,p.position_kind) position_kind,p.provider,
+      CASE WHEN manual_identity.id IS NULL THEN p.opened_on ELSE manual_identity.opened_on END opened_on,
       purchase.receipt_json purchase_json, source_document.source_label,
              (SELECT json_object('reviewId',link.review_id,'sourcePositionId',link.source_position_id,
                'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' WHEN 'wefunder' THEN 'Wefunder' ELSE 'AngelList' END,'observedAt',ls.observed_at,
@@ -201,6 +204,8 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         'carryPpm', terms.carry_ppm, 'note', terms.note, 'acceptedAt', terms_review.decided_at, 'decisionSource', terms.decision_source
       ) END economics_json
       FROM holding_positions p
+      LEFT JOIN manual_holding_identity_heads manual_head ON manual_head.position_id=p.id AND manual_head.household_id=p.household_id
+      LEFT JOIN manual_holding_identity_versions manual_identity ON manual_identity.id=manual_head.version_id
       LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id = p.id
       LEFT JOIN holding_purchase_reviews purchase ON purchase.id = purchase_head.review_id
       LEFT JOIN holding_import_applications a ON a.id = (SELECT candidate.id FROM holding_import_applications candidate JOIN holding_position_snapshots snapshot ON snapshot.id = candidate.snapshot_id WHERE candidate.position_id = p.id ORDER BY candidate.applied_at DESC, snapshot.observed_at DESC, candidate.id DESC LIMIT 1)
@@ -227,7 +232,7 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         ) ORDER BY accepted.decided_at DESC, proposal.id DESC LIMIT 1
       )
       LEFT JOIN holding_position_economics_reviews terms_review ON terms_review.proposal_id = terms.id AND terms_review.decision = 'accepted'
-      WHERE p.id = ? AND p.household_id = ? AND p.position_kind <> 'direct'
+      WHERE p.id = ? AND p.household_id = ? AND (p.position_kind <> 'direct' OR manual_identity.id IS NOT NULL)
         AND NOT EXISTS (SELECT 1 FROM holding_position_continuities WHERE predecessor_position_id = p.id)`,
       )
       .bind(positionId, identity.household_id)
@@ -239,8 +244,8 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
         this.db
           .prepare(
             `SELECT m.id, m.exposure_id, e.company_id, e.canonical_name, m.status, m.relationship_kind, m.version, m.effective_at, m.decision_source, m.accepted_at
-        FROM holding_position_exposure_mappings m JOIN canonical_exposures e ON e.id = m.exposure_id
-        WHERE m.household_id = ? AND m.position_id = ? AND NOT EXISTS (SELECT 1 FROM holding_position_exposure_mappings later WHERE later.supersedes_mapping_id = m.id)
+        FROM holding_position_exposure_heads head JOIN holding_position_exposure_mappings m ON m.id=head.mapping_id JOIN canonical_exposures e ON e.id = head.exposure_id
+        WHERE head.household_id = ? AND head.position_id = ?
         ORDER BY m.exposure_id LIMIT 101`,
           )
           .bind(identity.household_id, positionId)
@@ -382,7 +387,8 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
       purchaseContext:
         position.snapshot_id !== null &&
         position.currency === "USD" &&
-        position.position_kind === "spv_interest"
+        (position.position_kind === "spv_interest" ||
+          position.provider === "manual")
           ? {
               snapshotId: position.snapshot_id,
               currency: "USD",
@@ -418,12 +424,18 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
           : (JSON.parse(position.automatic_review_json) as unknown),
       holderLabel: position.owner_label,
       snapshotId: position.snapshot_id,
-      committedMinor: amountMinor,
+      committedMinor:
+        position.provider === "manual"
+          ? position.allocation_minor
+          : amountMinor,
       sourceAmountMinor,
       fundedMinor: position.invested_minor,
       currency: position.currency,
       economics:
         position.snapshot_id === null ||
+        position.provider === "manual" ||
+        amountMinor === null ||
+        position.invested_minor === null ||
         ((amountMinor ?? 0) <= 0 && !position.purchase_json) ||
         position.position_kind !== "spv_interest"
           ? null
@@ -1186,14 +1198,19 @@ export class D1InvestmentReviewRepository implements InvestmentReviewRepository 
     ) =>
       this.db
         .prepare(
-          `INSERT INTO holding_position_exposure_mappings (id, household_id, position_id, exposure_id, relationship_kind, allocation_ppm, status, decision_source, decision_reference, evidence_sha256, effective_at, version, supersedes_mapping_id, accepted_by_user_id, accepted_at, immutable) VALUES (?, ?, ?, ?, 'look_through', ?, ?, 'review', ?, ?, ?, ?, ?, ?, ?, 1)`,
+          `INSERT INTO holding_position_exposure_mappings (id, household_id, position_id, exposure_id, relationship_kind, allocation_ppm, status, decision_source, decision_reference, evidence_sha256, effective_at, version, supersedes_mapping_id, accepted_by_user_id, accepted_at, immutable) VALUES (?, ?, ?, ?, ?, ?, ?, 'review', ?, ?, ?, ?, ?, ?, ?, 1)`,
         )
         .bind(
           active ? mappingId : crypto.randomUUID(),
           identity.household_id,
           positionId,
           target,
-          active ? 1_000_000 : null,
+          active
+            ? context.positionKind === "direct"
+              ? "direct"
+              : "look_through"
+            : m!.relationship_kind,
+          active && context.positionKind !== "fund_interest" ? 1_000_000 : null,
           active ? "active" : "withdrawn",
           `Investment company review ${input.requestId}`,
           evidenceHash,
