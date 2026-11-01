@@ -52,6 +52,16 @@ file converges on the same records. Template coverage is partial and never
 removes an omitted position. Migration `0087` must precede the API/web release;
 it preserves baseline history and its immutable guards.
 
+The accepted **Legal Position** field is available as legal-name evidence,
+labelled as a manually completed Wefunder template rather than an agreement or
+provider-verified name. The **Investment** and **Held Through** columns do not
+identify the legal vehicle. An exact existing-entity match can be confirmed in
+the existing legal-entity review without a separate PDF. Importing does not
+silently link or merge existing entities. Existing document conflicts and manual
+identity decisions retain their precedence. The bounded explicit resolver also
+recovers this evidence for previously accepted Wefunder rows; no re-import or
+GET-side repair is required.
+
 ## Investment identity and terms
 
 `investment-review-auto-v1` completes clear investment reviews after source

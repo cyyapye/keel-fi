@@ -108,7 +108,11 @@ export function automaticLegalName(
     )
   )
     return null;
-  if (evidence.state === "provider_reported") return evidence.legalName;
+  if (
+    evidence.state === "provider_reported" ||
+    evidence.state === "template_reported"
+  )
+    return evidence.legalName;
   if (
     documents.length === 0 ||
     documents.some(

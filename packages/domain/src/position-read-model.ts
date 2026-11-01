@@ -58,7 +58,11 @@ export const InvestmentSourceFreshnessSchema = z.enum(["current", "stale"]);
 
 const ReportedLegalEntityNameSchema = z
   .object({
-    state: z.enum(["provider_reported", "document_reported"]),
+    state: z.enum([
+      "provider_reported",
+      "template_reported",
+      "document_reported",
+    ]),
     legalName: z.string().trim().min(1).max(1_000),
     sourceField: z.string().trim().min(1).max(240),
     documents: z.array(LegalNameDocumentReferenceSchema).max(100).optional(),
@@ -79,6 +83,33 @@ export const LegalEntityNameEvidenceSchema = z.discriminatedUnion("state", [
   ReportedLegalEntityNameSchema,
   UnavailableLegalEntityNameSchema,
 ]);
+
+// Only fields that explicitly identify the legal vehicle are name evidence.
+// Provider-generated deal labels and the investor's ownership label are not.
+export function importedLegalEntityNameEvidence(
+  provider: string,
+  legalPosition: string,
+): LegalEntityNameEvidence {
+  if (provider === "angellist" || provider === "wefunder") {
+    return LegalEntityNameEvidenceSchema.parse({
+      state:
+        provider === "wefunder" ? "template_reported" : "provider_reported",
+      legalName: legalPosition,
+      sourceField:
+        provider === "wefunder"
+          ? "Legal Position (Wefunder template)"
+          : "Fund Name",
+    });
+  }
+  return {
+    state: "unavailable",
+    legalName: null,
+    sourceField: null,
+    ...(["sydecar", "tokenfolio"].includes(provider)
+      ? { problem: "not_checked" as const }
+      : {}),
+  };
+}
 
 export const InvestmentPositionSnapshotSchema = z.object({
   id: z.string().min(1),

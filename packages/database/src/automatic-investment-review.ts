@@ -28,6 +28,7 @@ import {
 import { exactLegalEntityTypeFromName } from "@keel/domain/legal-entities";
 import {
   LegalEntityNameEvidenceSchema,
+  importedLegalEntityNameEvidence,
   reviewedInvestmentNameEvidence,
 } from "@keel/domain/position-read-model";
 import {
@@ -45,6 +46,7 @@ type Row = {
   provider: string;
   position_kind: string;
   legal_vehicle_name: string;
+  imported_legal_vehicle_name: string;
   exposure_label: string;
   owner_label: string;
   currency: string;
@@ -131,7 +133,7 @@ export function automaticReviewJsonBatches(
 }
 
 // A bounded write-side projection. These queries never run on a GET path.
-const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_name, p.owner_label, p.currency, p.opened_on,
+const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_name, r.legal_vehicle_name imported_legal_vehicle_name, p.owner_label, p.currency, p.opened_on,
   a.id application_id, r.import_id, r.exposure_label, s.id snapshot_id, s.allocation_minor, s.invested_minor, s.provider_status, s.observed_at,
   provider_identity.provider_investment_id, observation.id observation_id,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) <= 131072 THEN observation.evidence_json ELSE NULL END evidence_json,
@@ -247,13 +249,12 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         LegalEntityNameEvidenceSchema.parse(
           row.evidence_json !== null
             ? JSON.parse(row.evidence_json)
-            : row.provider === "angellist"
-              ? {
-                  state: "provider_reported",
-                  legalName: row.legal_vehicle_name,
-                  sourceField: "Fund Name",
-                }
-              : { state: "unavailable", legalName: null, sourceField: null },
+            : importedLegalEntityNameEvidence(
+                row.provider,
+                row.provider === "wefunder"
+                  ? row.imported_legal_vehicle_name
+                  : row.legal_vehicle_name,
+              ),
         ),
       ]),
     );
@@ -434,8 +435,9 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         resolvedName,
       );
       const guard = {
-        // Recover accepted exact-company decisions without reopening optional fees.
-        evaluationVersion: 5,
+        // Re-evaluate legacy Wefunder name evidence while preserving exact-company
+        // recovery and the separate optional-fee review boundary.
+        evaluationVersion: 6,
         reportedCompanyIds: (
           companiesByName.get(companyNameKey(row.exposure_label)) ?? []
         )

@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
+import {
+  parseProviderHoldingsTemplateCsv,
+  providerHoldingsTemplateCsv,
+} from "@keel/connectors";
 
 import {
   D1HoldingImportRepository,
@@ -18,6 +23,7 @@ import {
   refreshAcceptedPortfolioBaseline,
 } from "./portfolio-baseline";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
+import { D1LegalEntityRepository } from "./legal-entities";
 
 const migrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
@@ -587,6 +593,181 @@ describe("AngelList holding import persistence", () => {
   afterEach(() => {
     sqlite.close();
   });
+
+  it.each([1, 120])(
+    "links %i accepted Wefunder legal positions to an existing entity only after confirmation",
+    async (count) => {
+      const subject = "synthetic-access-subject";
+      const d1 = database as unknown as D1Database;
+      const positions = new D1InvestmentPositionViewRepository(d1);
+      const entities = new D1LegalEntityRepository(d1);
+      const emptyView = await positions.list(subject);
+      const legalName = "Synthetic Named Vehicle LLC";
+      const createEntity = (name: string) =>
+        entities.create(
+          subject,
+          {
+            source: null,
+            profile: {
+              legalName: name,
+              entityType: "llc",
+              relationship: "investment_vehicle",
+              currentOwner: null,
+              jurisdiction: null,
+              formedOn: null,
+              einLastFour: null,
+              ownershipInterestPpm: null,
+              interestStatus: "current",
+              taxClassification: null,
+              notes: null,
+            },
+          },
+          emptyView,
+        );
+      const existing = await createEntity(legalName);
+      const companyOnly = await createEntity(
+        "Synthetic Operating Company 0 LLC",
+      );
+      const entityIdsBeforeImport = sqlite
+        .prepare("SELECT id FROM legal_entities ORDER BY id")
+        .all();
+      const csv =
+        providerHoldingsTemplateCsv("wefunder") +
+        Array.from({ length: count }, (_, index) =>
+          [
+            `Synthetic Operating Company ${index} LLC`,
+            legalName,
+            "SPV",
+            "Synthetic Family Trust",
+            "Live",
+            "",
+            "2026-08-20",
+            "$1250.00",
+            "",
+            "",
+            "",
+            "Membership interest",
+          ].join(","),
+        ).join("\n") +
+        "\n";
+      const parsed = await parseProviderHoldingsTemplateCsv(
+        "wefunder",
+        new TextEncoder().encode(csv),
+      );
+      const base = providerTemplateStageInput("wefunder");
+      const staged = await repository.stageHoldingImport(subject, {
+        ...base,
+        ...parsed,
+        sha256: createHash("sha256").update(csv).digest("hex"),
+        byteSize: new TextEncoder().encode(csv).byteLength,
+        canonicalScope: {
+          ...base.canonicalScope,
+          rows: parsed.rows.map((row) => ({
+            sourceRowNumber: row.rowNumber,
+            protectedAccountKey: "6".repeat(64),
+            protectedPositionKey: row.naturalKeySha256,
+          })),
+        },
+      });
+      await new D1AlphaRepository(d1).reconcileHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+
+      database.resetRoundTripCount();
+      const view = await positions.list(subject);
+      expect(database.roundTripCount).toBe(4);
+      const imported = view.connections.flatMap((connection) =>
+        connection.containers.flatMap((container) =>
+          container.positions.filter(
+            (position) => position.source.label === "Wefunder template",
+          ),
+        ),
+      );
+      expect(imported).toHaveLength(count);
+      expect(
+        imported.every(
+          (position) =>
+            position.legalEntityNameEvidence.state === "template_reported" &&
+            position.legalEntityNameEvidence.legalName === legalName &&
+            position.legalEntityNameEvidence.sourceField ===
+              "Legal Position (Wefunder template)",
+        ),
+      ).toBe(true);
+      const projectionSql = database.preparedSql
+        .filter(
+          (sql) =>
+            sql.includes("FROM holding_positions position") &&
+            sql.includes("prior_application"),
+        )
+        .at(-1)!;
+      const plan = sqlite
+        .prepare(`EXPLAIN QUERY PLAN ${projectionSql}`)
+        .all("hh_demo") as Array<{ detail: string }>;
+      expect(
+        plan.some((row) => /SCAN (candidate|accepted_row)\b/u.test(row.detail)),
+      ).toBe(false);
+
+      const before = await entities.getState(subject, view);
+      expect(
+        before.entities.find((entity) => entity.id === existing.id)?.sources,
+      ).toHaveLength(0);
+      expect(before.exactBatch).toMatchObject({
+        sourceCount: count,
+        existingEntityCount: 1,
+        newEntityCount: 0,
+      });
+      const snapshots = sqlite
+        .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+        .all();
+      await entities.applyExactBatch(
+        subject,
+        { expectedRevision: before.exactBatch.revision },
+        view,
+      );
+      const reloaded = await entities.getState(
+        subject,
+        positions.list(subject),
+      );
+      expect(
+        reloaded.entities
+          .find((entity) => entity.id === existing.id)
+          ?.sources.filter(
+            (source) => source.source.kind === "holding_position",
+          ),
+      ).toHaveLength(count);
+      expect(
+        reloaded.entities.find((entity) => entity.id === companyOnly.id)
+          ?.sources,
+      ).toHaveLength(0);
+      expect(
+        sqlite
+          .prepare("SELECT * FROM holding_position_snapshots ORDER BY id")
+          .all(),
+      ).toEqual(snapshots);
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE legal_entity_id = ? AND decision_source = 'manual'",
+          )
+          .get(existing.id),
+      ).toEqual({ count });
+      await new D1AlphaRepository(d1).reconcileHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) count FROM legal_entity_source_decisions WHERE legal_entity_id = ?",
+          )
+          .get(existing.id),
+      ).toEqual({ count });
+      expect(
+        sqlite.prepare("SELECT id FROM legal_entities ORDER BY id").all(),
+      ).toEqual(entityIdsBeforeImport);
+    },
+  );
 
   it("retains Tokenfolio per-share observations without accepting a financial record", async () => {
     const input = providerTemplateStageInput("tokenfolio");

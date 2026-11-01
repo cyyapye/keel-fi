@@ -8,6 +8,7 @@ import {
   InvestmentPositionViewSchema,
   InvestmentPositionRecordSchema,
   LegalEntityNameEvidenceSchema,
+  importedLegalEntityNameEvidence,
   reviewedInvestmentNameEvidence,
   type InvestmentCoverageCompleteness,
   type InvestmentPositionConnection,
@@ -67,6 +68,7 @@ type InvestmentPositionRow = {
   container_id: string;
   position_id: string;
   legal_vehicle_name: string;
+  imported_legal_vehicle_name: string;
   owner_label: string;
   reported_exposure_name: string | null;
   position_kind: "direct" | "spv_interest" | "fund_interest";
@@ -253,24 +255,17 @@ function positionFromRow(
           ),
         }),
     legalEntityNameEvidence: reviewedInvestmentNameEvidence(
-      row.import_provider === "angellist"
-        ? {
-            state: "provider_reported",
-            legalName: row.legal_vehicle_name,
-            sourceField: "Fund Name",
-          }
-        : row.legal_name_evidence_json != null
-          ? LegalEntityNameEvidenceSchema.parse(
-              JSON.parse(row.legal_name_evidence_json),
-            )
-          : {
-              state: "unavailable",
-              legalName: null,
-              sourceField: null,
-              ...(["sydecar", "tokenfolio"].includes(row.import_provider)
-                ? { problem: "not_checked" as const }
-                : {}),
-            },
+      row.import_provider !== "angellist" &&
+        row.legal_name_evidence_json != null
+        ? LegalEntityNameEvidenceSchema.parse(
+            JSON.parse(row.legal_name_evidence_json),
+          )
+        : importedLegalEntityNameEvidence(
+            row.import_provider,
+            row.import_provider === "wefunder"
+              ? row.imported_legal_vehicle_name
+              : row.legal_vehicle_name,
+          ),
       row.investment_review_json == null
         ? null
         : InvestmentReviewStateSchema.parse(
@@ -567,6 +562,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ) AS effective_date,
              document.retrieved_at,
              accepted_import.provider AS import_provider,
+             accepted_row.legal_vehicle_name AS imported_legal_vehicle_name,
              legal_observation.evidence_json AS legal_name_evidence_json,
              investment_review.state_json AS investment_review_json,
              COALESCE(alias_receipt.receipt_json, company_review.receipt_json, json_extract(automatic.details_json, '$.company.receipt')) AS company_review_json,
