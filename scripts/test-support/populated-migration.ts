@@ -14,6 +14,7 @@ import { D1PositionPurchaseRepository } from "../../packages/database/src/positi
 import { D1ManualHoldingRepository } from "../../packages/database/src/manual-holdings";
 import { LegalDocumentTestD1 } from "./legal-documents";
 import { syntheticWefunderImport } from "./wefunder-holdings";
+import { copyCostSeed, costSeedInput, sealCostSeed } from "./d1-cost-seed";
 
 const cell = z.union([z.string(), z.number().finite(), z.null()]);
 const SchemaObject = z.object({
@@ -492,8 +493,87 @@ export default { async fetch(request, env) {
   return Response.json(results.map((result, statement) => ({statement, rowsRead:result.meta.rows_read, rowsWritten:result.meta.rows_written})));
 } };`;
 
+const runtimeOptions = {
+  script: worker,
+  modules: true as const,
+  compatibilityFlags: ["nodejs_compat"],
+  d1Databases: ["DB"],
+  compatibilityDate: "2026-07-28",
+};
+
+function populatedMigrationBootstrap(fixture: PopulatedMigrationFixture) {
+  return JSON.stringify({
+    kind: "bootstrap",
+    batches: [
+      ...migrationFiles(fixture.frontier).map((file) =>
+        unstable_splitSqlQuery(readFileSync(file, "utf8")),
+      ),
+      fixture.triggers.map(({ name }) => `DROP TRIGGER ${identifier(name)}`),
+      [
+        "PRAGMA defer_foreign_keys=ON",
+        ...fixtureInserts(fixture),
+        "PRAGMA defer_foreign_keys=OFF",
+      ],
+      fixture.triggers.map(({ sql }) => sql),
+    ],
+  });
+}
+
+type PopulatedMigrationSeed = {
+  directory: string;
+  platformSchemaObjects: z.infer<typeof SchemaObject>[];
+  close: () => void;
+};
+
+function populatedMigrationSeedInput(
+  fixture: PopulatedMigrationFixture,
+  platformSchemaObjects: z.infer<typeof SchemaObject>[],
+) {
+  return costSeedInput(
+    JSON.stringify({
+      frontier: fixture.frontier,
+      history: fixture.history,
+      objects: fixture.objects,
+      runtimeOptions,
+      platformSchemaObjects,
+    }) + populatedMigrationBootstrap(fixture),
+  );
+}
+
+export async function preparePopulatedMigrationSeed(
+  fixture: PopulatedMigrationFixture,
+): Promise<PopulatedMigrationSeed> {
+  const directory = mkdtempSync(join(tmpdir(), "keel-migration-seed-"));
+  try {
+    const source = await populatedMigrationDatabase(fixture, {
+      persist: join(directory, "d1"),
+    });
+    let platformSchemaObjects: z.infer<typeof SchemaObject>[];
+    try {
+      platformSchemaObjects = z
+        .array(SchemaObject)
+        .parse(source.platformSchemaObjects);
+    } finally {
+      await source.close();
+    }
+    sealCostSeed(
+      directory,
+      populatedMigrationSeedInput(fixture, platformSchemaObjects),
+    );
+    return {
+      directory,
+      platformSchemaObjects,
+      close: () => rmSync(directory, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 export async function populatedMigrationDatabase(
   fixture: PopulatedMigrationFixture,
+  options: { persist?: string; seed?: PopulatedMigrationSeed } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), "keel-populated-migration-"));
   let runtime: Miniflare | undefined;
@@ -505,29 +585,39 @@ export async function populatedMigrationDatabase(
     }
   };
   try {
+    if (options.seed && options.persist)
+      throw new Error("A migration seed must use a fresh owned destination");
+    const persist = options.persist ?? join(directory, "d1");
+    const carriedPlatformObjects = options.seed
+      ? z.array(SchemaObject).parse(options.seed.platformSchemaObjects)
+      : undefined;
+    if (options.seed)
+      copyCostSeed(
+        options.seed.directory,
+        persist,
+        populatedMigrationSeedInput(fixture, carriedPlatformObjects!),
+      );
     runtime = new Miniflare({
-      script: worker,
-      modules: true,
+      ...runtimeOptions,
       log: new Log(LogLevel.NONE),
-      compatibilityFlags: ["nodejs_compat"],
-      d1Databases: ["DB"],
-      d1Persist: join(directory, "d1"),
-      compatibilityDate: "2026-07-28",
+      d1Persist: persist,
     });
     const database = await runtime.getD1Database("DB");
     // Miniflare adds bookmark schema after evaluating the first query's SQL.
     await database.prepare("SELECT 1").first();
-    const platformSchemaObjects = z
-      .array(SchemaObject)
-      .parse(
-        (
-          await database
-            .prepare(
-              "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name",
-            )
-            .all()
-        ).results,
-      );
+    const platformSchemaObjects =
+      carriedPlatformObjects ??
+      z
+        .array(SchemaObject)
+        .parse(
+          (
+            await database
+              .prepare(
+                "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name",
+              )
+              .all()
+          ).results,
+        );
     if (
       platformSchemaObjects.some((platform) =>
         fixture.objects.some((object) => object.name === platform.name),
@@ -556,31 +646,17 @@ export async function populatedMigrationDatabase(
         throw new Error(`Preservation read failed with ${response.status}`);
       return z.array(TableDigestSchema).parse(await response.json());
     });
-    const bootstrap = await runtime.dispatchFetch(
-      "https://synthetic-populated-migration.invalid",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          kind: "bootstrap",
-          batches: [
-            ...migrationFiles(fixture.frontier).map((file) =>
-              unstable_splitSqlQuery(readFileSync(file, "utf8")),
-            ),
-            fixture.triggers.map(
-              ({ name }) => `DROP TRIGGER ${identifier(name)}`,
-            ),
-            [
-              "PRAGMA defer_foreign_keys=ON",
-              ...fixtureInserts(fixture),
-              "PRAGMA defer_foreign_keys=OFF",
-            ],
-            fixture.triggers.map(({ sql }) => sql),
-          ],
-        }),
-      },
-    );
-    if (!bootstrap.ok)
-      throw new Error(`Old-schema bootstrap failed with ${bootstrap.status}`);
+    if (!options.seed) {
+      const bootstrap = await runtime.dispatchFetch(
+        "https://synthetic-populated-migration.invalid",
+        {
+          method: "POST",
+          body: populatedMigrationBootstrap(fixture),
+        },
+      );
+      if (!bootstrap.ok)
+        throw new Error(`Old-schema bootstrap failed with ${bootstrap.status}`);
+    }
     if (
       (await database.prepare("PRAGMA foreign_keys").first("foreign_keys")) !==
       1

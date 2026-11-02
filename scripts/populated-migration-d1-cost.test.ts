@@ -20,6 +20,7 @@ import {
   migrationDigest,
   populatedMigrationDatabase,
   populatedMigrationFixture,
+  preparePopulatedMigrationSeed,
   preserveMigrationFixture,
 } from "./test-support/populated-migration";
 
@@ -158,106 +159,111 @@ describe("populated OLD-schema D1 migration safety", () => {
         households: 2,
       });
       expect(fixture.foreignKeys.filter((fk) => !fk.indexed)).toHaveLength(14);
-      const original = await populatedMigrationDatabase(fixture);
-      let originalReads: number;
+      const seed = await preparePopulatedMigrationSeed(fixture);
       try {
-        await preserveMigrationFixture(original.database, fixture, true);
-        const plans = await migrationForeignKeyPlans(
-          original.database,
-          fixture,
-        );
-        expect(
-          plans
-            .filter((plan) => !plan.indexed)
-            .every((plan) =>
-              plan.details.some((detail) => /\bSCAN\b/u.test(detail)),
-            ),
-        ).toBe(true);
-        const cost = await original.execute(rebuild);
-        expect(cost.statements).toBe(rebuild.length);
-        expect(cost.rowsRead).toBeGreaterThan(
-          history === 12 ? 5_000_000 : 19_000_000,
-        );
-        const drop =
-          cost.records[
-            rebuild.findIndex(
-              (sql) => sql.trim() === "DROP TABLE holding_position_snapshots",
-            )
-          ]!;
-        expect(drop.rowsRead).toBeGreaterThan((cost.rowsRead * 9) / 10);
-        expect(cost.rowsWritten).toBeGreaterThan(20_000);
-        await preserveMigrationFixture(original.database, fixture);
-        expect(await immutableMigrationProbes(original.database, fixture)).toBe(
-          3,
-        );
-        originalReads = cost.rowsRead;
-      } finally {
-        await original.close();
-      }
+        const original = await populatedMigrationDatabase(fixture, { seed });
+        let originalReads: number;
+        try {
+          await preserveMigrationFixture(original.database, fixture, true);
+          const plans = await migrationForeignKeyPlans(
+            original.database,
+            fixture,
+          );
+          expect(
+            plans
+              .filter((plan) => !plan.indexed)
+              .every((plan) =>
+                plan.details.some((detail) => /\bSCAN\b/u.test(detail)),
+              ),
+          ).toBe(true);
+          const cost = await original.execute(rebuild);
+          expect(cost.statements).toBe(rebuild.length);
+          expect(cost.rowsRead).toBeGreaterThan(
+            history === 12 ? 5_000_000 : 19_000_000,
+          );
+          const drop =
+            cost.records[
+              rebuild.findIndex(
+                (sql) => sql.trim() === "DROP TABLE holding_position_snapshots",
+              )
+            ]!;
+          expect(drop.rowsRead).toBeGreaterThan((cost.rowsRead * 9) / 10);
+          expect(cost.rowsWritten).toBeGreaterThan(20_000);
+          await preserveMigrationFixture(original.database, fixture);
+          expect(
+            await immutableMigrationProbes(original.database, fixture),
+          ).toBe(3);
+          originalReads = cost.rowsRead;
+        } finally {
+          await original.close();
+        }
 
-      const corrected = await populatedMigrationDatabase(fixture);
-      try {
-        await preserveMigrationFixture(corrected.database, fixture, true);
-        const preparation = await corrected.execute(
-          syntheticHistoricalFkPreparation.filter(
-            (sql) => !sql.includes("manual_holding_submissions"),
-          ),
-        );
-        expect(preparation.statements).toBe(14);
-        expect(preparation.rowsWritten).toBeGreaterThan(0);
-        const plans = await migrationForeignKeyPlans(
-          corrected.database,
-          fixture,
-        );
-        expect(
-          plans.every((plan) =>
-            plan.details.every(
-              (detail) =>
-                /\bSEARCH\b/u.test(detail) && !/\bSCAN\b/u.test(detail),
+        const corrected = await populatedMigrationDatabase(fixture, { seed });
+        try {
+          await preserveMigrationFixture(corrected.database, fixture, true);
+          const preparation = await corrected.execute(
+            syntheticHistoricalFkPreparation.filter(
+              (sql) => !sql.includes("manual_holding_submissions"),
             ),
-          ),
-        ).toBe(true);
-        const migration = await corrected.execute(rebuild);
-        const restoration = await corrected.execute(
-          syntheticHistoricalFkPreparation,
-        );
-        const rowsRead =
-          preparation.rowsRead + migration.rowsRead + restoration.rowsRead;
-        const rowsWritten =
-          preparation.rowsWritten +
-          migration.rowsWritten +
-          restoration.rowsWritten;
-        expect(rowsRead).toBeLessThanOrEqual(200_000);
-        expect(rowsWritten).toBeLessThanOrEqual(50_000);
-        expect(migration.rowsRead).toBeLessThan(originalReads / 20);
-        await preserveMigrationFixture(corrected.database, fixture);
-        expect(
-          await immutableMigrationProbes(corrected.database, fixture),
-        ).toBe(3);
-        expect(
-          (await migrationForeignKeyPlans(corrected.database, fixture)).every(
-            (plan) =>
-              plan.details.every((detail) => /\bSEARCH\b/u.test(detail)),
-          ),
-        ).toBe(true);
-        console.info(
-          JSON.stringify({
-            syntheticMigrationRegression: {
-              history,
-              mainPositions: 120,
-              unrelatedPositions: 120,
-              originalReads,
-              preparationReads: preparation.rowsRead,
-              preparationWrites: preparation.rowsWritten,
-              migrationReads: migration.rowsRead,
-              migrationWrites: migration.rowsWritten,
-              restorationReads: restoration.rowsRead,
-              restorationWrites: restoration.rowsWritten,
-            },
-          }),
-        );
+          );
+          expect(preparation.statements).toBe(14);
+          expect(preparation.rowsWritten).toBeGreaterThan(0);
+          const plans = await migrationForeignKeyPlans(
+            corrected.database,
+            fixture,
+          );
+          expect(
+            plans.every((plan) =>
+              plan.details.every(
+                (detail) =>
+                  /\bSEARCH\b/u.test(detail) && !/\bSCAN\b/u.test(detail),
+              ),
+            ),
+          ).toBe(true);
+          const migration = await corrected.execute(rebuild);
+          const restoration = await corrected.execute(
+            syntheticHistoricalFkPreparation,
+          );
+          const rowsRead =
+            preparation.rowsRead + migration.rowsRead + restoration.rowsRead;
+          const rowsWritten =
+            preparation.rowsWritten +
+            migration.rowsWritten +
+            restoration.rowsWritten;
+          expect(rowsRead).toBeLessThanOrEqual(200_000);
+          expect(rowsWritten).toBeLessThanOrEqual(50_000);
+          expect(migration.rowsRead).toBeLessThan(originalReads / 20);
+          await preserveMigrationFixture(corrected.database, fixture);
+          expect(
+            await immutableMigrationProbes(corrected.database, fixture),
+          ).toBe(3);
+          expect(
+            (await migrationForeignKeyPlans(corrected.database, fixture)).every(
+              (plan) =>
+                plan.details.every((detail) => /\bSEARCH\b/u.test(detail)),
+            ),
+          ).toBe(true);
+          console.info(
+            JSON.stringify({
+              syntheticMigrationRegression: {
+                history,
+                mainPositions: 120,
+                unrelatedPositions: 120,
+                originalReads,
+                preparationReads: preparation.rowsRead,
+                preparationWrites: preparation.rowsWritten,
+                migrationReads: migration.rowsRead,
+                migrationWrites: migration.rowsWritten,
+                restorationReads: restoration.rowsRead,
+                restorationWrites: restoration.rowsWritten,
+              },
+            }),
+          );
+        } finally {
+          await corrected.close();
+        }
       } finally {
-        await corrected.close();
+        seed.close();
       }
       completedRegressions.add(history);
     }, 120_000);

@@ -133,6 +133,16 @@ limit. That failed attempt also exceeded the historical 24-capture case's
 unchanged 120-second deadline; the revised driver requires a fresh complete
 native receipt.
 
+The historical comparison prepares one closed real-D1 OLD-schema seed inside its
+timed case. Both branches receive fresh verified copies. The seal binds the
+exact bootstrap SQL, runtime configuration, lockfile and pristine platform
+schema. Existing 64 MiB and 32-file bounds remain. Complete preservation still
+precedes measurement on each copy. This removes a duplicate unmeasured bootstrap
+without moving setup outside the unchanged 120-second deadline. Run
+`41522276828` retained one failure at that deadline before this seed trial; all
+other 1,645 unit cases and the complete browser inventory passed. A fresh
+complete native receipt must establish this candidate's Linux fit.
+
 The unit suite uses three workers in CI and locally. Deadline-sensitive workload
 files receive first admission, followed by measured expensive files. Its early
 admission reduces overlap between expensive D1 fixtures and browser startup. The
