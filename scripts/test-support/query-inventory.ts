@@ -23,11 +23,55 @@ export function productionSourceFiles(): string[] {
 
 /** Discover call sites, rather than maintaining a handpicked list that can drift. */
 export function productionQueries(): QuerySource[] {
+  return queriesForSources(
+    productionSourceFiles().map((file) => ({
+      file,
+      contents: readFileSync(file, "utf8"),
+    })),
+  );
+}
+
+function isUnchangedPrepareForwarder(node: ts.CallExpression): boolean {
+  const wrapper = node.parent;
+  const arrow = wrapper.parent;
+  if (
+    !ts.isCallExpression(wrapper) ||
+    wrapper.arguments.length !== 1 ||
+    wrapper.arguments[0] !== node ||
+    !ts.isArrowFunction(arrow) ||
+    arrow.body !== wrapper ||
+    arrow.parameters.length !== 1 ||
+    !ts.isPropertyAssignment(arrow.parent) ||
+    arrow.parent.initializer !== arrow ||
+    !ts.isIdentifier(arrow.parent.name) ||
+    arrow.parent.name.text !== "prepare" ||
+    node.arguments.length !== 1
+  )
+    return false;
+  const parameter = arrow.parameters[0]!;
+  const argument = node.arguments[0]!;
+  return (
+    ts.isIdentifier(parameter.name) &&
+    parameter.type?.kind === ts.SyntaxKind.StringKeyword &&
+    parameter.initializer === undefined &&
+    parameter.dotDotDotToken === undefined &&
+    ts.isIdentifier(argument) &&
+    argument.text === parameter.name.text
+  );
+}
+
+export function sourceQueries(file: string, contents: string): QuerySource[] {
+  return queriesForSources([{ file, contents }]);
+}
+
+function queriesForSources(
+  sources: readonly { file: string; contents: string }[],
+): QuerySource[] {
   const queries: QuerySource[] = [];
-  for (const file of productionSourceFiles()) {
+  for (const { file, contents } of sources) {
     const source = ts.createSourceFile(
       file,
-      readFileSync(file, "utf8"),
+      contents,
       ts.ScriptTarget.Latest,
       true,
     );
@@ -176,7 +220,7 @@ export function productionQueries(): QuerySource[] {
             if (typeof sql === "string") variants.add(sql);
           }
         }
-        if (variants.size === 0)
+        if (variants.size === 0 && !isUnchangedPrepareForwarder(node))
           throw new Error(
             `Unaccounted SQL factory at ${file}:${line}: ${node.arguments[0].getText(source)}`,
           );

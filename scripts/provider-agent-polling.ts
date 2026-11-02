@@ -1,3 +1,5 @@
+import { d1ServiceRetryAt } from "../packages/domain/src/d1-service";
+
 // One minute is the existing queued-update response target. Keep all idle
 // work on this clock so an auxiliary reconnect loop cannot bypass its budget.
 export const PROVIDER_AGENT_IDLE_INTERVAL_MS = 60_000;
@@ -23,14 +25,21 @@ export async function runProviderAgentPolling(
     options.sleep ??
     ((milliseconds: number) =>
       new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  let pausedUntil = 0;
   let nextUpdateCheckAt = 0;
   let nextSessionCheckAt = 0;
   let reconnectRetryMs = PROVIDER_AGENT_IDLE_INTERVAL_MS;
   let updateRetryMs = PROVIDER_AGENT_IDLE_INTERVAL_MS;
-  const failureDelay = (error: unknown, interval: number) =>
-    options.onError(error) === "authorization"
-      ? PROVIDER_AGENT_MAX_RETRY_INTERVAL_MS
-      : interval;
+  const failureDelay = (error: unknown, interval: number) => {
+    const kind = options.onError(error);
+    pausedUntil = Math.max(pausedUntil, d1ServiceRetryAt(error) ?? 0);
+    return Math.max(
+      pausedUntil - now(),
+      kind === "authorization"
+        ? PROVIDER_AGENT_MAX_RETRY_INTERVAL_MS
+        : interval,
+    );
+  };
   const increaseDelay = (interval: number) =>
     Math.min(interval * 2, PROVIDER_AGENT_MAX_RETRY_INTERVAL_MS);
 
@@ -62,12 +71,13 @@ export async function runProviderAgentPolling(
     if (
       reconnect === "idle" &&
       options.checkSessionRenewal &&
+      now() >= pausedUntil &&
       now() >= nextSessionCheckAt
     ) {
       try {
         await options.checkSessionRenewal();
       } catch (error) {
-        options.onError(error);
+        failureDelay(error, PROVIDER_AGENT_IDLE_INTERVAL_MS);
       } finally {
         // Share the existing process/clock. Errors cannot fall through to a
         // one-minute renewal retry; D1 separately admits at most three failures.
@@ -76,7 +86,9 @@ export async function runProviderAgentPolling(
     }
     // A failed capture or browser must not delay the reconnect that repairs it.
     if (!options.signal?.aborted) {
-      await sleep(PROVIDER_AGENT_IDLE_INTERVAL_MS);
+      await sleep(
+        Math.max(PROVIDER_AGENT_IDLE_INTERVAL_MS, pausedUntil - now()),
+      );
     }
   }
 }

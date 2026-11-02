@@ -53,6 +53,40 @@ export const BackupManifestSchema = z.object({
   encryptedSha256: Sha256Schema,
 });
 
+export const MaintenanceAdmissionSchema = z
+  .object({
+    version: z.literal(1),
+    state: z.literal("admitted"),
+    gitSha: GitShaSchema,
+    runId: z.string(),
+    runAttempt: z.string(),
+    frontier: z.string(),
+    pending: z.array(z.string()),
+    migrationSafetyKind: z.enum(["baseline", "upgrade"]),
+    migrationCost: z
+      .object({
+        rowsRead: z.number().int().nonnegative().safe(),
+        rowsWritten: z.number().int().nonnegative().safe(),
+      })
+      .nullable(),
+    sourceDigest: Sha256Schema,
+    migrationReceiptDigest: Sha256Schema,
+    capacityEvidenceHash: Sha256Schema,
+    chargedEnvelope: z.object({
+      reads: z.number().int().nonnegative(),
+      writes: z.number().int().nonnegative(),
+    }),
+    actualBilledRows: z.literal("unavailable"),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.migrationSafetyKind === "baseline"
+        ? value.pending.length === 0 && value.migrationCost === null
+        : value.pending.length > 0 && value.migrationCost !== null,
+    "Migration admission measurement does not match its workload.",
+  );
+
 export const StorageReceiptSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -84,6 +118,7 @@ const ReleaseEnvironmentSchema = DeploymentEnvironmentSchema.extend({
   KEEL_PREVIEW_BACKUP_STORAGE_RECEIPT_PATH: z.string().min(1),
   KEEL_PREVIEW_BACKUP_BUCKET: z.string().min(1),
   KEEL_PREVIEW_RELEASE_EVIDENCE_PATH: z.string().min(1),
+  KEEL_D1_MAINTENANCE_RECEIPT_PATH: z.string().min(1),
 });
 
 export type DeploymentVersions = {
@@ -180,6 +215,19 @@ export async function writeReleaseEvidence(
   repositoryRoot = process.cwd(),
 ): Promise<void> {
   const configuration = ReleaseEnvironmentSchema.parse(rawEnvironment);
+  const maintenance = MaintenanceAdmissionSchema.parse(
+    JSON.parse(
+      await readFile(configuration.KEEL_D1_MAINTENANCE_RECEIPT_PATH, "utf8"),
+    ) as unknown,
+  );
+  if (
+    maintenance.gitSha !== configuration.GITHUB_SHA ||
+    maintenance.runId !== configuration.GITHUB_RUN_ID ||
+    maintenance.runAttempt !== configuration.GITHUB_RUN_ATTEMPT
+  )
+    throw new Error(
+      "Maintenance admission belongs to a different deployment attempt.",
+    );
   const [versions, backupContents, storageContents, migrationEntries] =
     await Promise.all([
       readDeploymentVersions(rawEnvironment),
@@ -229,6 +277,7 @@ export async function writeReleaseEvidence(
       backupStorage: storage,
       backupEncryptedSha256: backup.encryptedSha256,
       migrations: migrationNames,
+      maintenanceAdmission: maintenance,
     },
     verifiedSmokes: [
       "access_missing_denied",

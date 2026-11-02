@@ -92,6 +92,7 @@ jobs:
         shell: bash
         run: |
           {
+            echo "KEEL_D1_MAINTENANCE_RECEIPT_PATH=$RUNNER_TEMP/keel-maintenance-admission.json"
             echo "KEEL_API_WRANGLER_OUTPUT_PATH=$RUNNER_TEMP/keel-api-deploy.jsonl"
             echo "KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH=$RUNNER_TEMP/keel-preview-$GITHUB_SHA.sql.gpg"
             echo "KEEL_PREVIEW_BACKUP_MANIFEST_PATH=$RUNNER_TEMP/keel-preview-$GITHUB_SHA.backup.json"
@@ -102,7 +103,14 @@ jobs:
             echo "KEEL_WEB_WRANGLER_OUTPUT_PATH=$RUNNER_TEMP/keel-web-deploy.jsonl"
           } >> "$GITHUB_ENV"
       - uses: ./.github/actions/setup-node-pnpm
-      - name: Validate preview environment and generate private configuration
+      - name: Prove populated migration cost on the exact revision
+        env:
+          KEEL_MIGRATION_SAFETY_RECEIPT:
+            ${{ runner.temp }}/keel-migration-safety.json
+        run: |
+          pnpm exec tsx scripts/d1-migration-safety.ts check
+          pnpm exec vitest run scripts/populated-migration-d1-cost.test.ts --maxWorkers=1
+      - name: Admit and execute bounded D1 maintenance
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -137,136 +145,16 @@ jobs:
           KEEL_PREVIEW_QUEUE_DLQ: ${{ secrets.KEEL_PREVIEW_QUEUE_DLQ }}
           KEEL_PREVIEW_R2_BUCKET: ${{ secrets.KEEL_PREVIEW_R2_BUCKET }}
           KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
-        run: pnpm tsx scripts/preview-deployment-config.ts
-      - name: Export and encrypt D1 before migration
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          KEEL_PREVIEW_D1_NAME: ${{ secrets.KEEL_PREVIEW_D1_NAME }}
-        run: |
-          umask 077
-          cleanup_plaintext() {
-            rm -f -- \
-              "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
-              "$KEEL_PREVIEW_BACKUP_VERIFY_PATH" \
-              "$RUNNER_TEMP/keel-preview-backup-passphrase"
-          }
-          trap cleanup_plaintext EXIT
-          pnpm exec wrangler d1 export "$KEEL_PREVIEW_D1_NAME" \
-            --remote \
-            --config apps/api/wrangler.preview.jsonc \
-            --output "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
-            --skip-confirmation
-          gpg --batch --yes --symmetric \
-            --cipher-algo AES256 \
-            --pinentry-mode loopback \
-            --passphrase-file "$RUNNER_TEMP/keel-preview-backup-passphrase" \
-            --output "$KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH" \
-            "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH"
-          gpg --batch --yes \
-            --pinentry-mode loopback \
-            --passphrase-file "$RUNNER_TEMP/keel-preview-backup-passphrase" \
-            --output "$KEEL_PREVIEW_BACKUP_VERIFY_PATH" \
-            --decrypt "$KEEL_PREVIEW_BACKUP_ENCRYPTED_PATH"
-          cmp --silent \
-            "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
-            "$KEEL_PREVIEW_BACKUP_VERIFY_PATH"
-          pnpm tsx scripts/preview-deployment-evidence.ts backup
-          cleanup_plaintext
-          trap - EXIT
-      - name: Retain encrypted pre-migration D1 backup
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          KEEL_PREVIEW_R2_BUCKET: ${{ secrets.KEEL_PREVIEW_R2_BUCKET }}
-        run: pnpm tsx scripts/preview-deployment-storage.ts backup
-      - name: Apply forward-only D1 migrations
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          KEEL_PREVIEW_D1_NAME: ${{ secrets.KEEL_PREVIEW_D1_NAME }}
-        run: |
-          pnpm exec wrangler d1 migrations apply "$KEEL_PREVIEW_D1_NAME" \
-            --remote \
-            --config apps/api/wrangler.preview.jsonc
-          pnpm exec wrangler d1 migrations list "$KEEL_PREVIEW_D1_NAME" \
-            --remote \
-            --config apps/api/wrangler.preview.jsonc
-      - name: Deploy private API Worker
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          KEEL_PREVIEW_ACCESS_AUD: ${{ secrets.KEEL_PREVIEW_ACCESS_AUD }}
-          KEEL_PREVIEW_ACCESS_TEAM_DOMAIN:
-            ${{ secrets.KEEL_PREVIEW_ACCESS_TEAM_DOMAIN }}
-          KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN:
-            ${{ secrets.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN }}
-          KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY:
-            ${{ secrets.KEEL_PREVIEW_CONNECTOR_CREDENTIAL_KEY }}
-          KEEL_PREVIEW_PLAID_CLIENT_ID:
-            ${{ secrets.KEEL_PREVIEW_PLAID_CLIENT_ID }}
-          KEEL_PREVIEW_PLAID_ENVIRONMENT:
-            ${{ secrets.KEEL_PREVIEW_PLAID_ENVIRONMENT }}
-          KEEL_PREVIEW_PLAID_REDIRECT_URI:
-            ${{ secrets.KEEL_PREVIEW_PLAID_REDIRECT_URI }}
-          KEEL_PREVIEW_PLAID_SECRET: ${{ secrets.KEEL_PREVIEW_PLAID_SECRET }}
-          KEEL_PREVIEW_BRAVE_SEARCH_API_KEY:
-            ${{ secrets.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY }}
-          WRANGLER_OUTPUT_FILE_PATH: ${{ env.KEEL_API_WRANGLER_OUTPUT_PATH }}
-        run: |
-          cleanup_api_secrets() {
-            rm -f -- "$RUNNER_TEMP/keel-preview-api-secrets.json"
-          }
-          trap cleanup_api_secrets EXIT
-          pnpm tsx scripts/preview-deployment-config.ts api-secrets
-          pnpm exec wrangler deploy \
-            --config apps/api/wrangler.preview.jsonc \
-            --secrets-file "$RUNNER_TEMP/keel-preview-api-secrets.json" \
-            --strict \
-            --tag "$GITHUB_SHA" \
-            --message "GitHub Actions preview $GITHUB_SHA"
-          cleanup_api_secrets
-          trap - EXIT
-      - name: Build and deploy web Worker
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          WRANGLER_OUTPUT_FILE_PATH: ${{ env.KEEL_WEB_WRANGLER_OUTPUT_PATH }}
-        run: |
-          pnpm --filter @keel/web build
-          pnpm exec wrangler deploy \
-            --config apps/web/wrangler.preview.jsonc \
-            --strict \
-            --tag "$GITHUB_SHA" \
-            --message "GitHub Actions preview $GITHUB_SHA"
-      - name: Read deployed Worker versions
-        id: versions
-        env:
-          KEEL_PREVIEW_API_WORKER: ${{ secrets.KEEL_PREVIEW_API_WORKER }}
-          KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
-        run: pnpm tsx scripts/preview-deployment-evidence.ts versions
-      - name: Run protected post-deploy smokes
-        env:
-          KEEL_API_VERSION_ID: ${{ steps.versions.outputs.api_version_id }}
-          KEEL_PREVIEW_ACCESS_CLIENT_ID:
-            ${{ secrets.KEEL_PREVIEW_ACCESS_CLIENT_ID }}
-          KEEL_PREVIEW_ACCESS_CLIENT_SECRET:
-            ${{ secrets.KEEL_PREVIEW_ACCESS_CLIENT_SECRET }}
-          KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN:
-            ${{ secrets.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN }}
-          KEEL_WEB_VERSION_ID: ${{ steps.versions.outputs.web_version_id }}
-        run: pnpm tsx scripts/preview-deployment-smoke.ts
-      - name: Record exact deployment evidence
-        env:
-          KEEL_PREVIEW_API_WORKER: ${{ secrets.KEEL_PREVIEW_API_WORKER }}
-          KEEL_PREVIEW_WEB_WORKER: ${{ secrets.KEEL_PREVIEW_WEB_WORKER }}
-        run: pnpm tsx scripts/preview-deployment-evidence.ts release
-      - name: Retain preview release evidence
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          KEEL_PREVIEW_R2_BUCKET: ${{ secrets.KEEL_PREVIEW_R2_BUCKET }}
-        run: pnpm tsx scripts/preview-deployment-storage.ts release
+          KEEL_PREVIEW_D1_CAPACITY_BUCKET:
+            ${{ secrets.KEEL_PREVIEW_D1_CAPACITY_BUCKET }}
+          KEEL_PREVIEW_D1_CAPACITY_KEY:
+            ${{ secrets.KEEL_PREVIEW_D1_CAPACITY_KEY }}
+          KEEL_D1_MAINTENANCE_PLAN: ${{ secrets.KEEL_D1_MAINTENANCE_PLAN }}
+          KEEL_D1_QUOTA_R2_CONFIG: ${{ secrets.KEEL_D1_QUOTA_R2_CONFIG }}
+          KEEL_D1_QUOTA_KEY: ${{ secrets.KEEL_D1_QUOTA_KEY }}
+          KEEL_MIGRATION_SAFETY_RECEIPT:
+            ${{ runner.temp }}/keel-migration-safety.json
+        run: pnpm exec tsx scripts/d1-maintenance.ts release
       - name: Remove private runner files
         if: always()
         run: |
@@ -282,4 +170,6 @@ jobs:
             "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
             "$KEEL_PREVIEW_BACKUP_VERIFY_PATH" \
             "$KEEL_PREVIEW_RELEASE_EVIDENCE_PATH" \
-            "$KEEL_WEB_WRANGLER_OUTPUT_PATH"
+            "$KEEL_WEB_WRANGLER_OUTPUT_PATH" \
+            "$RUNNER_TEMP/keel-migration-safety.json" \
+            "$RUNNER_TEMP/keel-maintenance-admission.json"

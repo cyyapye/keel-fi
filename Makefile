@@ -113,7 +113,13 @@ build:
 
 check:
 	$(MAKE) ci-storage-test
+	$(MAKE) d1-migration-check
 	$(PNPM) check
+
+.PHONY: d1-migration-check
+d1-migration-check:
+	$(PNPM) exec tsx scripts/d1-migration-safety.ts check
+	$(PNPM) exec tsx scripts/d1-maintenance.ts check
 
 .PHONY: ci-storage-test
 ci-storage-test:

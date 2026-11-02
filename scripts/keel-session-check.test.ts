@@ -6,6 +6,7 @@ import type { Env } from "../apps/api/src/types";
 import { handleRequest } from "../apps/web/src/worker";
 import { waitForKeelSession } from "./keel-session-check";
 import { createCostDatabase } from "./test-support/d1-cost";
+import { measureD1 } from "./test-support/d1-meter";
 import { createSqliteTrace } from "./test-support/sqlite-trace";
 
 const ORIGIN = new URL("https://keel.example.com");
@@ -42,14 +43,15 @@ afterEach(() => {
 });
 
 it("bounds all three setup checks through the browser client, auth and real D1 without loading the dashboard", async () => {
-  const trace = createSqliteTrace();
+  const fixture = await createCostDatabase();
+  const measured = measureD1(fixture.database);
   let subject = "synthetic-unprovisioned-subject";
   const app = createApp({
     verifyAccess: () =>
       Promise.resolve({ kind: "user" as const, subject, email: null }),
   });
   const env: Env = {
-    DB: trace.database,
+    DB: measured.database,
     ENVIRONMENT: "preview",
     DOCUMENTS: {} as R2Bucket,
     INGESTION_QUEUE: {} as Queue,
@@ -90,7 +92,7 @@ it("bounds all three setup checks through the browser client, auth and real D1 w
         scenario === "pending"
           ? "synthetic-unprovisioned-subject"
           : "synthetic-access-subject";
-      trace.reset();
+      measured.reset();
       requests = 0;
       for (let agent = 0; agent < 3; agent++) {
         let now = 0;
@@ -107,7 +109,7 @@ it("bounds all three setup checks through the browser client, auth and real D1 w
       expect(requests).toBeLessThanOrEqual(
         scenario === "pending" ? 1_080 : scenario === "failure" ? 30 : 3,
       );
-      const cost = await replayD1(trace);
+      const cost = { ...measured.cost };
       expect(cost.roundTrips).toBe(requests);
       expect(cost.rowsRead).toBeLessThanOrEqual(
         scenario === "pending" ? 0 : 120,
@@ -124,12 +126,12 @@ it("bounds all three setup checks through the browser client, auth and real D1 w
         }),
       );
     }
-    const beforeUnauthenticated = trace.roundTrips;
+    const beforeUnauthenticated = measured.cost.roundTrips;
     const unauthenticated = await app.request("/api/session", {}, env);
     expect(unauthenticated.status).toBe(401);
-    expect(trace.roundTrips).toBe(beforeUnauthenticated);
+    expect(measured.cost.roundTrips).toBe(beforeUnauthenticated);
   } finally {
-    trace.close();
+    await fixture.close();
   }
 }, 60_000);
 

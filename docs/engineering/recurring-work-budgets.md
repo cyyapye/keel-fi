@@ -43,6 +43,12 @@ those paths:
 Read the workload sections affected by the change; the measured envelopes below
 do not automatically apply to another producer or deployment.
 
+D1-producing changes also follow the
+[D1 safety contract](../deployment/d1-safety.md). Shared account admission,
+populated OLD-schema evidence and fail-closed activation prerequisites apply in
+addition to these measurements. Per-call ceilings and R2 storage budgets do not
+reserve D1 account capacity.
+
 ## Preview release storage
 
 The automatic main-push release and explicit manual dispatch share one

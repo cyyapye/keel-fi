@@ -217,6 +217,9 @@ it("bounds automatic review, unchanged page visits, history and an outage throug
     let authenticated = 0,
       requests = 0;
     const app = createApp({
+      // This fixture measures the existing review path, independently of the
+      // account owner exercised by the runtime capacity integration tests.
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
       verifyAccess: () => {
         authenticated++;
         return Promise.resolve({

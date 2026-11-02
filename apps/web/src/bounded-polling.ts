@@ -1,3 +1,5 @@
+import { d1ServiceRetryAt } from "@keel/domain/d1-service";
+
 export type PollingEnvironment = {
   now: () => number;
   visible: () => boolean;
@@ -19,6 +21,7 @@ export function startBoundedPolling(options: {
   let stopped = false;
   let checking = false;
   let failures = 0;
+  let pausedUntil = 0;
   let nextDue = clock.now() + options.intervalMs;
   let timer: number | undefined;
   const schedule = () => {
@@ -47,14 +50,17 @@ export function startBoundedPolling(options: {
       failures = 0;
     } catch (error) {
       failures++;
+      pausedUntil = Math.max(pausedUntil, d1ServiceRetryAt(error) ?? 0);
       if (!stopped) options.onError(error);
     } finally {
       checking = false;
-      nextDue =
+      nextDue = Math.max(
+        pausedUntil,
         clock.now() +
-        (failures === 0
-          ? options.intervalMs
-          : Math.min(60_000 * 2 ** Math.min(failures - 1, 3), 300_000));
+          (failures === 0
+            ? options.intervalMs
+            : Math.min(60_000 * 2 ** Math.min(failures - 1, 3), 300_000)),
+      );
       schedule();
     }
   };

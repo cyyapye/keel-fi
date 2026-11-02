@@ -1,5 +1,11 @@
 # Backup, export, and recovery
 
+Remote D1 backup work requires the shared maintenance admission in
+[D1 safety](d1-safety.md). Missing or stale capacity/target evidence stops
+before export. This does not authorize skipping integrity checks, expanding
+source credentials or replaying an uncertain export. Shared-owner publication
+and access must be verified separately before activation.
+
 D1 exports and R2 source documents contain Restricted data. Never commit, attach
 to ordinary issues, or store them unencrypted.
 

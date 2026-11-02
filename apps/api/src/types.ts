@@ -13,6 +13,10 @@ export interface Env {
   ANGELLIST_SESSION_KEY?: string;
   CF_VERSION_METADATA?: WorkerVersionMetadata;
   DB: D1Database;
+  D1_CAPACITY?: R2Bucket;
+  D1_CAPACITY_ACCOUNT?: string;
+  D1_CAPACITY_DATABASE?: string;
+  D1_CAPACITY_KEY?: string;
   DEPLOYED_GIT_SHA?: string;
   DEPLOYMENT_SMOKE_TOKEN?: string;
   DOCUMENTS: R2Bucket;

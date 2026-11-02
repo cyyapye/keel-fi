@@ -1,3 +1,4 @@
+import { d1ServiceError } from "@keel/domain/d1-service";
 import { requestKeel } from "./api-request";
 import {
   AcceptPositionLinkSchema,
@@ -214,7 +215,10 @@ async function responseError(
   const result = (await response.json().catch(() => null)) as {
     error?: string;
   } | null;
-  return new Error(result?.error ?? fallback);
+  return (
+    (response.status === 503 ? d1ServiceError(result) : null) ??
+    new Error(result?.error ?? fallback)
+  );
 }
 
 export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
@@ -228,7 +232,10 @@ export async function loadAlphaData(signal?: AbortSignal): Promise<AlphaData> {
     }));
 
   if (!response.ok) {
-    throw new Error(`Keel API returned ${response.status}.`);
+    throw await responseError(
+      response,
+      `Keel API returned ${response.status}.`,
+    );
   }
 
   return AlphaDataSchema.parse(await response.json());
@@ -474,7 +481,8 @@ export async function downloadLegalEntityDocument(id: string): Promise<Blob> {
     !response.ok ||
     response.headers.get("Content-Type")?.split(";")[0] !== "application/pdf"
   )
-    throw new Error(
+    throw await responseError(
+      response,
       "The agreement could not be downloaded. Try again or check source access.",
     );
   return response.blob();
@@ -511,7 +519,10 @@ export async function loadLegalEntityExportOptions() {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
-    throw new Error("Export destinations could not be loaded. Try again.");
+    throw await responseError(
+      response,
+      "Export destinations could not be loaded. Try again.",
+    );
   }
   return LegalEntityExportOptionsSchema.parse(await response.json());
 }
@@ -1150,11 +1161,9 @@ export async function scanPortfolioWatch(): Promise<PortfolioWatchScanResult> {
   });
 
   if (!response.ok) {
-    const result = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(
-      result?.error ?? `Portfolio Watch scan returned ${response.status}.`,
+    throw await responseError(
+      response,
+      `Portfolio Watch scan returned ${response.status}.`,
     );
   }
 
@@ -1809,7 +1818,10 @@ export async function reconcileHoldingImport(
     { method: "POST" },
   );
   if (!response.ok)
-    throw new Error("This update could not be checked. Try again.");
+    throw await responseError(
+      response,
+      "This update could not be checked. Try again.",
+    );
   return HoldingImportPreviewSchema.parse(await response.json());
 }
 
@@ -1821,7 +1833,10 @@ export async function refreshPortfolioBaseline(
     signal: signal ?? null,
   });
   if (!response.ok)
-    throw new Error("Planning values could not be refreshed. Try again.");
+    throw await responseError(
+      response,
+      "Planning values could not be refreshed. Try again.",
+    );
   return PortfolioBaselineStateSchema.parse(await response.json());
 }
 
@@ -1896,7 +1911,10 @@ export async function submitEvidenceReview(
   );
 
   if (!response.ok) {
-    throw new Error(`Evidence review returned ${response.status}.`);
+    throw await responseError(
+      response,
+      `Evidence review returned ${response.status}.`,
+    );
   }
 }
 
@@ -1911,11 +1929,9 @@ export async function applyAcceptedEvidence(eventId: string): Promise<void> {
   );
 
   if (!response.ok) {
-    const result = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(
-      result?.error ?? `Evidence application returned ${response.status}.`,
+    throw await responseError(
+      response,
+      `Evidence application returned ${response.status}.`,
     );
   }
 }
@@ -1935,11 +1951,9 @@ export async function createSignalUpdateProposal(
   });
 
   if (!response.ok) {
-    const result = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(
-      result?.error ?? `Signal update proposal returned ${response.status}.`,
+    throw await responseError(
+      response,
+      `Signal update proposal returned ${response.status}.`,
     );
   }
 
@@ -1959,10 +1973,10 @@ export async function saveGoalVersion(input: GoalDraftInput): Promise<void> {
   });
 
   if (!response.ok) {
-    const result = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(result?.error ?? `Goal save returned ${response.status}.`);
+    throw await responseError(
+      response,
+      `Goal save returned ${response.status}.`,
+    );
   }
 }
 
@@ -1981,11 +1995,9 @@ export async function saveScenarioVersion(
   });
 
   if (!response.ok) {
-    const result = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(
-      result?.error ?? `Scenario save returned ${response.status}.`,
+    throw await responseError(
+      response,
+      `Scenario save returned ${response.status}.`,
     );
   }
 }
@@ -2070,7 +2082,10 @@ export async function loadPositionLinks(signal?: AbortSignal) {
     signal: signal ?? null,
   });
   if (!response.ok)
-    throw new Error("Investment records are unavailable. Try again.");
+    throw await responseError(
+      response,
+      "Investment records are unavailable. Try again.",
+    );
   return PositionLinkWorkspaceSchema.parse(await response.json());
 }
 export async function acceptPositionLink(input: AcceptPositionLink) {
@@ -2080,10 +2095,10 @@ export async function acceptPositionLink(input: AcceptPositionLink) {
     body: JSON.stringify(AcceptPositionLinkSchema.parse(input)),
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(body?.error ?? "The link could not be saved. Try again.");
+    throw await responseError(
+      response,
+      "The link could not be saved. Try again.",
+    );
   }
   return PositionLinkReceiptSchema.parse(await response.json());
 }

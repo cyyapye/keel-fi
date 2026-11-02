@@ -122,6 +122,49 @@ async function read(page: Page, positionId: string) {
   return holding!;
 }
 
+test("retains an uncertain holding draft through database quota exhaustion without replay", async ({
+  page,
+}, testInfo) => {
+  const name = `Synthetic quota draft ${testInfo.project.name}`;
+  await start(page, "Direct", name);
+  let submissions = 0;
+  const message =
+    "Database capacity is temporarily unavailable. Check for this holding before trying again.";
+  await page.route("**/api/manual-holdings", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    submissions++;
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      headers: { "Retry-After": "3600" },
+      body: JSON.stringify({
+        error: message,
+        code: "d1_quota_exhausted",
+        retryAt: "2026-11-02T00:00:00.000Z",
+        outcome: "unknown",
+      }),
+    });
+  });
+  await page.getByRole("button", { name: "Save holding", exact: true }).click();
+  await expect(page.getByText(message, { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
+    name,
+  );
+  await expect(
+    page.getByLabel("Owner or account name", { exact: true }),
+  ).toHaveValue("Synthetic manual owner");
+  await page.clock.fastForward(60_000);
+  expect(submissions).toBe(1);
+  await expect(page).toHaveURL(/\/holdings\/new$/u);
+  await testInfo.attach("database-quota-retained-draft", {
+    body: await page.screenshot({
+      path: testInfo.outputPath("database-quota-retained-draft.png"),
+      fullPage: true,
+    }),
+    contentType: "image/png",
+  });
+});
+
 test("persists manual Direct, SPV and Fund holdings with unknown financial facts", async ({
   page,
 }, testInfo) => {

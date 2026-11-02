@@ -1311,6 +1311,131 @@ test("requests an AngelList update from the phone-safe Holdings flow", async ({
   ).toBeDisabled();
 });
 
+test("pauses running source status checks until the database reset", async ({
+  page,
+}, testInfo) => {
+  await page.clock.install({ time: new Date("2026-09-12T12:00:00.000Z") });
+  const checks = { angellist: 0, tokenfolio: 0, sydecar: 0, investment: 0 };
+  const quota = {
+    error:
+      "Database checks are paused until the daily allowance resets. Reload after 00:00 UTC to check progress.",
+    code: "d1_quota_exhausted",
+    retryAt: "2026-09-13T00:00:00.000Z",
+    outcome: "not_started",
+  };
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({ json: alphaFixture }),
+  );
+  await page.route("**/api/holding-imports", (route) =>
+    route.fulfill({ json: [] }),
+  );
+  await page.route("**/api/automation/angellist/status", (route) => {
+    checks.angellist++;
+    return route.fulfill(
+      checks.angellist > 1
+        ? { status: 503, json: quota }
+        : {
+            json: {
+              version: 1,
+              status: "running",
+              interval: "daily",
+              runStatus: "running",
+              lastSeenAt: "2026-09-12T12:00:00.000Z",
+              lastCompletedAt: null,
+              nextRunAt: null,
+              latestImportId: null,
+              errorCode: null,
+            },
+          },
+    );
+  });
+  await page.route("**/api/automation/provider-holdings/*/status", (route) => {
+    const provider = new URL(route.request().url()).pathname.split("/").at(-2);
+    if (provider !== "tokenfolio" && provider !== "sydecar")
+      throw new Error("Unexpected synthetic provider");
+    checks[provider]++;
+    return route.fulfill(
+      checks[provider] > 1
+        ? { status: 503, json: quota }
+        : {
+            json: {
+              version: 1,
+              provider,
+              status: "running",
+              interval: "daily",
+              runStatus: "running",
+              lastSeenAt: "2026-09-12T12:00:00.000Z",
+              lastCompletedAt: null,
+              nextRunAt: null,
+              latestImportId: null,
+              errorCode: null,
+            },
+          },
+    );
+  });
+  await page.route("**/api/investment-connections", (route) => {
+    checks.investment++;
+    return route.fulfill(
+      checks.investment > 1
+        ? { status: 503, json: quota }
+        : {
+            json: investmentState([
+              investmentStatus({
+                status: "syncing",
+                automaticUpdatesEnabled: false,
+                latestRunStatus: "running",
+              }),
+            ]),
+          },
+    );
+  });
+  await page.goto("/holdings/sources");
+  await expect
+    .poll(() => checks)
+    .toEqual({ angellist: 1, tokenfolio: 1, sydecar: 1, investment: 1 });
+  await page.clock.runFor(10_100);
+  await expect(page.getByText(quota.error, { exact: true })).toHaveCount(3);
+  await expect(
+    page.getByText(`${quota.error} Reviewed holdings were not changed.`, {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(checks).toEqual({
+    angellist: 2,
+    tokenfolio: 2,
+    sydecar: 2,
+    investment: 2,
+  });
+  await expectNoHorizontalOverflow(page);
+  await testInfo.attach("running-source-database-pause", {
+    body: await page.screenshot({
+      fullPage: true,
+      path: testInfo.outputPath("running-source-database-pause.png"),
+    }),
+    contentType: "image/png",
+  });
+  await page.evaluate(() => {
+    for (let index = 0; index < 5; index++) {
+      window.dispatchEvent(new Event("focus"));
+      window.dispatchEvent(new Event("pageshow"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
+  });
+  await page.clock.runFor(20 * 60_000);
+  expect(checks).toEqual({
+    angellist: 2,
+    tokenfolio: 2,
+    sydecar: 2,
+    investment: 2,
+  });
+  await expect(page.getByText(quota.error, { exact: true })).toHaveCount(3);
+  await expect(
+    page.getByText(`${quota.error} Reviewed holdings were not changed.`, {
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
 test("shows clear health and repair actions for portfolio agents", async ({
   page,
 }) => {

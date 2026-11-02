@@ -33,6 +33,34 @@ const authorization: MacAgentAuthorization = {
 };
 
 describe("Mac agent authorization", () => {
+  it("preserves a database quota pause without treating it as rejected credentials or replaying the request", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {
+          error: "Synthetic quota pause",
+          code: "d1_quota_exhausted",
+          retryAt: "2026-09-02T00:00:00.000Z",
+          outcome: "unknown",
+        },
+        { status: 503 },
+      ),
+    );
+    await expect(
+      macAgentApi(
+        authorization,
+        "/api/automation/provider-holdings/tokenfolio/mac-agent/lease",
+        { method: "POST" },
+        request,
+      ),
+    ).rejects.toMatchObject({
+      name: "D1ServiceUnavailableError",
+      code: "d1_quota_exhausted",
+      retryAt: "2026-09-02T00:00:00.000Z",
+      outcome: "unknown",
+    });
+    expect(request).toHaveBeenCalledOnce();
+  });
+
   it("writes and verifies the credential without an interactive prompt", () => {
     const execute = vi
       .fn<RunSecurity>()

@@ -1,3 +1,4 @@
+import { D1ServiceUnavailableError } from "../packages/domain/src/d1-service";
 import { createHash } from "node:crypto";
 import type { Locator, Page, Route } from "@playwright/test";
 import { z } from "zod";
@@ -817,6 +818,7 @@ export function agreementCapture(options: AgreementCaptureOptions) {
         );
       }
     } catch (error) {
+      if (error instanceof D1ServiceUnavailableError) throw error;
       capture.problem =
         error instanceof CaptureProblem ? error.problem : "inaccessible";
     } finally {
@@ -1005,7 +1007,11 @@ export async function createProviderAgreementCollector(
       try {
         await request("documents", form);
       } catch (error) {
-        if (error instanceof MacAgentAccessError) throw error;
+        if (
+          error instanceof MacAgentAccessError ||
+          error instanceof D1ServiceUnavailableError
+        )
+          throw error;
         await request("documents", form);
       }
     },

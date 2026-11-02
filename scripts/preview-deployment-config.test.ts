@@ -58,6 +58,35 @@ afterEach(async () => {
 });
 
 describe("preview deployment configuration", () => {
+  it("requires explicit paired capacity configuration and binds the existing account and database", async () => {
+    const root = await mkdtemp(join(tmpdir(), "keel-capacity-config-"));
+    temporaryDirectories.push(root);
+    const env = environment(root);
+    expect(
+      PreviewDeploymentEnvironmentSchema.safeParse({
+        ...env,
+        KEEL_PREVIEW_D1_CAPACITY_BUCKET: "synthetic-existing-capacity",
+      }).success,
+    ).toBe(false);
+    const paths = await writePreviewDeploymentFiles(
+      {
+        ...env,
+        KEEL_PREVIEW_D1_CAPACITY_BUCKET: "synthetic-existing-capacity",
+        KEEL_PREVIEW_D1_CAPACITY_KEY: "operations/d1-capacity/synthetic.json",
+      },
+      root,
+    );
+    const config = JSON.parse(await readFile(paths.apiConfigPath, "utf8"));
+    expect(config.r2_buckets).toContainEqual({
+      binding: "D1_CAPACITY",
+      bucket_name: "synthetic-existing-capacity",
+    });
+    expect(config.vars).toMatchObject({
+      D1_CAPACITY_ACCOUNT: env.CLOUDFLARE_ACCOUNT_ID,
+      D1_CAPACITY_DATABASE: env.KEEL_PREVIEW_D1_ID,
+      D1_CAPACITY_KEY: "operations/d1-capacity/synthetic.json",
+    });
+  });
   it("derives a dedicated same-zone webhook hostname", () => {
     expect(
       plaidWebhookUrl(new URL("https://keel-preview.example.com")).href,

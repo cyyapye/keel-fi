@@ -1,3 +1,4 @@
+import { D1ServiceUnavailableError } from "@keel/domain/d1-service";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
 import { HoldingLinkButton } from "./HoldingLinkButton";
 import {
@@ -3744,9 +3745,11 @@ function ProviderReconnectControl({
       openReadySession(next);
       return ["requested", "starting", "ready", "opened"].includes(next.status);
     },
-    onError: () =>
+    onError: (error) =>
       setError(
-        `Keel could not check the ${label} reconnect. Retrying shortly.`,
+        error instanceof D1ServiceUnavailableError
+          ? error.message
+          : `Keel could not check the ${label} reconnect. Retrying shortly.`,
       ),
     onTimeout: () =>
       setError("Automatic checks paused. Reload this page to check progress."),
@@ -3917,14 +3920,19 @@ function AngelListMacAgentControl() {
     "copy" | "interval" | "run" | null
   >(null);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (propagateError = false) => {
     try {
       const next = await loadAngelListAutomationOverview();
       setOverview(next);
       setError(null);
       return next;
-    } catch {
-      setError("Keel could not check AngelList updates. Try again shortly.");
+    } catch (error) {
+      setError(
+        error instanceof D1ServiceUnavailableError
+          ? error.message
+          : "Keel could not check AngelList updates. Try again shortly.",
+      );
+      if (propagateError) throw error;
       return null;
     }
   }, []);
@@ -3941,7 +3949,7 @@ function AngelListMacAgentControl() {
     identity: "angellist",
     intervalMs: 10_000,
     check: async () => {
-      const next = await reload();
+      const next = await reload(true);
       if (next === null) throw new Error("Status unavailable");
       return next.status === "running";
     },
@@ -4283,20 +4291,28 @@ function ProviderPortfolioAgentRow({
     "copy" | "interval" | "run" | null
   >(null);
 
-  const reload = useCallback(async () => {
-    try {
-      const next = await loadProviderPortfolioAgentOverview(provider);
-      setOverview(next);
-      if (next.status === "needs_attention") {
-        setNotice(null);
+  const reload = useCallback(
+    async (propagateError = false) => {
+      try {
+        const next = await loadProviderPortfolioAgentOverview(provider);
+        setOverview(next);
+        if (next.status === "needs_attention") {
+          setNotice(null);
+        }
+        setError(null);
+        return next;
+      } catch (error) {
+        setError(
+          error instanceof D1ServiceUnavailableError
+            ? error.message
+            : `Keel could not check ${label} updates. Try again shortly.`,
+        );
+        if (propagateError) throw error;
+        return null;
       }
-      setError(null);
-      return next;
-    } catch {
-      setError(`Keel could not check ${label} updates. Try again shortly.`);
-      return null;
-    }
-  }, [label, provider]);
+    },
+    [label, provider],
+  );
 
   useEffect(() => {
     const initial = window.setTimeout(() => void reload(), 0);
@@ -4308,7 +4324,7 @@ function ProviderPortfolioAgentRow({
     identity: provider,
     intervalMs: 10_000,
     check: async () => {
-      const next = await reload();
+      const next = await reload(true);
       if (next === null) throw new Error("Status unavailable");
       return next.status === "running";
     },
@@ -4728,9 +4744,11 @@ function AngelListBrowserRunControl() {
       acceptRefresh(next);
       return next.status === "waiting_for_sign_in";
     },
-    onError: () =>
+    onError: (error) =>
       setRefreshError(
-        "Keel could not check the AngelList sign-in. Retrying shortly.",
+        error instanceof D1ServiceUnavailableError
+          ? error.message
+          : "Keel could not check the AngelList sign-in. Retrying shortly.",
       ),
     onTimeout: () =>
       setRefreshError(

@@ -4,7 +4,15 @@
     {
       "id": "source-quality",
       "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
-      "argv": ["make", "-j2", "data-scan", "format-check", "lint", "typecheck"],
+      "argv": [
+        "make",
+        "-j2",
+        "data-scan",
+        "format-check",
+        "lint",
+        "typecheck",
+        "d1-migration-check"
+      ],
       "timeout_seconds": 600,
       "sources": [
         "Makefile",
@@ -13,7 +21,15 @@
         "eslint.config.mjs",
         "tsconfig.json",
         ".prettierignore",
-        "e2e/ui-catalogue/tsconfig.json"
+        "e2e/ui-catalogue/tsconfig.json",
+        "scripts/d1-migration-safety.ts",
+        ".tugling/d1-migrations.json",
+        ".codex/skills/keel-d1-safety/SKILL.md",
+        "AGENTS.md",
+        "scripts/d1-maintenance.ts",
+        "scripts/d1-maintenance-export.ts",
+        ".github/workflows/post-merge.yml",
+        ".github/workflows/private-document-backup.yml"
       ],
       "runtime": null,
       "depends_on": []
@@ -192,12 +208,41 @@
         "scripts/ci-artifact-budget.test.ts",
         ".github/actions/upload-bounded-artifact/action.yml",
         ".github/workflows/post-merge.yml",
-        ".github/workflows/tugling-pilot.yml"
+        ".github/workflows/tugling-pilot.yml",
+        "scripts/d1-migration-safety.ts",
+        "scripts/d1-migration-safety.test.ts",
+        "scripts/populated-migration-d1-cost.test.ts",
+        "scripts/test-support/populated-migration.ts",
+        ".tugling/d1-migrations.json",
+        "packages/database/src/d1-capacity.ts",
+        "packages/database/src/d1-capacity.test.ts",
+        "packages/database/src/d1-capacity-r2.ts",
+        "scripts/d1-capacity-r2.ts",
+        "scripts/d1-capacity-r2.test.ts",
+        "scripts/d1-maintenance.ts",
+        "scripts/d1-maintenance.test.ts",
+        "scripts/d1-maintenance-export.ts",
+        "scripts/d1-maintenance-export.test.ts",
+        "scripts/d1-maintenance-command.ts",
+        "scripts/d1-maintenance-command.test.ts",
+        "scripts/d1-maintenance-http.ts",
+        "scripts/d1-maintenance-http.test.ts",
+        "apps/api/src/d1-capacity.ts",
+        "apps/api/src/d1-capacity.test.ts",
+        "apps/api/src/app-d1-capacity.test.ts",
+        "apps/web/src/api-d1-capacity.test.ts",
+        "packages/domain/src/d1-service.ts",
+        "scripts/provider-quota-propagation.test.ts",
+        "scripts/provider-agent-polling.test.ts",
+        "scripts/test-support/synthetic-historical-foreign-key-indexes.sql",
+        "scripts/d1-maintenance-baseline.test.ts",
+        "scripts/test-support/query-inventory.ts",
+        "scripts/test-support/query-inventory.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
         "launch": "Vitest starts after integrity checks. Ready compose and migration work is admitted before units; units can then use the slot released by the independent workspace build. This keeps the browser fixture critical path moving without waiting for the unit suite. Unit tests receive an explicitly absent owned PDF configuration; real PDF/Chromium verification remains in separate required flows. Three workers admit strict workload fixtures first, followed by measured cost priorities. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
-        "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
+        "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Capacity cases exercise conditional R2, cumulative quotas, expiry and denied work.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
       "depends_on": ["gate-and-artifact-integrity"]

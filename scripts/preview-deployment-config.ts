@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { z } from "zod";
+import { CapacityKeyPattern } from "../packages/database/src/d1-capacity-r2";
 
 import { PLAID_INVESTMENTS_DAILY_SYNC_CRON } from "../packages/connectors/src/plaid-investments-schedule";
 
@@ -113,13 +114,29 @@ export const PreviewDeploymentEnvironmentSchema = z
     KEEL_PREVIEW_QUEUE: CloudflareResourceNameSchema,
     KEEL_PREVIEW_QUEUE_DLQ: CloudflareResourceNameSchema,
     KEEL_PREVIEW_R2_BUCKET: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_D1_CAPACITY_BUCKET: OptionalEnvironmentValue(
+      CloudflareResourceNameSchema,
+    ),
+    KEEL_PREVIEW_D1_CAPACITY_KEY: OptionalEnvironmentValue(
+      z.string().regex(CapacityKeyPattern),
+    ),
     KEEL_PREVIEW_URL: PreviewUrlSchema,
     KEEL_PREVIEW_WEB_WORKER: CloudflareResourceNameSchema,
     RUNNER_TEMP: z.string().min(1),
     ...OptionalPlaidEnvironmentShape,
     ...OptionalWatchEnvironmentShape,
   })
-  .superRefine(validateCompletePlaidEnvironment);
+  .superRefine(validateCompletePlaidEnvironment)
+  .superRefine((value, context) => {
+    if (
+      (value.KEEL_PREVIEW_D1_CAPACITY_BUCKET === undefined) !==
+      (value.KEEL_PREVIEW_D1_CAPACITY_KEY === undefined)
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Existing capacity bucket and key must be supplied together.",
+      });
+  });
 
 const PreviewApiSecretsEnvironmentSchema = z
   .object({
@@ -194,6 +211,13 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
       PLAID_CASH_USAGE_PLAN:
         configuration.KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN ?? "paid",
       MAC_AGENT_API_ORIGIN: agentApiOrigin.origin,
+      ...(configuration.KEEL_PREVIEW_D1_CAPACITY_BUCKET === undefined
+        ? {}
+        : {
+            D1_CAPACITY_ACCOUNT: configuration.CLOUDFLARE_ACCOUNT_ID,
+            D1_CAPACITY_DATABASE: configuration.KEEL_PREVIEW_D1_ID,
+            D1_CAPACITY_KEY: configuration.KEEL_PREVIEW_D1_CAPACITY_KEY,
+          }),
       PLAID_WEBHOOK_URL: webhookUrl.href,
     },
     secrets: {
@@ -229,6 +253,14 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
         binding: "DOCUMENTS",
         bucket_name: configuration.KEEL_PREVIEW_R2_BUCKET,
       },
+      ...(configuration.KEEL_PREVIEW_D1_CAPACITY_BUCKET === undefined
+        ? []
+        : [
+            {
+              binding: "D1_CAPACITY",
+              bucket_name: configuration.KEEL_PREVIEW_D1_CAPACITY_BUCKET,
+            },
+          ]),
     ],
     queues: {
       producers: [

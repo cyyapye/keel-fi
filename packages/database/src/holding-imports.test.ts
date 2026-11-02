@@ -914,7 +914,9 @@ describe("AngelList holding import persistence", () => {
   it("backfills current legal names without rewriting profile history", async () => {
     const legacy = createSqliteFixture(
       migrationFiles.filter(
-        (path) => !path.includes("0088_") && !path.includes("0089_"),
+        (path) =>
+          !path.startsWith("packages/database/migrations/") ||
+          path.split("/").at(-1)!.slice(0, 4) <= "0087",
       ),
     );
     try {

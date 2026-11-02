@@ -1,3 +1,4 @@
+import { D1ServiceUnavailableError } from "../packages/domain/src/d1-service";
 import { spawn, spawnSync } from "node:child_process";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -1915,15 +1916,19 @@ async function reportFailure(
       },
       body: JSON.stringify({ errorCode: code }),
     },
-  ).catch(() => undefined);
+  ).catch((error: unknown) => {
+    if (error instanceof D1ServiceUnavailableError) throw error;
+  });
 }
+
+type PortfolioCapture = { asOfDate: string; bytes: Uint8Array };
 
 async function executeRun(
   keelOrigin: URL,
   authorization: MacAgentAuthorization,
   provider: ProviderPortfolioAgentProvider,
   run: NonNullable<ProviderPortfolioAgentLease["run"]>,
-  useBrowser = withProviderBrowser,
+  useBrowser: typeof withProviderBrowser<PortfolioCapture> = withProviderBrowser,
 ): Promise<void> {
   let captureStage: SydecarCaptureStage | TokenfolioCaptureStage | null = null;
   let captureComplete = false;
@@ -1966,7 +1971,10 @@ async function executeRun(
     // not acquire this profile while the previous run is still shutting it down.
     await uploadCompletion(authorization, provider, run, asOfDate, bytes);
   } catch (error) {
-    if (error instanceof MacAgentAccessError) {
+    if (
+      error instanceof MacAgentAccessError ||
+      error instanceof D1ServiceUnavailableError
+    ) {
       throw error;
     }
     const code =
@@ -1999,7 +2007,7 @@ async function pollOnce(
   keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
   authorization = readMacAgentAuthorization(keelOrigin, provider),
-  useBrowser = withProviderBrowser,
+  useBrowser: typeof withProviderBrowser<PortfolioCapture> = withProviderBrowser,
 ): Promise<boolean> {
   const work = await lease(authorization, provider);
   if (work.run === null) {
@@ -2378,7 +2386,7 @@ async function withRenewalDeadline<T>(operation: () => Promise<T>): Promise<T> {
 async function checkSessionRenewal(
   keelOrigin: URL,
   authorization = readMacAgentAuthorization(keelOrigin, "sydecar"),
-  useBrowser = withProviderBrowser,
+  useBrowser: typeof withProviderBrowser<ProviderSessionRenewalVerification | void> = withProviderBrowser,
   renew: (
     context: BrowserContext,
   ) => Promise<ProviderSessionRenewalVerification | void> = renewSavedSydecarSession,
@@ -2397,6 +2405,7 @@ async function checkSessionRenewal(
       withRenewalDeadline(() => renew(context)),
     );
   } catch (error) {
+    if (error instanceof D1ServiceUnavailableError) throw error;
     failure =
       error instanceof SessionRenewalFailure
         ? error.failure
@@ -2684,15 +2693,21 @@ async function handleManagedReconnect(
   session: NonNullable<
     Awaited<ReturnType<typeof leaseProviderBrowserSession>>["session"]
   >,
+  runtime = {
+    closeControlledChrome,
+    chromeExecutable,
+    runProviderBrowserSession,
+    storeMacAgentAuthorization,
+  },
 ): Promise<boolean> {
-  await closeControlledChrome(provider, keelOrigin);
+  await runtime.closeControlledChrome(provider, keelOrigin);
   const paths = providerPaths(provider, keelOrigin, "linux");
   const config = PROVIDERS[provider];
   let remoteContext: BrowserContext | null = null;
-  const result = await runProviderBrowserSession({
+  const result = await runtime.runProviderBrowserSession({
     appDirectory: paths.appDirectory,
     authorization,
-    chromePath: await chromeExecutable({ platform: "linux" }),
+    chromePath: await runtime.chromeExecutable({ platform: "linux" }),
     isProviderReady: async (endpointUrl) => {
       if (remoteContext?.browser()?.isConnected() !== true) {
         const browser = await chromium.connectOverCDP(endpointUrl, {
@@ -2722,9 +2737,10 @@ async function handleManagedReconnect(
         authorization,
         provider,
       );
-      storeMacAgentAuthorization(keelOrigin, replacement);
+      runtime.storeMacAgentAuthorization(keelOrigin, replacement);
       updateAuthorization = replacement;
-    } catch {
+    } catch (error) {
+      if (error instanceof D1ServiceUnavailableError) throw error;
       console.error(
         JSON.stringify({
           event: "provider_portfolio_agent_rotation_deferred",
@@ -2732,7 +2748,9 @@ async function handleManagedReconnect(
         }),
       );
     }
-    await requestRun(updateAuthorization, provider).catch(() => undefined);
+    await requestRun(updateAuthorization, provider).catch((error: unknown) => {
+      if (error instanceof D1ServiceUnavailableError) throw error;
+    });
     return true;
   }
   return false;
@@ -2776,13 +2794,15 @@ async function serve(
     },
     onError: (error) => {
       const code =
-        error instanceof MacAgentAccessError
-          ? "mac_access_required"
-          : error instanceof ProviderBrowserRuntimeError
-            ? error.code
-            : error instanceof AgentFailure
+        error instanceof D1ServiceUnavailableError
+          ? error.code
+          : error instanceof MacAgentAccessError
+            ? "mac_access_required"
+            : error instanceof ProviderBrowserRuntimeError
               ? error.code
-              : "unexpected_failure";
+              : error instanceof AgentFailure
+                ? error.code
+                : "unexpected_failure";
       console.error(
         JSON.stringify({
           event: "provider_portfolio_agent_poll_failed",
@@ -2811,6 +2831,8 @@ async function main(): Promise<void> {
 }
 
 export const __providerPortfolioMacAgentTest = {
+  handleManagedReconnect,
+  executeRun,
   AgentFailure,
   observeSydecarRefresh,
   readSydecarSessionExpiry,
