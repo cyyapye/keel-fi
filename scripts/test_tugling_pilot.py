@@ -753,12 +753,13 @@ class NativeAccountingTests(unittest.TestCase):
             root = Path(temporary)
             fixture = root / "fixture.ts"
             config = root / "config.cjs"
-            config.write_text("module.exports={testDir:'.',testMatch:'fixture.ts',workers:1,use:{serviceWorkers:'block'}};\n")
+            config.write_text("module.exports={testDir:'.',testMatch:'fixture.ts',workers:1,use:{serviceWorkers:'allow'}};\n")
             imported = json.dumps(str(pilot.ROOT / "e2e/api-mocked-test.ts"))
             for path, method, success in (("legal-entities", "GET", True), ("unknown", "GET", False), ("legal-entities", "POST", False)):
                 fixture.write_text(
                     f"import {{test,expect}} from {imported};\n"
-                    "test('isolated API boundary',async({page})=>{"
+                    "test('isolated API boundary',async({page,serviceWorkers})=>{"
+                    "expect(serviceWorkers).toBe('block');"
                     "await page.route('http://keel.test/',r=>r.fulfill({contentType:'text/html',body:'synthetic'}));"
                     "await page.goto('http://keel.test/');"
                     "const value=await page.evaluate(async(args)=>{"
