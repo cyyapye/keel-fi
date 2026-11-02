@@ -122,6 +122,17 @@ released by an earlier flow and can overlap remaining source/PDF work. No UI
 browser consumer starts before its fixture, real provider document boundary and
 build succeed. All PDF isolation probes must pass before the gate succeeds.
 
+The populated migration fixture hashes every selected row beside real D1 and
+returns each table's row count and SHA-256 digest. This avoids transporting
+large preservation results through the Node binding proxy. The host compares all
+table digests with the independent OLD-schema snapshot. SQL, schema and
+foreign-key checks, immutable probes and actual migration billing counters
+remain required. PR340 run `41518998047` rejected serial source checks at the
+unchanged 600-second flow deadline. Source goals retain their prior two-job
+limit. That failed attempt also exceeded the historical 24-capture case's
+unchanged 120-second deadline; the revised driver requires a fresh complete
+native receipt.
+
 The unit suite uses three workers in CI and locally. Deadline-sensitive workload
 files receive first admission, followed by measured expensive files. Its early
 admission reduces overlap between expensive D1 fixtures and browser startup. The
@@ -508,9 +519,8 @@ Execution slices:
    production/development mocked partitions with distinct ports, runtime state,
    diagnostics and owned cleanup. Compare their complete union with the
    unchanged reviewed browser inventory.
-4. Run read-only source goals serially with `make -j1` to avoid concurrent
-   ESLint and TypeScript programs inside that flow. Permit three native flows so
-   PDF isolation can overlap migration verification. Build and consumer
+4. Run read-only source goals with at most two Make jobs. Permit three native
+   flows so PDF isolation can overlap migration verification. Build and consumer
    prerequisites remain explicit; runtime and migration outputs are not shared.
 5. Keep scanner/reader and kernel-probe sequences independent, but serialize
    actual containers through one cross-process daemon owner with unchanged

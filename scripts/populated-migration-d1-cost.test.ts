@@ -326,6 +326,28 @@ describe("populated OLD-schema D1 migration safety", () => {
           runtime.database,
           fixture,
         );
+        if (history === 24) {
+          const households = fixture.tables.find(
+            (table) => table.name === "households",
+          )!;
+          const row = households.rows[0]!;
+          const id = row[households.columns.indexOf("id")];
+          const name = row[households.columns.indexOf("name")];
+          await runtime.database
+            .prepare("UPDATE households SET name=? WHERE id=?")
+            .bind("Synthetic preservation corruption", id)
+            .run();
+          try {
+            await expect(
+              preserveMigrationFixture(runtime.database, fixture, true),
+            ).rejects.toThrow("Old rows changed in households");
+          } finally {
+            await runtime.database
+              .prepare("UPDATE households SET name=? WHERE id=?")
+              .bind(name, id)
+              .run();
+          }
+        }
         await preserveMigrationFixture(runtime.database, fixture, true);
         scenario = MigrationSafetyBaselineScenarioSchema.parse({
           history,

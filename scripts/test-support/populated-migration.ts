@@ -52,6 +52,16 @@ const runtimePlatformObjects = new WeakMap<
   D1Database,
   z.infer<typeof SchemaObject>[]
 >();
+const TableDigestSchema = z.object({
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  rows: z.number().int().nonnegative(),
+});
+const runtimeTableDigests = new WeakMap<
+  D1Database,
+  (
+    tables: PopulatedMigrationFixture["tables"],
+  ) => Promise<z.infer<typeof TableDigestSchema>[]>
+>();
 export const migrationDigest = (value: string | Uint8Array) =>
   createHash("sha256").update(value).digest("hex");
 const identifier = (value: string) => `"${value.replaceAll('"', '""')}"`;
@@ -465,13 +475,20 @@ const CounterSchema = z.object({
   rowsWritten: z.number().int().nonnegative().safe(),
 });
 export type MigrationCounters = z.infer<typeof CounterSchema>;
-const worker = `export default { async fetch(request, env) {
+const worker = `import { createHash } from 'node:crypto';
+export default { async fetch(request, env) {
   const body = await request.json();
   if (body.kind === 'bootstrap') {
     for (const batch of body.batches) await env.DB.batch(batch.map(sql => env.DB.prepare(sql)));
     return Response.json({ok:true});
   }
   const results = await env.DB.batch(body.sql.map(sql => env.DB.prepare(sql)));
+  if (body.kind === 'digests') {
+    return Response.json(results.map((result, index) => ({
+      rows: result.results.length,
+      sha256: createHash('sha256').update(JSON.stringify(result.results.map(row => JSON.stringify(body.columns[index].map(column => row[column]))).sort())).digest('hex'),
+    })));
+  }
   return Response.json(results.map((result, statement) => ({statement, rowsRead:result.meta.rows_read, rowsWritten:result.meta.rows_written})));
 } };`;
 
@@ -520,6 +537,25 @@ export async function populatedMigrationDatabase(
         "Application schema collides with pristine D1 platform schema",
       );
     runtimePlatformObjects.set(database, platformSchemaObjects);
+    runtimeTableDigests.set(database, async (tables) => {
+      const response = await runtime!.dispatchFetch(
+        "https://synthetic-populated-migration.invalid",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            kind: "digests",
+            sql: tables.map(
+              (table) =>
+                `SELECT ${table.columns.map(identifier).join(",")} FROM ${identifier(table.name)}`,
+            ),
+            columns: tables.map((table) => table.columns),
+          }),
+        },
+      );
+      if (!response.ok)
+        throw new Error(`Preservation read failed with ${response.status}`);
+      return z.array(TableDigestSchema).parse(await response.json());
+    });
     const bootstrap = await runtime.dispatchFetch(
       "https://synthetic-populated-migration.invalid",
       {
@@ -588,18 +624,34 @@ export async function preserveMigrationFixture(
   fixture: PopulatedMigrationFixture,
   exactObjects = false,
 ) {
-  const results = await database.batch<Record<string, unknown>>(
-    fixture.tables.map((table) =>
-      database.prepare(
-        `SELECT ${table.columns.map(identifier).join(",")} FROM ${identifier(table.name)}`,
-      ),
-    ),
-  );
+  const readDigests = runtimeTableDigests.get(database);
+  const digests = readDigests
+    ? await readDigests(fixture.tables)
+    : (
+        await database.batch<Record<string, unknown>>(
+          fixture.tables.map((table) =>
+            database.prepare(
+              `SELECT ${table.columns.map(identifier).join(",")} FROM ${identifier(table.name)}`,
+            ),
+          ),
+        )
+      ).map((result, index) => ({
+        rows: result.results.length,
+        sha256: migrationDigest(
+          canonicalRows(
+            result.results.map((row) =>
+              fixture.tables[index]!.columns.map((column) => row[column]),
+            ),
+          ),
+        ),
+      }));
+  if (digests.length !== fixture.tables.length)
+    throw new Error("Missing preservation table digests");
   for (const [index, table] of fixture.tables.entries()) {
-    const rows = results[index]!.results.map((row) =>
-      table.columns.map((column) => row[column]),
-    );
-    if (migrationDigest(canonicalRows(rows)) !== table.sha256)
+    if (
+      digests[index]!.rows !== table.rows.length ||
+      digests[index]!.sha256 !== table.sha256
+    )
       throw new Error(`Old rows changed in ${table.name}`);
   }
   const check = await database.prepare("PRAGMA foreign_key_check").all();

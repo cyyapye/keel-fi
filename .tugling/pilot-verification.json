@@ -6,7 +6,7 @@
       "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
       "argv": [
         "make",
-        "-j1",
+        "-j2",
         "data-scan",
         "format-check",
         "lint",
