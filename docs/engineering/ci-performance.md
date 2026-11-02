@@ -125,12 +125,17 @@ automatic-review day/history case joins this early group after run `40443347834`
 exceeded its unchanged 90-second deadline during browser overlap. That run's
 host CPU pressure (`some avg10`) had a 65.6% median. Moving admission does not
 change its 120-item histories, request envelope, D1 assertions, worker count or
-timeout; a complete Linux run remains the acceptance check. The reviewed-rename
-cost fixture runs its synthetic import and 240 company-review operations inside
-its existing workerd fixture to avoid repeated Node-to-D1 bridge calls. It uses
-the same repository methods, accepted decisions and link records. The test still
-meters every positive, history, empty and unrelated-household read against real
-D1, with the same 120-position scale, row budgets and query-plan assertions.
+timeout. A complete Linux run remains the acceptance check. The purchase-route
+case joins the early group after run `41383958842` exceeded its unchanged
+five-second deadline during browser overlap. Its authentication, validation,
+accepted-write, valuation, history and fixture work remain inside that same test
+and deadline. Earlier admission changes neither the three-worker unit pool nor
+the case inventory. The reviewed-rename cost fixture runs its synthetic import
+and 240 company-review operations inside its existing workerd fixture to avoid
+repeated Node-to-D1 bridge calls. It uses the same repository methods, accepted
+decisions and link records. The test still meters every positive, history, empty
+and unrelated-household read against real D1, with the same 120-position scale,
+row budgets and query-plan assertions.
 
 Browser verification produces five reports while admitting at most four workers.
 The initial four lanes each use one worker. After all four reports and runtimes
