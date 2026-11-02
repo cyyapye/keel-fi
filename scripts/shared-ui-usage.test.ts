@@ -55,7 +55,107 @@ function jsxElements(source: string) {
   return elements;
 }
 
+function nativeDateInputs(source: string) {
+  const file = ts.createSourceFile(
+    "screen.tsx",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const inputs = new Set<string>();
+  for (const statement of file.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "@keel/ui"
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const specifier of bindings.elements) {
+        if ((specifier.propertyName ?? specifier.name).text === "Input") {
+          inputs.add(specifier.name.text);
+        }
+      }
+    } else if (bindings && ts.isNamespaceImport(bindings)) {
+      inputs.add(`${bindings.name.text}.Input`);
+    }
+  }
+  const violations: { component: string; line: number }[] = [];
+  function visit(node: ts.Node) {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const component = node.tagName.getText(file);
+      if (inputs.has(component)) {
+        for (const attribute of node.attributes.properties) {
+          const value = ts.isJsxAttribute(attribute)
+            ? attribute.name.getText(file) === "type"
+              ? attribute.initializer
+              : undefined
+            : undefined;
+          const expression =
+            value && ts.isJsxExpression(value) ? value.expression : value;
+          if (
+            expression &&
+            (ts.isStringLiteral(expression) ||
+              ts.isNoSubstitutionTemplateLiteral(expression)) &&
+            expression.text === "date"
+          ) {
+            violations.push({
+              component,
+              line:
+                file.getLineAndCharacterOfPosition(node.getStart(file)).line +
+                1,
+            });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return violations;
+}
+
 describe("shared UI usage", () => {
+  it.each([
+    ['import { Input } from "@keel/ui"; <Input type="date" />', "Input"],
+    ['import { Input } from "@keel/ui"; <Input type={"date"} />', "Input"],
+    [
+      'import { Input as TextInput } from "@keel/ui"; <TextInput type="date" />',
+      "TextInput",
+    ],
+    ['import * as Ui from "@keel/ui"; <Ui.Input type="date" />', "Ui.Input"],
+  ])(
+    "rejects a native date through a shared input in %s",
+    (source, component) => {
+      expect(nativeDateInputs(source)).toEqual([{ component, line: 1 }]);
+    },
+  );
+
+  it.each([
+    'import { DatePicker } from "@keel/ui"; <DatePicker value="" />',
+    'import { Input } from "@keel/ui"; <Input />',
+    'import { Input } from "@keel/ui"; <Input type="text" />',
+    'import { Input as TextInput } from "@keel/ui"; <TextInput type="email" />',
+    'import * as Ui from "@keel/ui"; <Ui.Input type="search" />',
+    'import { Input } from "other-library"; <Input type="date" />',
+    'function Input() {} <Input type="date" />',
+  ])("accepts the supported control choice in %s", (source) => {
+    expect(nativeDateInputs(source)).toEqual([]);
+  });
+
+  it("routes app date selection through DatePicker", () => {
+    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) =>
+      nativeDateInputs(readFileSync(path, "utf8")).map(
+        ({ component, line }) =>
+          `${relative(webSourceDirectory, path)}:${line}: ${component} type=date must use DatePicker`,
+      ),
+    );
+    expect(violations).toEqual([]);
+  });
+
   it("keeps the integrated catalogue controls in the shared library", () => {
     for (const name of ["LegalEntities.tsx", "HoldingImportOutcome.tsx"]) {
       const source = readFileSync(join(webSourceDirectory, name), "utf8");

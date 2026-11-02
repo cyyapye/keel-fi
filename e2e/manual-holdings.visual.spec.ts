@@ -238,6 +238,256 @@ async function setup(page: Page, currentHolding = holding) {
   };
 }
 
+for (const width of [412, 838, 1280]) {
+  for (const detailsOpen of [false, true]) {
+    test(`keeps type controls stationary at ${width}px with details ${detailsOpen ? "open" : "closed"}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 978 });
+      await setup(page);
+      await fillIdentity(page);
+      await page
+        .getByRole("button", {
+          name: "Add investment or valuation details",
+          exact: true,
+        })
+        .click();
+      await page.getByLabel("Cash paid · USD", { exact: true }).fill("125.50");
+      await page
+        .getByLabel("Estimated value · USD", { exact: true })
+        .fill("150");
+      if (!detailsOpen) {
+        await page
+          .getByRole("button", {
+            name: "Investment and valuation",
+            exact: true,
+          })
+          .click();
+        await expect(
+          page.getByLabel("Cash paid · USD", { exact: true }),
+        ).not.toBeVisible();
+      }
+      const radios = page.getByRole("radiogroup", {
+        name: "Investment type",
+        exact: true,
+      });
+      const initial = await radios.getByRole("radio").evaluateAll((elements) =>
+        elements.map((element) => {
+          const box = element.getBoundingClientRect();
+          return { x: box.x + window.scrollX, y: box.y + window.scrollY };
+        }),
+      );
+      const transitions = [
+        ["Direct", "SPV", "ArrowRight"],
+        ["SPV", "Fund", "ArrowRight"],
+        ["Fund", "Direct", "ArrowRight"],
+        ["Direct", "Fund", "ArrowLeft"],
+        ["Fund", "SPV", "ArrowLeft"],
+        ["SPV", "Direct", "ArrowLeft"],
+      ] as const;
+      for (const [from, to, key] of transitions) {
+        await page.getByRole("radio", { name: from, exact: true }).focus();
+        await page.keyboard.press(key);
+        const selected = page.getByRole("radio", { name: to, exact: true });
+        await expect(selected).toBeChecked();
+        await expect(selected).toBeFocused();
+        const positions = await radios
+          .getByRole("radio")
+          .evaluateAll((elements) =>
+            elements.map((element) => {
+              const box = element.getBoundingClientRect();
+              return { x: box.x + window.scrollX, y: box.y + window.scrollY };
+            }),
+          );
+        expect(positions).toHaveLength(initial.length);
+        for (const [index, position] of positions.entries()) {
+          expect(
+            Math.abs(position.x - initial[index]!.x),
+            `${from} to ${to} moves radio ${index} horizontally`,
+          ).toBeLessThanOrEqual(0.5);
+          expect(
+            Math.abs(position.y - initial[index]!.y),
+            `${from} to ${to} moves radio ${index} vertically`,
+          ).toBeLessThanOrEqual(0.5);
+        }
+        await expect(
+          page.getByRole("textbox", {
+            name: /^(Investment name|SPV legal name|Fund name)$/u,
+          }),
+        ).toHaveValue("Synthetic Orchard Direct");
+        await expect(
+          page.getByRole("combobox", { name: "Held by", exact: true }),
+        ).toContainText("Demo Family LLC");
+      }
+      if (!detailsOpen) {
+        await page
+          .getByRole("button", {
+            name: "Add investment or valuation details",
+            exact: true,
+          })
+          .click();
+      }
+      await expect(
+        page.getByLabel("Cash paid · USD", { exact: true }),
+      ).toHaveValue("125.50");
+      await expect(
+        page.getByLabel("Estimated value · USD", { exact: true }),
+      ).toHaveValue("150");
+    });
+  }
+}
+
+test("uses the shared calendars with bounds, keyboard focus and field errors", async ({
+  page,
+}) => {
+  await setup(page);
+  await fillIdentity(page);
+  await page
+    .getByRole("button", {
+      name: "Add investment or valuation details",
+      exact: true,
+    })
+    .click();
+  await page.getByLabel("Cash paid · USD", { exact: true }).fill("125.50");
+  await page.getByLabel("Estimated value · USD", { exact: true }).fill("150");
+  const investmentDate = page.getByRole("button", {
+    name: "Investment date",
+    exact: true,
+  });
+  const valuationDate = page.getByRole("button", {
+    name: "Valuation date",
+    exact: true,
+  });
+  await expect(investmentDate).toHaveText("Choose date");
+  await expect(valuationDate).toHaveAttribute("aria-invalid", "true");
+  const description = await investmentDate.getAttribute("aria-describedby");
+  expect(description).toBeTruthy();
+  await expect(page.locator(`[id=${JSON.stringify(description)}]`)).toHaveText(
+    "Leave blank if unknown.",
+  );
+  const errorIds = (
+    await valuationDate.getAttribute("aria-describedby")
+  )?.split(/\s+/u);
+  expect(errorIds).toBeDefined();
+  const errorTexts = await Promise.all(
+    errorIds!.map((id) =>
+      page.locator(`[id=${JSON.stringify(id)}]`).textContent(),
+    ),
+  );
+  expect(errorTexts).toContain("Add the date this estimate applies to.");
+  for (const name of ["Investment date", "Valuation date"]) {
+    const trigger = page.getByRole("button", { name, exact: true });
+    await trigger.click();
+    const calendar = page.getByRole("dialog", {
+      name: `${name} calendar`,
+      exact: true,
+    });
+    await expect(calendar).toBeVisible();
+    await expect(
+      calendar.getByRole("button", { name: "Next month", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      calendar.getByRole("button", {
+        name: "Monday, November 2, 2026",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await calendar
+      .getByRole("button", { name: "Previous month", exact: true })
+      .click();
+    await calendar
+      .getByRole("button", {
+        name: "Thursday, October 15, 2026",
+        exact: true,
+      })
+      .click();
+    await expect(calendar).not.toBeVisible();
+    await expect(trigger).toHaveText("Oct 15, 2026");
+    await expect(trigger).toBeFocused();
+    await trigger.press("Enter");
+    const selectedDay = calendar.getByRole("button", {
+      name: "Thursday, October 15, 2026",
+      exact: true,
+    });
+    await expect(selectedDay).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(
+      calendar.getByRole("button", {
+        name: "Friday, October 16, 2026",
+        exact: true,
+      }),
+    ).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(trigger).toHaveText("Oct 16, 2026");
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await calendar
+      .getByRole("button", { name: "Clear date", exact: true })
+      .click();
+    await expect(trigger).toHaveText("Choose date");
+    await expect(trigger).toBeFocused();
+    await trigger.click();
+    await page.keyboard.press("Escape");
+    await expect(calendar).not.toBeVisible();
+    await expect(trigger).toBeFocused();
+  }
+  await expect(valuationDate).toHaveAttribute("aria-invalid", "true");
+  await expect(
+    page.getByRole("button", { name: "Save holding", exact: true }),
+  ).toBeDisabled();
+  await valuationDate.click();
+  await page
+    .getByRole("button", { name: "Previous month", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Thursday, October 15, 2026", exact: true })
+    .click();
+  await expect(valuationDate).not.toHaveAttribute("aria-invalid", "true");
+  let release: (() => void) | undefined;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let submitted = false;
+  await page.route("**/api/manual-holdings", async (route) => {
+    const input = ManualHoldingInputSchema.parse(
+      route.request().postDataJSON(),
+    );
+    expect(input.investmentDate).toBeNull();
+    expect(input.valuation).toMatchObject({ effectiveDate: "2026-10-15" });
+    submitted = true;
+    await pending;
+    await route.fulfill({
+      status: 400,
+      json: {
+        error: "The synthetic date submission needs a corrected selection.",
+      },
+    });
+  });
+  try {
+    await page
+      .getByRole("button", { name: "Save holding", exact: true })
+      .click();
+    await expect.poll(() => submitted).toBe(true);
+    await expect(investmentDate).toBeDisabled();
+    await expect(valuationDate).toBeDisabled();
+  } finally {
+    release?.();
+  }
+  await expect(
+    page.getByText(
+      "The synthetic date submission needs a corrected selection.",
+      {
+        exact: true,
+      },
+    ),
+  ).toBeVisible();
+  await expect(valuationDate).toHaveText("Oct 15, 2026");
+  await expect(investmentDate).toHaveText("Choose date");
+  await expect(page.getByLabel("Cash paid · USD", { exact: true })).toHaveValue(
+    "125.50",
+  );
+});
+
 test("keeps identity required and financial facts optional with inline errors", async ({
   page,
 }) => {
