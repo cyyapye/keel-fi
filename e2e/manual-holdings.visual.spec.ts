@@ -339,7 +339,7 @@ for (const width of [412, 838, 1280]) {
 
 test("uses the shared calendars with bounds, keyboard focus and field errors", async ({
   page,
-}) => {
+}, testInfo) => {
   await setup(page);
   await fillIdentity(page);
   await page
@@ -383,6 +383,14 @@ test("uses the shared calendars with bounds, keyboard focus and field errors", a
       exact: true,
     });
     await expect(calendar).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(
+        name === "Investment date"
+          ? "manual-investment-calendar-open.png"
+          : "manual-valuation-calendar-open.png",
+      ),
+      animations: "disabled",
+    });
     await expect(
       calendar.getByRole("button", { name: "Next month", exact: true }),
     ).toBeDisabled();
@@ -499,6 +507,8 @@ test("keeps identity required and financial facts optional with inline errors", 
     page.getByLabel("Investment name", { exact: true }),
   ).toBeFocused();
   await capture(page, "manual-holding-initial.png");
+  await page.getByRole("radio", { name: "SPV", exact: true }).check();
+  await capture(page, "manual-holding-spv.png");
   await page.getByRole("radio", { name: "Direct", exact: true }).focus();
   await page.keyboard.press("Space");
   await expect(
@@ -534,7 +544,15 @@ test("keeps identity required and financial facts optional with inline errors", 
   await expect(
     page.getByText("Add the date this estimate applies to.", { exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Valuation date", { exact: true }).fill("2026-10-15");
+  await page
+    .getByRole("button", { name: "Valuation date", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Previous month", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Thursday, October 15, 2026", exact: true })
+    .click();
   let seen = false;
   await page.route("**/api/manual-holdings", async (route) => {
     const input = ManualHoldingInputSchema.parse(

@@ -77,7 +77,8 @@ export const groups: Record<
   DatePicker: {
     page: "interactions",
     names: ["DatePicker"],
-    states: "Selected, clear, open calendar, date bounds, disabled",
+    states:
+      "Selected, clear, open calendar, date bounds, disabled, field error",
   },
   Tabs: {
     page: "interactions",

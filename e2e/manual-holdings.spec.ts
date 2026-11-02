@@ -67,6 +67,17 @@ async function select(page: Page, name: string, choice: string) {
   await page.getByRole("combobox", { name, exact: true }).click();
   await page.getByRole("option", { name: choice, exact: true }).click();
 }
+async function chooseValuationDate(page: Page) {
+  await page
+    .getByRole("button", { name: "Valuation date", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Previous month", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Thursday, October 15, 2026", exact: true })
+    .click();
+}
 async function start(
   page: Page,
   kind: "Direct" | "SPV" | "Fund",
@@ -235,7 +246,7 @@ test("keeps explicit zero cash separate from a dated estimate through valuation 
   await page
     .getByLabel("Estimated value · USD", { exact: true })
     .fill("30,000.01");
-  await page.getByLabel("Valuation date", { exact: true }).fill("2026-10-15");
+  await chooseValuationDate(page);
   await select(page, "Carry treatment", "Before carry");
   const positionId = await save(page);
   await page.reload();
@@ -397,7 +408,7 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
   await page
     .getByLabel("Estimated value · USD", { exact: true })
     .fill("30,000");
-  await page.getByLabel("Valuation date", { exact: true }).fill("2026-10-15");
+  await chooseValuationDate(page);
   await select(page, "Carry treatment", "Before carry");
   const positionId = await save(page);
   await page.reload();
@@ -578,7 +589,7 @@ test("uses the latest saved partial contribution cash through edits and clearing
   await page
     .getByLabel("Estimated value · USD", { exact: true })
     .fill("30,000");
-  await page.getByLabel("Valuation date", { exact: true }).fill("2026-10-15");
+  await chooseValuationDate(page);
   await select(page, "Carry treatment", "Before carry");
   const positionId = await save(page);
   const summary = page.locator(".spv-holding");

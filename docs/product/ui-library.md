@@ -174,6 +174,35 @@ Spread these props onto the actual control, including SelectTrigger when using a
 select. FieldGroup supplies a fieldset and legend for related controls. Field
 validation is presentation; the owning form and server remain authoritative.
 
+Use DatePicker for date selection in application forms. Input with `type="date"`
+uses the browser's native calendar and bypasses the shared calendar behavior.
+Compose DatePicker with Field's render function so the trigger retains the
+visible label, description and error associations:
+
+```tsx
+<Field
+  label="Investment date"
+  description="Leave blank if unknown."
+  error={error}
+>
+  {(control) => (
+    <DatePicker
+      {...control}
+      aria-label="Investment date"
+      value={date}
+      onValueChange={setDate}
+      max={latestDate}
+      disabled={saving}
+    />
+  )}
+</Field>
+```
+
+The form owns date requirements and validation. DatePicker's `required` option
+also removes the clear action. Keep optional dates clearable, including when a
+related amount requires a date before saving. Preserve the task's bounds and
+disabled state when replacing a native date field.
+
 Show a Spinner with meaningful pending text on the action being performed.
 LoadingStatus supplies one polite status announcement. Disable duplicate
 submission, keep the draft after a failed save and disable unchanged

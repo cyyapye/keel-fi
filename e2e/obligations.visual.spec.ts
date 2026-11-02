@@ -332,7 +332,7 @@ test("shows a compact empty state before obligations are accepted", async ({
 
 test("reviews obligations and preserves unknown and stale states", async ({
   page,
-}) => {
+}, testInfo) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
   const alphaFixture = await alphaResponse.json();
@@ -442,6 +442,7 @@ test("reviews obligations and preserves unknown and stale states", async ({
     ],
   });
 
+  await page.clock.setFixedTime(new Date(observedAt));
   await page.getByRole("button", { name: "Add manually" }).click();
   const manual = page.locator(".manual-obligation");
   await manual.getByLabel("Institution").fill("Manual entry");
@@ -450,10 +451,45 @@ test("reviews obligations and preserves unknown and stale states", async ({
   await page.getByRole("option", { name: "Mortgage" }).click();
   await manual.getByLabel("Next required payment").fill("2200");
   await manual.getByLabel("APR").fill("5.125");
-  await manual.getByLabel("Next payment due").fill("2026-09-01");
+  const dueDate = manual.getByRole("button", {
+    name: "Next payment due",
+    exact: true,
+  });
+  await dueDate.click();
+  await page.getByRole("button", { name: "Next month", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+    .click();
+  await dueDate.click();
+  await page.getByRole("button", { name: "Clear date", exact: true }).click();
+  await expect(dueDate).toHaveText("Choose date");
+  await dueDate.click();
+  await page.getByRole("button", { name: "Next month", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+    .click();
   await manual.getByRole("combobox", { name: "Payment status" }).click();
   await page.getByRole("option", { name: "Current" }).click();
-  await manual.getByLabel("Values effective").fill("2026-08-14");
+  const effectiveDate = manual.getByRole("button", {
+    name: "Values effective",
+    exact: true,
+  });
+  await expect(effectiveDate).toHaveAttribute("aria-required", "true");
+  await effectiveDate.click();
+  await expect(
+    page.getByRole("button", { name: "Clear date", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Thursday, August 13, 2026", exact: true })
+    .click();
+  await effectiveDate.click();
+  await page
+    .getByRole("button", { name: "Friday, August 14, 2026", exact: true })
+    .click();
+  await manual.screenshot({
+    path: testInfo.outputPath("manual-obligation-dates.png"),
+    animations: "disabled",
+  });
   await manual.getByRole("button", { name: "Continue to review" }).click();
   await expect(
     page.getByRole("heading", { name: "Review Manual entry" }),

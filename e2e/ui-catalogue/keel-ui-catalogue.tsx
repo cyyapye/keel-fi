@@ -291,22 +291,32 @@ function Interactions() {
         </ActionGroup>
       </Example>
       <Example title="Date picker" components="DatePicker">
-        <Field label="Formation date">
-          <DatePicker
-            aria-label="Formation date"
-            value={date}
-            onValueChange={setDate}
-            min="2026-01-01"
-            max="2026-12-31"
-          />
+        <Field
+          label="Formation date"
+          description="Use the date on the document."
+          error={date === "" ? "Choose the date on the document." : undefined}
+        >
+          {(control) => (
+            <DatePicker
+              {...control}
+              aria-label="Formation date"
+              value={date}
+              onValueChange={setDate}
+              min="2026-01-01"
+              max="2026-12-31"
+            />
+          )}
         </Field>
         <Field label="Unavailable date">
-          <DatePicker
-            aria-label="Unavailable date"
-            value=""
-            onValueChange={() => {}}
-            disabled
-          />
+          {(control) => (
+            <DatePicker
+              {...control}
+              aria-label="Unavailable date"
+              value=""
+              onValueChange={() => {}}
+              disabled
+            />
+          )}
         </Field>
       </Example>
       <Example

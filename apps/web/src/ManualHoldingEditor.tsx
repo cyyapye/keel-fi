@@ -21,6 +21,7 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  DatePicker,
   DisclosureIndicator,
   Field,
   FormMessage,
@@ -671,11 +672,6 @@ function ManualHoldingForm({
                   ? "Fund name"
                   : "Investment name"
             }
-            description={
-              draft.kind === "spv_interest"
-                ? "The legal vehicle you own an interest in."
-                : undefined
-            }
             variant="filled"
           >
             {(control) => (
@@ -784,13 +780,13 @@ function ManualHoldingForm({
                     variant="filled"
                   >
                     {(control) => (
-                      <Input
+                      <DatePicker
                         {...control}
-                        type="date"
+                        aria-label="Investment date"
                         value={draft.investmentDate}
                         max={today()}
-                        onChange={(event) =>
-                          update("investmentDate", event.currentTarget.value)
+                        onValueChange={(value) =>
+                          update("investmentDate", value)
                         }
                         disabled={locked}
                       />
@@ -840,14 +836,12 @@ function ManualHoldingForm({
                     variant="filled"
                   >
                     {(control) => (
-                      <Input
+                      <DatePicker
                         {...control}
-                        type="date"
+                        aria-label="Valuation date"
                         value={draft.valueDate}
                         max={today()}
-                        onChange={(event) =>
-                          update("valueDate", event.currentTarget.value)
-                        }
+                        onValueChange={(value) => update("valueDate", value)}
                         disabled={locked}
                       />
                     )}

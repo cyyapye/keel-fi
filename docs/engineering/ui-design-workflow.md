@@ -112,6 +112,15 @@ and source edits settle. A source, image or log change invalidates the packet.
 This detects accidental staleness; it is not signed provenance and cannot prove
 that arbitrary supplied screenshots were produced by the declared source.
 
+For forms with conditional fields, include browser evidence of switching between
+the relevant choices with supporting details both open and closed. Check the
+active control's position, keyboard focus and draft retention. Separate settled
+screenshots do not establish transition behavior. For calendar changes, open the
+calendar and select and clear dates through its controls. Check bounds, disabled
+state and field error associations. Directly filling a date value does not
+establish calendar behavior. Include the affected open states in the desktop and
+mobile images given to the reviewer.
+
 Give a fresh reviewer the packet's `reviewer.md` and its raw evidence, without
 the author's reasoning or expected findings. The reviewer starts with
 `first-look.json`: inspect each screen and record its unaided meaning before
