@@ -1,27 +1,29 @@
-import type { Page } from "@playwright/test";
 import { build } from "esbuild";
 import { afterEach, expect, it, vi } from "vitest";
 import { createApp } from "../apps/api/src/app";
 import type { Env } from "../apps/api/src/types";
-import { handleRequest } from "../apps/web/src/worker";
-import { waitForKeelSession } from "./keel-session-check";
 import { createCostDatabase } from "./test-support/d1-cost";
-import { measureD1 } from "./test-support/d1-meter";
+import { SessionCheckCostResultSchema } from "./test-support/session-check-cost-worker";
 import { createSqliteTrace } from "./test-support/sqlite-trace";
 
 const ORIGIN = new URL("https://keel.example.com");
-const replayWorker = build({
-  entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
-  bundle: true,
-  write: false,
-  format: "esm",
-  platform: "neutral",
-  target: "es2022",
-  conditions: ["workerd", "worker", "browser"],
-  mainFields: ["browser", "module", "main"],
-  external: ["node:*", "cloudflare:*"],
-  logLevel: "silent",
-}).then((result) => result.outputFiles[0]!.text);
+const bundleWorker = (entryPoint: string) =>
+  build({
+    entryPoints: [entryPoint],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    conditions: ["workerd", "worker", "browser"],
+    mainFields: ["browser", "module", "main"],
+    external: ["node:*", "cloudflare:*"],
+    logLevel: "silent",
+  }).then((result) => result.outputFiles[0]!.text);
+const replayWorker = bundleWorker("scripts/test-support/sql-replay-worker.ts");
+const sessionWorker = bundleWorker(
+  "scripts/test-support/session-check-cost-worker.ts",
+);
 
 async function replayD1(trace: ReturnType<typeof createSqliteTrace>) {
   const fixture = await createCostDatabase(await replayWorker);
@@ -43,79 +45,34 @@ afterEach(() => {
 });
 
 it("bounds all three setup checks through the browser client, auth and real D1 without loading the dashboard", async () => {
-  const fixture = await createCostDatabase();
-  const measured = measureD1(fixture.database);
-  let subject = "synthetic-unprovisioned-subject";
-  const app = createApp({
-    verifyAccess: () =>
-      Promise.resolve({ kind: "user" as const, subject, email: null }),
-  });
-  const env: Env = {
-    DB: measured.database,
-    ENVIRONMENT: "preview",
-    DOCUMENTS: {} as R2Bucket,
-    INGESTION_QUEUE: {} as Queue,
-  };
-  let requests = 0;
-  let failed = false;
-  const report = console.info.bind(console);
-  vi.spyOn(console, "info").mockImplementation(() => undefined);
-  vi.stubGlobal("fetch", async (path: string, init: RequestInit) => {
-    expect(path).toBe("/api/session");
-    requests++;
-    const response = await handleRequest(
-      new Request(new URL(path, ORIGIN), {
-        ...init,
-        headers: { "Cf-Access-Jwt-Assertion": "synthetic-test-assertion" },
-      }),
-      {
-        API: { fetch: async (request) => app.fetch(request, env) },
-        ASSETS: {
-          fetch: () => {
-            throw new Error("Session check fetched assets");
-          },
-        },
-      },
-    );
-    return failed
-      ? new Response("Synthetic proxy failure", { status: 503 })
-      : response;
-  });
-  const page = {
-    url: () => ORIGIN.href,
-    evaluate: (callback: () => unknown) => callback(),
-  } as unknown as Pick<Page, "url" | "evaluate">;
+  const fixture = await createCostDatabase(await sessionWorker);
   try {
-    for (const scenario of ["pending", "failure", "ready"] as const) {
-      failed = scenario === "failure";
-      subject =
-        scenario === "pending"
-          ? "synthetic-unprovisioned-subject"
-          : "synthetic-access-subject";
-      measured.reset();
-      requests = 0;
-      for (let agent = 0; agent < 3; agent++) {
-        let now = 0;
-        const ready = await waitForKeelSession(page, ORIGIN, 30 * 60_000, {
-          now: () => now,
-          sleep: (delay) => {
-            now += delay;
-            return Promise.resolve();
-          },
-        });
-        expect(ready).toBe(scenario === "ready");
-        expect(now).toBeLessThanOrEqual(30 * 60_000);
+    const response = await fixture.dispatchFetch(
+      "https://synthetic-session-cost.invalid",
+      { method: "POST" },
+    );
+    expect(response.ok).toBe(true);
+    const result = SessionCheckCostResultSchema.parse(await response.json());
+    expect(result.scenarios.map(({ scenario }) => scenario)).toEqual([
+      "pending",
+      "failure",
+      "ready",
+    ]);
+    for (const { scenario, attempts, requests, cost } of result.scenarios) {
+      for (const attempt of attempts) {
+        expect(attempt.ready).toBe(scenario === "ready");
+        expect(attempt.elapsedMs).toBeLessThanOrEqual(30 * 60_000);
       }
       expect(requests).toBeLessThanOrEqual(
         scenario === "pending" ? 1_080 : scenario === "failure" ? 30 : 3,
       );
-      const cost = { ...measured.cost };
+      if (scenario === "pending") expect(requests).toBe(1_080);
       expect(cost.roundTrips).toBe(requests);
       expect(cost.rowsRead).toBeLessThanOrEqual(
         scenario === "pending" ? 0 : 120,
       );
       expect(cost.rowsWritten).toBe(0);
-      report(
+      console.info(
         JSON.stringify({
           syntheticSetupDay: {
             scenario,
@@ -126,10 +83,10 @@ it("bounds all three setup checks through the browser client, auth and real D1 w
         }),
       );
     }
-    const beforeUnauthenticated = measured.cost.roundTrips;
-    const unauthenticated = await app.request("/api/session", {}, env);
-    expect(unauthenticated.status).toBe(401);
-    expect(measured.cost.roundTrips).toBe(beforeUnauthenticated);
+    expect(result.unexpectedRequests).toBe(0);
+    expect(result.assetRequests).toBe(0);
+    expect(result.unauthenticatedStatus).toBe(401);
+    expect(result.afterUnauthenticated).toBe(result.beforeUnauthenticated);
   } finally {
     await fixture.close();
   }

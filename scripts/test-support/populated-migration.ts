@@ -5,14 +5,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { Miniflare, Log, LogLevel } from "miniflare";
 import { unstable_splitSqlQuery } from "wrangler";
 import { z } from "zod";
 import { D1HoldingImportRepository } from "../../packages/database/src/holding-imports";
 import { D1PositionPurchaseRepository } from "../../packages/database/src/position-purchases";
 import { D1ManualHoldingRepository } from "../../packages/database/src/manual-holdings";
-import { createSqliteFixture } from "./sqlite-fixture";
 import { LegalDocumentTestD1 } from "./legal-documents";
 import { syntheticWefunderImport } from "./wefunder-holdings";
 
@@ -194,11 +193,23 @@ function insertBaseline(
 
 async function buildFixture(history: number, frontier: "0088" | "0089") {
   const oldFiles = migrationFiles("0088");
-  const db = createSqliteFixture([
-    ...oldFiles,
-    "packages/database/seed/synthetic.sql",
-  ]);
+  const db = new DatabaseSync(":memory:");
+  const statements = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
   try {
+    db.exec("PRAGMA foreign_keys=ON");
+    if (db.prepare("PRAGMA foreign_keys").get()?.foreign_keys !== 1)
+      throw new Error("SQLite fixture must enforce foreign keys");
+    for (const file of [...oldFiles, "packages/database/seed/synthetic.sql"])
+      db.exec(readFileSync(file, "utf8"));
+    const prepare = db.prepare.bind(db);
+    db.prepare = (sql) => {
+      let statement = statements.get(sql);
+      if (statement === undefined) {
+        statement = prepare(sql);
+        statements.set(sql, statement);
+      }
+      return statement;
+    };
     db.prepare(
       "INSERT INTO users(id,access_subject,email,display_name,created_at) VALUES ('usr_migration_foreign','synthetic-migration-foreign','migration-foreign@example.invalid','Synthetic Foreign User',?)",
     ).run(time);
@@ -285,6 +296,7 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
       }
     }
     if (frontier === "0089") {
+      statements.clear();
       db.exec("BEGIN");
       db.exec(
         readFileSync(
@@ -389,6 +401,7 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
       ),
     });
   } finally {
+    statements.clear();
     db.close();
   }
 }

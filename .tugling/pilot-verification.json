@@ -145,6 +145,7 @@
         "packages/database/src/provider-browser-sessions.test.ts",
         "apps/api/src/app.test.ts",
         "scripts/keel-session-check.test.ts",
+        "scripts/test-support/session-check-cost-worker.ts",
         "scripts/cash-request-d1-cost.test.ts",
         "scripts/automatic-investment-review-d1-cost.test.ts",
         "scripts/portfolio-watch-d1-cost.test.ts",

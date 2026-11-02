@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CAPACITY_MAX_BYTES,
   CAPACITY_MAX_ENTRIES,
+  CapacityLedgerSchema,
   CapacityUnavailableError,
   initialCapacityLedger,
   initializeCapacityOwner,
@@ -78,6 +79,36 @@ class MemoryStore implements CapacityStore {
       if ((this.value === null ? null : String(this.version)) !== expected)
         return "conflict" as const;
       this.value = structuredClone(value);
+      this.version++;
+      return "committed" as const;
+    });
+  }
+}
+class JsonStore implements CapacityStore {
+  version = 0;
+  reads = 0;
+  writes = 0;
+  private body = JSON.stringify(initialCapacityLedger(allowance(), time));
+  get value() {
+    return CapacityLedgerSchema.parse(JSON.parse(this.body));
+  }
+  read() {
+    return Promise.resolve().then(() => {
+      this.reads++;
+      return {
+        version: String(this.version),
+        value: JSON.parse(this.body) as unknown,
+      };
+    });
+  }
+  compareAndWrite(
+    expected: string | null,
+    value: CapacityLedger,
+  ): ReturnType<CapacityStore["compareAndWrite"]> {
+    return Promise.resolve().then(() => {
+      this.writes++;
+      if (String(this.version) !== expected) return "conflict" as const;
+      this.body = JSON.stringify(value);
       this.version++;
       return "committed" as const;
     });
@@ -387,7 +418,7 @@ describe("shared D1 capacity owner", () => {
   });
 
   it("bounds a full virtual day of minute attempts without claiming unchanged freshness", async () => {
-    const store = new MemoryStore();
+    const store = new JsonStore();
     let completed = 0;
     for (let minute = 0; minute < 1440; minute++) {
       try {
