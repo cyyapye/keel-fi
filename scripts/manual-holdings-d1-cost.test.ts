@@ -2,7 +2,8 @@ import { expect, it, vi } from "vitest";
 import { D1ManualHoldingRepository } from "../packages/database/src/manual-holdings";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
 import { D1PositionPurchaseRepository } from "../packages/database/src/position-purchases";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
+import { measureD1 } from "./test-support/d1-cost";
+import { createManualHoldingsCostDatabase } from "./test-support/manual-holdings-cost-database";
 import { ManualHoldingInputSchema } from "../packages/domain/src/manual-holdings";
 
 const subject = "synthetic-access-subject";
@@ -11,7 +12,7 @@ const time = "2026-11-01T00:00:00.000Z";
 it("bounds manual options and current identities with 120 items, tied history and unrelated households", async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(time));
-  const fixture = await createCostDatabase();
+  const fixture = await createManualHoldingsCostDatabase();
   try {
     const database = fixture.database;
     await database.batch(
@@ -46,35 +47,35 @@ it("bounds manual options and current identities with 120 items, tied history an
     const positions = new D1InvestmentPositionViewRepository(measured.database);
     const company = (await repository.options(subject)).companies[0]!;
     measured.reset();
-    const create = async (accessSubject: string, index: number) =>
-      repository.create(
-        accessSubject,
-        ManualHoldingInputSchema.parse({
-          submissionId: crypto.randomUUID(),
-          classification: "private_paper",
-          name: `Synthetic Cost Investment ${index}`,
-          kind:
-            index % 3 === 0
-              ? "direct"
-              : index % 3 === 1
-                ? "spv_interest"
-                : "fund_interest",
-          owner: { mode: "new", label: `Synthetic Cost Owner ${index}` },
-          company:
-            accessSubject === subject
-              ? {
-                  mode: "existing",
-                  companyId: company.id,
-                  revision: company.revision,
-                }
-              : { mode: "unassigned" },
-          cashPaidMinor: null,
-          investmentDate: null,
-          valuation: { state: "unknown" },
-        }),
-      );
-    for (let index = 0; index < 120; index++) await create(subject, index);
-    const acceptanceCost = { ...measured.cost };
+    const input = (accessSubject: string, index: number) =>
+      ManualHoldingInputSchema.parse({
+        submissionId: crypto.randomUUID(),
+        classification: "private_paper",
+        name: `Synthetic Cost Investment ${index}`,
+        kind:
+          index % 3 === 0
+            ? "direct"
+            : index % 3 === 1
+              ? "spv_interest"
+              : "fund_interest",
+        owner: { mode: "new", label: `Synthetic Cost Owner ${index}` },
+        company:
+          accessSubject === subject
+            ? {
+                mode: "existing",
+                companyId: company.id,
+                revision: company.revision,
+              }
+            : { mode: "unassigned" },
+        cashPaidMinor: null,
+        investmentDate: null,
+        valuation: { state: "unknown" },
+      });
+    const acceptanceCost = await fixture.createManualHoldings({
+      subject,
+      time,
+      inputs: Array.from({ length: 120 }, (_, index) => input(subject, index)),
+    });
     expect(acceptanceCost.rowsWritten).toBeGreaterThan(120 * 20);
     expect(acceptanceCost.rowsRead).toBeLessThanOrEqual(120 * 200);
     expect(acceptanceCost.rowsWritten).toBeLessThanOrEqual(120 * 125);
@@ -238,8 +239,25 @@ it("bounds manual options and current identities with 120 items, tied history an
       foreignHistoryBefore.rowsRead,
     );
 
-    for (let index = 0; index < 120; index++)
-      await create("manual-cost-unrelated", index);
+    const unrelatedInputs = Array.from({ length: 120 }, (_, index) =>
+      input("manual-cost-unrelated", index),
+    );
+    await fixture.createManualHoldings({
+      subject: "manual-cost-unrelated",
+      time,
+      inputs: unrelatedInputs,
+    });
+    expect(
+      await database
+        .prepare(
+          "SELECT COUNT(*) n FROM manual_holding_submissions WHERE household_id=? AND submission_id IN (SELECT value FROM json_each(?))",
+        )
+        .bind(
+          "manual-cost-hh-unrelated",
+          JSON.stringify(unrelatedInputs.map((value) => value.submissionId)),
+        )
+        .first<number>("n"),
+    ).toBe(120);
     const unrelated = await read(subject, "hh_demo");
     expect(unrelated.options).toEqual(after.options);
     expect(unrelated.view).toEqual(after.view);
