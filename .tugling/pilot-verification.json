@@ -19,6 +19,95 @@
       "depends_on": []
     },
     {
+      "id": "compose-configuration",
+      "description": "Validate the existing isolated synthetic development stack configuration.",
+      "argv": ["docker", "compose", "config", "--quiet"],
+      "timeout_seconds": 30,
+      "sources": ["compose.yaml"],
+      "runtime": null,
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
+      "id": "gate-and-artifact-integrity",
+      "description": "Reject substituted candidate code and omitted/filtered native cases; exercise owned temporary checkout success, failure and cancellation.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "python"],
+      "timeout_seconds": 120,
+      "sources": [
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py",
+        "scripts/test_linux_test_run.py",
+        "scripts/linux-test-run.py",
+        ".tugling/pilot-cases.json",
+        "scripts/tugling-pilot.py",
+        "scripts/ci-verification.py",
+        "scripts/test_ci_verification.py",
+        ".github/workflows/native-verification.yml",
+        ".github/actions/verify-native-receipt/action.yml",
+        "scripts/ci-resource-sampler.py",
+        "scripts/test_pdf_sandbox_owner.py",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/ci-diagnostics.py",
+        "scripts/test_ci_diagnostics.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "unittest owns synthetic Git and native runner fixtures in temporary directories.",
+        "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
+        "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
+      },
+      "depends_on": []
+    },
+    {
+      "id": "pdf-sandbox-build",
+      "description": "Build the daily-refreshed isolated PDF reader, adversarial probe and malware scanner images on the provisioned rootless daemon.",
+      "argv": ["make", "pdf-sandbox-build"],
+      "timeout_seconds": 1200,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "scripts/pdf-sandbox-build.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/Dockerfile",
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/reader.py",
+        "scripts/pdf-sandbox/scanner.py",
+        "scripts/pdf-sandbox/freshclam.conf",
+        "scripts/test-support/legal-documents.ts",
+        "scripts/pdf-sandbox-owner.ts",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/pdf-sandbox-error.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native command builds immutable reader, probe and scanner targets on the provisioned rootless socket, retaining the daily security-package and malware-signature refresh.",
+        "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
+        "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
+      },
+      "depends_on": []
+    },
+    {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql",
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
       "id": "native-unit-and-cost",
       "description": "Exercise all native domain, API, database, client, workflow, resource and billing assertions with exact individual case accounting.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest"],
@@ -107,98 +196,9 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts after integrity checks, before migrations and PDF isolation take their slots. Unit tests receive an explicitly absent owned PDF configuration; real PDF/Chromium verification is enforced by separate required flows, so image builds are not a unit prerequisite. Three workers admit strict workload fixtures first, followed by measured cost priorities. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
+        "launch": "Vitest starts after integrity checks. Ready compose and migration work is admitted before units; units can then use the slot released by the independent workspace build. This keeps the browser fixture critical path moving without waiting for the unit suite. Unit tests receive an explicitly absent owned PDF configuration; real PDF/Chromium verification remains in separate required flows. Three workers admit strict workload fixtures first, followed by measured cost priorities. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
-      },
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
-      "id": "compose-configuration",
-      "description": "Validate the existing isolated synthetic development stack configuration.",
-      "argv": ["docker", "compose", "config", "--quiet"],
-      "timeout_seconds": 30,
-      "sources": ["compose.yaml"],
-      "runtime": null,
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
-      "id": "gate-and-artifact-integrity",
-      "description": "Reject substituted candidate code and omitted/filtered native cases; exercise owned temporary checkout success, failure and cancellation.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "python"],
-      "timeout_seconds": 120,
-      "sources": [
-        "scripts/pilot_native.py",
-        "scripts/test_tugling_pilot.py",
-        "scripts/test_linux_test_run.py",
-        "scripts/linux-test-run.py",
-        ".tugling/pilot-cases.json",
-        "scripts/tugling-pilot.py",
-        "scripts/ci-verification.py",
-        "scripts/test_ci_verification.py",
-        ".github/workflows/native-verification.yml",
-        ".github/actions/verify-native-receipt/action.yml",
-        "scripts/ci-resource-sampler.py",
-        "scripts/test_pdf_sandbox_owner.py",
-        "scripts/pdf-sandbox-owner.py",
-        "scripts/ci-diagnostics.py",
-        "scripts/test_ci_diagnostics.py"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "unittest owns synthetic Git and native runner fixtures in temporary directories.",
-        "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
-        "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
-      },
-      "depends_on": []
-    },
-    {
-      "id": "pdf-sandbox-build",
-      "description": "Build the daily-refreshed isolated PDF reader, adversarial probe and malware scanner images on the provisioned rootless daemon.",
-      "argv": ["make", "pdf-sandbox-build"],
-      "timeout_seconds": 1200,
-      "sources": [
-        "Makefile",
-        "package.json",
-        "pnpm-lock.yaml",
-        "scripts/pdf-sandbox-build.ts",
-        "scripts/pdf-sandbox.ts",
-        "scripts/pdf-sandbox/Dockerfile",
-        "scripts/pdf-sandbox/boundary.py",
-        "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/reader.py",
-        "scripts/pdf-sandbox/scanner.py",
-        "scripts/pdf-sandbox/freshclam.conf",
-        "scripts/test-support/legal-documents.ts",
-        "scripts/pdf-sandbox-owner.ts",
-        "scripts/pdf-sandbox-owner.py",
-        "scripts/pdf-sandbox-error.ts"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native command builds immutable reader, probe and scanner targets on the provisioned rootless socket, retaining the daily security-package and malware-signature refresh.",
-        "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
-        "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
-      },
-      "depends_on": []
-    },
-    {
-      "id": "migration-and-seed",
-      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql",
-        "scripts/pilot_native.py",
-        "scripts/test_tugling_pilot.py"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
-        "health": "Scenario readback assertions check migrations, seeds and relationships.",
-        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
       },
       "depends_on": ["gate-and-artifact-integrity"]
     },

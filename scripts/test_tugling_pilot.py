@@ -968,7 +968,9 @@ with native.cost_seed_directory() as seed:
             ["gate-and-artifact-integrity"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
-        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
+        self.assertLess(flow_order.index("compose-configuration"), flow_order.index("migration-and-seed"))
+        self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("native-unit-and-cost"))
+        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("provider-document-runtime"), flow_order.index("pdf-isolation"))
         self.assertLess(flow_order.index("browser-workflows"), flow_order.index("pdf-isolation"))

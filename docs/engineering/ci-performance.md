@@ -75,8 +75,12 @@ The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks. Its sealed private copy supplies browser
 fixtures. Workspace builds consume source files and can start whenever a slot is
-available; source checks and migrations remain independently required. Unit/D1
-tests become ready after integrity; they receive an explicitly absent owned PDF
+available; source checks and migrations remain independently required. When
+integrity finishes, ready compose and migration work precedes unit admission.
+The workspace build can then release a slot for units while migrations run. This
+avoids holding the browser fixture critical path behind the unit suite;
+commands, dependencies and the three-slot limit remain unchanged. Unit/D1 tests
+become ready after integrity; they receive an explicitly absent owned PDF
 configuration, retain their own isolated databases and consume TypeScript
 sources. Source checks remain concurrent and required.
 

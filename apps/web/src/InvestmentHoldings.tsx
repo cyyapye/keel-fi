@@ -2799,20 +2799,22 @@ export function InvestmentHoldings({
     return (
       <section className="investment-views">
         <EmptyState
+          actions={
+            <ActionGroup>
+              {onAddHolding && (
+                <Button data-add-holding onClick={onAddHolding} tone="primary">
+                  Add holding
+                </Button>
+              )}
+              <TextLink href="/holdings/sources">Manage sources</TextLink>
+            </ActionGroup>
+          }
           className="holding-welcome"
           headingAs="h3"
           icon={null}
           title="Your holdings, in one place"
         >
           Add an investment you own, connect an account, or import a statement.
-          <ActionGroup>
-            {onAddHolding && (
-              <Button data-add-holding onClick={onAddHolding} tone="primary">
-                Add holding
-              </Button>
-            )}
-            <TextLink href="/holdings/sources">Manage sources</TextLink>
-          </ActionGroup>
         </EmptyState>
       </section>
     );

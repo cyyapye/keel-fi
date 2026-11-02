@@ -149,6 +149,11 @@ inline with prose; do not shrink a button's padding to imitate a text link.
 Plain buttons inherit surrounding typography and preserve any assigned type size
 and weight on hover.
 
+EmptyState children are the inline description rendered as a paragraph, with
+inline links when they form part of that prose. Put standalone controls and
+ActionGroup in its `actions` prop. The separate slot keeps block controls
+outside the paragraph and retains the shared text sizing and spacing.
+
 Checkbox carries its own visible label, optional description and disabled/mixed
 states. Use `accessibleLabel` when a short visible label needs record context
 for assistive technology. Keep the domain's actual boolean decision in the

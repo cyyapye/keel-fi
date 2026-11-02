@@ -599,7 +599,12 @@ function Forms({ navigate }: { navigate: (page: Page) => void }) {
         <FormMessage>Ready to edit.</FormMessage>
         <FormMessage tone="error">Enter a legal name.</FormMessage>
         <FormMessage tone="success">Changes saved.</FormMessage>
-        <EmptyState title="No matching sources" icon={null} compact>
+        <EmptyState
+          actions={<TextLink href="/holdings/sources">Manage sources</TextLink>}
+          title="No matching sources"
+          icon={null}
+          compact
+        >
           Try another search.
         </EmptyState>
       </Example>

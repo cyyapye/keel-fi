@@ -901,6 +901,10 @@ test("searches more than 120 long owner and company labels with a bounded option
 test("opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel", async ({
   page,
 }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
   const fixture = await setup(page);
   await routeOverviewReads(page);
   await page.goto("/holdings");
@@ -909,6 +913,8 @@ test("opens the dedicated editor from empty and regular Holdings and restores tr
     exact: true,
   });
   await expect(emptyAction).toHaveCount(1);
+  await expect(page.locator(".holding-welcome p div")).toHaveCount(0);
+  expect(consoleErrors).toEqual([]);
   await emptyAction.click();
   await expect(page).toHaveURL(/\/holdings\/new$/u);
   await expect(

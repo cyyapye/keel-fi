@@ -129,7 +129,7 @@ export const guidance: Record<string, Guidance> = {
   },
   Feedback: {
     useWhen:
-      "Meaningful status, empty results and local failures. Avoid boxes and redundant success/retained-draft copy.",
+      "Meaningful status, empty results and local failures. EmptyState uses inline description children and a separate actions slot. Avoid boxes and redundant success/retained-draft copy.",
     rules: [controls],
     examples: example("Forms", "Feedback"),
   },
