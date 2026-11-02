@@ -234,6 +234,14 @@ export const PurchaseReceiptSchema = z.object({
   details: PurchaseDetailsSchema,
   acceptedAt: z.iso.datetime(),
 });
+const ManualIdentityHistoryValueSchema = z.object({
+  name: z.string().min(1).max(1_000),
+  kind: z.enum(["direct", "spv_interest", "fund_interest"]),
+  ownerLabel: z.string().min(1).max(1_000),
+  companies: z
+    .array(z.object({ id: z.string().min(1), name: z.string().min(1) }))
+    .max(500),
+});
 export const InvestmentHistorySchema = z.object({
   entries: z
     .array(
@@ -249,6 +257,16 @@ export const InvestmentHistorySchema = z.object({
           sourceLabel: z.string().min(1),
           targetLabel: z.string().min(1),
         }),
+        z.object({
+          kind: z.literal("identity"),
+          receipt: z.object({
+            id: z.string().min(1),
+            acceptedAt: z.iso.datetime(),
+            value: ManualIdentityHistoryValueSchema,
+            initialInvestment: PurchaseReceiptSchema.nullable().optional(),
+          }),
+          previous: ManualIdentityHistoryValueSchema.nullable(),
+        }),
       ]),
     )
     .max(30),
@@ -256,7 +274,7 @@ export const InvestmentHistorySchema = z.object({
     .object({
       date: z.iso.datetime(),
       id: z.string().min(1).max(200),
-      kind: z.enum(["investment", "link"]),
+      kind: z.enum(["investment", "link", "identity"]),
     })
     .nullable(),
 });

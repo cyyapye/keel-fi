@@ -3,6 +3,7 @@ import {
   PurchaseReceiptSchema,
 } from "./position-purchases";
 import { z } from "zod";
+import { ManualHoldingContextSchema } from "./manual-holdings";
 import { AutomaticInvestmentReviewSchema } from "./automatic-investment-review";
 import {
   InvestmentCompanyReceiptSchema,
@@ -60,6 +61,7 @@ const ReportedLegalEntityNameSchema = z
   .object({
     state: z.enum([
       "provider_reported",
+      "manual_reported",
       "template_reported",
       "document_reported",
     ]),
@@ -90,6 +92,13 @@ export function importedLegalEntityNameEvidence(
   provider: string,
   legalPosition: string,
 ): LegalEntityNameEvidence {
+  if (provider === "manual") {
+    return LegalEntityNameEvidenceSchema.parse({
+      state: "manual_reported",
+      legalName: legalPosition,
+      sourceField: "Manual investment name",
+    });
+  }
   if (provider === "angellist" || provider === "wefunder") {
     return LegalEntityNameEvidenceSchema.parse({
       state:
@@ -116,11 +125,11 @@ export const InvestmentPositionSnapshotSchema = z.object({
   fingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
   observedAt: IsoTimestampSchema,
   providerStatus: z.enum(["live", "realized"]),
-  investedMinor: NonNegativeIntegerSchema,
-  allocationMinor: NonNegativeIntegerSchema,
-  investmentAmountMinor: NonNegativeIntegerSchema.optional(),
+  investedMinor: NonNegativeIntegerSchema.nullable(),
+  allocationMinor: NonNegativeIntegerSchema.nullable(),
+  investmentAmountMinor: NonNegativeIntegerSchema.nullable().optional(),
   unrealizedValue: NullableReportedValueSchema,
-  realizedValueMinor: NonNegativeIntegerSchema,
+  realizedValueMinor: NonNegativeIntegerSchema.nullable(),
   netValue: NullableReportedValueSchema,
   instrumentType: z.string().trim().min(1).max(1_000),
   currency: z.string().regex(/^[A-Z]{3}$/u),
@@ -140,6 +149,7 @@ export const LinkedReportedValueSchema = NullableReportedValueSchema.safeExtend(
 );
 
 export const InvestmentPositionRecordSchema = z.object({
+  manualContext: ManualHoldingContextSchema.nullable().optional(),
   id: z.string().min(1),
   legalVehicleName: z.string().trim().min(1).max(1_000),
   legalEntityNameEvidence: LegalEntityNameEvidenceSchema,

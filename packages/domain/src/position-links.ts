@@ -41,7 +41,7 @@ export const PositionLinkWorkspaceSchema = z.object({
     InvestmentPositionRecordSchema.extend({
       ownershipContainerId: z.string().optional(),
       sourceProvider: z
-        .enum(["angellist", "sydecar", "tokenfolio", "wefunder"])
+        .enum(["angellist", "sydecar", "tokenfolio", "wefunder", "manual"])
         .optional(),
       reviewedHistory: z.boolean().optional(),
     }),

@@ -1,3 +1,16 @@
+import { bodyLimit } from "hono/body-limit";
+import {
+  D1ManualHoldingRepository,
+  ManualHoldingError,
+  type ManualHoldingRepository,
+} from "@keel/database";
+import {
+  ManualHoldingInputSchema,
+  ManualHoldingIdentityInputSchema,
+  ManualHoldingOptionsSchema,
+  ManualHoldingReceiptSchema,
+  ManualHoldingSubmissionSchema,
+} from "@keel/domain/manual-holdings";
 import { D1PriceProxyRepository } from "@keel/database";
 import { AcceptPositionLinkSchema } from "@keel/domain/position-links";
 import { D1PositionLinkRepository, PositionLinkError } from "@keel/database";
@@ -295,6 +308,7 @@ type AppOptions = {
   companyIdentityRepository?: CompanyIdentityRepository;
   automaticInvestmentReviewRepository?: AutomaticInvestmentReviewRepository;
   positionPurchaseRepository?: PositionPurchaseRepository;
+  manualHoldingRepository?: ManualHoldingRepository;
   positionEconomicsRepository?: PositionEconomicsRepository;
   positionValueAdjustmentRepository?: PositionValueAdjustmentRepository;
   providerBrowserSessionRepository?: ProviderBrowserSessionRepository;
@@ -905,6 +919,9 @@ function macAgentApiOrigin(env: Env, requestUrl: string): string | null {
 export function createApp(options: AppOptions = {}) {
   const app = new Hono<AppEnvironment>();
   const verifier = options.verifyAccess ?? verifyAccessToken;
+  const manualHoldingRepositoryFor = (env: Env) =>
+    options.manualHoldingRepository ??
+    new D1ManualHoldingRepository(env.DB, env.DOCUMENTS);
   const repositoryFor = (env: Env) =>
     options.repository ?? new D1AlphaRepository(env.DB);
   const angelListMacAgentRepositoryFor = (env: Env) =>
@@ -2099,6 +2116,151 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  const manualFailure = (context: Context<AppEnvironment>, error: unknown) => {
+    if (error instanceof ManualHoldingError)
+      return context.json(
+        { error: error.message, code: error.code },
+        error.code === "not_found"
+          ? 404
+          : error.code === "stale" || error.code === "conflict"
+            ? 409
+            : 400,
+        { "Cache-Control": "private, no-store" },
+      );
+    return context.json(
+      {
+        error:
+          "The manual investment could not be confirmed. Check Holdings before trying again.",
+      },
+      503,
+      { "Cache-Control": "private, no-store" },
+    );
+  };
+  app.get("/api/manual-holdings/options", async (context) => {
+    try {
+      return context.json(
+        ManualHoldingOptionsSchema.parse(
+          await manualHoldingRepositoryFor(context.env).options(
+            context.get("identity").subject,
+          ),
+        ),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return manualFailure(context, error);
+    }
+  });
+  app.get("/api/manual-holdings/submissions/:submissionId", async (context) => {
+    const parsed = z.uuid().safeParse(context.req.param("submissionId"));
+    if (!parsed.success)
+      return context.json(
+        { error: "The submission identifier is invalid." },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    try {
+      return context.json(
+        ManualHoldingSubmissionSchema.parse({
+          receipt: await manualHoldingRepositoryFor(context.env).submission(
+            context.get("identity").subject,
+            parsed.data,
+          ),
+        }),
+        200,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return manualFailure(context, error);
+    }
+  });
+  const manualBodyLimit = bodyLimit({
+    maxSize: 16_384,
+    onError: (context) =>
+      context.json({ error: "Manual investment input exceeds 16 KiB." }, 413),
+  });
+  app.post("/api/manual-holdings", manualBodyLimit, async (context) => {
+    let raw: unknown;
+    try {
+      raw = await context.req.json();
+    } catch {
+      return context.json({ error: "A JSON request body is required." }, 400, {
+        "Cache-Control": "private, no-store",
+      });
+    }
+    const parsed = ManualHoldingInputSchema.safeParse(raw);
+    if (!parsed.success)
+      return context.json(
+        {
+          error: "Enter valid investment details.",
+          issues: parsed.error.issues.map((issue) => ({
+            path: issue.path.join("."),
+            message: issue.message,
+          })),
+        },
+        400,
+        { "Cache-Control": "private, no-store" },
+      );
+    try {
+      return context.json(
+        ManualHoldingReceiptSchema.parse(
+          await manualHoldingRepositoryFor(context.env).create(
+            context.get("identity").subject,
+            parsed.data,
+          ),
+        ),
+        201,
+        { "Cache-Control": "private, no-store" },
+      );
+    } catch (error) {
+      return manualFailure(context, error);
+    }
+  });
+  app.post(
+    "/api/manual-holdings/:positionId/identity",
+    manualBodyLimit,
+    async (context) => {
+      let raw: unknown;
+      try {
+        raw = await context.req.json();
+      } catch {
+        return context.json(
+          { error: "A JSON request body is required." },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+      const parsed = ManualHoldingIdentityInputSchema.safeParse(raw);
+      if (!parsed.success)
+        return context.json(
+          {
+            error: "Enter valid holding details.",
+            issues: parsed.error.issues.map((issue) => ({
+              path: issue.path.join("."),
+              message: issue.message,
+            })),
+          },
+          400,
+          { "Cache-Control": "private, no-store" },
+        );
+      try {
+        return context.json(
+          ManualHoldingReceiptSchema.parse(
+            await manualHoldingRepositoryFor(context.env).reviseIdentity(
+              context.get("identity").subject,
+              context.req.param("positionId"),
+              parsed.data,
+            ),
+          ),
+          200,
+          { "Cache-Control": "private, no-store" },
+        );
+      } catch (error) {
+        return manualFailure(context, error);
+      }
+    },
+  );
+
   app.get("/api/holdings-page", async (context) => {
     try {
       const page = await holdingsPageRepositoryFor(context.env).getPage(
@@ -2869,7 +3031,7 @@ export function createApp(options: AppOptions = {}) {
       .object({
         date: z.iso.datetime(),
         id: z.string().min(1).max(200),
-        kind: z.enum(["investment", "link"]),
+        kind: z.enum(["investment", "link", "identity"]),
       })
       .safeParse(context.req.query());
     if (Object.keys(context.req.query()).length && !query.success)

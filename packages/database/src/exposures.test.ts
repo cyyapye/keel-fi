@@ -1,6 +1,6 @@
 import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   DatabaseSync,
@@ -38,7 +38,7 @@ const privateProviderPositionContinuityMigrationFile =
   "packages/database/migrations/0037_private_provider_position_continuity.sql";
 const portfolioWatchExposureUniverseMigrationFile =
   "packages/database/migrations/0045_portfolio_watch_exposure_universe.sql";
-const migrationFiles = [
+const legacyMigrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
   "packages/database/migrations/0003_evidence_applications.sql",
@@ -107,6 +107,13 @@ const migrationFiles = [
   "packages/database/migrations/0086_live_price_proxies.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
+const migrationFiles = [
+  ...readdirSync("packages/database/migrations")
+    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+    .sort()
+    .map((file) => `packages/database/migrations/${file}`),
+  "packages/database/seed/synthetic.sql",
+];
 
 const accessSubject = "synthetic-access-subject";
 const recordedAt = "2026-08-15T22:00:00.000Z";
@@ -614,15 +621,6 @@ describe("canonical exposure resolution and aggregation", () => {
 
   beforeEach(() => {
     sqlite = createSqliteFixture(migrationFiles);
-    sqlite.exec(
-      readFileSync(
-        resolve(
-          process.cwd(),
-          "packages/database/migrations/0057_query_cost_bounds.sql",
-        ),
-        "utf8",
-      ),
-    );
     sqlite.exec(
       readFileSync(
         resolve(
@@ -3034,31 +3032,11 @@ describe("holding ownership and exposure reconciliation migration", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
     try {
-      migrationFiles
-        .filter(
-          (file) =>
-            file !== reconciliationMigrationFile &&
-            file !== retainedPublicIdentityMigrationFile &&
-            file !== providerScopedIdentityMigrationFile &&
-            file !== structuredAssetIdentityMigrationFile &&
-            file !== reconnectedPositionContinuityMigrationFile &&
-            file !== oneSidedPositionIdentityMigrationFile &&
-            file !== privateProviderPositionContinuityMigrationFile &&
-            file !== portfolioWatchExposureUniverseMigrationFile &&
-            file !==
-              "packages/database/migrations/0063_current_exposure_mapping_heads.sql" &&
-            file !==
-              "packages/database/migrations/0073_public_company_recommendations.sql" &&
-            file !== "packages/database/seed/synthetic.sql",
-        )
-        .forEach((file) => {
-          database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-        });
+      migrationFiles.forEach((file) => {
+        database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+      });
       database.exec(
-        readFileSync(
-          resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
-          "utf8",
-        ),
+        "DROP TRIGGER holding_position_exposure_mappings_ownership_insert",
       );
       seedManualConnection(database);
       const legacyPublicExposureKey = hash("cusip:synthetic-legacy-public");
@@ -3217,18 +3195,6 @@ describe("holding ownership and exposure reconciliation migration", () => {
         evidenceSha256: hash("legacy public mapping decision"),
         effectiveAt: recordedAt,
       });
-
-      // Keep the read-model schema current while proving the earlier ownership
-      // repair against deliberately orphaned accepted positions.
-      for (const file of [
-        retainedPublicIdentityMigrationFile,
-        providerScopedIdentityMigrationFile,
-        structuredAssetIdentityMigrationFile,
-        reconnectedPositionContinuityMigrationFile,
-        oneSidedPositionIdentityMigrationFile,
-      ]) {
-        database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-      }
 
       const exposureView = new D1InvestmentExposureViewRepository(d1);
       const baselines = new D1PortfolioBaselineRepository(d1);
@@ -3491,7 +3457,7 @@ describe("exact reviewed private exposure migration", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
     try {
-      migrationFiles
+      legacyMigrationFiles
         .filter(
           (file) =>
             file !== exactReviewedPrivateExposuresMigrationFile &&
@@ -3621,21 +3587,9 @@ describe("private provider position continuity migration", () => {
     const database = new MigrationDatabase(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
     try {
-      migrationFiles
-        .filter(
-          (file) =>
-            file !== privateProviderPositionContinuityMigrationFile &&
-            file !== "packages/database/seed/synthetic.sql",
-        )
-        .forEach((file) => {
-          database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-        });
-      database.exec(
-        readFileSync(
-          resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
-          "utf8",
-        ),
-      );
+      migrationFiles.forEach((file) => {
+        database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+      });
 
       const matchesPerProvider = 30;
       for (const provider of ["angellist", "tokenfolio", "sydecar"] as const) {

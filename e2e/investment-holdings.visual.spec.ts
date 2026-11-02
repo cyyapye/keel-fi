@@ -96,7 +96,10 @@ function alphaHoldingsFrom(view: InvestmentHoldingsView) {
       realizedValueMinor: position.realizedValueMinor,
       instrumentType: position.instrumentType,
       positionEconomicsContext:
-        position.positionKind !== "spv_interest" || position.committedMinor <= 0
+        position.positionKind !== "spv_interest" ||
+        position.committedMinor === null ||
+        position.investedMinor === null ||
+        position.committedMinor <= 0
           ? undefined
           : {
               snapshotId: position.snapshotId,

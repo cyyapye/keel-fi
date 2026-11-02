@@ -403,6 +403,84 @@ function performanceFixture() {
 }
 
 describe("current-holdings portfolio performance", () => {
+  it("counts an unassigned manual Direct as private paper with incomplete performance coverage", () => {
+    const { view } = performanceFixture();
+    const eligible = view.exposureView.positions.find(
+      (row) => row.id === "beta",
+    )!;
+    view.exposureView.positions = [
+      eligible,
+      {
+        ...eligible,
+        id: "locked",
+        snapshotId: "snapshot_locked",
+        positionKind: "direct",
+        isPrivateCompanyPosition: false,
+        manualContext: {
+          version: 1,
+          containerId: "synthetic_manual_owner",
+          containerVersion: 1,
+          classification: "private_paper",
+          companyMappingIds: [],
+        },
+        ticker: null,
+        instrumentType: "Direct private investment",
+        investedMinor: null,
+        committedMinor: null,
+        realizedValueMinor: null,
+        providerCostBasisMinor: null,
+        reviewedInvestment: undefined,
+        valueState: "not_reported",
+        valueMinor: null,
+        mappings: [],
+        mappedExposureIds: [],
+        knownAllocationPpm: 0,
+        allocatedValueMinor: null,
+        unallocatedValueMinor: null,
+      },
+    ];
+    for (const connection of view.positionView.connections) {
+      for (const container of connection.containers) {
+        container.positions = container.positions.filter(
+          (record) => record.id === "beta" || record.id === "locked",
+        );
+        const manual = container.positions.find(
+          (record) => record.id === "locked",
+        );
+        if (manual) {
+          manual.kind = "direct";
+          manual.manualContext = view.exposureView.positions[1]!.manualContext;
+          manual.ownershipBasis = "manual";
+          manual.snapshot.investedMinor = null;
+          manual.snapshot.allocationMinor = null;
+          manual.snapshot.realizedValueMinor = null;
+          manual.snapshot.unrealizedValue = {
+            state: "not_reported",
+            minor: null,
+          };
+          manual.snapshot.netValue = { state: "not_reported", minor: null };
+        }
+      }
+    }
+    const result = calculatePortfolioPerformance(
+      InvestmentHoldingsViewSchema.parse(view),
+      "USD",
+    );
+    expect(result.privateTvpi).toMatchObject({
+      totalCount: 2,
+      eligibleCount: 1,
+      paidInMinor: 12000,
+      valueMinor: 18000,
+      multiplePpm: 1750000,
+    });
+    expect(result.privateDpi).toMatchObject({
+      totalCount: 2,
+      eligibleCount: 1,
+      paidInMinor: 12000,
+      distributionsMinor: 3000,
+      multiplePpm: 250000,
+    });
+  });
   it("weights summed capital and keeps paid-in multiples separate from net-capital return", () => {
     const { view } = performanceFixture();
     const result = calculatePortfolioPerformance(view, "USD");

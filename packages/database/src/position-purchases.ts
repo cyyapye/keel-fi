@@ -54,23 +54,41 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
 
   private historyQuery(hasCursor: boolean) {
     const range = hasCursor ? "AND (r.accepted_at,r.id,?) < (?,?,?)" : "";
+    const identityRange = hasCursor
+      ? "AND (r.recorded_at,r.id,?) < (?,?,?)"
+      : "";
+    const priorCompanies = `(SELECT json_group_array(json_object('id',company_id,'name',canonical_name)) FROM (
+      SELECT e.company_id,e.canonical_name FROM json_each(identity_version.prior_company_mapping_ids_json) ids
+      JOIN holding_position_exposure_mappings mapping ON mapping.id=ids.value
+      JOIN canonical_exposures e ON e.id=mapping.exposure_id WHERE e.company_id IS NOT NULL ORDER BY e.company_id))`;
+    const currentCompanies = `CASE json_extract(identity_submission.declaration_json,'$.company.mode')
+      WHEN 'existing' THEN (SELECT json_group_array(json_object('id',company_id,'name',canonical_name)) FROM canonical_exposures
+        WHERE household_id=identity_version.household_id AND company_id=json_extract(identity_submission.declaration_json,'$.company.companyId'))
+      WHEN 'unassigned' THEN '[]' ELSE ${priorCompanies} END`;
     return this.db.prepare(`
-      WITH owned AS (SELECT p.household_id FROM holding_positions p
+      WITH owned AS MATERIALIZED (SELECT p.household_id,p.id AS position_id FROM holding_positions p
         JOIN households h ON h.id=p.household_id
         JOIN users u ON u.id=h.owner_user_id WHERE p.id=? AND u.access_subject=?),
       candidates AS (
         SELECT * FROM (SELECT r.id,r.accepted_at,'investment' AS kind
-        FROM holding_purchase_reviews r JOIN owned o ON o.household_id=r.household_id
-        WHERE r.position_id=? ${range}
+        FROM holding_purchase_reviews r
+        WHERE r.household_id=(SELECT household_id FROM owned) AND r.position_id=? ${range} AND r.id IS NOT (
+          SELECT first_submission.purchase_review_id FROM manual_holding_identity_versions first_identity
+          JOIN manual_holding_submissions first_submission ON first_submission.identity_version_id=first_identity.id
+          WHERE first_identity.position_id=(SELECT position_id FROM owned) AND first_identity.version=1)
         ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31)
         UNION ALL SELECT * FROM (SELECT r.id,r.accepted_at,'link' AS kind
-        FROM holding_position_link_reviews r JOIN owned o ON o.household_id=r.household_id
-        WHERE r.source_position_id=? ${range}
+        FROM holding_position_link_reviews r
+        WHERE r.household_id=(SELECT household_id FROM owned) AND r.source_position_id=? ${range}
         ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31)
         UNION ALL SELECT * FROM (SELECT r.id,r.accepted_at,'link' AS kind
-        FROM holding_position_link_reviews r JOIN owned o ON o.household_id=r.household_id
-        WHERE r.target_position_id=? ${range}
+        FROM holding_position_link_reviews r
+        WHERE r.household_id=(SELECT household_id FROM owned) AND r.target_position_id=? ${range}
         ORDER BY r.accepted_at DESC,r.id DESC LIMIT 31)
+        UNION ALL SELECT * FROM (SELECT r.id,r.recorded_at AS accepted_at,'identity' AS kind
+        FROM manual_holding_identity_versions r
+        WHERE r.household_id=(SELECT household_id FROM owned) AND r.position_id=(SELECT position_id FROM owned) ${identityRange}
+        ORDER BY r.recorded_at DESC,r.id DESC LIMIT 31)
       ), page AS (SELECT * FROM candidates ORDER BY accepted_at DESC,id DESC,kind DESC LIMIT 31)
       SELECT page.kind,page.id,page.accepted_at,r.receipt_json,
         prior.receipt_json AS previous_json,
@@ -80,7 +98,11 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
           'state',l.state,'useSourceValue',json(CASE l.use_source_value WHEN 1 THEN 'true' ELSE 'false' END),
           'companyRenamed',json(CASE l.company_renamed WHEN 1 THEN 'true' ELSE 'false' END),
           'companyName',l.company_name,'formerCompanyName',l.former_company_name,
-          'note',l.note,'acceptedAt',l.accepted_at) AS link_json
+          'note',l.note,'acceptedAt',l.accepted_at) AS link_json,
+        CASE WHEN page.kind='identity' THEN json_object('id',identity_version.id,'acceptedAt',identity_version.recorded_at,'initialInvestment',json(initial_purchase.receipt_json),'value',json_object(
+          'name',identity_version.legal_vehicle_name,'kind',identity_version.position_kind,'ownerLabel',identity_version.owner_label,'companies',json(${currentCompanies}))) ELSE NULL END AS identity_json,
+        CASE WHEN identity_prior.id IS NULL THEN NULL ELSE json_object('name',identity_prior.legal_vehicle_name,'kind',identity_prior.position_kind,
+          'ownerLabel',identity_prior.owner_label,'companies',json(${priorCompanies})) END AS identity_previous_json
       FROM page
       LEFT JOIN holding_purchase_reviews r ON page.kind='investment' AND r.id=page.id
       LEFT JOIN holding_purchase_reviews prior ON prior.id=r.prior_id
@@ -88,6 +110,11 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       LEFT JOIN holding_position_link_reviews l ON page.kind='link' AND l.id=page.id
       LEFT JOIN holding_positions s ON s.id=l.source_position_id
       LEFT JOIN holding_positions t ON t.id=l.target_position_id
+      LEFT JOIN manual_holding_identity_versions identity_version ON page.kind='identity' AND identity_version.id=page.id
+      LEFT JOIN manual_holding_identity_versions identity_prior ON identity_prior.id=identity_version.prior_id
+      LEFT JOIN manual_holding_submissions identity_submission ON identity_submission.identity_version_id=identity_version.id
+      LEFT JOIN holding_purchase_reviews initial_purchase ON identity_version.version=1 AND initial_purchase.id=identity_submission.purchase_review_id
+      WHERE EXISTS (SELECT 1 FROM owned)
       ORDER BY page.accepted_at DESC,page.id DESC,page.kind DESC
     `);
   }
@@ -95,7 +122,11 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
   async history(
     subject: string,
     positionId: string,
-    cursor?: { date: string; id: string; kind: "investment" | "link" },
+    cursor?: {
+      date: string;
+      id: string;
+      kind: "investment" | "link" | "identity";
+    },
   ) {
     // Each indexed branch reads at most one page plus lookahead. Predecessors
     // follow saved identities, including tied timestamps and page boundaries.
@@ -110,9 +141,10 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         ...bindBranch("investment"),
         ...bindBranch("link"),
         ...bindBranch("link"),
+        ...(cursor ? ["identity", cursor.date, cursor.id, cursor.kind] : []),
       )
       .all<{
-        kind: "investment" | "link";
+        kind: "investment" | "link" | "identity";
         id: string;
         accepted_at: string;
         receipt_json: string | null;
@@ -120,6 +152,8 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         source_label: string | null;
         target_label: string | null;
         link_json: string;
+        identity_json: string;
+        identity_previous_json: string | null;
       }>();
     const rows = result.results.slice(0, 30);
     const last = rows.at(-1);
@@ -135,12 +169,20 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
                 ? PurchaseReceiptSchema.parse(JSON.parse(row.previous_json))
                 : null,
             }
-          : {
-              kind: row.kind,
-              receipt: JSON.parse(row.link_json) as unknown,
-              sourceLabel: row.source_label,
-              targetLabel: row.target_label,
-            },
+          : row.kind === "identity"
+            ? {
+                kind: row.kind,
+                receipt: JSON.parse(row.identity_json) as unknown,
+                previous: row.identity_previous_json
+                  ? (JSON.parse(row.identity_previous_json) as unknown)
+                  : null,
+              }
+            : {
+                kind: row.kind,
+                receipt: JSON.parse(row.link_json) as unknown,
+                sourceLabel: row.source_label,
+                targetLabel: row.target_label,
+              },
       ),
       next:
         result.results.length > 30 && last
@@ -522,7 +564,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
     const input = AcceptPurchasesSchema.parse(raw);
     const position = await this.db
       .prepare(
-        `SELECT p.household_id,p.position_kind,p.currency,u.id user_id
+        `SELECT p.household_id,p.position_kind,p.provider,p.currency,u.id user_id
       FROM users u JOIN households h ON h.owner_user_id=u.id JOIN holding_positions p ON p.household_id=h.id
       WHERE u.access_subject=? AND p.id=?`,
       )
@@ -530,18 +572,20 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       .first<{
         household_id: string;
         position_kind: string;
+        provider: string;
         currency: string;
         user_id: string;
       }>();
     if (!position)
       throw new PositionPurchaseError("not_found", "Position was not found.");
     if (
-      position.position_kind !== "spv_interest" ||
+      (position.position_kind !== "spv_interest" &&
+        position.provider !== "manual") ||
       position.currency !== "USD"
     )
       throw new PositionPurchaseError(
         "unsupported",
-        "Purchase details currently support USD SPV positions.",
+        "Investment details support USD SPVs and manual investments.",
       );
     const referenced = input.details.lots.filter(
       (lot) => lot.mark?.sourceEvidenceId,

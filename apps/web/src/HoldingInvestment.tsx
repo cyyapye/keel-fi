@@ -1,18 +1,14 @@
-import { useRef, useState } from "react";
+import { useImperativeHandle, useRef, useState, type Ref } from "react";
 import type { Holding } from "@keel/domain";
 import {
   AcceptPurchasesSchema,
   PurchaseLotSchema,
   PurchaseReceiptSchema,
-  purchaseCapital,
   purchaseFeeSummary,
   purchaseShares,
   type PurchaseLot,
 } from "@keel/domain/position-purchases";
-import {
-  investmentFeeAmount,
-  type InvestmentFee,
-} from "@keel/domain/investment-fees";
+import { type InvestmentFee } from "@keel/domain/investment-fees";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
 import {
   ActionGroup,
@@ -26,6 +22,12 @@ import {
   Notice,
 } from "@keel/ui";
 import { HoldingDate, HoldingInput, HoldingSelect } from "./HoldingFields";
+import {
+  blankFee,
+  feesFor,
+  visibleInvestmentFees,
+  holdingInvestmentHasReadbackFacts,
+} from "./holding-investment-readback";
 import { decimal, scaled } from "./decimal-input";
 import { formatDate, formatMoney, formatSharePrice } from "./format";
 
@@ -41,47 +43,7 @@ const carryBasisOptions = [
   { value: "gross_cash", label: "Cash after refunds" },
   { value: "net_capital", label: "Net capital" },
 ];
-const blankFee = (kind: InvestmentFee["kind"]): InvestmentFee => ({
-  id: crypto.randomUUID(),
-  kind,
-  coveredLotIds: [],
-  paymentStatus: "paid",
-  treatment: "upfront",
-  dueDate: null,
-  label:
-    kind === "management"
-      ? "Management fee"
-      : kind === "one_time"
-        ? "One-time fee"
-        : "Upfront fees",
-  method: "paid",
-  paidMinor: null,
-  ratePpm: null,
-  basis: "unknown",
-  basisMinor: null,
-  prepaidMonths: null,
-});
-function feesFor(lot: PurchaseLot): InvestmentFee[] {
-  if (lot.fees) return lot.fees;
-  const capital = purchaseCapital(lot);
-  const fee = blankFee(
-    lot.feeLabel?.toLowerCase().includes("management")
-      ? "management"
-      : "one_time",
-  );
-  fee.id = `${lot.id}-upfront`;
-  fee.label = lot.feeLabel ?? "Upfront fees";
-  fee.paidMinor = capital.upfrontDeductionsMinor;
-  fee.ratePpm = lot.feePpm;
-  fee.basis =
-    lot.feeBasis === "gross_cash"
-      ? "retained"
-      : lot.feeBasis === "net_capital"
-        ? "net_capital"
-        : "unknown";
-  if (fee.paidMinor === null && fee.ratePpm !== null) fee.method = "percentage";
-  return fee.paidMinor !== null || fee.ratePpm !== null ? [fee] : [];
-}
+export type HoldingInvestmentHandle = { edit: () => void };
 function feeDetail(fee: InvestmentFee) {
   const basis = basisOptions.find((o) => o.value === fee.basis)?.label;
   return [
@@ -299,11 +261,15 @@ export function HoldingInvestment({
   disabled,
   onAccepted,
   onEditingChange,
+  editorRef,
+  omitCashPaid = false,
 }: {
   holding: Holding;
   disabled: boolean;
   onAccepted: () => Promise<void>;
   onEditingChange: (editing: boolean) => void;
+  editorRef?: Ref<HoldingInvestmentHandle>;
+  omitCashPaid?: boolean;
 }) {
   const context = holding.purchaseContext!;
   const receipt = context.receipt;
@@ -358,6 +324,7 @@ export function HoldingInvestment({
     setError(null);
     onEditingChange(true);
   };
+  useImperativeHandle(editorRef, () => ({ edit: start }));
   const close = () => {
     setDraft(null);
     setError(null);
@@ -421,7 +388,8 @@ export function HoldingInvestment({
     !feeError &&
     (changed || Boolean(staleInvestment)) &&
     draft !== null &&
-    draft.every((d) => d.cash.trim());
+    ((holding.manualContext !== undefined && holding.manualContext !== null) ||
+      draft.every((d) => d.cash.trim()));
   const save = async () => {
     if (!ready || busy || !parsed.success) return;
     setBusy(true);
@@ -453,6 +421,13 @@ export function HoldingInvestment({
       setBusy(false);
     }
   };
+  if (
+    holding.manualContext &&
+    !draft &&
+    !staleInvestment &&
+    !holdingInvestmentHasReadbackFacts(holding, omitCashPaid)
+  )
+    return null;
   return (
     <section className="holding-investment" aria-label="Investment">
       <div className="holding-section-heading">
@@ -803,7 +778,9 @@ export function HoldingInvestment({
       ) : (
         <>
           {receipt?.details.lots.map((lot, i) => {
-            const content = <InvestmentFacts lot={lot} />;
+            const content = (
+              <InvestmentFacts lot={lot} omitCashPaid={omitCashPaid} />
+            );
             return receipt.details.lots.length > 1 ? (
               <Collapsible key={lot.id}>
                 <CollapsibleTrigger layout="inline">
@@ -871,12 +848,18 @@ export function HoldingInvestment({
     </section>
   );
 }
-function InvestmentFacts({ lot }: { lot: PurchaseLot }) {
+function InvestmentFacts({
+  lot,
+  omitCashPaid,
+}: {
+  lot: PurchaseLot;
+  omitCashPaid: boolean;
+}) {
   const shares = purchaseShares(lot);
-  const fees = feesFor(lot).filter((f) => f.paymentStatus !== "unpaid");
+  const fees = visibleInvestmentFees(lot);
   return (
     <DataList layout="rows">
-      {lot.grossCashMinor !== null && (
+      {!omitCashPaid && lot.grossCashMinor !== null && (
         <DataItem label="Cash paid" value={formatMoney(lot.grossCashMinor)} />
       )}
       {lot.capitalReturn && (
@@ -896,38 +879,27 @@ function InvestmentFacts({ lot }: { lot: PurchaseLot }) {
           }
         />
       )}
-      {fees.map((f) => {
-        const amount = investmentFeeAmount(f, {
-          grossCashMinor: lot.grossCashMinor,
-          refundMinor:
-            lot.capitalReturn?.status === "received"
-              ? lot.capitalReturn.amountMinor
-              : 0,
-          netCapitalMinor: lot.netCapitalMinor,
-        });
-        return amount === 0 ||
-          (amount === null && f.ratePpm === null) ? null : (
-          <DataItem
-            key={f.id}
-            label={`${f.method === "percentage" ? "Estimated " : ""}${f.label}${f.kind === "management" && f.prepaidMonths !== null ? " · prepaid" : ""}`}
-            value={
-              <>
-                {amount !== null
-                  ? formatMoney(amount)
-                  : `${decimal(f.ratePpm, 4)}%`}
-                {amount !== null && feeDetail(f) && (
-                  <small>
-                    {feeDetail(f)}
-                    {f.coveredLotIds.length > 1
-                      ? " · Covers these acquisitions"
-                      : ""}
-                  </small>
-                )}
-              </>
-            }
-          />
-        );
-      })}
+      {fees.map(({ fee: f, amount }) => (
+        <DataItem
+          key={f.id}
+          label={`${f.method === "percentage" ? "Estimated " : ""}${f.label}${f.kind === "management" && f.prepaidMonths !== null ? " · prepaid" : ""}`}
+          value={
+            <>
+              {amount !== null
+                ? formatMoney(amount)
+                : `${decimal(f.ratePpm, 4)}%`}
+              {amount !== null && feeDetail(f) && (
+                <small>
+                  {feeDetail(f)}
+                  {f.coveredLotIds.length > 1
+                    ? " · Covers these acquisitions"
+                    : ""}
+                </small>
+              )}
+            </>
+          }
+        />
+      ))}
       {lot.priceMicros !== null && (
         <DataItem
           label="Purchase price"

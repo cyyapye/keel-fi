@@ -75,8 +75,12 @@ The verification map opts into at most three concurrent native flows. Source
 checks, integrity checks and the PDF security-image build can start together.
 Migration depends on integrity checks. Its sealed private copy supplies browser
 fixtures. Workspace builds consume source files and can start whenever a slot is
-available; source checks and migrations remain independently required. Unit/D1
-tests become ready after integrity; they receive an explicitly absent owned PDF
+available; source checks and migrations remain independently required. When
+integrity finishes, ready compose and migration work precedes unit admission.
+The workspace build can then release a slot for units while migrations run. This
+avoids holding the browser fixture critical path behind the unit suite;
+commands, dependencies and the three-slot limit remain unchanged. Unit/D1 tests
+become ready after integrity; they receive an explicitly absent owned PDF
 configuration, retain their own isolated databases and consume TypeScript
 sources. Source checks remain concurrent and required.
 
@@ -125,31 +129,42 @@ automatic-review day/history case joins this early group after run `40443347834`
 exceeded its unchanged 90-second deadline during browser overlap. That run's
 host CPU pressure (`some avg10`) had a 65.6% median. Moving admission does not
 change its 120-item histories, request envelope, D1 assertions, worker count or
-timeout; a complete Linux run remains the acceptance check. The reviewed-rename
-cost fixture runs its synthetic import and 240 company-review operations inside
-its existing workerd fixture to avoid repeated Node-to-D1 bridge calls. It uses
-the same repository methods, accepted decisions and link records. The test still
-meters every positive, history, empty and unrelated-household read against real
-D1, with the same 120-position scale, row budgets and query-plan assertions.
+timeout. A complete Linux run remains the acceptance check. The purchase-route
+case joins the early group after run `41383958842` exceeded its unchanged
+five-second deadline during browser overlap. Its authentication, validation,
+accepted-write, valuation, history and fixture work remain inside that same test
+and deadline. Earlier admission changes neither the three-worker unit pool nor
+the case inventory. The reviewed-rename cost fixture runs its synthetic import
+and 240 company-review operations inside its existing workerd fixture to avoid
+repeated Node-to-D1 bridge calls. It uses the same repository methods, accepted
+decisions and link records. The test still meters every positive, history, empty
+and unrelated-household read against real D1, with the same 120-position scale,
+row budgets and query-plan assertions.
 
-Browser verification produces five reports while admitting at most four workers:
-three stateful partitions, 74 API-mocked executions served from the verified
-production build, and 32 API-mocked executions that require Vite development
-modules. The initial four lanes each use one worker. After all four reports and
-runtimes validate and close, the development mocked lane uses the released
-four-worker budget. No stateful lane is parallelized. The development stateful
-partition contains four specs and 58 executions: three depend on source modules,
-while Portfolio Watch asserts development-mode demo-source disclosure. The other
-two stateful partitions contain 96 and 72 executions and use the verified
-production build, as does the production mocked lane. The partitions contain the
-same 106 mocked and 226 stateful executions, including 44 reviewed platform
-exclusions. Each stateful partition receives a separate copy of the verified,
-closed synthetic seed and owns distinct API/web ports. Neither mocked lane
-starts an API server. Production serving reduces module transforms and requests;
-development serving retains the direct source-module checks and the intentional
-demo-source disclosure. Missing production JS or CSS fails startup. All lanes
-keep desktop/mobile project names, snapshots and case identities. Each lane owns
-its Vite dependency cache as well as its browser output. Development readiness
+Browser verification produces five reports while admitting at most four workers.
+The initial four lanes each use one worker. After all four reports and runtimes
+validate and close, the development mocked lane uses the released four-worker
+budget. No stateful lane is parallelized. The development stateful partition
+contains four specs and 72 executions: three depend on source modules, while
+Portfolio Watch asserts development-mode demo-source disclosure. The two
+production stateful partitions contain 124 executions each. The production
+mocked lane contains 108 executions, and the development mocked tail
+contains 36. These are the same 464 browser identities with 33 reviewed
+exclusions.
+
+The 42 manual-holding visual executions use the fail-closed API-mocked fixture
+inside the production stateful-a partition. Moving the complete spec balances
+the existing serial partitions without changing its frontend, cases or snapshot
+identities. API mocking belongs to each test's fixture, independently of the
+lane's server. The fixture blocks service workers and rejects unhandled API
+reads and writes even when a lane configuration allows service workers. Each
+stateful partition receives a separate copy of the verified, closed synthetic
+seed and owns distinct API/web ports. Neither mocked lane starts an API server.
+Production serving reduces module transforms and requests; development serving
+retains the direct source-module checks and the intentional demo-source
+disclosure. Missing production JS or CSS fails startup. All lanes keep
+desktop/mobile project names, snapshots and case identities. Each lane owns its
+Vite dependency cache as well as its browser output. Development readiness
 transforms the initial application and Holdings module graph and rejects broken
 imports before admitting tests. Stateful readiness also checks the actual
 holdings-page projection through the web proxy, with one bounded probe in flight

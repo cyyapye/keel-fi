@@ -10,6 +10,7 @@ import {
   ActionGroup,
   Badge,
   Button,
+  DatePicker,
   EmptyState,
   Field,
   FormMessage,
@@ -508,6 +509,8 @@ function ManualObligationForm({
   const [error, setError] = useState<string | null>(null);
   const [kind, setKind] = useState<ManualLiabilityInput["kind"]>("credit_card");
   const today = new Date().toISOString().slice(0, 10);
+  const [dueDate, setDueDate] = useState("");
+  const [effectiveDate, setEffectiveDate] = useState(today);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -523,9 +526,9 @@ function ManualObligationForm({
         balanceMinor: optionalMoneyInput(formText(form, "balance")),
         paymentMinor: optionalMoneyInput(formText(form, "payment")),
         interestRatePpm: optionalRateInput(formText(form, "rate")),
-        nextPaymentDueDate: formText(form, "dueDate").trim() || null,
+        nextPaymentDueDate: dueDate || null,
         isOverdue: overdue === "unknown" ? null : overdue === "yes",
-        effectiveDate: formText(form, "effectiveDate") || today,
+        effectiveDate,
       });
       await onStaged(proposal.id);
     } catch (submitError: unknown) {
@@ -603,7 +606,15 @@ function ManualObligationForm({
             </InputGroup>
           </Field>
           <Field label="Next payment due">
-            <Input name="dueDate" type="date" />
+            {(control) => (
+              <DatePicker
+                {...control}
+                aria-label="Next payment due"
+                value={dueDate}
+                onValueChange={setDueDate}
+                disabled={working}
+              />
+            )}
           </Field>
           <Field label="Payment status">
             <Select
@@ -624,12 +635,16 @@ function ManualObligationForm({
             </Select>
           </Field>
           <Field label="Values effective">
-            <Input
-              defaultValue={today}
-              name="effectiveDate"
-              required
-              type="date"
-            />
+            {(control) => (
+              <DatePicker
+                {...control}
+                aria-label="Values effective"
+                value={effectiveDate}
+                onValueChange={setEffectiveDate}
+                required
+                disabled={working}
+              />
+            )}
           </Field>
         </div>
         {error !== null && <Notice tone="error">{error}</Notice>}

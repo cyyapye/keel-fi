@@ -1,3 +1,4 @@
+import { ManualHoldingContextSchema } from "./manual-holdings";
 import { LinkedReportedValueSchema } from "./position-read-model";
 import {
   PurchaseContextSchema,
@@ -390,6 +391,7 @@ export function createGoalPreview(
 }
 
 export const HoldingSchema = z.object({
+  manualContext: ManualHoldingContextSchema.nullable().optional(),
   linkedReportedValue: LinkedReportedValueSchema.nullable().optional(),
   purchaseContext: PurchaseContextSchema.nullable().optional(),
   shareValueEstimate: ShareValueEstimateSchema.nullable().optional(),
@@ -405,7 +407,7 @@ export const HoldingSchema = z.object({
   underwritingValueMinor: NonNegativeMoneyMinorSchema.nullable(),
   scenarioValueMinor: NonNegativeMoneyMinorSchema.nullable(),
   usableLiquidityMinor: NonNegativeMoneyMinorSchema.nullable(),
-  sourceStatus: z.enum(["verified", "review_due", "proposed"]),
+  sourceStatus: z.enum(["verified", "review_due", "proposed", "manual"]),
   sourceLabel: z.string().min(1),
   effectiveDate: IsoDateSchema,
   retrievedAt: IsoTimestampSchema,
@@ -963,6 +965,7 @@ export const PrivateExposureExactBatchResultSchema = z
   });
 
 export const HoldingImportProviderSchema = z.enum([
+  "manual",
   "wefunder",
   "angellist",
   "tokenfolio",

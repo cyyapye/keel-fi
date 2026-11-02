@@ -1,4 +1,5 @@
 import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
+import { manualHoldingInstrumentType } from "@keel/domain/manual-holdings";
 import { reportedPositionValue } from "@keel/domain/position-read-model";
 import { investmentAmount } from "@keel/domain/investment-review";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
@@ -112,11 +113,14 @@ function importedHoldingFrom(
     .map((exposure) => exposure.canonicalName)
     .sort((left, right) => left.localeCompare(right));
   const acceptedAdjustment = position.acceptedValueAdjustment ?? null;
+  const amount = investmentAmount(position);
 
   return HoldingSchema.parse({
+    manualContext: position.manualContext ?? null,
     linkedReportedValue: position.linkedReportedValue ?? null,
     purchaseContext:
-      position.kind === "spv_interest" && position.snapshot.currency === "USD"
+      (position.kind === "spv_interest" || position.manualContext != null) &&
+      position.snapshot.currency === "USD"
         ? {
             priceProxyStatus: position.priceProxyStatus ?? null,
             snapshotId: position.snapshot.id,
@@ -156,7 +160,11 @@ function importedHoldingFrom(
     scenarioValueMinor: null,
     usableLiquidityMinor: null,
     sourceStatus:
-      position.source.freshness === "stale" ? "review_due" : "verified",
+      position.manualContext != null
+        ? "manual"
+        : position.source.freshness === "stale"
+          ? "review_due"
+          : "verified",
     sourceLabel: position.source.label,
     effectiveDate: position.source.effectiveDate,
     retrievedAt: position.source.retrievedAt,
@@ -165,13 +173,20 @@ function importedHoldingFrom(
     quantityMicros: position.snapshot.quantityMicros,
     costBasisMinor: position.snapshot.costBasisMinor,
     investedMinor: position.snapshot.investedMinor,
-    committedMinor: investmentAmount(position),
+    committedMinor:
+      position.manualContext != null
+        ? position.snapshot.allocationMinor
+        : amount,
     realizedValueMinor: position.snapshot.realizedValueMinor,
-    instrumentType: position.snapshot.instrumentType,
+    instrumentType: position.manualContext
+      ? manualHoldingInstrumentType(position.kind)
+      : position.snapshot.instrumentType,
     positionEconomicsContext:
+      position.manualContext != null ||
+      position.snapshot.investedMinor === null ||
+      amount === null ||
       position.kind !== "spv_interest" ||
-      (investmentAmount(position) <= 0 &&
-        !position.purchaseReceipt?.details.investmentTerms)
+      (amount <= 0 && !position.purchaseReceipt?.details.investmentTerms)
         ? undefined
         : {
             reviewedInvestment: reviewedInvestmentFromReceipt(
@@ -179,7 +194,7 @@ function importedHoldingFrom(
             ),
             snapshotId: position.snapshot.id,
             currency: position.snapshot.currency,
-            committedMinor: investmentAmount(position),
+            committedMinor: amount,
             amountCorrectionNote:
               position.investmentReview?.amountCorrection?.note ?? null,
             fundedMinor: position.snapshot.investedMinor,

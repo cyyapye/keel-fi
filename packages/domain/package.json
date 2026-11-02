@@ -30,7 +30,8 @@
     "./provider-legal-documents": "./src/provider-legal-documents.ts",
     "./company-identity": "./src/company-identity.ts",
     "./public-company-links": "./src/public-company-links.ts",
-    "./purchase-economics": "./src/purchase-economics.ts"
+    "./purchase-economics": "./src/purchase-economics.ts",
+    "./manual-holdings": "./src/manual-holdings.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

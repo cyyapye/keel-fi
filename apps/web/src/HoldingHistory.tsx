@@ -15,6 +15,44 @@ import { formatSavedAt } from "./format";
 import { holdingHistorySummary } from "./holding-history-summary";
 import { holdingHistoryChanges } from "./holding-history-changes";
 type History = ReturnType<typeof InvestmentHistorySchema.parse>;
+type IdentityEntry = Extract<History["entries"][number], { kind: "identity" }>;
+function identityChanges(entry: IdentityEntry) {
+  const typeLabel = (kind: IdentityEntry["receipt"]["value"]["kind"]) =>
+    ({ direct: "Direct", spv_interest: "SPV", fund_interest: "Fund" })[kind];
+  const companies = (value: IdentityEntry["receipt"]["value"]) =>
+    [...value.companies]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((company) => company.name)
+      .join(", ") || "Unassigned";
+  const current = entry.receipt.value;
+  const previous = entry.previous;
+  return [
+    {
+      key: "name",
+      label: "Name",
+      before: previous?.name ?? null,
+      after: current.name,
+    },
+    {
+      key: "kind",
+      label: "Investment type",
+      before: previous ? typeLabel(previous.kind) : null,
+      after: typeLabel(current.kind),
+    },
+    {
+      key: "owner",
+      label: "Held by",
+      before: previous?.ownerLabel ?? null,
+      after: current.ownerLabel,
+    },
+    {
+      key: "company",
+      label: "Company",
+      before: previous ? companies(previous) : null,
+      after: companies(current),
+    },
+  ].filter((change) => change.before !== change.after);
+}
 export function HoldingHistory({ positionId }: { positionId: string }) {
   const [page, setPage] = useState<History | null>(null);
   const [cursor, setCursor] = useState<History["next"]>(null);
@@ -56,11 +94,28 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
         const changes =
           entry.kind === "investment"
             ? holdingHistoryChanges(entry.receipt, entry.previous)
-            : [];
+            : entry.kind === "identity"
+              ? [
+                  ...identityChanges(entry),
+                  ...(entry.receipt.initialInvestment
+                    ? holdingHistoryChanges(
+                        entry.receipt.initialInvestment,
+                        null,
+                      ).map((change) => ({
+                        ...change,
+                        key: `initial:${change.key}`,
+                      }))
+                    : []),
+                ]
+              : [];
         const summary =
           entry.kind === "investment"
             ? holdingHistorySummary(entry.receipt, entry.previous)
-            : `${entry.receipt.state === "linked" ? "Linked" : "Unlinked"} · ${entry.sourceLabel} → ${entry.targetLabel}`;
+            : entry.kind === "identity"
+              ? entry.previous
+                ? "Holding details corrected"
+                : "Holding created"
+              : `${entry.receipt.state === "linked" ? "Linked" : "Unlinked"} · ${entry.sourceLabel} → ${entry.targetLabel}`;
         const heading = (
           <span className="holding-history-entry">
             <span>{summary}</span>
@@ -69,7 +124,10 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
             </time>
           </span>
         );
-        if (entry.kind === "investment" && changes.length === 0)
+        if (
+          (entry.kind === "investment" || entry.kind === "identity") &&
+          changes.length === 0
+        )
           return <div key={`${entry.kind}:${receipt.id}`}>{heading}</div>;
         return (
           <Collapsible key={`${entry.kind}:${receipt.id}`}>
@@ -78,7 +136,7 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
               <DisclosureIndicator />
             </CollapsibleTrigger>
             <CollapsibleContent>
-              {entry.kind === "investment" ? (
+              {entry.kind === "investment" || entry.kind === "identity" ? (
                 <DataList layout="rows">
                   {changes.map((change) => (
                     <DataItem

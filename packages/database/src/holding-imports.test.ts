@@ -1,5 +1,5 @@
 import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +26,7 @@ import {
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1LegalEntityRepository } from "./legal-entities";
 
-const migrationFiles = [
+const legacyMigrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
   "packages/database/migrations/0003_evidence_applications.sql",
@@ -97,6 +97,13 @@ const migrationFiles = [
   "packages/database/migrations/0088_wefunder_exact_entity_links.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
+const migrationFiles = [
+  ...readdirSync("packages/database/migrations")
+    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+    .sort()
+    .map((file) => `packages/database/migrations/${file}`),
+  "packages/database/seed/synthetic.sql",
+];
 
 const robinhoodConnectionId = "connection_synthetic_robinhood";
 const robinhoodAccountKey = "6".repeat(64);
@@ -107,7 +114,7 @@ describe("nullable private investment date migration", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
       sqlite.exec("PRAGMA foreign_keys = ON");
-      migrationFiles
+      legacyMigrationFiles
         .filter(
           (file) =>
             ![
@@ -117,6 +124,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0078_reviewed_position_links.sql",
               "packages/database/migrations/0087_wefunder_holdings.sql",
               "packages/database/migrations/0088_wefunder_exact_entity_links.sql",
+              "packages/database/migrations/0089_manual_holdings.sql",
               "packages/database/migrations/0079_unified_investment_details.sql",
               "packages/database/migrations/0080_renamed_investment_links.sql",
               "packages/database/migrations/0068_exception_baseline_empty.sql",
@@ -905,14 +913,14 @@ describe("AngelList holding import persistence", () => {
 
   it("backfills current legal names without rewriting profile history", async () => {
     const legacy = createSqliteFixture(
-      migrationFiles.filter((path) => !path.includes("0088_")),
+      migrationFiles.filter(
+        (path) => !path.includes("0088_") && !path.includes("0089_"),
+      ),
     );
     try {
       const d1 = new TestD1Database(legacy) as unknown as D1Database;
       const entities = new D1LegalEntityRepository(d1);
-      const view = await new D1InvestmentPositionViewRepository(d1).list(
-        "synthetic-access-subject",
-      );
+      const view = { asOf: "2026-09-01T12:00:00.000Z", connections: [] };
       const previous = (
         await entities.getState("synthetic-access-subject", view)
       ).entities[0]!;
@@ -4130,7 +4138,9 @@ describe("reviewed portfolio baseline persistence", () => {
     ).toBe(true);
     expect(
       baselineItemsPlan.some((row) =>
-        row.detail.includes("portfolio_baseline_cash_items_baseline_idx"),
+        row.detail.includes(
+          "SEARCH item USING INDEX sqlite_autoindex_portfolio_baseline_cash_items_2 (baseline_id=?)",
+        ),
       ),
     ).toBe(true);
   });
