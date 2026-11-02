@@ -3,9 +3,15 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { runMaintenanceCommand } from "./d1-maintenance-command";
 
 const owned: string[] = [];
+const ProcessIdSchema = z.coerce
+  .number()
+  .int()
+  .min(2)
+  .max(Number.MAX_SAFE_INTEGER);
 const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 const alive = (pid: number) => {
   try {
@@ -19,7 +25,9 @@ const alive = (pid: number) => {
 async function pids(directory: string) {
   return Promise.all(
     ["launcher", "child", "grandchild"].map(async (role) =>
-      Number(await readFile(join(directory, `${role}.pid`), "utf8")),
+      ProcessIdSchema.parse(
+        await readFile(join(directory, `${role}.pid`), "utf8"),
+      ),
     ),
   );
 }
@@ -48,7 +56,7 @@ afterEach(async () => {
     const ids = await Promise.all(
       ["owner", "launcher", "child", "grandchild"].map(async (role) =>
         readFile(join(directory, `${role}.pid`), "utf8")
-          .then(Number)
+          .then((value) => ProcessIdSchema.parse(value))
           .catch(() => undefined),
       ),
     );
@@ -73,15 +81,23 @@ async function tree(
   await writeFile(
     script,
     `const {spawn} = require("node:child_process");
-const {existsSync, writeFileSync} = require("node:fs");
+const {existsSync, writeFileSync, renameSync} = require("node:fs");
 const {join} = require("node:path");
 const [role, directory, mode] = process.argv.slice(2);
-writeFileSync(join(directory, role + ".pid"), String(process.pid));
+const publish = (name, value) => {
+  const path = join(directory, name);
+  writeFileSync(path + ".next", value);
+  renameSync(path + ".next", path);
+};
+if (role !== "grandchild") publish(role + ".pid", String(process.pid));
 process.on("SIGTERM", () => {});
 if (role !== "grandchild") {
   spawn(process.execPath, [__filename, role === "launcher" ? "child" : "grandchild", directory, mode], {stdio: mode === "failure-pipes" ? ["ignore", "inherit", "inherit"] : "ignore"});
 } else {
-  setInterval(() => writeFileSync(join(directory, "heartbeat"), String(Date.now())), 10);
+  const heartbeat = () => publish("heartbeat", String(Date.now()));
+  heartbeat();
+  publish("grandchild.pid", String(process.pid));
+  setInterval(heartbeat, 10);
 }
 if (role === "launcher") {
   const timer = setInterval(() => {

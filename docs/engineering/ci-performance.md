@@ -508,8 +508,9 @@ Execution slices:
    production/development mocked partitions with distinct ports, runtime state,
    diagnostics and owned cleanup. Compare their complete union with the
    unchanged reviewed browser inventory.
-4. Overlap read-only source checks with `make -j2`, and permit three native
-   flows so PDF isolation can overlap migration verification. Build and consumer
+4. Run read-only source goals serially with `make -j1` to avoid concurrent
+   ESLint and TypeScript programs inside that flow. Permit three native flows so
+   PDF isolation can overlap migration verification. Build and consumer
    prerequisites remain explicit; runtime and migration outputs are not shared.
 5. Keep scanner/reader and kernel-probe sequences independent, but serialize
    actual containers through one cross-process daemon owner with unchanged

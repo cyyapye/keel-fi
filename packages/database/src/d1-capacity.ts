@@ -199,10 +199,15 @@ const deny = (reason: string, retryAt: string | null = null): never => {
 };
 const zero = (): CapacityCost => ({ reads: 0, writes: 0 });
 function add(a: CapacityCost, b: CapacityCost): CapacityCost {
-  return CapacityCostSchema.parse({
-    reads: a.reads + b.reads,
-    writes: a.writes + b.writes,
-  });
+  const cost = { reads: a.reads + b.reads, writes: a.writes + b.writes };
+  if (
+    Number.isSafeInteger(cost.reads) &&
+    cost.reads >= 0 &&
+    Number.isSafeInteger(cost.writes) &&
+    cost.writes >= 0
+  )
+    return cost;
+  return CapacityCostSchema.parse(cost);
 }
 const fits = (cost: CapacityCost, limit: CapacityCost) =>
   cost.reads <= limit.reads && cost.writes <= limit.writes;
@@ -219,7 +224,13 @@ async function hash(value: unknown) {
 }
 function validateLedger(raw: unknown): CapacityLedger {
   if (encode(raw).length > CAPACITY_MAX_BYTES) return deny("ledger_size");
-  const ledger = CapacityLedgerSchema.parse(raw);
+  return validateLedgerInvariants(CapacityLedgerSchema.parse(raw));
+}
+function validateConstructedLedger(ledger: CapacityLedger): CapacityLedger {
+  if (encode(ledger).length > CAPACITY_MAX_BYTES) return deny("ledger_size");
+  return validateLedgerInvariants(ledger);
+}
+function validateLedgerInvariants(ledger: CapacityLedger): CapacityLedger {
   const { allowance } = ledger;
   if (
     allowance.policies.some(
@@ -314,37 +325,37 @@ export interface CapacityWorkOptions {
   minimumCost?: CapacityCost;
   now?: () => number;
 }
+const CapacityWorkInputSchema = z
+  .object({
+    account: IdentitySchema,
+    database: IdentitySchema,
+    revision: RevisionSchema,
+    producer: ProducerSchema,
+    operationId: z.string().min(1).max(512),
+    operationCreatedAt: InstantSchema,
+    evidenceHash: DigestSchema.optional(),
+    minimumCost: CapacityCostSchema.optional(),
+  })
+  .strict();
 
 export async function runCapacityWork<T>(
   options: CapacityWorkOptions,
   execute: (scope: CapacityScope) => Promise<T>,
 ): Promise<T> {
-  const parsed = z
-    .object({
-      account: IdentitySchema,
-      database: IdentitySchema,
-      revision: RevisionSchema,
-      producer: ProducerSchema,
-      operationId: z.string().min(1).max(512),
-      operationCreatedAt: InstantSchema,
-      evidenceHash: DigestSchema.optional(),
-      minimumCost: CapacityCostSchema.optional(),
-    })
-    .strict()
-    .safeParse({
-      account: options.account,
-      database: options.database,
-      revision: options.revision,
-      producer: options.producer,
-      operationId: options.operationId,
-      operationCreatedAt: options.operationCreatedAt,
-      ...(options.evidenceHash === undefined
-        ? {}
-        : { evidenceHash: options.evidenceHash }),
-      ...(options.minimumCost === undefined
-        ? {}
-        : { minimumCost: options.minimumCost }),
-    });
+  const parsed = CapacityWorkInputSchema.safeParse({
+    account: options.account,
+    database: options.database,
+    revision: options.revision,
+    producer: options.producer,
+    operationId: options.operationId,
+    operationCreatedAt: options.operationCreatedAt,
+    ...(options.evidenceHash === undefined
+      ? {}
+      : { evidenceHash: options.evidenceHash }),
+    ...(options.minimumCost === undefined
+      ? {}
+      : { minimumCost: options.minimumCost }),
+  });
   if (!parsed.success) return deny("configuration");
   const input = parsed.data;
   const now = options.now ?? Date.now;
@@ -475,7 +486,7 @@ export async function runCapacityWork<T>(
       producerCharge.operations >= policy.maxOperations
     )
       return deny("capacity", resetAt(ledger.allowance.day));
-    const entry = {
+    const entry = EntrySchema.parse({
       id,
       fingerprint,
       executor,
@@ -488,21 +499,21 @@ export async function runCapacityWork<T>(
       completedAt: null,
       state: "running" as const,
       stages: [],
-    };
-    const next = validateLedger({
+    });
+    const next = validateConstructedLedger({
       ...ledger,
       charged,
       producerCharges: [
         ...ledger.producerCharges.filter(
           (item) => item.producer !== input.producer,
         ),
-        {
+        ProducerChargeSchema.parse({
           producer: input.producer,
           cost: producerCost,
           operations: producerCharge.operations + 1,
-        },
+        }),
       ],
-      entries: [...ledger.entries, entry],
+      entries: [...ledger.entries, EntrySchema.parse(entry)],
     });
     let result: "committed" | "conflict" | "unknown";
     try {
@@ -566,12 +577,12 @@ export async function runCapacityWork<T>(
           null,
           "unknown",
         );
-      const nextEntry = change(current);
-      const next = validateLedger({
+      const nextEntry = EntrySchema.parse(change(current));
+      const next = validateConstructedLedger({
         ...stored.value,
         frozen: freeze ?? stored.value.frozen,
         entries: stored.value.entries.map((item) =>
-          item.id === id ? nextEntry : item,
+          item.id === id ? EntrySchema.parse(nextEntry) : item,
         ),
       });
       let result: "committed" | "conflict" | "unknown";

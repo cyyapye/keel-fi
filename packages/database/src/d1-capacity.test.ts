@@ -93,25 +93,22 @@ class JsonStore implements CapacityStore {
     return CapacityLedgerSchema.parse(JSON.parse(this.body));
   }
   read() {
-    return Promise.resolve().then(() => {
-      this.reads++;
-      return {
-        version: String(this.version),
-        value: JSON.parse(this.body) as unknown,
-      };
+    this.reads++;
+    return Promise.resolve({
+      version: String(this.version),
+      value: JSON.parse(this.body) as unknown,
     });
   }
   compareAndWrite(
     expected: string | null,
     value: CapacityLedger,
   ): ReturnType<CapacityStore["compareAndWrite"]> {
-    return Promise.resolve().then(() => {
-      this.writes++;
-      if (String(this.version) !== expected) return "conflict" as const;
-      this.body = JSON.stringify(value);
-      this.version++;
-      return "committed" as const;
-    });
+    this.writes++;
+    if (String(this.version) !== expected)
+      return Promise.resolve("conflict" as const);
+    this.body = JSON.stringify(value);
+    this.version++;
+    return Promise.resolve("committed" as const);
   }
 }
 const options = (
@@ -248,6 +245,32 @@ describe("shared D1 capacity owner", () => {
     ).rejects.toMatchObject({ reason: "replay" });
     expect(execute).toHaveBeenCalledTimes(1);
     expect(store.value?.charged).toEqual({ reads: 100, writes: 10 });
+    const mutating = new MemoryStore();
+    const persist = mutating.compareAndWrite.bind(mutating);
+    mutating.compareAndWrite = async (expected, value) => {
+      const settlement = mutating.writes > 0;
+      if (settlement) value.entries[0]!.actual = { reads: 6, writes: 1 };
+      const result = await persist(expected, value);
+      return settlement ? "unknown" : result;
+    };
+    let executed = 0;
+    await expect(
+      runCapacityWork(options(mutating), (scope) => {
+        executed++;
+        scope.record({ reads: 5, writes: 1 });
+        return Promise.resolve("done");
+      }),
+    ).rejects.toMatchObject({
+      reason: "settlement_unknown",
+      outcome: "unknown",
+    });
+    expect(executed).toBe(1);
+    expect(mutating.writes).toBe(2);
+    expect(mutating.value?.charged).toEqual({ reads: 100, writes: 10 });
+    await expect(
+      runCapacityWork(options(mutating), execute),
+    ).rejects.toMatchObject({ reason: "replay" });
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("fails before work for missing corrupt stale unknown or mismatched evidence", async () => {
@@ -653,6 +676,47 @@ describe("shared D1 capacity owner", () => {
         command,
       ),
     ).rejects.toMatchObject({ reason: "day_deadline" });
+    const mutating = new MemoryStore();
+    const persist = mutating.compareAndWrite.bind(mutating);
+    mutating.compareAndWrite = async (expected, value) => {
+      const result = await persist(expected, value);
+      value.entries[0]!.deadline = new Date(time + 120_000).toISOString();
+      return result;
+    };
+    clock = time;
+    await expect(
+      runCapacityWork(
+        {
+          ...options(mutating, "synthetic-mutated-deadline"),
+          now: () => clock,
+        },
+        (scope) => {
+          clock += 60_001;
+          scope.check();
+          return Promise.resolve("done");
+        },
+      ),
+    ).rejects.toMatchObject({ reason: "expired", outcome: "unknown" });
+    expect(mutating.value?.charged).toEqual({ reads: 100, writes: 10 });
+    const jumpStore = new MemoryStore();
+    clock = time;
+    const jump = vi.fn(() => {
+      clock = Date.parse("+010000-01-01T00:00:00.000Z");
+      return Promise.resolve("done");
+    });
+    await expect(
+      runCapacityWork(
+        { ...options(jumpStore, "synthetic-clock-jump"), now: () => clock },
+        jump,
+      ),
+    ).rejects.toMatchObject({ name: "ZodError" });
+    expect(jump).toHaveBeenCalledTimes(1);
+    expect(jumpStore.writes).toBe(1);
+    expect(jumpStore.value?.entries[0]).toMatchObject({
+      state: "running",
+      completedAt: null,
+    });
+    expect(jumpStore.value?.charged).toEqual({ reads: 100, writes: 10 });
   });
 
   it("requires explicit conditional bootstrap and carries unresolved midnight liabilities", async () => {
