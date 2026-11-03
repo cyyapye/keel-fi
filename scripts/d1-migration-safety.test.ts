@@ -15,6 +15,7 @@ import {
   MigrationSafetyReceiptSchema,
   MigrationSafetyScenarioSchema,
   migrationSourceDigest,
+  migrationFootprint,
   readMigrationSafetyRegistry,
   validateMigrationSafetyReceipt,
   type MigrationSafetyReceipt,
@@ -69,29 +70,31 @@ function receipt(): MigrationSafetyReceipt {
       id: "applied-schema-v1",
       frontier,
       pending: [],
-      scenarios: [12, 24].map((history) => ({
-        history: history as 12 | 24,
-        mainPositions: 120,
-        unrelatedPositions: 120,
-        fixtureHash: (history === 12 ? "c" : "d").repeat(64),
-        tableRows: tableRows(history as 12 | 24),
-        tablesPreserved: 137,
-        schemaObjectsPreserved: 691,
-        foreignKeyViolations: 0,
-        immutableProbes: 3,
-        validation: "applied-schema-preservation",
-        migrationMeasurement: "not-applicable-no-pending-sql",
-        inboundForeignKeyPlans: "observed-existing-index-and-scan-plans",
-        foreignKeyPlanEvidence: {
-          digest: "e".repeat(64),
-          foreignKeys: 2,
-          emptyLookups: 2,
-          positiveLookups: 1,
-          indexSearches: 1,
-          tableScans: 2,
+      scenarios: [
+        {
+          history: 24,
+          mainPositions: 120,
+          unrelatedPositions: 120,
+          fixtureHash: "d".repeat(64),
+          tableRows: tableRows(24),
+          tablesPreserved: 137,
+          schemaObjectsPreserved: 691,
+          foreignKeyViolations: 0,
+          immutableProbes: 3,
+          validation: "applied-schema-preservation",
+          migrationMeasurement: "not-applicable-no-pending-sql",
+          inboundForeignKeyPlans: "observed-existing-index-and-scan-plans",
+          foreignKeyPlanEvidence: {
+            digest: "e".repeat(64),
+            foreignKeys: 2,
+            emptyLookups: 2,
+            positiveLookups: 1,
+            indexSearches: 1,
+            tableScans: 2,
+          },
+          physicalIntegrity: "unsupported-in-local-d1",
         },
-        physicalIntegrity: "unsupported-in-local-d1",
-      })),
+      ],
     },
     cases: [],
   };
@@ -231,13 +234,18 @@ describe("populated D1 migration evidence", () => {
 
   it("admits only the exact pending suffix and conservatively reserves the largest measured holdout", () => {
     const evidence = receipt();
-    evidence.baseline.scenarios[0]!.tableRows.households = 3;
+    expect(
+      migrationFootprint([
+        { tableRows: { households: 3, holding_position_snapshots: 1681 } },
+        { tableRows: { households: 2, holding_position_snapshots: 3121 } },
+      ]),
+    ).toEqual({ households: 3, holding_position_snapshots: 3121 });
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
       caseId: "applied-schema-v1",
       migrationCost: null,
-      footprint: { households: 3, holding_position_snapshots: 3121 },
+      footprint: { households: 2, holding_position_snapshots: 3121 },
     });
     expect(Object.keys(admitted.footprint).sort()).toEqual(
       IMPLEMENTED_BASELINE_TABLES,
@@ -298,12 +306,44 @@ describe("populated D1 migration evidence", () => {
       id: "unimplemented-upgrade-v1",
       frontier,
       pending: [futureMigration],
-      scenarios: [upgradeScenario(), { ...upgradeScenario(), history: 24 }],
+      scenarios: [
+        upgradeScenario(),
+        {
+          ...upgradeScenario(),
+          history: 24,
+          fixtureHash: "d".repeat(64),
+          tableRows: tableRows(24),
+        },
+      ],
     });
     expect(() => admit(duplicate)).toThrow("omitted or duplicated");
     const histories = receipt();
-    histories.baseline.scenarios.reverse();
-    expect(() => admit(histories)).toThrow("history holdouts");
+    expect(() =>
+      admit({
+        ...histories,
+        baseline: {
+          ...histories.baseline,
+          scenarios: [{ ...histories.baseline.scenarios[0], history: 12 }],
+        },
+      }),
+    ).toThrow();
+    const repeatedBaseline = receipt();
+    repeatedBaseline.baseline.scenarios.push(
+      repeatedBaseline.baseline.scenarios[0],
+    );
+    expect(() => admit(repeatedBaseline)).toThrow();
+    const upgrade = duplicate.cases[0]!;
+    for (const holdouts of [
+      [],
+      [upgrade.scenarios[0]],
+      [...upgrade.scenarios].reverse(),
+    ])
+      expect(() =>
+        MigrationSafetyReceiptSchema.parse({
+          ...receipt(),
+          cases: [{ ...upgrade, scenarios: holdouts }],
+        }),
+      ).toThrow();
     const absentHoldout = receipt();
     absentHoldout.baseline.scenarios.pop();
     expect(() => admit(absentHoldout)).toThrow();
@@ -335,7 +375,13 @@ describe("populated D1 migration evidence", () => {
       pending: [futureMigration],
       scenarios: [
         { ...upgradeScenario(), rowsRead: 20_001 },
-        { ...upgradeScenario(), history: 24, rowsWritten: 10_001 },
+        {
+          ...upgradeScenario(),
+          history: 24,
+          fixtureHash: "d".repeat(64),
+          tableRows: tableRows(24),
+          rowsWritten: 10_001,
+        },
       ],
     });
     expect(() => admit(unauthorized)).toThrow("omitted or duplicated");
@@ -350,7 +396,7 @@ describe("populated D1 migration evidence", () => {
       { rowsWritten: 0 },
     ]) {
       const invalid = receipt();
-      Object.assign(invalid.baseline.scenarios[0]!, patch);
+      Object.assign(invalid.baseline.scenarios[0], patch);
       expect(() =>
         validateMigrationSafetyReceipt(invalid, { gitSha, now }),
       ).toThrow();
@@ -359,20 +405,35 @@ describe("populated D1 migration evidence", () => {
 
   it("rejects incomplete footprints, underfilled scale and reused history fixtures", () => {
     const absent = receipt();
-    delete absent.baseline.scenarios[0]!.tableRows.holding_positions;
+    delete absent.baseline.scenarios[0].tableRows.holding_positions;
     expect(() => admit(absent)).toThrow("footprint evidence");
     const differentTables = receipt();
-    delete differentTables.baseline.scenarios[1]!.tableRows
+    delete differentTables.baseline.scenarios[0].tableRows
       .actual_liquidity_events;
-    differentTables.baseline.scenarios[1]!.tableRows.synthetic_other_table = 0;
+    differentTables.baseline.scenarios[0].tableRows.synthetic_other_table = 0;
     expect(() => admit(differentTables)).toThrow("footprint evidence");
     const tooLittleHistory = receipt();
-    tooLittleHistory.baseline.scenarios[1]!.tableRows.holding_position_snapshots = 1680;
+    tooLittleHistory.baseline.scenarios[0].tableRows.holding_position_snapshots =
+      tableRows(12).holding_position_snapshots;
     expect(() => admit(tooLittleHistory)).toThrow("populated scale");
+    const tooFewReviews = receipt();
+    tooFewReviews.baseline.scenarios[0].tableRows.holding_purchase_reviews =
+      tableRows(12).holding_purchase_reviews;
+    expect(() => admit(tooFewReviews)).toThrow("populated scale");
     const sameFixture = receipt();
-    sameFixture.baseline.scenarios[1]!.fixtureHash =
-      sameFixture.baseline.scenarios[0]!.fixtureHash;
-    expect(() => admit(sameFixture)).toThrow("same fixture");
+    sameFixture.cases.push({
+      kind: "upgrade",
+      id: "unimplemented-upgrade-v1",
+      frontier,
+      pending: [futureMigration],
+      scenarios: [
+        upgradeScenario(),
+        { ...upgradeScenario(), history: 24, tableRows: tableRows(24) },
+      ],
+    });
+    expect(() => MigrationSafetyReceiptSchema.parse(sameFixture)).toThrow(
+      "same fixture",
+    );
   });
   it("refuses metadata-only future baseline and upgrade registrations", () => {
     const root = isolatedRegistry();
@@ -430,7 +491,7 @@ describe("populated D1 migration evidence", () => {
     ]) {
       const invalid = receipt();
       Object.assign(
-        invalid.baseline.scenarios[0]!.foreignKeyPlanEvidence,
+        invalid.baseline.scenarios[0].foreignKeyPlanEvidence,
         patch,
       );
       expect(() => admit(invalid)).toThrow();

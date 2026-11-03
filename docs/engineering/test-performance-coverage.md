@@ -7,14 +7,16 @@ platform exclusions remain unchanged.
 
 ## Work removed
 
-| Change                        | Removed work                                                                     | Retained observable proof                                                                                                                                                                                                                                                                        |
-| ----------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Share-price setup             | Host-to-D1 proxy traffic for three synthetic imports and watch-target setup      | The host still runs every measured valuation-evidence read, plan and budget assertion across 120 holdings, repeated history, 1,200 unrelated companies and empty results.                                                                                                                        |
-| Reviewed-rename setup         | Host-to-D1 proxy traffic for accepted history imports and foreign staged imports | The host retains every positive, decision-history, tied-date source-history, projection, foreign and empty read and its original limits. Stage-only and accepted operations stay distinct.                                                                                                       |
-| Migration preservation        | Eight duplicate full-table preservation invocations                              | Initial OLD-schema exact preservation still precedes measured migration. Every historical branch finishes with all three immutable-guard probes and complete preservation. Baseline evidence derives its counts from one final exact preservation. Both 12/24 cost and baseline profiles remain. |
-| Expected fixture construction | Repeated foreign-key scans while building the Node SQLite oracle                 | Temporary child-key indexes accelerate only the expected fixture builder. The unchanged migration still runs, auxiliary indexes are removed, and complete fixture bytes match. Actual D1 amplification, correction and billing tests are unchanged.                                              |
-| Holdings browser serving      | A development server required only by a direct source-module import              | A test-only route bundles the actual search module in memory. The browser still consumes all 60 search results, enforces the 50 ms p95 bound and verifies the 1,000-row DOM/read behavior. No fixture enters application output.                                                                 |
-| Manual-holding geometry       | Twelve duplicated project/matrix identities                                      | Two project-owned journeys retain all six width/disclosure contexts. Mobile owns 412 px; desktop owns 838 and 1,280 px. Keyboard transitions, focus, the 0.5 px stationarity bound and unsaved values remain checked.                                                                            |
+| Change                        | Removed work                                                                     | Retained observable proof                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Share-price setup             | Host-to-D1 proxy traffic for three synthetic imports and watch-target setup      | The host still runs every measured valuation-evidence read, plan and budget assertion across 120 holdings, repeated history, 1,200 unrelated companies and empty results.                                                                                                                                                                                  |
+| Reviewed-rename setup         | Host-to-D1 proxy traffic for accepted history imports and foreign staged imports | The host retains every positive, decision-history, tied-date source-history, projection, foreign and empty read and its original limits. Stage-only and accepted operations stay distinct.                                                                                                                                                                 |
+| Migration preservation        | Duplicate full-table preservation invocations                                    | Initial OLD-schema exact preservation still precedes measured migration. Every historical branch finishes with all three immutable-guard probes and complete preservation. Baseline evidence derives its counts from one final exact preservation. Both 12/24 historical cost profiles remain; the applied-schema baseline retains its 24-history profile. |
+| Wefunder setup                | Host-to-D1 proxy traffic while staging three synthetic imports                   | The same stage, automatic adjudication, reviewed acceptance and stored-status reads run beside D1. Every measured host resolve, query plan, positive/history/foreign/empty result and cost bound remains.                                                                                                                                                  |
+| Applied-schema baseline       | The redundant 12-history terminal baseline                                       | The 24-history fixture preserves the same 137 tables, 691 schema objects, nonempty record families and FK categories, plus the corruption control. Admission retains the same complete per-table maximum footprint. Both OLD-schema cost histories remain.                                                                                                 |
+| Expected fixture construction | Repeated foreign-key scans while building the Node SQLite oracle                 | Temporary child-key indexes accelerate only the expected fixture builder. The unchanged migration still runs, auxiliary indexes are removed, and complete fixture bytes match. Actual D1 amplification, correction and billing tests are unchanged.                                                                                                        |
+| Holdings browser serving      | A development server required only by a direct source-module import              | A test-only route bundles the actual search module in memory. The browser still consumes all 60 search results, enforces the 50 ms p95 bound and verifies the 1,000-row DOM/read behavior. No fixture enters application output.                                                                                                                           |
+| Manual-holding geometry       | Twelve duplicated project/matrix identities                                      | Two project-owned journeys retain all six width/disclosure contexts. Mobile owns 412 px; desktop owns 838 and 1,280 px. Keyboard transitions, focus, the 0.5 px stationarity bound and unsaved values remain checked.                                                                                                                                      |
 
 The twelve retired geometry identities match
 `keeps type controls stationary at <width>px with details <state>` in both
@@ -25,6 +27,16 @@ identities. No other browser identity or exclusion changes. This retains six
 selected CSS width/disclosure contexts with project ownership. It retires the
 same-width device-emulation cross-product, including its different touch, DPR
 and user-agent environments. The editor has no corresponding geometry branch.
+
+The unit inventory changes from 1,646 to 1,645 cases. Only the 12-history
+applied-schema baseline identity retires. Its 24-history replacement retains
+complete preservation, all three immutable probes, FK checks and the stored-row
+corruption control. A receipt requires exactly that baseline. Upgrade evidence
+still requires ordered, distinct 12/24 fixtures. Unit controls reject a missing,
+duplicated or undersized baseline and preserve conservative maxima across
+multiple scenarios. The larger fixture dominates record families and the
+admitted envelope; this is not a claim that mutable current-state rows are
+literal subsets.
 
 The five browser lanes and four-browser admission limit remain. The lane named
 `mocked-development` retains its historical identifier and scheduling but now
@@ -47,6 +59,15 @@ measures historical foreign-key amplification; the indexed correction meters
 preparation, migration and restoration separately. Neither an empty migration
 replay nor post-migration query tests substitute for this proof.
 
+The capacity virtual day still executes all 1,440 attempts through the original
+JSON CAS store and real WebCrypto. It retains every charge, read, write,
+compaction and byte assertion under the five-second deadline. The existing
+strict-workload sequencer prioritizes that exact database test file in the first
+worker slots to reduce exposure to browser contention. The API file with the
+same basename retains its normal order. Small fixture and SHA-driver prototypes
+did not establish meaningful gains and were rejected. Scheduling changes require
+complete CI; local passes do not establish contended Linux fit.
+
 Real PDF isolation, production browser/document capture, current authentication,
 quota denial, stale/unknown evidence, uncertain replay, concurrency and owned
 cleanup boundaries remain mandatory. No timer is increased to accept a faster
@@ -61,6 +82,12 @@ differ; only their documented clock columns are normalized. Client-supplied
 financial dates are retained exactly. Uncontrolled rename read counters can vary
 by one row; every original bound remains, and exact billing equality is not
 claimed from those uncontrolled runs.
+
+The controlled Wefunder comparison matches all 153 SQL operations and bindings
+and all 137 application tables with 7,480 rows. No state or clock normalization
+is needed for those controlled inputs. Every original measured host assertion
+and SQL literal remains. Invalid setup commands return 400 without creating an
+import.
 
 Old and new migration postconditions are challenged with stored-row corruption,
 extra/missing/changed schema, disabled immutable guards and a real foreign-key

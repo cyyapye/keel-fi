@@ -9,8 +9,6 @@ import type { Env } from "../apps/api/src/types";
 import { measureD1 } from "./test-support/d1-cost";
 import { D1AutomaticInvestmentReviewRepository } from "../packages/database/src/automatic-investment-review";
 import { createAutomaticInvestmentCostDatabase } from "./test-support/automatic-investment-cost-database";
-import { D1HoldingImportRepository } from "../packages/database/src/holding-imports";
-import { syntheticWefunderImport } from "./test-support/wefunder-holdings";
 
 it("bounds exact Wefunder entity links with current-name history and unrelated households", async () => {
   const fixture = await createAutomaticInvestmentCostDatabase();
@@ -49,52 +47,10 @@ it("bounds exact Wefunder entity links with current-name history and unrelated h
           .bind(household, user, JSON.stringify(records)),
       ]);
     await putEntities(identity.household_id, identity.user_id, targets);
-    const imports = new D1HoldingImportRepository(fixture.database);
-    const stage = async (
-      prefix: string,
-      missing = false,
-      reviewedAdditionalPositions = false,
-    ) => {
-      const input = await syntheticWefunderImport({
-        count: 120,
-        positionType: "Direct",
-        legalName: (index) =>
-          missing ? `Synthetic Unmatched Vehicle ${index} LLC` : names[index]!,
-        investmentPrefix: prefix,
-      });
-      const staged = await imports.stageHoldingImport(
-        "synthetic-access-subject",
-        input,
-      );
-      if (reviewedAdditionalPositions) {
-        await imports.applyHoldingImport(
-          "synthetic-access-subject",
-          staged.preview.id,
-          {
-            currency: "USD",
-            decisions: staged.preview.rows.map((row) => ({
-              rowId: row.id,
-              decision: "accepted",
-              rationale:
-                "Reviewed synthetic additional positions for the cost holdout.",
-            })),
-          },
-        );
-      } else {
-        await imports.autoAdjudicatePrivateHoldingImport(
-          "synthetic-access-subject",
-          staged.preview.id,
-        );
-      }
-      expect(
-        (
-          await imports.getHoldingImport(
-            "synthetic-access-subject",
-            staged.preview.id,
-          )
-        )?.status,
-      ).toBe("applied");
-      return staged.preview.id;
+    const stage = async (scenario: "initial" | "grown" | "empty") => {
+      const result = await fixture.stageWefunderImport(scenario);
+      expect(result.status).toBe("applied");
+      return result.importId;
     };
     const measured = measureD1(fixture.database);
     const automatic = new D1AutomaticInvestmentReviewRepository(
@@ -102,7 +58,7 @@ it("bounds exact Wefunder entity links with current-name history and unrelated h
     );
     const resolve = (importId: string) =>
       automatic.resolve("synthetic-access-subject", null, importId);
-    const initialImport = await stage("Synthetic Initial Position");
+    const initialImport = await stage("initial");
     measured.reset();
     expect(await resolve(initialImport)).toMatchObject({
       processedCount: 120,
@@ -161,7 +117,7 @@ it("bounds exact Wefunder entity links with current-name history and unrelated h
         versionId: crypto.randomUUID(),
       })),
     );
-    const grownImport = await stage("Synthetic Later Position", false, true);
+    const grownImport = await stage("grown");
     measured.reset();
     expect(await resolve(grownImport)).toMatchObject({
       processedCount: 120,
@@ -178,7 +134,7 @@ it("bounds exact Wefunder entity links with current-name history and unrelated h
     expect((await resolve(grownImport)).changedCount).toBe(0);
     expect(measured.cost.rowsRead).toBeLessThanOrEqual(8_000);
     expect(measured.cost.rowsWritten).toBe(0);
-    const emptyImport = await stage("Synthetic No Entity Match", true);
+    const emptyImport = await stage("empty");
     measured.reset();
     expect((await resolve(emptyImport)).processedCount).toBe(0);
     expect(measured.cost.rowsRead).toBeLessThanOrEqual(8_000);

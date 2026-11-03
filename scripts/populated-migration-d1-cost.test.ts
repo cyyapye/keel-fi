@@ -55,7 +55,9 @@ beforeAll(() => {
 afterAll(() => {
   if (
     ![12, 24].every((history) => completedRegressions.has(history)) ||
-    baselineScenarios.length !== 2 ||
+    JSON.stringify(
+      baselineScenarios.map((scenario) => scenario.history).sort(),
+    ) !== JSON.stringify(registry.baseline.histories) ||
     scenarios.size !== registry.cases.length ||
     [...scenarios.values()].some((holdouts) => holdouts.length !== 2)
   )
@@ -267,7 +269,9 @@ describe("populated OLD-schema D1 migration safety", () => {
       }
       completedRegressions.add(history);
     }, 120_000);
+  }
 
+  for (const history of registry.baseline.histories) {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "holding-history-v1" ||
@@ -322,27 +326,25 @@ describe("populated OLD-schema D1 migration safety", () => {
           runtime.database,
           fixture,
         );
-        if (history === 24) {
-          const households = fixture.tables.find(
-            (table) => table.name === "households",
-          )!;
-          const row = households.rows[0]!;
-          const id = row[households.columns.indexOf("id")];
-          const name = row[households.columns.indexOf("name")];
+        const households = fixture.tables.find(
+          (table) => table.name === "households",
+        )!;
+        const row = households.rows[0]!;
+        const id = row[households.columns.indexOf("id")];
+        const name = row[households.columns.indexOf("name")];
+        await runtime.database
+          .prepare("UPDATE households SET name=? WHERE id=?")
+          .bind("Synthetic preservation corruption", id)
+          .run();
+        try {
+          await expect(
+            preserveMigrationFixture(runtime.database, fixture, true),
+          ).rejects.toThrow("Old rows changed in households");
+        } finally {
           await runtime.database
             .prepare("UPDATE households SET name=? WHERE id=?")
-            .bind("Synthetic preservation corruption", id)
+            .bind(name, id)
             .run();
-          try {
-            await expect(
-              preserveMigrationFixture(runtime.database, fixture, true),
-            ).rejects.toThrow("Old rows changed in households");
-          } finally {
-            await runtime.database
-              .prepare("UPDATE households SET name=? WHERE id=?")
-              .bind(name, id)
-              .run();
-          }
         }
         const preservation = await preserveMigrationFixture(
           runtime.database,

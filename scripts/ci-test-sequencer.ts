@@ -32,6 +32,8 @@ function priority(moduleId: string): number {
   // file and deadline, rather than letting the unmeasured tail starve them.
   // Keep the short graph scan in the initial worker slots, before the slower
   // D1 cases have spawned their workerd processes.
+  if (moduleId.endsWith("/packages/database/src/d1-capacity.test.ts"))
+    return 1_007;
   if (name === "runtime-work-inventory.test.ts") return 1_006;
   if (name === "automatic-investment-review-d1-cost.test.ts") return 1_005;
   if (name === "cash-accounts.test.ts") return 1_004;

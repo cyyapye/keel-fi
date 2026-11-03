@@ -368,6 +368,6 @@
     "fixture": "holding-history-v1",
     "mainPositions": 120,
     "unrelatedPositions": 120,
-    "histories": [12, 24]
+    "histories": [24]
   }
 }

@@ -16,7 +16,6 @@ const fixtureRegistration = {
   fixture: z.string(),
   mainPositions: z.literal(120),
   unrelatedPositions: z.literal(120),
-  histories: z.tuple([z.literal(12), z.literal(24)]),
 };
 export const MigrationSafetyRegistrySchema = z
   .object({
@@ -30,6 +29,7 @@ export const MigrationSafetyRegistrySchema = z
         frontier: migrationName,
         pending: z.tuple([]),
         ...fixtureRegistration,
+        histories: z.tuple([z.literal(24)]),
       })
       .strict(),
     cases: z.array(
@@ -40,6 +40,7 @@ export const MigrationSafetyRegistrySchema = z
           frontier: migrationName,
           migrations: z.array(MigrationSchema).min(1),
           ...fixtureRegistration,
+          histories: z.tuple([z.literal(12), z.literal(24)]),
           maxRowsRead: safeInteger.positive(),
           maxRowsWritten: safeInteger.positive(),
         })
@@ -81,6 +82,7 @@ const ForeignKeyPlanEvidenceSchema = z
 export const MigrationSafetyBaselineScenarioSchema = z
   .object({
     ...commonScenario,
+    history: z.literal(24),
     tablesPreserved: z.literal(137),
     schemaObjectsPreserved: z.literal(691),
     validation: z.literal("applied-schema-preservation"),
@@ -122,7 +124,7 @@ export const MigrationSafetyReceiptSchema = z
         id: caseId,
         frontier: migrationName,
         pending: z.tuple([]),
-        scenarios: z.array(MigrationSafetyBaselineScenarioSchema).length(2),
+        scenarios: z.tuple([MigrationSafetyBaselineScenarioSchema]),
       })
       .strict(),
     cases: z.array(
@@ -132,7 +134,15 @@ export const MigrationSafetyReceiptSchema = z
           id: caseId,
           frontier: migrationName,
           pending: z.array(migrationName).min(1),
-          scenarios: z.array(MigrationSafetyScenarioSchema).length(2),
+          scenarios: z
+            .tuple([
+              MigrationSafetyScenarioSchema.extend({ history: z.literal(12) }),
+              MigrationSafetyScenarioSchema.extend({ history: z.literal(24) }),
+            ])
+            .refine(
+              ([first, second]) => first.fixtureHash !== second.fixtureHash,
+              "Migration history holdouts reused the same fixture",
+            ),
         })
         .strict(),
     ),
@@ -442,7 +452,7 @@ function validateFootprint(
     throw new Error(
       "Migration evidence does not cover the exact history holdouts",
     );
-  const keys = Object.keys(scenarios[0]!.tableRows).sort();
+  const keys = Object.keys(scenarios[0].tableRows).sort();
   for (const scenario of scenarios) {
     if (
       Object.keys(scenario.tableRows).length !== scenario.tablesPreserved ||
@@ -466,8 +476,6 @@ function validateFootprint(
         "Migration footprint evidence is below its declared populated scale",
       );
   }
-  if (scenarios[0]!.fixtureHash === scenarios[1]!.fixtureHash)
-    throw new Error("Migration history holdouts reused the same fixture");
 }
 
 export function validateMigrationSafetyReceipt(
@@ -535,6 +543,18 @@ export function validateMigrationSafetyReceipt(
   return receipt;
 }
 
+type ScenarioFootprint = Pick<MigrationSafetyScenario, "tableRows">;
+export function migrationFootprint(
+  scenarios: readonly [ScenarioFootprint, ...ScenarioFootprint[]],
+) {
+  return Object.fromEntries(
+    Object.keys(scenarios[0].tableRows).map((table) => [
+      table,
+      Math.max(...scenarios.map((scenario) => scenario.tableRows[table]!)),
+    ]),
+  );
+}
+
 export function assertMigrationSafety(
   input: {
     frontier: string;
@@ -589,14 +609,7 @@ export function assertMigrationSafety(
     throw new Error(
       "Migration frontier has no exact baseline or populated OLD-schema evidence",
     );
-  const footprint = Object.fromEntries(
-    Object.keys(review.scenarios[0]!.tableRows).map((table) => [
-      table,
-      Math.max(
-        ...review.scenarios.map((scenario) => scenario.tableRows[table]!),
-      ),
-    ]),
-  );
+  const footprint = migrationFootprint(review.scenarios);
   return {
     kind: review.kind,
     migrationCost:

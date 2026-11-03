@@ -1310,7 +1310,6 @@
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > rejects rootful engines and unenforced or missing cgroup capabilities",
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > requires HTTPS package mirrors before updating the reader image",
     "scripts/pdf-sandbox.test.ts :: PDF sandbox policy > validates text output, errors, page counts and decoded byte budgets",
-    "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies the unchanged applied-schema baseline with no pending SQL at 12 captures",
     "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies the unchanged applied-schema baseline with no pending SQL at 24 captures",
     "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > measures the historical foreign-key amplification and indexed correction at 12 captures",
     "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > measures the historical foreign-key amplification and indexed correction at 24 captures",

@@ -17,6 +17,10 @@ hashes, schema objects, foreign keys, immutable guards and positive/empty
 inbound-FK plans. Physical `integrity_check` is unsupported in local D1 and
 reported as unavailable.
 
+Historical upgrade costs retain both 12 and 24 captures. The applied-schema
+baseline uses 24 captures, which retains the complete record families and
+conservative per-table envelope of the former two-baseline proof.
+
 The immutable 0089 regression demonstrates the failure class. At 12 captures,
 its snapshot DROP reads 5,864,077 rows. Installing missing inbound child-key
 indexes before the rebuild reduces that DROP to 11,207 reads. These are local
