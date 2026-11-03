@@ -72,7 +72,7 @@ servers, ports and cleanup; each partition remains serial internally.
 ## Bounded execution plan
 
 The verification map admits an exclusive preflight before any heavy flow. The
-existing integrity flow first executes five in-process workload files with one
+existing integrity flow first executes six in-process workload files with one
 Vitest worker, then runs native Python accounting. The main unit flow executes
 the complementary cases. Both reports must account for the entire reviewed
 Vitest inventory exactly once. Missing, stale, substituted or overlapping
@@ -148,6 +148,24 @@ union is not established. Source checks take 372.072 seconds and browser work
 comparison. Restore three native main workers and retain the proven duplicate
 browser-read removal. The exclusive one-worker preflight, native-flow and
 browser ceilings, complete inventory, assertions and all deadlines remain.
+
+Run `41641925007` fails within budget at 835.421 seconds when the exposure
+continuity migration case exceeds its unchanged five-second deadline. The other
+1,647 unit cases and all 49 Python cases pass; browser work is interrupted. The
+next partition moves the complete 28-case exposure file into the existing
+one-worker preflight. All its cases use in-process SQLite and repositories. The
+cold migration body, frontier and deadline remain. Preflight now accounts for 84
+unit cases and main for 1,564, with the same complete 1,648-case union. The
+gate's 120-second budget remains and needs actual Linux acceptance.
+
+Three ordinary SQLite fixture helpers also reuse the existing content-keyed
+snapshot helper. Five alternating local pairs pass all 590 selected case
+executions. Median wall time falls from 6.510 to 1.267 seconds and reported
+child CPU from 13.389 to 3.730 seconds; largest reported child peak RSS
+increases slightly and is not aggregate memory. These are Darwin component
+measurements, not a full Linux result. Explicit migration frontiers and all 59
+cases, 235 assertions, adapters, ordered inputs and per-case business SQL
+remain.
 
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and

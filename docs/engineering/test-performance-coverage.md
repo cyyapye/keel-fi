@@ -7,6 +7,16 @@ platform exclusions remain unchanged.
 
 ## Work removed
 
+Three ordinary unit-fixture helpers reuse the existing content-keyed SQLite
+snapshot helper. Fresh mutable copies replace repeated replay of the same
+ordered migration inputs. All 59 cases, 235 assertion chains, adapters and
+per-case business SQL remain. Explicit legal-entity frontier 51 and the watch
+pre-universe helper stay cold. Legal and provider fixtures retain exact schema
+and all 137 table contents without normalization. The watch fixture retains its
+fixed 116-table input list; a private fixed SQLite clock proves exact state
+equivalence while preserving its fresh per-clone trigger clocks. No financial
+dates or output values are normalized. Real D1 and migration proof is unchanged.
+
 | Change                        | Removed work                                                                     | Retained observable proof                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Share-price setup             | Host-to-D1 proxy traffic for three synthetic imports and watch-target setup      | The host still runs every measured valuation-evidence read, plan and budget assertion across 120 holdings, repeated history, 1,200 unrelated companies and empty results.                                                                                                                                                                                  |
@@ -63,11 +73,16 @@ replay nor post-migration query tests substitute for this proof.
 The capacity virtual day still executes all 1,440 attempts through the original
 JSON CAS store and real WebCrypto. Every charge, read, write, compaction and
 byte assertion retains its five-second deadline. Priority alone failed in normal
-CI before browser startup, so the native integrity gate runs the 56 in-process
+CI before browser startup, so the native integrity gate runs the 84 in-process
 strict cases with one worker before admitting heavy flows. Its 49 Python cases
-remain. The main phase runs the other 1,592 Vitest cases, and combined
+remain. The main phase runs the other 1,564 Vitest cases, and combined
 accounting requires all 1,648 exactly once. Missing, stale, substituted, omitted
 or duplicated proof fails. Standalone Vitest still runs the full inventory.
+
+The exposure file joins this partition after its cold continuity-migration case
+exceeds the unchanged five-second deadline during normal CI. Its complete
+28-case file remains in-process. No case-name filter, migration shortcut or
+deadline change is introduced. The preflight gate still has 120 seconds.
 
 Small fixture and SHA-driver prototypes did not establish meaningful gains and
 were rejected. The capacity-owner and runtime-graph tests and all production
