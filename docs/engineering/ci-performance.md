@@ -82,14 +82,12 @@ Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
 most three native flows run concurrently. Admission follows the reviewed map's
 first-ready order. Unit and browser work may overlap source checks after their
-own prerequisites pass. A bounded phase-order trial admits ready PDF isolation
-before browser workflows, allowing its scanner to overlap source checks. Its
-prerequisites are a subset of browser prerequisites; the guard rejects reversed
-priority or an added PDF completion barrier. Source checks still must pass in
-the same complete receipt. Configured scanner and compiler limits do not
-establish observed memory use or available host capacity. The 900-second active
-budget and per-case deadlines remain. Native main units and standalone execution
-use three workers after the two-worker trial below failed the complete budget.
+own prerequisites pass. PDF isolation waits for source checks, so its scanner
+cannot overlap the compiler flow. Source checks still must pass in the same
+complete receipt. Configured scanner and compiler limits do not establish
+observed memory use or available host capacity. The 900-second active budget and
+per-case deadlines remain. Native main units and standalone execution use three
+workers after the two-worker trial below failed the complete budget.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It
@@ -169,6 +167,21 @@ measurements, not a full Linux result. Explicit migration frontiers and all 59
 cases, 235 assertions, adapters, ordered inputs and per-case business SQL
 remain.
 
+Four further ordinary setup prefixes reuse that same helper. Five local pairs
+preserve all 280 executions in the selected five-file subset, including the
+unchanged one-use API fixture. Median wall time is 2.048 to 1.498 seconds and
+reported child CPU is 6.445 to 4.020 seconds. Exact state, foreign keys,
+rollback and clone cleanup remain; this establishes no full-run speedup.
+
+The PDF-priority trial in run `41658444196` fails the global budget at 900.513
+seconds. All 1,648 unit cases and 49 Python cases pass, but browser work is
+interrupted after 383 successful pass lines. Source checks take 292.011 seconds
+and main units 609.437 seconds; browsers start at 383.035 seconds. These
+different attempts do not isolate a causal speedup. Reject that map order and
+restore the source-before-PDF dependency and prior browser priority. Retain the
+ordinary fixture improvements. All 11 flows, deadlines, case coverage and
+concurrency ceilings remain required.
+
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
 integrity. It retains the former browser wrapper's 50-second child timeout, 128
@@ -193,6 +206,7 @@ flowchart LR
   pdfBuild --> provider
   provider --> pdf[PDF isolation]
   integrity --> unit[Unit and D1 tests]
+  source --> pdf
   migrations --> browserFixture[Browser fixture]
   build --> browser[Browser suite]
   provider --> browser
@@ -200,16 +214,13 @@ flowchart LR
 ```
 
 Only three ready flows execute at once; an arrow means the prerequisite must
-finish successfully. Map order gives ready PDF isolation priority over browsers.
-This trial requires exact-revision Linux evidence and substantial headroom;
-configured limits and frozen-duration models do not predict a speedup. Source
-checks use at most two Make jobs, and PDF proof uses one independently limited
-container per daemon across processes. Kernel ownership serializes the
-scanner/reader and adversarial sequences through confirmed cleanup; all original
-probes remain required. The fixture uses a slot released by an earlier flow and
-can overlap remaining source/PDF work. No UI browser consumer starts before its
-fixture, real provider document boundary and build succeed. All PDF isolation
-probes must pass before the gate succeeds.
+finish successfully. Source checks use at most two Make jobs, and PDF proof uses
+one independently limited container per daemon across processes. Kernel
+ownership serializes the scanner/reader and adversarial sequences through
+confirmed cleanup; all original probes remain required. The fixture uses a slot
+released by an earlier flow and can overlap remaining source/PDF work. No UI
+browser consumer starts before its fixture, real provider document boundary and
+build succeed. All PDF isolation probes must pass before the gate succeeds.
 
 The populated migration fixture hashes every selected row beside real D1 and
 returns each table's row count and SHA-256 digest. This avoids transporting

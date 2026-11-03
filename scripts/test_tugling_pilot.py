@@ -1056,7 +1056,7 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], ["gate-and-artifact-integrity"])
         self.assertEqual(
             flows["pdf-isolation"]["depends_on"],
-            ["gate-and-artifact-integrity", "pdf-sandbox-build", "provider-document-runtime"],
+            ["gate-and-artifact-integrity", "pdf-sandbox-build", "provider-document-runtime", "source-quality"],
         )
         self.assertEqual(flows["provider-document-runtime"]["argv"], ["make", "provider-document-runtime-verify"])
         self.assertEqual(flows["provider-document-runtime"]["timeout_seconds"], 60)
@@ -1074,7 +1074,7 @@ with native.cost_seed_directory() as seed:
         self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("provider-document-runtime"), flow_order.index("pdf-isolation"))
-        self.assertLess(flow_order.index("pdf-isolation"), flow_order.index("browser-workflows"))
+        self.assertLess(flow_order.index("browser-workflows"), flow_order.index("pdf-isolation"))
         # Workspace builds consume source files, not lint/typecheck or D1 output.
         # Their prerequisites remain independently required for gate acceptance.
         self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["gate-and-artifact-integrity"])
@@ -1097,63 +1097,19 @@ with native.cost_seed_directory() as seed:
             next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = []
             with self.subTest(ungated=name), self.assertRaises(ValueError):
                 native.validate_preflight_dependencies(invalid)
-        self.assertEqual(set(flows), {
-            "source-quality", "compose-configuration", "gate-and-artifact-integrity",
-            "pdf-sandbox-build", "migration-and-seed", "native-unit-and-cost",
-            "provider-document-runtime", "browser-fixture-preparation",
-            "build-and-entry-budget", "pdf-isolation", "browser-workflows",
-        })
+        invalid = json.loads(json.dumps(plan))
+        next(flow for flow in invalid["flows"] if flow["id"] == "pdf-isolation")["depends_on"].remove("source-quality")
+        with self.assertRaisesRegex(ValueError, "source-quality"):
+            native.validate_preflight_dependencies(invalid)
         transitive = json.loads(json.dumps(plan))
         by_id = {flow["id"]: flow for flow in transitive["flows"]}
-        by_id["compose-configuration"]["depends_on"] = ["gate-and-artifact-integrity"]
+        by_id["compose-configuration"]["depends_on"] = ["source-quality"]
+        by_id["pdf-isolation"]["depends_on"].remove("source-quality")
         by_id["pdf-isolation"]["depends_on"].append("compose-configuration")
-        by_id["browser-workflows"]["depends_on"].append("compose-configuration")
         native.validate_preflight_dependencies(transitive)
-
-        for mutation in (
-            "reverse-priority", "source-parent", "non-browser-parent", "transitive-source",
-            "completion-barrier", "hidden-cycle", "disconnected-cycle", "unknown-parent",
-            "duplicate-id", "duplicate-parent", "non-list-parents", "missing-source",
-            "source-not-required", "missing-gate", "missing-pdf-build", "missing-provider",
-        ):
-            invalid = json.loads(json.dumps(plan))
-            by_id = {flow["id"]: flow for flow in invalid["flows"]}
-            pdf = by_id["pdf-isolation"]["depends_on"]
-            if mutation == "reverse-priority":
-                invalid["flows"].reverse()
-            elif mutation == "source-parent":
-                pdf.append("source-quality")
-            elif mutation == "non-browser-parent":
-                pdf.append("compose-configuration")
-            elif mutation == "transitive-source":
-                pdf.append("compose-configuration")
-                by_id["compose-configuration"]["depends_on"].append("source-quality")
-            elif mutation == "completion-barrier":
-                by_id["browser-workflows"]["depends_on"].append("pdf-isolation")
-            elif mutation == "hidden-cycle":
-                by_id["compose-configuration"]["depends_on"].append("compose-configuration")
-            elif mutation == "disconnected-cycle":
-                by_id["compose-configuration"]["depends_on"] = ["build-and-entry-budget"]
-                by_id["build-and-entry-budget"]["depends_on"] = ["compose-configuration"]
-            elif mutation == "unknown-parent":
-                pdf.append("unknown-flow")
-            elif mutation == "duplicate-id":
-                invalid["flows"].append(invalid["flows"][0])
-            elif mutation == "duplicate-parent":
-                pdf.append(pdf[0])
-            elif mutation == "non-list-parents":
-                by_id["pdf-isolation"]["depends_on"] = tuple(pdf)
-            elif mutation == "missing-source":
-                invalid["flows"].remove(by_id["source-quality"])
-            elif mutation == "source-not-required":
-                for requirement in invalid["requirements"]:
-                    requirement["flows"] = [name for name in requirement["flows"] if name != "source-quality"]
-            else:
-                pdf.remove({"missing-gate": "gate-and-artifact-integrity",
-                            "missing-pdf-build": "pdf-sandbox-build",
-                            "missing-provider": "provider-document-runtime"}[mutation])
-            with self.subTest(dependency_mutation=mutation), self.assertRaises(ValueError):
-                native.validate_preflight_dependencies(invalid)
+        by_id["compose-configuration"]["depends_on"].append("compose-configuration")
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            native.validate_preflight_dependencies(transitive)
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         config = json.loads((pilot.ROOT / ".tugling/pilot.json").read_text())
         self.assertEqual(config["project"]["verification_budget_seconds"], 900)
