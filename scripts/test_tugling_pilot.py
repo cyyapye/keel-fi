@@ -911,7 +911,10 @@ with native.cost_seed_directory() as seed:
             config.write_text(json.dumps({"project": {"verification_budget_seconds": 900}}))
             def report(identities, started=1000):
                 result = {"success": True, "startTime": started, "testResults": [],
-                          "snapshot": {"total": 0, "failure": False, "filesRemovedList": []}}
+                          "snapshot": {"added": 0, "failure": False, "filesAdded": 0, "filesRemoved": 0,
+                                       "filesRemovedList": [], "filesUnmatched": 0, "filesUpdated": 0,
+                                       "matched": 0, "total": 0, "unchecked": 0, "uncheckedKeysByFile": [],
+                                       "unmatched": 0, "updated": 0, "didUpdate": False}}
                 for key in ("numTotalTestSuites", "numPassedTestSuites", "numTotalTests", "numPassedTests"):
                     result[key] = len(identities)
                 for key in ("numFailedTestSuites", "numPendingTestSuites", "numFailedTests", "numPendingTests", "numTodoTests"):
@@ -922,6 +925,32 @@ with native.cost_seed_directory() as seed:
                         "ancestorTitles": [], "title": title, "status": "passed", "failureMessages": []
                     }]})
                 return result
+            snapshot = report([])["snapshot"]
+            snapshot_faults = [("minimal", {"failure": False}), ("extra", {**snapshot, "extra": 0})]
+            snapshot_faults.extend((f"missing-{key}", {name: value for name, value in snapshot.items() if name != key})
+                                   for key in snapshot)
+            for key in ("added", "filesAdded", "filesRemoved", "filesUnmatched", "filesUpdated",
+                        "matched", "total", "unchecked", "unmatched", "updated"):
+                snapshot_faults.extend((f"{key}-{value!r}", {**snapshot, key: value})
+                                       for value in (True, -1, 1.5, "0", None, [], {}))
+            for key in ("failure", "didUpdate"):
+                snapshot_faults.extend((f"{key}-{value!r}", {**snapshot, key: value})
+                                       for value in (0, 1, "false", None, [], {}))
+            snapshot_faults.append(("failure-true", {**snapshot, "failure": True}))
+            for key in ("filesRemovedList", "uncheckedKeysByFile"):
+                snapshot_faults.extend((f"{key}-{value!r}", {**snapshot, key: value})
+                                       for value in (None, "file", {}, [None], [1], [False], [[]], [{}]))
+            snapshot_faults.extend((f"unchecked-entry-{value!r}", {**snapshot, "uncheckedKeysByFile": [value]})
+                                   for value in ("file", {}, {"filePath": "file"}, {"keys": []},
+                                                 {"filePath": "file", "keys": [], "extra": 0},
+                                                 {"filePath": 1, "keys": []},
+                                                 {"filePath": "file", "keys": "key"},
+                                                 {"filePath": "file", "keys": None},
+                                                 {"filePath": "file", "keys": {}},
+                                                 {"filePath": "file", "keys": [None]},
+                                                 {"filePath": "file", "keys": [1]},
+                                                 {"filePath": "file", "keys": [False]},
+                                                 {"filePath": "file", "keys": [{}]}))
             def stage(runner, identities, started, completed, change=None):
                 stem = native.VITEST_PHASES[runner]["stem"]
                 output = root / f"{stem}.json"
@@ -1000,6 +1029,17 @@ with native.cost_seed_directory() as seed:
                         proof_path.write_text(json.dumps(proof))
                         with self.subTest(runner=runner, report=mutation), self.assertRaises(ValueError):
                             native.claim_vitest_phase(runner, inventory, context)
+                    for label, invalid_snapshot in snapshot_faults:
+                        reset(resource)
+                        output = root / f"{native.VITEST_PHASES[runner]['stem']}.json"
+                        value = json.loads(output.read_text()); value["snapshot"] = invalid_snapshot
+                        output.write_text(json.dumps(value))
+                        proof = json.loads(proof_path.read_text()); proof["report_sha256"] = native.hashlib.sha256(output.read_bytes()).hexdigest()
+                        proof_path.write_text(json.dumps(proof))
+                        with self.subTest(runner=runner, snapshot=label), self.assertRaises(ValueError):
+                            native.claim_vitest_phase(runner, inventory, context)
+                        self.assertTrue(proof_path.is_file())
+                        self.assertFalse(used.exists())
                     for unsafe in ("symlink", "hardlink", "oversized"):
                         reset(resource)
                         if unsafe == "symlink":
@@ -1045,9 +1085,22 @@ with native.cost_seed_directory() as seed:
                 self.assertEqual(merged["numPassedTests"], len(inventory["vitest"]))
                 ordered = [report(strict_ids), report(resource_ids), report(main_ids)]
                 for index, value in enumerate(ordered, 1):
-                    value["snapshot"].update(total=index, filesRemovedList=[str(index)])
+                    for key in ("added", "filesAdded", "filesRemoved", "filesUnmatched", "filesUpdated",
+                                "matched", "total", "unchecked", "unmatched", "updated"):
+                        value["snapshot"][key] = index
+                    value["snapshot"].update(filesRemovedList=[str(index)], didUpdate=index == 2,
+                                             uncheckedKeysByFile=[{"filePath": str(index), "keys": [f"key-{index}"]}])
+                    native.validate_vitest_phase_report(value, {"vitest": (strict_ids, resource_ids, main_ids)[index - 1], "exclusions": []})
                 combined = native.merge_vitest_reports(native.merge_vitest_reports(*ordered[:2]), ordered[2])
-                self.assertEqual(combined["snapshot"], {"total": 6, "failure": False, "filesRemovedList": ["1", "2", "3"]})
+                expected_snapshot = {"added": 6, "failure": False, "filesAdded": 6, "filesRemoved": 6,
+                                     "filesRemovedList": ["1", "2", "3"], "filesUnmatched": 6, "filesUpdated": 6,
+                                     "matched": 6, "total": 6, "unchecked": 6,
+                                     "uncheckedKeysByFile": [{"filePath": "1", "keys": ["key-1"]},
+                                                             {"filePath": "2", "keys": ["key-2"]},
+                                                             {"filePath": "3", "keys": ["key-3"]}],
+                                     "unmatched": 6, "updated": 6, "didUpdate": True}
+                self.assertEqual(combined["snapshot"], expected_snapshot)
+                native.validate_vitest_phase_report(combined, inventory)
 
                 for changed in ([], [*main_ids, strict_ids[0]], [*main_ids, resource_ids[0]]):
                     with self.subTest(remaining=changed), self.assertRaises(ValueError):
@@ -1076,7 +1129,9 @@ with native.cost_seed_directory() as seed:
                                 self.assertFalse((root / "vitest-resource-proof.json").exists())
                                 self.assertTrue((root / "vitest-resource-used.json").is_file())
                                 self.assertFalse(prepared[0].exists())
-                        output.write_text(json.dumps(report(selected[output.name], 2000)))
+                        value = report(selected[output.name], 2000)
+                        value["snapshot"] = ordered[list(selected).index(output.name)]["snapshot"]
+                        output.write_text(json.dumps(value))
                     return subprocess.CompletedProcess(command, 0)
                 with (patch.object(native.subprocess, "run", side_effect=execute),
                       patch.dict(os.environ, {"KEEL_PDF_SANDBOX_CONFIG": "/synthetic/ambient.json"})):
@@ -1084,7 +1139,9 @@ with native.cost_seed_directory() as seed:
                         native.run_vitest(runner, inventory)
                 self.assertEqual(len(prepared), 1)
                 self.assertTrue(all(not path.exists() for path in directories))
-                native.compare_cases("vitest", native.vitest_cases(json.loads((root / "vitest.json").read_text())), inventory)
+                final = json.loads((root / "vitest.json").read_text())
+                native.compare_cases("vitest", native.vitest_cases(final), inventory)
+                self.assertEqual(final["snapshot"], expected_snapshot)
                 for failure in ("process", "cancel", "cleanup", "source", "counters"):
                     reset()
                     def fail(command, **options):
@@ -1116,6 +1173,22 @@ with native.cost_seed_directory() as seed:
                                 native.run_vitest("vitest-resource", inventory)
                     self.assertEqual((root / "vitest-resource-proof.json").read_bytes(), b"")
                     self.assertTrue(all(not path.exists() for path in directories))
+                for runner in ("vitest-resource", "vitest-main"):
+                    for label, invalid_snapshot in snapshot_faults:
+                        reset(runner == "vitest-main")
+                        def malformed_snapshot(command, **options):
+                            result = execute(command, **options)
+                            if "scripts/prepare-d1-cost-seed.ts" not in command:
+                                output = root / f"{native.VITEST_PHASES[runner]['stem']}.json"
+                                value = json.loads(output.read_text()); value["snapshot"] = invalid_snapshot
+                                output.write_text(json.dumps(value))
+                            return result
+                        with (patch.object(native.subprocess, "run", side_effect=malformed_snapshot),
+                              self.subTest(runner=runner, snapshot=label), self.assertRaises(ValueError)):
+                            native.run_vitest(runner, inventory)
+                        artifact = "vitest-resource-proof.json" if runner == "vitest-resource" else "vitest.json"
+                        self.assertEqual((root / artifact).read_bytes(), b"")
+                        self.assertTrue(all(not path.exists() for path in directories))
                 reset(True)
                 def malformed_main(command, **options):
                     result = execute(command, **options)

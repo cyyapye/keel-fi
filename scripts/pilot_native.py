@@ -799,6 +799,9 @@ def validate_vitest_phase_report(report, inventory):
     compare_cases("vitest", observed, inventory)
     counters = ("numTotalTestSuites", "numPassedTestSuites", "numFailedTestSuites", "numPendingTestSuites",
                 "numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests")
+    snapshot = report.get("snapshot")
+    snapshot_counters = ("added", "filesAdded", "filesRemoved", "filesUnmatched", "filesUpdated",
+                         "matched", "total", "unchecked", "unmatched", "updated")
     if (report.get("success") is not True
             or any(type(report.get(key)) is not int or report[key] < 0 for key in counters)
             or report["numTotalTests"] != len(observed)
@@ -807,10 +810,17 @@ def validate_vitest_phase_report(report, inventory):
             or report["numTotalTestSuites"] != sum(report[key] for key in (
                 "numPassedTestSuites", "numFailedTestSuites", "numPendingTestSuites"))
             or any(report[key] for key in ("numFailedTestSuites", "numFailedTests", "numTodoTests"))
-            or not isinstance(report.get("snapshot"), dict)
-            or report["snapshot"].get("failure") is not False
-            or any(type(value) not in (bool, int, list) or (type(value) is int and value < 0)
-                   for value in report["snapshot"].values())):
+            or not isinstance(snapshot, dict)
+            or set(snapshot) != {*snapshot_counters, "failure", "didUpdate", "filesRemovedList", "uncheckedKeysByFile"}
+            or snapshot["failure"] is not False or type(snapshot["didUpdate"]) is not bool
+            or any(type(snapshot[key]) is not int or snapshot[key] < 0 for key in snapshot_counters)
+            or not isinstance(snapshot["filesRemovedList"], list)
+            or any(type(value) is not str for value in snapshot["filesRemovedList"])
+            or not isinstance(snapshot["uncheckedKeysByFile"], list)
+            or any(not isinstance(value, dict) or set(value) != {"filePath", "keys"}
+                   or type(value["filePath"]) is not str or not isinstance(value["keys"], list)
+                   or any(type(key) is not str for key in value["keys"])
+                   for value in snapshot["uncheckedKeysByFile"])):
         raise ValueError("Vitest phase reported errors or inconsistent counters")
 
 
