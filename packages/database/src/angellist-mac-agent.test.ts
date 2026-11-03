@@ -1,9 +1,5 @@
 import { resolve } from "node:path";
-import type {
-  DatabaseSync,
-  SQLInputValue,
-  StatementSync,
-} from "node:sqlite";
+import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
