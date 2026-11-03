@@ -11,6 +11,7 @@ import {
 } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
+import { routeCollectionSearchModule } from "./collection-search-module";
 
 async function openHoldingSources(page: Page) {
   await page.getByRole("link", { name: "Sources", exact: true }).click();
@@ -2325,34 +2326,51 @@ for (const size of [1_000]) {
     await expect(page.locator(".exposure-group")).toHaveCount(1);
     expect(projectionReads).toBe(1);
     await expectNoHorizontalOverflow(page);
-    const timings = await page.evaluate(async (data) => {
-      const moduleUrl = "/src/collection-search.ts";
-      const { buildHoldingsSearchIndex, searchHoldings } = (await import(
-        moduleUrl
-      )) as typeof CollectionSearch;
-      const buildStart = performance.now();
-      const index = buildHoldingsSearchIndex(data, []);
-      const buildMs = performance.now() - buildStart;
-      const durations: number[] = [];
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        const started = performance.now();
-        searchHoldings(
-          index,
-          ["cafe nebula", "Robinhood", "no matching record"][attempt % 3]!,
-        );
-        durations.push(performance.now() - started);
-      }
-      durations.sort((left, right) => left - right);
-      return {
-        buildMs,
-        p95SearchMs: durations[56],
-        maxSearchMs: durations.at(-1),
-      };
-    }, scaleView);
+    const moduleUrl = await routeCollectionSearchModule(page);
+    const timings = await page.evaluate(
+      async ({ data, moduleUrl }) => {
+        const { buildHoldingsSearchIndex, searchHoldings } = (await import(
+          moduleUrl
+        )) as typeof CollectionSearch;
+        const buildStart = performance.now();
+        const index = buildHoldingsSearchIndex(data, []);
+        const buildMs = performance.now() - buildStart;
+        const durations: number[] = [];
+        const resultLabels: string[] = [];
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const started = performance.now();
+          const matches = searchHoldings(
+            index,
+            ["cafe nebula", "Robinhood", "no matching record"][attempt % 3]!,
+          );
+          durations.push(performance.now() - started);
+          resultLabels.push(matches!.resultLabel);
+        }
+        durations.sort((left, right) => left - right);
+        return {
+          buildMs,
+          p95SearchMs: durations[56],
+          maxSearchMs: durations.at(-1),
+          resultLabels,
+        };
+      },
+      { data: scaleView, moduleUrl },
+    );
     await testInfo.attach(`holdings-search-${size}-timings.json`, {
       body: JSON.stringify(timings),
       contentType: "application/json",
     });
+    expect(timings.resultLabels).toEqual(
+      Array.from(
+        { length: 60 },
+        (_, attempt) =>
+          [
+            "1 exposure · 1 position",
+            `${size} exposures · ${size} positions`,
+            "0 results",
+          ][attempt % 3],
+      ),
+    );
     expect(timings.p95SearchMs).toBeLessThan(50);
   });
 }

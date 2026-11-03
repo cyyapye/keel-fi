@@ -35,8 +35,6 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: browserLane.files,
   fullyParallel: true,
-  // Mocked lanes reject unhandled application API requests. Four one-worker
-  // roots run first; the final mocked development lane then uses all four slots.
   workers: browserLane.workers,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,

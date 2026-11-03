@@ -1,20 +1,18 @@
 import { expect, it, vi } from "vitest";
-import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import {
-  seedCostHoldings,
-  seedCostWatchTargets,
-  COST_SUBJECT,
-} from "./test-support/cost-fixtures";
+import { measureD1 } from "./test-support/d1-cost";
+import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
 import { D1PositionPurchaseRepository } from "../packages/database/src/position-purchases";
 
 it("bounds share-price evidence reads across 120 holdings, repeated history and empty results", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createCostFixtureDatabase();
+  const fixedTime = "2026-09-05T00:00:00.000Z";
   vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2026-09-05T00:00:00.000Z"));
+  vi.setSystemTime(new Date(fixedTime));
   try {
     const db = fixture.database;
-    await seedCostHoldings(db);
-    await seedCostWatchTargets(db);
+    await fixture.setup({ operation: "holdings", fixedTime });
+    await fixture.setup({ operation: "watch-targets" });
     // All 120 legal positions have a recorded review linking the same issuer.
     await db.batch([
       db.prepare(`INSERT INTO holding_position_exposure_mappings
@@ -36,7 +34,8 @@ it("bounds share-price evidence reads across 120 holdings, repeated history and 
     const measured = measureD1(db);
     const repo = new D1PositionPurchaseRepository(measured.database);
     for (const revision of [1, 2, 3]) {
-      if (revision > 1) await seedCostHoldings(db, COST_SUBJECT, revision);
+      if (revision > 1)
+        await fixture.setup({ operation: "holdings", revision, fixedTime });
       await db
         .prepare(
           `INSERT OR IGNORE INTO holding_import_share_prices(import_row_id,household_id,evidence_json)

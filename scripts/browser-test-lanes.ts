@@ -77,7 +77,7 @@ export const BROWSER_TEST_EXECUTION = {
   },
   "mocked-development": {
     apiPort: null,
-    frontend: "development",
+    frontend: "production",
     server: "mocked",
     webPort: 31_034,
     workers: 4,
@@ -206,6 +206,7 @@ export function validateMockedBrowserSpecs(e2eDirectory: string): void {
   ]);
   const productionServed = new Set<string>([
     ...BROWSER_TEST_LANES.mocked,
+    ...BROWSER_TEST_LANES["mocked-development"],
     ...BROWSER_TEST_LANES["stateful-a"],
     ...BROWSER_TEST_LANES["stateful-b"],
   ]);

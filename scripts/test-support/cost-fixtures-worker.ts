@@ -46,6 +46,7 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("read-budgets") }).strict(),
   z.object({ operation: z.literal("provider-reconnect") }).strict(),
   z.object({ operation: z.literal("portfolio-watch-day") }).strict(),
+  z.object({ operation: z.literal("watch-targets") }).strict(),
 ]);
 export type CostFixtureSetupOperation = z.input<typeof setupOperationSchema>;
 
@@ -147,6 +148,9 @@ export default {
         globalThis.Date = originalDate;
       }
       result = { operation: operation.operation, importId };
+    } else if (operation.operation === "watch-targets") {
+      await seedCostWatchTargets(bindings.DB);
+      result = { operation: operation.operation, completed: true };
     } else if (operation.operation === "portfolio-watch") {
       const importId = await seedCostHoldings(bindings.DB);
       await seedCostWatchTargets(bindings.DB);

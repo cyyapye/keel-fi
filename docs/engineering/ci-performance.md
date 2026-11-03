@@ -163,34 +163,28 @@ and unrelated-household read against real D1, with the same 120-position scale,
 row budgets and query-plan assertions.
 
 Browser verification produces five reports while admitting at most four workers.
-The initial four lanes each use one worker. After all four reports and runtimes
-validate and close, the development mocked lane uses the released four-worker
-budget. No stateful lane is parallelized. The development stateful partition
-contains four specs and 72 executions: three depend on source modules, while
-Portfolio Watch asserts development-mode demo-source disclosure. The two
-production stateful partitions contain 124 executions each. The production
-mocked lane contains 108 executions, and the development mocked tail
-contains 36. These are the same 464 browser identities with 33 reviewed
-exclusions.
+The initial four lanes each use one worker. After they validate and close, the
+holdings lane uses four workers and production serving. Its historical
+`mocked-development` identifier remains; its declared frontend is production.
+The development stateful lane has 72 executions, production stateful-a has 114,
+production stateful-b has 126, the production mocked lane has 110 and the
+holdings tail has 36. These total 458 identities with 32 existing Linux
+exclusions. The geometry consolidation and retained failure proof are recorded
+in [test performance coverage](test-performance-coverage.md).
 
-The 42 manual-holding visual executions use the fail-closed API-mocked fixture
-inside the production stateful-a partition. Moving the complete spec balances
-the existing serial partitions without changing its frontend, cases or snapshot
-identities. API mocking belongs to each test's fixture, independently of the
-lane's server. The fixture blocks service workers and rejects unhandled API
-reads and writes even when a lane configuration allows service workers. Each
-stateful partition receives a separate copy of the verified, closed synthetic
-seed and owns distinct API/web ports. Neither mocked lane starts an API server.
-Production serving reduces module transforms and requests; development serving
-retains the direct source-module checks and the intentional demo-source
-disclosure. Missing production JS or CSS fails startup. All lanes keep
-desktop/mobile project names, snapshots and case identities. Each lane owns its
-Vite dependency cache as well as its browser output. Development readiness
-transforms the initial application and Holdings module graph and rejects broken
-imports before admitting tests. Stateful readiness also checks the actual
-holdings-page projection through the web proxy, with one bounded probe in flight
-and a cached successful result for the development server. A simpler health
-endpoint cannot hide a cold first read or module load.
+The 32 manual-holding visual executions use the fail-closed API-mocked fixture
+inside production stateful-a. API mocking belongs to each test's fixture,
+independently of its lane's server. The fixture blocks service workers and
+rejects unhandled API reads and writes. Each stateful partition receives a
+separate copy of the verified, closed synthetic seed and owns distinct API/web
+ports. Neither mocked lane starts an API server. Production serving reduces
+module transforms and requests; the development stateful lane retains direct
+source-module checks and intentional demo-source disclosure. Missing production
+JS or CSS fails startup. Snapshot identities and baselines remain unchanged.
+Each lane owns its dependency cache and output. Development readiness validates
+the initial module graph; stateful readiness also checks the actual holdings
+projection through the web proxy. A simpler health endpoint cannot hide a cold
+first read.
 
 The migration flow runs every migration and the base synthetic seed, then copies
 its closed D1 tree into a dedicated allowlisted browser path before applying

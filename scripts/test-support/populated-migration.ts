@@ -308,6 +308,24 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
     }
     if (frontier === "0089") {
       statements.clear();
+      const priorIndexes = new Set(
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type='index'")
+          .all()
+          .map((row) => String(row.name)),
+      );
+      for (const sql of unstable_splitSqlQuery(
+        readFileSync(
+          "scripts/test-support/synthetic-historical-foreign-key-indexes.sql",
+          "utf8",
+        ),
+      ).filter((sql) => !sql.includes("manual_holding_submissions")))
+        db.exec(sql);
+      const auxiliaryIndexes = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='index'")
+        .all()
+        .map((row) => String(row.name))
+        .filter((name) => !priorIndexes.has(name));
       db.exec("BEGIN");
       db.exec(
         readFileSync(
@@ -316,6 +334,9 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
         ),
       );
       db.exec("COMMIT");
+      for (const name of auxiliaryIndexes)
+        db.exec(`DROP INDEX IF EXISTS ${identifier(name)}`);
+      statements.clear();
       await new D1ManualHoldingRepository(new ManualFixtureD1(db).asD1(), {
         put: () => Promise.resolve(null),
       }).create("synthetic-access-subject", {
@@ -806,7 +827,6 @@ export async function immutableMigrationProbes(
     if (!/immutable/iu.test(failure))
       throw new Error(`Immutable record mutation accepted in ${name}`);
   }
-  await preserveMigrationFixture(database, fixture);
   return 3 as const;
 }
 

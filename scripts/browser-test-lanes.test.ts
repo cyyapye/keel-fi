@@ -102,7 +102,7 @@ describe("browser test lanes", () => {
         lane: "mocked-development",
       }),
     ).toMatchObject({
-      frontend: "development",
+      frontend: "production",
       lane: "mocked-development",
       server: "mocked",
       workers: 4,

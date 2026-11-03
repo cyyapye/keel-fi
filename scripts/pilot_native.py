@@ -141,7 +141,7 @@ def validate_browser_execution(lanes, execution, schedule):
     ports = []
     expected = {
         "mocked": ("mocked", "production"),
-        "mocked-development": ("mocked", "development"),
+        "mocked-development": ("mocked", "production"),
         "stateful-development": ("stateful", "development"),
         "stateful-a": ("stateful", "production"),
         "stateful-b": ("stateful", "production"),

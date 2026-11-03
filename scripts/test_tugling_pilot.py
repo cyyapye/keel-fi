@@ -175,7 +175,7 @@ class NativeAccountingTests(unittest.TestCase):
         lanes = {lane: [f"{lane}.spec.ts"] for lane in native.BROWSER_LANES}
         execution = {
             "mocked": {"server": "mocked", "frontend": "production", "workers": 1, "webPort": 31031, "apiPort": None},
-            "mocked-development": {"server": "mocked", "frontend": "development", "workers": 4, "webPort": 31034, "apiPort": None},
+            "mocked-development": {"server": "mocked", "frontend": "production", "workers": 4, "webPort": 31034, "apiPort": None},
             "stateful-development": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31035, "apiPort": 32035},
             "stateful-a": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31032, "apiPort": 32032},
             "stateful-b": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31033, "apiPort": 32033},
@@ -194,7 +194,7 @@ class NativeAccountingTests(unittest.TestCase):
         for lane, field, value in (
             ("mocked", "workers", 2),
             ("mocked-development", "workers", 1),
-            ("mocked-development", "frontend", "production"),
+            ("mocked-development", "frontend", "development"),
             ("stateful-a", "webPort", 40000),
             ("stateful-b", "apiPort", 32032),
         ):

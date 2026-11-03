@@ -189,10 +189,10 @@ describe("populated OLD-schema D1 migration safety", () => {
             ]!;
           expect(drop.rowsRead).toBeGreaterThan((cost.rowsRead * 9) / 10);
           expect(cost.rowsWritten).toBeGreaterThan(20_000);
-          await preserveMigrationFixture(original.database, fixture);
           expect(
             await immutableMigrationProbes(original.database, fixture),
           ).toBe(3);
+          await preserveMigrationFixture(original.database, fixture);
           originalReads = cost.rowsRead;
         } finally {
           await original.close();
@@ -233,10 +233,10 @@ describe("populated OLD-schema D1 migration safety", () => {
           expect(rowsRead).toBeLessThanOrEqual(200_000);
           expect(rowsWritten).toBeLessThanOrEqual(50_000);
           expect(migration.rowsRead).toBeLessThan(originalReads / 20);
-          await preserveMigrationFixture(corrected.database, fixture);
           expect(
             await immutableMigrationProbes(corrected.database, fixture),
           ).toBe(3);
+          await preserveMigrationFixture(corrected.database, fixture);
           expect(
             (await migrationForeignKeyPlans(corrected.database, fixture)).every(
               (plan) =>
@@ -281,16 +281,6 @@ describe("populated OLD-schema D1 migration safety", () => {
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
-        const preservation = await preserveMigrationFixture(
-          runtime.database,
-          fixture,
-          true,
-        );
-        expect(preservation).toEqual({
-          tablesPreserved: 137,
-          schemaObjectsPreserved: 691,
-          foreignKeyViolations: 0,
-        });
         const plans = await migrationForeignKeyPlans(runtime.database, fixture);
         const foreignKeyPlanEvidence = {
           digest: migrationDigest(JSON.stringify(plans)),
@@ -354,7 +344,16 @@ describe("populated OLD-schema D1 migration safety", () => {
               .run();
           }
         }
-        await preserveMigrationFixture(runtime.database, fixture, true);
+        const preservation = await preserveMigrationFixture(
+          runtime.database,
+          fixture,
+          true,
+        );
+        expect(preservation).toEqual({
+          tablesPreserved: 137,
+          schemaObjectsPreserved: 691,
+          foreignKeyViolations: 0,
+        });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({
           history,
           mainPositions: 120,

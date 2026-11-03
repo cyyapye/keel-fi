@@ -238,60 +238,45 @@ async function setup(page: Page, currentHolding = holding) {
   };
 }
 
-for (const width of [412, 838, 1280]) {
-  for (const detailsOpen of [false, true]) {
-    test(`keeps type controls stationary at ${width}px with details ${detailsOpen ? "open" : "closed"}`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width, height: 978 });
-      await setup(page);
-      await fillIdentity(page);
-      await page
-        .getByRole("button", {
-          name: "Add investment or valuation details",
-          exact: true,
-        })
-        .click();
-      await page.getByLabel("Cash paid · USD", { exact: true }).fill("125.50");
-      await page
-        .getByLabel("Estimated value · USD", { exact: true })
-        .fill("150");
-      if (!detailsOpen) {
+test("keeps type controls stationary across project-owned viewport and disclosure states", async ({
+  page,
+}, testInfo) => {
+  await routeOverviewReads(page);
+  const widths = testInfo.project.use.isMobile ? [412] : [838, 1280];
+  for (const width of widths) {
+    for (const detailsOpen of [false, true]) {
+      await test.step(`${width}px with details ${detailsOpen ? "open" : "closed"}`, async () => {
+        await page.setViewportSize({ width, height: 978 });
+        await setup(page);
+        await fillIdentity(page);
         await page
           .getByRole("button", {
-            name: "Investment and valuation",
+            name: "Add investment or valuation details",
             exact: true,
           })
           .click();
-        await expect(
-          page.getByLabel("Cash paid · USD", { exact: true }),
-        ).not.toBeVisible();
-      }
-      const radios = page.getByRole("radiogroup", {
-        name: "Investment type",
-        exact: true,
-      });
-      const initial = await radios.getByRole("radio").evaluateAll((elements) =>
-        elements.map((element) => {
-          const box = element.getBoundingClientRect();
-          return { x: box.x + window.scrollX, y: box.y + window.scrollY };
-        }),
-      );
-      const transitions = [
-        ["Direct", "SPV", "ArrowRight"],
-        ["SPV", "Fund", "ArrowRight"],
-        ["Fund", "Direct", "ArrowRight"],
-        ["Direct", "Fund", "ArrowLeft"],
-        ["Fund", "SPV", "ArrowLeft"],
-        ["SPV", "Direct", "ArrowLeft"],
-      ] as const;
-      for (const [from, to, key] of transitions) {
-        await page.getByRole("radio", { name: from, exact: true }).focus();
-        await page.keyboard.press(key);
-        const selected = page.getByRole("radio", { name: to, exact: true });
-        await expect(selected).toBeChecked();
-        await expect(selected).toBeFocused();
-        const positions = await radios
+        await page
+          .getByLabel("Cash paid · USD", { exact: true })
+          .fill("125.50");
+        await page
+          .getByLabel("Estimated value · USD", { exact: true })
+          .fill("150");
+        if (!detailsOpen) {
+          await page
+            .getByRole("button", {
+              name: "Investment and valuation",
+              exact: true,
+            })
+            .click();
+          await expect(
+            page.getByLabel("Cash paid · USD", { exact: true }),
+          ).not.toBeVisible();
+        }
+        const radios = page.getByRole("radiogroup", {
+          name: "Investment type",
+          exact: true,
+        });
+        const initial = await radios
           .getByRole("radio")
           .evaluateAll((elements) =>
             elements.map((element) => {
@@ -299,43 +284,68 @@ for (const width of [412, 838, 1280]) {
               return { x: box.x + window.scrollX, y: box.y + window.scrollY };
             }),
           );
-        expect(positions).toHaveLength(initial.length);
-        for (const [index, position] of positions.entries()) {
-          expect(
-            Math.abs(position.x - initial[index]!.x),
-            `${from} to ${to} moves radio ${index} horizontally`,
-          ).toBeLessThanOrEqual(0.5);
-          expect(
-            Math.abs(position.y - initial[index]!.y),
-            `${from} to ${to} moves radio ${index} vertically`,
-          ).toBeLessThanOrEqual(0.5);
+        const transitions = [
+          ["Direct", "SPV", "ArrowRight"],
+          ["SPV", "Fund", "ArrowRight"],
+          ["Fund", "Direct", "ArrowRight"],
+          ["Direct", "Fund", "ArrowLeft"],
+          ["Fund", "SPV", "ArrowLeft"],
+          ["SPV", "Direct", "ArrowLeft"],
+        ] as const;
+        for (const [from, to, key] of transitions) {
+          await page.getByRole("radio", { name: from, exact: true }).focus();
+          await page.keyboard.press(key);
+          const selected = page.getByRole("radio", { name: to, exact: true });
+          await expect(selected).toBeChecked();
+          await expect(selected).toBeFocused();
+          const positions = await radios
+            .getByRole("radio")
+            .evaluateAll((elements) =>
+              elements.map((element) => {
+                const box = element.getBoundingClientRect();
+                return { x: box.x + window.scrollX, y: box.y + window.scrollY };
+              }),
+            );
+          expect(positions).toHaveLength(initial.length);
+          for (const [index, position] of positions.entries()) {
+            expect(
+              Math.abs(position.x - initial[index]!.x),
+              `${from} to ${to} moves radio ${index} horizontally`,
+            ).toBeLessThanOrEqual(0.5);
+            expect(
+              Math.abs(position.y - initial[index]!.y),
+              `${from} to ${to} moves radio ${index} vertically`,
+            ).toBeLessThanOrEqual(0.5);
+          }
+          await expect(
+            page.getByRole("textbox", {
+              name: /^(Investment name|SPV legal name|Fund name)$/u,
+            }),
+          ).toHaveValue("Synthetic Orchard Direct");
+          await expect(
+            page.getByRole("combobox", { name: "Held by", exact: true }),
+          ).toContainText("Demo Family LLC");
+        }
+        if (!detailsOpen) {
+          await page
+            .getByRole("button", {
+              name: "Add investment or valuation details",
+              exact: true,
+            })
+            .click();
         }
         await expect(
-          page.getByRole("textbox", {
-            name: /^(Investment name|SPV legal name|Fund name)$/u,
-          }),
-        ).toHaveValue("Synthetic Orchard Direct");
+          page.getByLabel("Cash paid · USD", { exact: true }),
+        ).toHaveValue("125.50");
         await expect(
-          page.getByRole("combobox", { name: "Held by", exact: true }),
-        ).toContainText("Demo Family LLC");
-      }
-      if (!detailsOpen) {
-        await page
-          .getByRole("button", {
-            name: "Add investment or valuation details",
-            exact: true,
-          })
-          .click();
-      }
-      await expect(
-        page.getByLabel("Cash paid · USD", { exact: true }),
-      ).toHaveValue("125.50");
-      await expect(
-        page.getByLabel("Estimated value · USD", { exact: true }),
-      ).toHaveValue("150");
-    });
+          page.getByLabel("Estimated value · USD", { exact: true }),
+        ).toHaveValue("150");
+        await page.getByRole("button", { name: "Cancel", exact: true }).click();
+        await expect(page).toHaveURL(/\/holdings$/u);
+      });
+    }
   }
-}
+});
 
 test("uses the shared calendars with bounds, keyboard focus and field errors", async ({
   page,
