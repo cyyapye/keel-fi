@@ -76,16 +76,33 @@ def resource_summary(root, flow_ids):
     flows = {name: {"cpu_ns": None, "runqueue_ns": None, "max_observed_processes": None}
              for name in flow_ids}
     times, invalid, limited, errors, unavailable_flows, schedstats = [], 0, 0, None, 0, 0
-    for line in lines:
+    cpu_deltas, previous_cpu, previous_time = [0] * 8, None, None
+    cpu_intervals, rejected_cpu_intervals = 0, 0
+    for index, line in enumerate(lines):
         try:
             row = json.loads(line)
         except (ValueError, UnicodeError, RecursionError):
             invalid += 1
+            rejected_cpu_intervals += int(index > 0)
+            previous_cpu, previous_time = None, None
             continue
         instant = summary_number(row.get("time"), 10**12) if isinstance(row, dict) else None
         if instant is None:
             invalid += 1
+            rejected_cpu_intervals += int(index > 0)
+            previous_cpu, previous_time = None, None
             continue
+        cpu = row.get("cpu")
+        valid_cpu = (isinstance(cpu, list) and len(cpu) == 8
+                     and all(type(value) is int and summary_number(value) is not None for value in cpu))
+        delta = ([current - prior for current, prior in zip(cpu, previous_cpu)]
+                 if valid_cpu and previous_cpu is not None and instant > previous_time else None)
+        if delta is not None and min(delta) >= 0 and sum(delta) > 0:
+            cpu_deltas = [total + value for total, value in zip(cpu_deltas, delta)]
+            cpu_intervals += 1
+        elif index:
+            rejected_cpu_intervals += 1
+        previous_cpu, previous_time = (cpu, instant) if valid_cpu else (None, None)
         times.append(instant)
         for key, (operation, maximum) in extrema.items():
             value = summary_number(row.get(key), maximum)
@@ -128,10 +145,20 @@ def resource_summary(root, flow_ids):
             count = summary_number(source.get("observed_processes"), 512)
             if type(count) is int:
                 total["max_observed_processes"] = max(total["max_observed_processes"] or 0, count)
+    total_ticks = sum(cpu_deltas)
+    cpu_ticks = {"scope": "host-wide", "aggregation": "weighted-tick-deltas",
+                 "valid_intervals": cpu_intervals, "rejected_intervals": rejected_cpu_intervals,
+                 "covered_ticks": total_ticks if cpu_intervals else None,
+                 **{f"{name}_percent": round(sum(cpu_deltas[index] for index in indices) * 100 / total_ticks, 3)
+                    if total_ticks else None for name, indices in {
+                        "executing": (0, 1, 2, 5, 6), "steal": (7,), "iowait": (4,), "idle": (3,),
+                    }.items()}}
     return {"status": "invalid" if not times else "partial" if invalid else "sampled",
             "samples": len(times), "invalid_samples": invalid,
             "sample_time_span_seconds": round(max(times) - min(times), 3) if times else None,
-            "host": {**values, "load_average": None, "pressure_some_avg10_peak": pressure},
+            "host": {**values, "cpu_busy_percent_includes_steal": True,
+                     "cpu_tick_summary": cpu_ticks,
+                     "load_average": None, "pressure_some_avg10_peak": pressure},
             "flow_measurement": "sampled-lower-bound", "limited_samples": limited,
             "read_errors": errors, "unavailable_flow_samples": unavailable_flows,
             "schedstats_enabled_samples": schedstats,

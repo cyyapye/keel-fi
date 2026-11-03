@@ -80,13 +80,13 @@ preflight evidence fails verification.
 
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
-most three native flows run concurrently. Ready compose and migration work
-precede main unit admission, keeping the browser fixture path moving. The
-workspace build can release a slot for units while migrations run. Source checks
-finish before the wide main unit and browser phases, protecting their CPU and
-memory budget. Build, migration and bounded PDF prerequisites can still overlap
-source checks. The 900-second active budget, per-case deadlines and three-worker
-main unit ceiling remain.
+most three native flows run concurrently. Admission follows the reviewed map's
+first-ready order. Unit and browser work may overlap source checks after their
+own prerequisites pass. PDF isolation waits for source checks, so its scanner
+cannot overlap the compiler flow. Source checks still must pass in the same
+complete receipt. Configured scanner and compiler limits do not establish
+observed memory use or available host capacity. The 900-second active budget,
+per-case deadlines and three-worker main unit ceiling remain.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It
@@ -99,6 +99,14 @@ silently reducing coverage. Alternative parsers and processors are refused
 because transformed input can hide diagnostics from the original source. It
 creates no persistent cache or receipt.
 
+Its regression fixtures reuse loaded modules in an owned child while each
+operation clears parser caches and creates fresh context maps. The strict CLI is
+checked separately. The existing per-fixture timeout and aggregate output bound
+still apply, including rejection of a result received after its deadline.
+Same-path source/configuration changes verify that batching cannot accept a
+stale compiler result. The child closes between logical cases and before CLI
+smokes.
+
 Normal run `41600540573` spent 269.761 seconds in source checks and admitted
 wide phases at offset 351.88. It failed a browser case that passed on retry at
 893.586 active seconds, before the 900-second boundary. Remaining unit and
@@ -106,6 +114,15 @@ browser work was interrupted. A private five-pair macOS prototype comparison
 found less compiler CPU work, no elapsed improvement and higher reported child
 peak RSS. That experiment justifies testing reuse on Linux; it does not
 establish whole-run headroom.
+
+The next ordinary attempt, `41612724486`, spent 222.061 seconds in source checks
+but failed a different retry-success case at 843.066 active seconds. Main unit
+work and the final browser lane remained incomplete. Removing source-check
+serialization is an experiment alongside work reductions, not a forecast. The
+bounded resource summary now distinguishes weighted host execution, steal,
+iowait and idle from the existing raw tick samples. Its legacy busy peak
+includes steal. These are host-wide observations; flow CPU remains a sampled
+lower bound.
 
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
@@ -131,8 +148,7 @@ flowchart LR
   pdfBuild --> provider
   provider --> pdf[PDF isolation]
   integrity --> unit[Unit and D1 tests]
-  source --> unit
-  source --> browser
+  source --> pdf
   migrations --> browserFixture[Browser fixture]
   build --> browser[Browser suite]
   provider --> browser
@@ -178,18 +194,18 @@ provider-usage files also run in the one-worker preflight. The purchase-route
 case previously exceeded its unchanged five-second deadline during browser
 overlap in run `41383958842`. Its authentication, validation, accepted-write,
 valuation, history and fixture work remain inside that same test and deadline.
-The two D1 cost files remain in main, which waits for source checks before
-running alongside browsers. Main unit files retain their measured cost
-priorities. The automatic-review day/history case has early main-phase priority
-after run `40443347834` exceeded its unchanged 90-second deadline during browser
-overlap. That run's host CPU pressure (`some avg10`) had a 65.6% median. Moving
-admission does not change its 120-item histories, request envelope, D1
-assertions, worker count or timeout. A complete Linux run remains the acceptance
-check. Earlier admission changes neither the three-worker main pool nor the case
-inventory. The reviewed-rename cost fixture runs its synthetic import and 240
-company-review operations inside its existing workerd fixture to avoid repeated
-Node-to-D1 bridge calls. It uses the same repository methods, accepted decisions
-and link records. The test still meters every positive, history, empty and
+The two D1 cost files remain in main, which can run alongside source checks and
+browsers. Main unit files retain their measured cost priorities. The
+automatic-review day/history case has early main-phase priority after run
+`40443347834` exceeded its unchanged 90-second deadline during browser overlap.
+That run's host CPU pressure (`some avg10`) had a 65.6% median. Moving admission
+does not change its 120-item histories, request envelope, D1 assertions, worker
+count or timeout. A complete Linux run remains the acceptance check. Earlier
+admission changes neither the three-worker main pool nor the case inventory. The
+reviewed-rename cost fixture runs its synthetic import and 240 company-review
+operations inside its existing workerd fixture to avoid repeated Node-to-D1
+bridge calls. It uses the same repository methods, accepted decisions and link
+records. The test still meters every positive, history, empty and
 unrelated-household read against real D1, with the same 120-position scale, row
 budgets and query-plan assertions.
 

@@ -676,10 +676,9 @@ def validate_preflight_dependencies(mapping):
     if (gate not in by_id or by_id[gate]["depends_on"]
             or any(not follows(name, gate, set()) for name in by_id if name != gate)):
         raise ValueError("Every native flow must follow the isolated preflight")
-    if ("source-quality" not in by_id
-            or any(name not in by_id or not follows(name, "source-quality", set())
-                   for name in ("native-unit-and-cost", "browser-workflows"))):
-        raise ValueError("Wide native flows must follow source-quality")
+    if ("source-quality" not in by_id or "pdf-isolation" not in by_id
+            or not follows("pdf-isolation", "source-quality", set())):
+        raise ValueError("PDF isolation must follow source-quality")
 
 
 def vitest_context():

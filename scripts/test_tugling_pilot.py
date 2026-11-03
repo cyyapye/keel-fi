@@ -1056,7 +1056,7 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], ["gate-and-artifact-integrity"])
         self.assertEqual(
             flows["pdf-isolation"]["depends_on"],
-            ["gate-and-artifact-integrity", "pdf-sandbox-build", "provider-document-runtime"],
+            ["gate-and-artifact-integrity", "pdf-sandbox-build", "provider-document-runtime", "source-quality"],
         )
         self.assertEqual(flows["provider-document-runtime"]["argv"], ["make", "provider-document-runtime-verify"])
         self.assertEqual(flows["provider-document-runtime"]["timeout_seconds"], 60)
@@ -1066,7 +1066,7 @@ with native.cost_seed_directory() as seed:
         self.assertIn('resolve("scripts/test-support/provider-documents-runtime-smoke.ts")', boundary)
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["gate-and-artifact-integrity", "source-quality"],
+            ["gate-and-artifact-integrity"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("compose-configuration"), flow_order.index("migration-and-seed"))
@@ -1083,6 +1083,8 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["migration-and-seed"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "migration-seed"])
         self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])
         self.assertIn("provider-document-runtime", flows["browser-workflows"]["depends_on"])
+        self.assertEqual(flows["browser-workflows"]["depends_on"],
+                         ["browser-fixture-preparation", "build-and-entry-budget", "provider-document-runtime"])
         # The sole Chromium PDF integration finishes before UI workers start;
         # remaining PDF kernel/scanner probes cannot add a fifth browser worker.
         self.assertNotIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
@@ -1095,18 +1097,17 @@ with native.cost_seed_directory() as seed:
             next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = []
             with self.subTest(ungated=name), self.assertRaises(ValueError):
                 native.validate_preflight_dependencies(invalid)
-        for name in ("native-unit-and-cost", "browser-workflows"):
-            invalid = json.loads(json.dumps(plan))
-            flow = next(flow for flow in invalid["flows"] if flow["id"] == name)
-            flow["depends_on"].remove("source-quality")
-            with self.subTest(source_ungated=name), self.assertRaisesRegex(ValueError, "source-quality"):
-                native.validate_preflight_dependencies(invalid)
+        invalid = json.loads(json.dumps(plan))
+        next(flow for flow in invalid["flows"] if flow["id"] == "pdf-isolation")["depends_on"].remove("source-quality")
+        with self.assertRaisesRegex(ValueError, "source-quality"):
+            native.validate_preflight_dependencies(invalid)
         transitive = json.loads(json.dumps(plan))
         by_id = {flow["id"]: flow for flow in transitive["flows"]}
         by_id["compose-configuration"]["depends_on"] = ["source-quality"]
-        by_id["native-unit-and-cost"]["depends_on"] = ["compose-configuration"]
+        by_id["pdf-isolation"]["depends_on"].remove("source-quality")
+        by_id["pdf-isolation"]["depends_on"].append("compose-configuration")
         native.validate_preflight_dependencies(transitive)
-        by_id["source-quality"]["depends_on"].append("source-quality")
+        by_id["compose-configuration"]["depends_on"].append("compose-configuration")
         with self.assertRaisesRegex(ValueError, "cycle"):
             native.validate_preflight_dependencies(transitive)
         self.assertEqual(plan["execution"]["max_parallel"], 3)

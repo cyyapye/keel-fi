@@ -83,6 +83,10 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(resources["sample_time_span_seconds"], 5)
         self.assertEqual(resources["host"], {"cpu_busy_percent": 75, "iowait_percent": 2,
             "memory_available_mib": 3000, "swap_used_mib": 20, "load_average": None,
+            "cpu_busy_percent_includes_steal": True,
+            "cpu_tick_summary": {"scope": "host-wide", "aggregation": "weighted-tick-deltas",
+                "valid_intervals": 0, "rejected_intervals": 1, "covered_ticks": None,
+                "executing_percent": None, "steal_percent": None, "iowait_percent": None, "idle_percent": None},
             "pressure_some_avg10_peak": {"cpu": 60.5, "memory": None, "io": None}})
         self.assertEqual(resources["flows"], [
             {"id": "browser", "cpu_seconds_observed": None,
@@ -98,6 +102,57 @@ class DiagnosticsTests(unittest.TestCase):
                 "duration_seconds": 50, "exit_code": -15, "failure_present": True}]})
         self.assertNotIn("private-secret", json.dumps(summary))
         self.assertNotIn("foreign-secret", json.dumps(summary))
+
+        def cpu_summary(rows):
+            self.write("ci-resources.jsonl", b"\n".join(json.dumps(row).encode() for row in rows))
+            return diagnostics.resource_summary(self.root, set())["host"]["cpu_tick_summary"]
+
+        weighted = cpu_summary([
+            {"time": 100, "cpu": [0] * 8},
+            {"time": 105, "cpu": [10, 0, 0, 0, 0, 0, 0, 0]},
+            {"time": 120, "cpu": [10, 0, 0, 180, 0, 0, 0, 10]},
+        ])
+        self.assertEqual(weighted, {"scope": "host-wide", "aggregation": "weighted-tick-deltas",
+            "valid_intervals": 2, "rejected_intervals": 0, "covered_ticks": 200,
+            "executing_percent": 5, "steal_percent": 5, "iowait_percent": 0, "idle_percent": 90})
+        for rows in (
+            [{"time": 1, "cpu": [10] * 8}, {"time": 2, "cpu": [5] * 8},
+             {"time": 3, "cpu": [6] * 8}],
+            [{"time": 2, "cpu": [10] * 8}, {"time": 1, "cpu": [20] * 8},
+             {"time": 3, "cpu": [21] * 8}],
+        ):
+            with self.subTest(reset=rows):
+                reset = cpu_summary(rows)
+                self.assertEqual((reset["valid_intervals"], reset["rejected_intervals"], reset["covered_ticks"]),
+                                 (1, 1, 8))
+                self.assertEqual([reset[f"{name}_percent"] for name in ("executing", "steal", "iowait", "idle")],
+                                 [62.5, 12.5, 12.5, 12.5])
+        for invalid_cpu in (None, [], [0] * 7, [0] * 9,
+                            *([value] + [0] * 7 for value in (True, -1, 1.0, "1", 10**19))):
+            with self.subTest(invalid_cpu=invalid_cpu):
+                absent = cpu_summary([{"time": 1, "cpu": [0] * 8},
+                                      {"time": 2, "cpu": invalid_cpu},
+                                      {"time": 3, "cpu": [20] * 8}])
+                self.assertEqual((absent["valid_intervals"], absent["rejected_intervals"]), (0, 2))
+                self.assertIsNone(absent["covered_ticks"])
+                self.assertTrue(all(absent[f"{name}_percent"] is None
+                                    for name in ("executing", "steal", "iowait", "idle")))
+        for rows in (
+            [{"time": 1, "cpu": [0] * 8}, {"time": 1, "cpu": [10] * 8}],
+            [{"time": 1, "cpu": [10] * 8}, {"time": 2, "cpu": [10] * 8}],
+            [{"time": 1, "cpu": [0] * 8}, {"time": "bad", "cpu": [10] * 8},
+             {"time": 3, "cpu": [20] * 8}],
+            [{"time": 1, "cpu": [0] * 8}, None, {"time": 3, "cpu": [20] * 8}],
+        ):
+            with self.subTest(invalid_interval=rows):
+                absent = cpu_summary(rows)
+                self.assertEqual(absent["valid_intervals"], 0)
+                self.assertEqual(absent["rejected_intervals"], len(rows) - 1)
+                self.assertIsNone(absent["covered_ticks"])
+        self.write("ci-resources.jsonl", json.dumps({"time": 1, "cpu": [0] * 8}).encode()
+                   + b"\ninvalid\n" + json.dumps({"time": 3, "cpu": [20] * 8}).encode())
+        gap = diagnostics.resource_summary(self.root, set())["host"]["cpu_tick_summary"]
+        self.assertEqual((gap["valid_intervals"], gap["rejected_intervals"], gap["covered_ticks"]), (0, 2, None))
 
     def test_failure_and_cancellation_bound_120_cases_and_record_omissions(self):
         report = b'{"stats":{"unexpected":120},"errors":["synthetic failure"]}'

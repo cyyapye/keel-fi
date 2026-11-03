@@ -73,11 +73,12 @@ Small fixture and SHA-driver prototypes did not establish meaningful gains and
 were rejected. The capacity-owner and runtime-graph tests and all production
 source remain unchanged. A separate local-source Linux probe stopped at SSH
 authentication before any remote command; it supplies no timing evidence. Source
-checks finish before the wide unit and browser phases; bounded build, migration
-and PDF prerequisites retain parallel execution. Existing resource samples and
-flow outcomes receive a bounded console summary, so paused artifact uploads do
-not hide the remaining resource evidence. Complete normal CI remains the
-acceptance path for this resource schedule.
+checks may overlap wide work, while PDF isolation waits for source checks to
+finish. Every flow still follows the isolated gate and must pass in the complete
+receipt. Existing samples provide weighted host execution/steal measurements
+without adding reads or changing sampling. The legacy busy peak includes steal;
+flow CPU remains a lower bound. Complete normal CI remains the acceptance path
+for this resource schedule.
 
 The quieter gate exposed a cash fixture that relied on wall-clock review times
 being different. With tied observations and tied review times, the existing
@@ -97,6 +98,15 @@ notices, request counts, activity events, timeout and 20-minute pause assertions
 remain. Historical CI response ordering was not captured and remains
 unconfirmed.
 
+The partial-cash browser journey reuses the real collection response consumed by
+the page after each save/reload, replacing three additional API-context reads.
+Request capture starts before the action and rejects earlier in-flight requests.
+All 18 original snapshot assertions remain. Five local paired runs reduce
+collection reads from nine to six without an elapsed-time claim. Under a
+controlled four-second response delay, the original mobile case expires while
+the candidate retains its unchanged 30-second deadline. Historical CI latency
+was not measured by that control.
+
 Native source checks reuse typed ESLint's compiler programs instead of starting
 separate compiler checks for the same contexts. Each required context still
 produces complete pre-emit diagnostics, including sources ignored by ESLint.
@@ -107,6 +117,17 @@ emission modes fail the combined command. Standalone lint and typecheck remain
 available. The retained synthetic controls exercise compiler errors and missing
 coverage rather than only checking the helper's structure. No new compiler,
 persistent cache or receipt protocol is introduced.
+
+Compiler regression fixtures share loaded modules in one owned child per case,
+with a fresh compiler operation for each input. The operation clears parser and
+project-service caches before and after checking. A retained same-path mutation
+control catches the stale-source false acceptance observed without that reset.
+All 34 original predicates and the three case identities remain, with real CLI
+smokes. The parent retains each fixture's 20-second limit and aggregate one-MiB
+output bound, rejects late responses and removes its exact child on failure or
+close. This removes repeated Node startup without sharing compiler programs
+between fixtures. Local component measurements do not establish whole-suite
+Linux fit.
 
 Real PDF isolation, production browser/document capture, current authentication,
 quota denial, stale/unknown evidence, uncertain replay, concurrency and owned

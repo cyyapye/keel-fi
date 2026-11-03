@@ -32,7 +32,8 @@
         ".github/workflows/private-document-backup.yml",
         "scripts/lint-typecheck.mjs",
         "scripts/lint-typecheck.test.ts",
-        "pnpm-workspace.yaml"
+        "pnpm-workspace.yaml",
+        "scripts/test-support/lint-typecheck-fixture.mjs"
       ],
       "runtime": null,
       "depends_on": ["gate-and-artifact-integrity"]
@@ -254,15 +255,16 @@
         "scripts/test-support/synthetic-historical-foreign-key-indexes.sql",
         "scripts/d1-maintenance-baseline.test.ts",
         "scripts/test-support/query-inventory.ts",
-        "scripts/test-support/query-inventory.test.ts"
+        "scripts/test-support/query-inventory.test.ts",
+        "scripts/test-support/lint-typecheck-fixture.mjs"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Source checks complete before this wide native workload starts. After the isolated gate, Vitest runs every remaining unit case with three workers. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. Ready compose and migration work precedes units; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
+        "launch": "After the isolated gate, Vitest runs every remaining unit case with three workers. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. The unchanged first-ready map order controls admission; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Capacity cases exercise conditional R2, cumulative quotas, expiry and denied work.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": ["gate-and-artifact-integrity", "source-quality"]
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "provider-document-runtime",
@@ -369,15 +371,14 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Source checks complete before this wide native workload starts. The sealed, verified and closed synthetic D1 fixture is copied into three independent profiles without rerunning setup. Three one-worker stateful shards and the one-worker production-served API-mocked lane start on distinct ports; only after all four validate and release their runtimes does the four-worker production-served holdings lane start.",
+        "launch": "The sealed, verified and closed synthetic D1 fixture is copied into three independent profiles without rerunning setup. Three one-worker stateful shards and the one-worker production-served API-mocked lane start on distinct ports; only after all four validate and release their runtimes does the four-worker production-served holdings lane start.",
         "health": "The development stateful lane validates the initial Vite module graph; all stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers.",
         "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
       },
       "depends_on": [
         "browser-fixture-preparation",
         "build-and-entry-budget",
-        "provider-document-runtime",
-        "source-quality"
+        "provider-document-runtime"
       ]
     },
     {
@@ -403,14 +404,15 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
+        "launch": "Source checks complete before scanner isolation starts. The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
         "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
         "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
       },
       "depends_on": [
         "gate-and-artifact-integrity",
         "pdf-sandbox-build",
-        "provider-document-runtime"
+        "provider-document-runtime",
+        "source-quality"
       ]
     }
   ],

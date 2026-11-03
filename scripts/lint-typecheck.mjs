@@ -1,8 +1,10 @@
 import { ESLint } from "eslint";
 import ts from "typescript";
 import tseslint from "typescript-eslint";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
 const rootTypecheck =
   "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck && tsc --noEmit -p e2e/ui-catalogue/tsconfig.json";
@@ -117,10 +119,7 @@ function compilerContexts(cwd) {
   );
 }
 
-async function main() {
-  if (process.argv.length !== 2)
-    throw new Error("Usage: node scripts/lint-typecheck.mjs");
-  const cwd = process.cwd();
+async function performChecks(cwd) {
   const expected = compilerContexts(cwd);
   const seen = new Set();
   const programs = new WeakSet();
@@ -203,13 +202,20 @@ async function main() {
   }
   const formatter = await eslint.loadFormatter("stylish");
   const lintOutput = formatter.format(results);
-  if (lintOutput) process.stdout.write(lintOutput);
+  let output = lintOutput;
   const missing = [...expected.keys()].filter((key) => !seen.has(key));
   if (missing.length) {
-    throw new Error(`Missing TypeScript contexts ${missing.join(", ")}`);
+    return {
+      status: 1,
+      stdout: output,
+      stderr: `Missing TypeScript contexts ${missing.join(", ")}\n`,
+    };
   }
   if (diagnostics.length) {
-    process.stdout.write(ts.formatDiagnostics(diagnostics, diagnosticHost));
+    output += ts.formatDiagnostics(diagnostics, {
+      ...diagnosticHost,
+      getCurrentDirectory: () => cwd,
+    });
   }
   const lintErrors = results.reduce(
     (total, result) => total + result.errorCount,
@@ -219,19 +225,64 @@ async function main() {
     (total, result) => total + result.warningCount,
     0,
   );
-  console.log(
-    JSON.stringify({
-      contexts: seen.size,
-      lintFiles: results.length,
-      lintErrors,
-      warnings,
-      typeDiagnostics: diagnostics.length,
-    }),
-  );
-  process.exitCode = lintErrors || warnings || diagnostics.length ? 1 : 0;
+  const summary = {
+    contexts: seen.size,
+    lintFiles: results.length,
+    lintErrors,
+    warnings,
+    typeDiagnostics: diagnostics.length,
+  };
+  return {
+    status: lintErrors || warnings || diagnostics.length ? 1 : 0,
+    stdout: output + JSON.stringify(summary) + "\n",
+    stderr: "",
+  };
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+const scoped = createRequire(
+  createRequire(import.meta.url).resolve("typescript-eslint"),
+);
+const parser = scoped("@typescript-eslint/parser");
+if (
+  parser.parseForESLint !== tseslint.parser.parseForESLint ||
+  typeof parser.clearCaches !== "function"
+)
+  throw new Error("Parser reset API differs");
+let running = false;
+export async function check(cwd = process.cwd()) {
+  if (running) throw new Error("Combined checks must run serially");
+  running = true;
+  try {
+    parser.clearCaches();
+    return await performChecks(realpathSync(cwd));
+  } catch (error) {
+    return {
+      status: 1,
+      stdout: "",
+      stderr: (error instanceof Error ? error.message : String(error)) + "\n",
+    };
+  } finally {
+    try {
+      parser.clearCaches();
+    } finally {
+      running = false;
+    }
+  }
+}
+
+async function main() {
+  if (process.argv.length !== 2)
+    throw new Error("Usage: node scripts/lint-typecheck.mjs");
+  const result = await check();
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exitCode = result.status;
+}
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+)
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
