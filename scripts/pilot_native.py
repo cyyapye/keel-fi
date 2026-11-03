@@ -30,6 +30,10 @@ BROWSER_MAX_ACTIVE_WORKERS = 4
 BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"
 BROWSER_SEED = ROOT / ".keel-local/pilot-browser-seed"
 BROWSER_SEED_SEAL = ROOT / ".keel-local/pilot-browser-seed.json"
+STRICT_VITEST_FILES = (
+    "packages/database/src/d1-capacity.test.ts",
+    "scripts/runtime-work-inventory.test.ts",
+)
 
 
 @contextmanager
@@ -51,6 +55,8 @@ def native_lease(runner):
 def native_lease_name(runner):
     if runner in ("migration-seed", "browser-fixture", "playwright", "playwright-prepared"):
         return "playwright"
+    if runner in ("preflight", "vitest-main"):
+        return "vitest"
     return runner
 
 
@@ -642,6 +648,178 @@ def cost_seed_directory():
             signal.signal(name, handler)
 
 
+
+def vitest_partition(inventory, strict):
+    selected = [identity for identity in inventory["vitest"]
+                if (identity.split(" :: ", 1)[0] in STRICT_VITEST_FILES) is strict]
+    if not selected or (strict and {identity.split(" :: ", 1)[0] for identity in selected}
+                        != set(STRICT_VITEST_FILES)):
+        raise ValueError("Vitest partition is empty or omits a strict workload file")
+    return {"vitest": selected, "exclusions": [entry for entry in inventory["exclusions"]
+                                               if entry["id"] in selected]}
+
+
+def validate_preflight_dependencies(mapping):
+    by_id = {flow["id"]: flow for flow in mapping["flows"]}
+    gate = "gate-and-artifact-integrity"
+    def follows_gate(name, visiting):
+        if name == gate:
+            return True
+        if name in visiting:
+            raise ValueError("Native preflight dependencies contain a cycle")
+        return any(follows_gate(parent, visiting | {name})
+                   for parent in by_id[name]["depends_on"])
+    if (gate not in by_id or by_id[gate]["depends_on"]
+            or any(not follows_gate(name, set()) for name in by_id if name != gate)):
+        raise ValueError("Every native flow must follow the isolated preflight")
+
+
+def vitest_context():
+    pilot = load_module("tugling-pilot")
+    source = hashlib.sha256()
+    for raw in filter(None, pilot.git(ROOT, "ls-files", "--stage", "-z").split(b"\0")):
+        metadata, name = raw.split(b"\t", 1)
+        mode, _blob, stage = metadata.split()
+        if stage != b"0":
+            raise ValueError("Vitest evidence cannot bind an unmerged source")
+        path = ROOT / os.fsdecode(name)
+        content = os.fsencode(os.readlink(path)) if mode == b"120000" else path.read_bytes()
+        source.update(metadata + b"\0" + name + b"\0" + hashlib.sha256(content).digest())
+    github = {key: os.environ.get(key) for key in (
+        "GITHUB_ACTIONS", "GITHUB_REPOSITORY", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA",
+    )}
+    if github["GITHUB_ACTIONS"] == "true" and not all(github.values()):
+        raise ValueError("Vitest evidence needs the complete GitHub attempt identity")
+    coordinator = os.getppid()
+    started = subprocess.check_output(["ps", "-p", str(coordinator), "-o", "lstart="],
+                                      text=True, timeout=5).strip()
+    if not started:
+        raise ValueError("Vitest evidence needs a live coordinator identity")
+    return {"revision": pilot.git(ROOT, "rev-parse", "HEAD").decode().strip(),
+            "source_sha256": source.hexdigest(), "github": github,
+            "coordinator": {"pid": coordinator, "started": started},
+            "root": str(ROOT)}
+
+
+def read_vitest_artifact(path):
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1
+            or info.st_size > 4 * 1024 * 1024):
+        raise ValueError("Vitest evidence must be a bounded owned regular file")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as stream:
+        current = os.fstat(stream.fileno())
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise ValueError("Vitest evidence changed during acquisition")
+        data = stream.read(4 * 1024 * 1024 + 1)
+        if len(data) > 4 * 1024 * 1024:
+            raise ValueError("Vitest evidence exceeds its byte bound")
+        return data
+
+
+
+def write_vitest_artifact(path, value):
+    descriptor = os.open(path, os.O_WRONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "w") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_nlink != 1:
+            raise ValueError("Vitest evidence writes require an owned regular file")
+        os.ftruncate(stream.fileno(), 0)
+        json.dump(value, stream, allow_nan=False)
+        stream.write("\n")
+
+
+def strict_vitest_report(inventory, context):
+    proof_path = ARTIFACTS / "vitest-preflight-proof.json"
+    proof = json.loads(read_vitest_artifact(proof_path))
+    budget = json.loads((ROOT / ".tugling/pilot.json").read_text())["project"]["verification_budget_seconds"]
+    if (not isinstance(proof, dict) or set(proof) != {"context", "started_at", "completed_at", "report_sha256"}
+            or proof["context"] != context
+            or type(proof["started_at"]) is not int or type(proof["completed_at"]) is not int
+            or not proof["started_at"] <= proof["completed_at"]
+            or not 0 <= time.time() * 1000 - proof["completed_at"] <= budget * 1000):
+        raise ValueError("Vitest preflight evidence is stale or from another source or attempt")
+    raw = read_vitest_artifact(ARTIFACTS / "vitest-preflight.json")
+    if hashlib.sha256(raw).hexdigest() != proof["report_sha256"]:
+        raise ValueError("Vitest preflight report differs from its completed proof")
+    report = json.loads(raw)
+    if (type(report.get("startTime")) is not int
+            or not proof["started_at"] <= report["startTime"] <= proof["completed_at"]):
+        raise ValueError("Vitest report predates its preflight execution")
+    compare_cases("vitest", vitest_cases(report), vitest_partition(inventory, True))
+    if not report["success"]:
+        raise ValueError("Vitest preflight reported errors")
+    claimed = ARTIFACTS / "vitest-preflight-used.json"
+    prepare_report(claimed)
+    proof_path.replace(claimed)
+    return report
+
+
+def merge_vitest_reports(strict, main):
+    merged = {**main, "success": strict["success"] and main["success"],
+              "startTime": min(strict["startTime"], main["startTime"]),
+              "testResults": [*strict["testResults"], *main["testResults"]]}
+    for key in ("numTotalTestSuites", "numPassedTestSuites", "numFailedTestSuites", "numPendingTestSuites",
+                "numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests"):
+        merged[key] = strict[key] + main[key]
+    merged["snapshot"] = {
+        key: (strict["snapshot"][key] or value) if type(value) is bool
+        else [*strict["snapshot"][key], *value] if isinstance(value, list)
+        else strict["snapshot"][key] + value
+        for key, value in main["snapshot"].items()
+    }
+    return merged
+
+
+def run_vitest(runner, inventory):
+    partitioned = runner in ("preflight", "vitest-main")
+    strict = runner == "preflight"
+    subset = vitest_partition(inventory, strict) if partitioned else inventory
+    context = vitest_context() if partitioned else None
+    earlier = strict_vitest_report(inventory, context) if runner == "vitest-main" else None
+    output = ARTIFACTS / ("vitest-preflight.json" if strict else "vitest-main.json"
+                          if partitioned else "vitest.json")
+    prepare_report(output)
+    if partitioned:
+        prepare_report(ARTIFACTS / "vitest.json")
+    proof = ARTIFACTS / "vitest-preflight-proof.json"
+    if strict:
+        prepare_report(proof)
+    command = ["node", "node_modules/vitest/vitest.mjs", "run", "--config=vitest.config.ts",
+               "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
+               "--reporter=./scripts/pilot-vitest-reporter.ts", f"--outputFile={output}"]
+    started_at = int(time.time() * 1000)
+    if strict:
+        command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
+        returncode = subprocess.run(command, cwd=ROOT, check=False).returncode
+    else:
+        if partitioned:
+            command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
+        with cost_seed_directory() as seed:
+            subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
+                           cwd=ROOT, check=True)
+            unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
+            if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
+                raise ValueError("Unit PDF boundary must remain unprovisioned")
+            returncode = subprocess.run(command, cwd=ROOT, check=False,
+                                        env={**os.environ, "KEEL_TEST_D1_SEED": seed,
+                                             "KEEL_PDF_SANDBOX_CONFIG": str(unavailable_pdf)}).returncode
+    report = json.loads(output.read_text())
+    compare_cases("vitest", vitest_cases(report), subset)
+    if returncode or not report["success"]:
+        raise ValueError(f"vitest reported errors (exit {returncode})")
+    if partitioned and context != vitest_context():
+        raise ValueError("Vitest source changed during its partition execution")
+    if strict:
+        write_vitest_artifact(proof, {"context": context, "started_at": started_at,
+                                     "completed_at": int(time.time() * 1000),
+                                     "report_sha256": hashlib.sha256(output.read_bytes()).hexdigest()})
+    elif partitioned:
+        merged = merge_vitest_reports(earlier, report)
+        compare_cases("vitest", vitest_cases(merged), inventory)
+        write_vitest_artifact(ARTIFACTS / "vitest.json", merged)
+
+
 def run_suite(runner):
     if runner == "migration-seed":
         prepare_browser_seed()
@@ -657,50 +835,34 @@ def run_suite(runner):
         if not result.wasSuccessful():
             raise ValueError("native Python tests failed")
         return
-    report_runner = "playwright" if runner == "playwright-prepared" else runner
-    output = ARTIFACTS / f"{report_runner}.json"
-    # Protect evidence itself without changing native fixture/runtime umasks.
+    if runner in ("vitest", "vitest-main", "preflight"):
+        if runner == "preflight":
+            validate_preflight_dependencies(json.loads((ROOT / ".tugling/pilot-verification.json").read_text()))
+        run_vitest(runner, inventory)
+        if runner == "preflight":
+            with native_lease("python"):
+                run_suite("python")
+        return
+    output = ARTIFACTS / "playwright.json"
     prepare_report(output)
-    if runner == "vitest":
-        command = ["node", "node_modules/vitest/vitest.mjs", "run", "--config=vitest.config.ts",
-                   "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
-                   "--reporter=./scripts/pilot-vitest-reporter.ts",
-                   f"--outputFile={output}"]
-        # One closed, freshly migrated seed for this invocation; every test gets
-        # an independently verified copy. No mutable database crosses cases.
-        with cost_seed_directory() as seed:
-            subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
-                           cwd=ROOT, check=True)
-            # Unit tests own policy/fake-command boundaries. Real PDF/Chromium
-            # integrations are separate required flows, so units must not rely
-            # on a previously built sandbox while today's images are building.
-            unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
-            if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
-                raise ValueError("Unit PDF boundary must remain unprovisioned")
-            returncode = subprocess.run(command, cwd=ROOT, check=False,
-                                        env={**os.environ, "KEEL_TEST_D1_SEED": seed,
-                                             "KEEL_PDF_SANDBOX_CONFIG": str(unavailable_pdf)}).returncode
-    else:
-        returncode = run_browser_lanes(
-            output, prepared=runner == "playwright-prepared"
-        )
+    returncode = run_browser_lanes(output, prepared=runner == "playwright-prepared")
     report = json.loads(output.read_text())
-    observed = vitest_cases(report) if report_runner == "vitest" else playwright_cases(report)
-    compare_cases(report_runner, observed, inventory)
-    if returncode or (report_runner == "vitest" and not report["success"]) or (report_runner == "playwright" and report["errors"]):
-        raise ValueError(f"{report_runner} reported errors (exit {returncode})")
+    compare_cases("playwright", playwright_cases(report), inventory)
+    if returncode or report["errors"]:
+        raise ValueError(f"playwright reported errors (exit {returncode})")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "runner",
-        choices=("migration-seed", "browser-fixture", "vitest", "playwright", "playwright-prepared", "python"),
+        choices=("migration-seed", "browser-fixture", "vitest", "vitest-main", "preflight", "playwright", "playwright-prepared", "python"),
     )
     args = parser.parse_args()
     load_module("tugling-pilot").require_unfiltered_environment()
     ARTIFACTS.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if ARTIFACTS.resolve() != ARTIFACTS or any((ARTIFACTS / name).is_symlink() for name in (".lease", "browser-results", "vitest.json", "playwright.json")):
+    if ARTIFACTS.resolve() != ARTIFACTS or any((ARTIFACTS / name).is_symlink() for name in (".lease", "browser-results", "vitest.json", "vitest-main.json", "vitest-preflight.json",
+                                                                                   "vitest-preflight-proof.json", "vitest-preflight-used.json", "playwright.json")):
         raise ValueError("native artifact ownership must not follow symlinks")
     # One report slot per runner, scoped to this checkout; never replace a
     # report still owned by another active verification process.

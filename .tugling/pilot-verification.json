@@ -33,7 +33,7 @@
         ".github/workflows/private-document-backup.yml"
       ],
       "runtime": null,
-      "depends_on": []
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "compose-configuration",
@@ -46,8 +46,8 @@
     },
     {
       "id": "gate-and-artifact-integrity",
-      "description": "Reject substituted candidate code and omitted/filtered native cases; exercise owned temporary checkout success, failure and cancellation.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "python"],
+      "description": "Run strict CPU workloads without competing native flows, then reject substituted source, incomplete cases and unsafe cleanup.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "preflight"],
       "timeout_seconds": 120,
       "sources": [
         "scripts/pilot_native.py",
@@ -64,13 +64,20 @@
         "scripts/test_pdf_sandbox_owner.py",
         "scripts/pdf-sandbox-owner.py",
         "scripts/ci-diagnostics.py",
-        "scripts/test_ci_diagnostics.py"
+        "scripts/test_ci_diagnostics.py",
+        "vitest.config.ts",
+        "scripts/pilot-vitest-reporter.ts",
+        "packages/database/src/d1-capacity.test.ts",
+        "packages/database/src/d1-capacity.ts",
+        "scripts/runtime-work-inventory.test.ts",
+        "scripts/__snapshots__/runtime-work-inventory.test.ts.snap",
+        "tsconfig.json"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "unittest owns synthetic Git and native runner fixtures in temporary directories.",
-        "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
-        "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
+        "launch": "A one-worker Vitest preflight executes both strict graph/day files before the 49 Python ownership and accounting cases. Every other native flow waits for this gate. A same-source, same-attempt, same-coordinator proof binds its complete report for one main-phase consumer.",
+        "health": "Preflight and main Vitest partitions must form the complete reviewed unit inventory exactly once. Existing five-second deadlines, all 1,440 minute attempts, real hashes, JSON CAS accounting and Python failure controls remain.",
+        "cleanup": "Owned leases prevent report replacement. Main claims the preflight proof once; missing, stale, mismatched or overlapping results fail. Existing temporary checkout and process cleanup remains mandatory."
       },
       "depends_on": []
     },
@@ -102,7 +109,7 @@
         "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
         "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
       },
-      "depends_on": []
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "migration-and-seed",
@@ -126,8 +133,8 @@
     },
     {
       "id": "native-unit-and-cost",
-      "description": "Exercise all native domain, API, database, client, workflow, resource and billing assertions with exact individual case accounting.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest"],
+      "description": "Execute the complementary native domain, API, database, client, workflow, resource and billing cases, then validate the complete preflight/main unit union.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest-main"],
       "timeout_seconds": 1500,
       "sources": [
         "vitest.config.ts",
@@ -243,7 +250,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts after integrity checks. Ready compose and migration work is admitted before units; units can then use the slot released by the independent workspace build. This keeps the browser fixture critical path moving without waiting for the unit suite. Unit tests receive an explicitly absent owned PDF configuration; real PDF/Chromium verification remains in separate required flows. Three workers admit strict workload fixtures first, followed by measured cost priorities. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
+        "launch": "After the isolated gate, Vitest runs every remaining unit case with three workers. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. Ready compose and migration work precedes units; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Capacity cases exercise conditional R2, cumulative quotas, expiry and denied work.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
@@ -308,7 +315,7 @@
         "scripts/check-web-entry-budget.mjs"
       ],
       "runtime": null,
-      "depends_on": []
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "browser-workflows",

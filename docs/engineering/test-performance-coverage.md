@@ -60,13 +60,19 @@ preparation, migration and restoration separately. Neither an empty migration
 replay nor post-migration query tests substitute for this proof.
 
 The capacity virtual day still executes all 1,440 attempts through the original
-JSON CAS store and real WebCrypto. It retains every charge, read, write,
-compaction and byte assertion under the five-second deadline. The existing
-strict-workload sequencer prioritizes that exact database test file in the first
-worker slots to reduce exposure to browser contention. The API file with the
-same basename retains its normal order. Small fixture and SHA-driver prototypes
-did not establish meaningful gains and were rejected. Scheduling changes require
-complete CI; local passes do not establish contended Linux fit.
+JSON CAS store and real WebCrypto. Every charge, read, write, compaction and
+byte assertion retains its five-second deadline. Priority alone failed in normal
+CI before browser startup, so the native integrity gate runs the 21 strict cases
+with one worker before admitting heavy flows. Its 49 Python cases remain. The
+main phase runs the other 1,624 Vitest cases, and combined accounting requires
+all 1,645 exactly once. Missing, stale, substituted, omitted or duplicated proof
+fails. Standalone Vitest still runs the full inventory.
+
+Small fixture and SHA-driver prototypes did not establish meaningful gains and
+were rejected. The capacity tests and production source remain unchanged. A
+separate local-source Linux probe stopped at SSH authentication before any
+remote command; it supplies no timing evidence. Complete normal CI remains the
+acceptance path for the isolated resource phase.
 
 Real PDF isolation, production browser/document capture, current authentication,
 quota denial, stale/unknown evidence, uncertain replay, concurrency and owned

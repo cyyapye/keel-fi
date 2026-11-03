@@ -105,6 +105,8 @@ class NativeAccountingTests(unittest.TestCase):
             self.assertEqual(native.native_lease_name("browser-fixture"), "playwright")
             self.assertEqual(native.native_lease_name("migration-seed"), "playwright")
             self.assertEqual(native.native_lease_name("playwright-prepared"), "playwright")
+            self.assertEqual(native.native_lease_name("preflight"), "vitest")
+            self.assertEqual(native.native_lease_name("vitest-main"), "vitest")
             with native.native_lease("vitest"), native.native_lease("playwright"):
                 with self.assertRaises(BlockingIOError):
                     with native.native_lease("vitest"):
@@ -890,6 +892,105 @@ with native.cost_seed_directory() as seed:
                     with self.subTest(variant=variant), self.assertRaises(ValueError):
                         native.compare_cases("vitest", observed, inventory)
 
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            strict_ids = [f"{file} :: required" for file in native.STRICT_VITEST_FILES]
+            main_id = "main.test.ts :: required"
+            inventory = {"vitest": [*strict_ids, main_id], "exclusions": []}
+            context = {"revision": "synthetic-revision", "source_sha256": "synthetic-source",
+                       "github": {"GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
+                       "coordinator": {"pid": 1, "started": "synthetic-start"}}
+            def report(identities):
+                result = {"success": True, "startTime": 1000, "testResults": [],
+                          "snapshot": {"total": 0, "failure": False, "filesRemovedList": []}}
+                for key in ("numTotalTestSuites", "numPassedTestSuites", "numTotalTests", "numPassedTests"):
+                    result[key] = len(identities)
+                for key in ("numFailedTestSuites", "numPendingTestSuites", "numFailedTests", "numPendingTests", "numTodoTests"):
+                    result[key] = 0
+                for identity in identities:
+                    file, title = identity.split(" :: ", 1)
+                    result["testResults"].append({"name": str(root / file), "assertionResults": [{
+                        "ancestorTitles": [], "title": title, "status": "passed", "failureMessages": []
+                    }]})
+                return result
+            strict = report(strict_ids)
+            main = report([main_id])
+            config = root / ".tugling/pilot.json"
+            config.parent.mkdir()
+            config.write_text(json.dumps({"project": {"verification_budget_seconds": 900}}))
+            output = root / "vitest-preflight.json"
+            proof_path = root / "vitest-preflight-proof.json"
+            def proof():
+                return {"context": json.loads(json.dumps(context)), "started_at": 1000, "completed_at": 1500,
+                        "report_sha256": native.hashlib.sha256(output.read_bytes()).hexdigest()}
+            def reset(changed_report=None, change_proof=None):
+                output.unlink(missing_ok=True)
+                output.write_text(json.dumps(changed_report or strict))
+                value = proof()
+                if change_proof:
+                    change_proof(value)
+                proof_path.unlink(missing_ok=True)
+                proof_path.write_text(json.dumps(value))
+            with (patch.object(native, "ROOT", root), patch.object(native, "ARTIFACTS", root),
+                  patch.object(native, "vitest_context", return_value=context), patch.object(native.time, "time", return_value=2)):
+                self.assertEqual(native.vitest_partition(inventory, True)["vitest"], strict_ids)
+                self.assertEqual(native.vitest_partition(inventory, False)["vitest"], [main_id])
+                reset()
+                self.assertEqual(native.strict_vitest_report(inventory, context), strict)
+                self.assertFalse(proof_path.exists())
+                with self.assertRaises(FileNotFoundError):
+                    native.strict_vitest_report(inventory, context)
+                for label, change in (
+                    ("source", lambda value: value["context"].update(source_sha256="other")),
+                    ("revision", lambda value: value["context"].update(revision="other")),
+                    ("attempt", lambda value: value["context"]["github"].update(GITHUB_RUN_ATTEMPT="2")),
+                    ("coordinator", lambda value: value["context"]["coordinator"].update(pid=2)),
+                    ("coordinator-start", lambda value: value["context"]["coordinator"].update(started="other")),
+                    ("stale", lambda value: value.update(started_at=-901000, completed_at=-900000)),
+                    ("future", lambda value: value.update(completed_at=3000)),
+                    ("old-report", lambda value: value.update(started_at=1001)),
+                    ("hash", lambda value: value.update(report_sha256="other")),
+                ):
+                    reset(change_proof=change)
+                    with self.subTest(label=label), self.assertRaises(ValueError):
+                        native.strict_vitest_report(inventory, context)
+                for identities in (strict_ids[:-1], [*strict_ids, strict_ids[0]], [*strict_ids, main_id]):
+                    reset(report(identities))
+                    with self.subTest(identities=identities), self.assertRaises(ValueError):
+                        native.strict_vitest_report(inventory, context)
+                invalid = report(strict_ids)
+                invalid["testResults"][0]["assertionResults"][0]["status"] = "pending"
+                reset(invalid)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                invalid = report(strict_ids)
+                invalid["success"] = False
+                reset(invalid)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                reset()
+                proof_path.unlink()
+                proof_path.symlink_to(output)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                reset()
+                extra_link = root / "linked-proof"
+                os.link(proof_path, extra_link)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                extra_link.unlink()
+                merged = native.merge_vitest_reports(strict, main)
+                native.compare_cases("vitest", native.vitest_cases(merged), inventory)
+                self.assertEqual(merged["numPassedTests"], 3)
+                for identities in ([], [main_id, strict_ids[0]]):
+                    with self.subTest(main=identities), self.assertRaises(ValueError):
+                        native.compare_cases("vitest", native.vitest_cases(native.merge_vitest_reports(strict, report(identities))), inventory)
+                for identities in ([main_id], [*strict_ids, main_id, main_id]):
+                    with self.subTest(expected=identities), self.assertRaises(ValueError):
+                        native.compare_cases("vitest", native.vitest_cases(merged), {**inventory, "vitest": identities})
+
+
     def test_native_playwright_removed_skipped_and_filtered_cases_fail_accounting(self):
         with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
             root = Path(temporary)
@@ -952,7 +1053,7 @@ with native.cost_seed_directory() as seed:
         self.assertNotIn("make pdf-sandbox-build", probe)
         self.assertEqual(flows["pdf-sandbox-build"]["argv"], ["make", "pdf-sandbox-build"])
         self.assertEqual(flows["pdf-sandbox-build"]["timeout_seconds"], 1200)
-        self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], [])
+        self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], ["gate-and-artifact-integrity"])
         self.assertEqual(
             flows["pdf-isolation"]["depends_on"],
             ["gate-and-artifact-integrity", "pdf-sandbox-build", "provider-document-runtime"],
@@ -976,7 +1077,7 @@ with native.cost_seed_directory() as seed:
         self.assertLess(flow_order.index("browser-workflows"), flow_order.index("pdf-isolation"))
         # Workspace builds consume source files, not lint/typecheck or D1 output.
         # Their prerequisites remain independently required for gate acceptance.
-        self.assertEqual(flows["build-and-entry-budget"]["depends_on"], [])
+        self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["gate-and-artifact-integrity"])
         required = {flow for requirement in plan["requirements"] for flow in requirement["flows"]}
         self.assertTrue({"source-quality", "migration-and-seed", "build-and-entry-budget"} <= required)
         self.assertEqual(flows["migration-and-seed"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "migration-seed"])
@@ -985,6 +1086,15 @@ with native.cost_seed_directory() as seed:
         # The sole Chromium PDF integration finishes before UI workers start;
         # remaining PDF kernel/scanner probes cannot add a fifth browser worker.
         self.assertNotIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
+        self.assertEqual(flows["source-quality"]["depends_on"], ["gate-and-artifact-integrity"])
+        self.assertEqual(flows["gate-and-artifact-integrity"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "preflight"])
+        self.assertEqual(flows["native-unit-and-cost"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "vitest-main"])
+        native.validate_preflight_dependencies(plan)
+        for name in ("source-quality", "pdf-sandbox-build", "build-and-entry-budget"):
+            invalid = json.loads(json.dumps(plan))
+            next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = []
+            with self.subTest(ungated=name), self.assertRaises(ValueError):
+                native.validate_preflight_dependencies(invalid)
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         config = json.loads((pilot.ROOT / ".tugling/pilot.json").read_text())
         self.assertEqual(config["project"]["verification_budget_seconds"], 900)
