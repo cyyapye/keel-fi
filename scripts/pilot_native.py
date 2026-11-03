@@ -801,6 +801,7 @@ def run_vitest(runner, inventory):
         returncode = subprocess.run(command, cwd=ROOT, check=False).returncode
     else:
         if partitioned:
+            command.append("--maxWorkers=2")
             command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
         with cost_seed_directory() as seed:
             subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],

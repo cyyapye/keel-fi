@@ -107,6 +107,16 @@ controlled four-second response delay, the original mobile case expires while
 the candidate retains its unchanged 30-second deadline. Historical CI latency
 was not measured by that control.
 
+The remaining manual-holding readbacks also reuse the browser's fresh response
+after the same reload. Across both projects, the full file's projection GETs
+fall from 82 to 64. All 64 browser GETs and all 26 mutation requests and status
+outcomes remain. All 123 assertions, six case declarations, actions, screenshots
+and limits are retained. A delayed-response holdout proves selection of a new
+request over an earlier buffered request; it does not establish delivery of the
+earlier response after navigation. These counts do not establish elapsed
+improvement. The native main-unit two-worker trial changes scheduling only;
+standalone units remain at three workers and strict preflight at one.
+
 Native source checks reuse typed ESLint's compiler programs instead of starting
 separate compiler checks for the same contexts. Each required context still
 produces complete pre-emit diagnostics, including sources ignored by ESLint.

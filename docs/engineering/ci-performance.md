@@ -85,8 +85,9 @@ first-ready order. Unit and browser work may overlap source checks after their
 own prerequisites pass. PDF isolation waits for source checks, so its scanner
 cannot overlap the compiler flow. Source checks still must pass in the same
 complete receipt. Configured scanner and compiler limits do not establish
-observed memory use or available host capacity. The 900-second active budget,
-per-case deadlines and three-worker main unit ceiling remain.
+observed memory use or available host capacity. The 900-second active budget and
+per-case deadlines remain. The native main-unit trial uses two workers within
+the unchanged three-worker standalone configuration.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It
@@ -123,6 +124,17 @@ bounded resource summary now distinguishes weighted host execution, steal,
 iowait and idle from the existing raw tick samples. Its legacy busy peak
 includes steal. These are host-wide observations; flow CPU remains a sampled
 lower bound.
+
+Run `41627807001` passes all eleven flows, 1,648 unit cases, 426 browser cases
+with 32 existing exclusions and 49 Python cases at 861.783 active seconds. Its
+38.217-second margin is insufficient practical headroom. Browser work is
+critical at 605.639 seconds; main units take 693.996 seconds and source checks
+408.303 seconds. Host samples show memory and I/O pressure, but do not attribute
+that pressure to a particular flow. The next controlled trial overrides only
+native main units to two workers. It keeps the exclusive one-worker preflight,
+standalone three-worker setting, native-flow and browser ceilings, complete
+inventory, assertions and all deadlines. A complete exact-revision receipt must
+establish its result; fewer workers can also extend the unit critical path.
 
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
@@ -185,23 +197,23 @@ without moving setup outside the unchanged 120-second deadline. Run
 other 1,645 unit cases and the complete browser inventory passed. A fresh
 complete native receipt must establish this candidate's Linux fit.
 
-Standalone unit execution and the main native unit phase use three workers. The
-preflight uses one. Priority alone did not isolate the strict CPU workloads: run
-`41587011543` timed out both the runtime graph and capacity day before browser
-startup while source/migration work was active. The explicit gate supersedes
-priority-only admission for those two files. Cash-account, purchase-route and
-provider-usage files also run in the one-worker preflight. The purchase-route
-case previously exceeded its unchanged five-second deadline during browser
-overlap in run `41383958842`. Its authentication, validation, accepted-write,
-valuation, history and fixture work remain inside that same test and deadline.
-The two D1 cost files remain in main, which can run alongside source checks and
-browsers. Main unit files retain their measured cost priorities. The
-automatic-review day/history case has early main-phase priority after run
-`40443347834` exceeded its unchanged 90-second deadline during browser overlap.
-That run's host CPU pressure (`some avg10`) had a 65.6% median. Moving admission
-does not change its 120-item histories, request envelope, D1 assertions, worker
-count or timeout. A complete Linux run remains the acceptance check. Earlier
-admission changes neither the three-worker main pool nor the case inventory. The
+Standalone unit execution uses three workers. The native main-unit trial uses
+two, and preflight uses one. Priority alone did not isolate the strict CPU
+workloads: run `41587011543` timed out both the runtime graph and capacity day
+before browser startup while source/migration work was active. The explicit gate
+supersedes priority-only admission for those two files. Cash-account,
+purchase-route and provider-usage files also run in the one-worker preflight.
+The purchase-route case previously exceeded its unchanged five-second deadline
+during browser overlap in run `41383958842`. Its authentication, validation,
+accepted-write, valuation, history and fixture work remain inside that same test
+and deadline. The two D1 cost files remain in main, which can run alongside
+source checks and browsers. Main unit files retain their measured cost
+priorities. The automatic-review day/history case has early main-phase priority
+after run `40443347834` exceeded its unchanged 90-second deadline during browser
+overlap. That run's host CPU pressure (`some avg10`) had a 65.6% median. Those
+admission changes retained its 120-item histories, request envelope, D1
+assertions, worker pool and timeout. The separate concurrency trial changes only
+the native main pool. A complete Linux run remains the acceptance check. The
 reviewed-rename cost fixture runs its synthetic import and 240 company-review
 operations inside its existing workerd fixture to avoid repeated Node-to-D1
 bridge calls. It uses the same repository methods, accepted decisions and link

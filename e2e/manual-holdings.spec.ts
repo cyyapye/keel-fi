@@ -1,7 +1,6 @@
 import {
   expect,
   test,
-  type APIResponse,
   type Response,
   type Request,
   type Locator,
@@ -116,19 +115,17 @@ async function save(page: Page) {
   expect(positionId).not.toBeNull();
   return positionId!;
 }
-async function readResponse(
-  response: APIResponse | Response | null,
-  positionId: string,
-) {
+const holdingsRequest = (request: Request) =>
+  new URL(request.url()).pathname === "/api/holdings-page" &&
+  request.method() === "GET";
+
+async function readResponse(response: Response | null, positionId: string) {
   expect(response).not.toBeNull();
   expect(response!.ok()).toBe(true);
   const result = HoldingsPageSchema.parse(await response!.json());
   const holding = result.holdings.find((item) => item.id === positionId);
   expect(holding).toBeDefined();
   return holding!;
-}
-async function read(page: Page, positionId: string) {
-  return readResponse(await page.request.get("/api/holdings-page"), positionId);
 }
 
 test("retains an uncertain holding draft through database quota exhaustion without replay", async ({
@@ -184,11 +181,17 @@ test("persists manual Direct, SPV and Fund holdings with unknown financial facts
     await expect(
       page.getByRole("heading", { name, exact: true }),
     ).toBeVisible();
-    await page.reload();
+    const [reloadedRequest] = await Promise.all([
+      page.waitForRequest(holdingsRequest),
+      page.reload(),
+    ]);
     await expect(
       page.getByRole("heading", { name, exact: true }),
     ).toBeVisible();
-    const holding = await read(page, positionId);
+    const holding = await readResponse(
+      await reloadedRequest.response(),
+      positionId,
+    );
     expect(holding.positionKind).toBe(
       kind === "Direct"
         ? "direct"
@@ -301,12 +304,15 @@ test("keeps explicit zero cash separate from a dated estimate through valuation 
   await chooseValuationDate(page);
   await select(page, "Carry treatment", "Before carry");
   const positionId = await save(page);
-  await page.reload();
+  const [firstRequest] = await Promise.all([
+    page.waitForRequest(holdingsRequest),
+    page.reload(),
+  ]);
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   await expect(
     page.getByText("$30,000.01", { exact: true }).first(),
   ).toBeVisible();
-  const first = await read(page, positionId);
+  const first = await readResponse(await firstRequest.response(), positionId);
   expect(first.investedMinor).toBe(0);
   await expect(
     page
@@ -342,11 +348,14 @@ test("keeps explicit zero cash separate from a dated estimate through valuation 
   await expect(
     page.getByRole("form", { name: "Edit valuation", exact: true }),
   ).toHaveCount(0);
-  await page.reload();
+  const [secondRequest] = await Promise.all([
+    page.waitForRequest(holdingsRequest),
+    page.reload(),
+  ]);
   await expect(
     page.getByText("$32,000.02", { exact: true }).first(),
   ).toBeVisible();
-  const second = await read(page, positionId);
+  const second = await readResponse(await secondRequest.response(), positionId);
   expect(second.investedMinor).toBe(0);
   const updatedValuation = second.purchaseContext?.receipt?.details.valuation;
   expect(
@@ -374,8 +383,14 @@ test("keeps explicit zero cash separate from a dated estimate through valuation 
   await expect(
     page.getByRole("heading", { name: `${name} Revised`, exact: true }),
   ).toBeVisible();
-  await page.reload();
-  const revised = await read(page, positionId);
+  const [revisedRequest] = await Promise.all([
+    page.waitForRequest(holdingsRequest),
+    page.reload(),
+  ]);
+  const revised = await readResponse(
+    await revisedRequest.response(),
+    positionId,
+  );
   expect(revised.positionName).toBe(`${name} Revised`);
   expect(revised.manualContext?.version).toBe(2);
   expect(revised.investedMinor).toBe(0);
@@ -463,7 +478,10 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
   await chooseValuationDate(page);
   await select(page, "Carry treatment", "Before carry");
   const positionId = await save(page);
-  await page.reload();
+  const [createdRequest] = await Promise.all([
+    page.waitForRequest(holdingsRequest),
+    page.reload(),
+  ]);
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   const detail = page.locator(".spv-holding");
   await expect(detail.getByText("$25,000.00", { exact: true })).toHaveCount(1);
@@ -522,7 +540,10 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
     }),
     contentType: "image/png",
   });
-  const created = await read(page, positionId);
+  const created = await readResponse(
+    await createdRequest.response(),
+    positionId,
+  );
   const lot = created.purchaseContext?.receipt?.details.lots[0];
   expect(lot).toMatchObject({
     grossCashMinor: 2_500_000,
@@ -556,8 +577,11 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
   await expect(
     page.getByRole("button", { name: "Edit investment", exact: true }),
   ).toBeVisible();
-  await page.reload();
-  const dated = await read(page, positionId);
+  const [datedRequest] = await Promise.all([
+    page.waitForRequest(holdingsRequest),
+    page.reload(),
+  ]);
+  const dated = await readResponse(await datedRequest.response(), positionId);
   expect(dated.purchaseContext?.receipt?.details.lots[0]).toMatchObject({
     grossCashMinor: 2_500_000,
     netCapitalMinor: null,
@@ -591,8 +615,14 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
   await expect(
     page.getByRole("heading", { name: `${name} Renamed`, exact: true }),
   ).toBeVisible();
-  await page.reload();
-  const renamed = await read(page, positionId);
+  const [renamedRequest] = await Promise.all([
+    page.waitForRequest(holdingsRequest),
+    page.reload(),
+  ]);
+  const renamed = await readResponse(
+    await renamedRequest.response(),
+    positionId,
+  );
   expect(renamed.purchaseContext?.receipt?.details.lots[0]?.purchasedOn).toBe(
     "2026-10-15",
   );
@@ -629,9 +659,6 @@ test("keeps a holding with no cash or valuation reachable from unassigned Holdin
 test("uses the latest saved partial contribution cash through edits and clearing", async ({
   page,
 }, testInfo) => {
-  const holdingsRequest = (request: Request) =>
-    new URL(request.url()).pathname === "/api/holdings-page" &&
-    request.method() === "GET";
   const name = `Synthetic editable manual cash ${testInfo.project.name}`;
   await start(page, "SPV", name);
   await page

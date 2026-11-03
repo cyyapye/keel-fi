@@ -260,7 +260,7 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "After the isolated gate, Vitest runs every remaining unit case with three workers. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. The unchanged first-ready map order controls admission; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
+        "launch": "After the isolated gate, Vitest runs every remaining unit case with two workers. Standalone unit execution retains its three-worker configuration. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. The unchanged first-ready map order controls admission; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Capacity cases exercise conditional R2, cumulative quotas, expiry and denied work.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
