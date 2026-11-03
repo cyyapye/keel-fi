@@ -28,13 +28,14 @@ selected CSS width/disclosure contexts with project ownership. It retires the
 same-width device-emulation cross-product, including its different touch, DPR
 and user-agent environments. The editor has no corresponding geometry branch.
 
-The unit inventory changes from 1,646 to 1,645 cases. Only the 12-history
-applied-schema baseline identity retires. Its 24-history replacement retains
-complete preservation, all three immutable probes, FK checks and the stored-row
-corruption control. A receipt requires exactly that baseline. Upgrade evidence
-still requires ordered, distinct 12/24 fixtures. Unit controls reject a missing,
-duplicated or undersized baseline and preserve conservative maxima across
-multiple scenarios. The larger fixture dominates record families and the
+The unit inventory changes from 1,646 to 1,648 cases. Three grouped compiler
+regressions cover diagnostics, context coverage and unsupported modes. Only the
+12-history applied-schema baseline identity retires. Its 24-history replacement
+retains complete preservation, all three immutable probes, FK checks and the
+stored-row corruption control. A receipt requires exactly that baseline. Upgrade
+evidence still requires ordered, distinct 12/24 fixtures. Unit controls reject a
+missing, duplicated or undersized baseline and preserve conservative maxima
+across multiple scenarios. The larger fixture dominates record families and the
 admitted envelope; this is not a claim that mutable current-state rows are
 literal subsets.
 
@@ -64,8 +65,8 @@ JSON CAS store and real WebCrypto. Every charge, read, write, compaction and
 byte assertion retains its five-second deadline. Priority alone failed in normal
 CI before browser startup, so the native integrity gate runs the 56 in-process
 strict cases with one worker before admitting heavy flows. Its 49 Python cases
-remain. The main phase runs the other 1,589 Vitest cases, and combined
-accounting requires all 1,645 exactly once. Missing, stale, substituted, omitted
+remain. The main phase runs the other 1,592 Vitest cases, and combined
+accounting requires all 1,648 exactly once. Missing, stale, substituted, omitted
 or duplicated proof fails. Standalone Vitest still runs the full inventory.
 
 Small fixture and SHA-driver prototypes did not establish meaningful gains and
@@ -86,6 +87,26 @@ and advances the second review by 1 ms. The unreviewed account still retains its
 reported amount, then becomes unknown after the later review. All assertions,
 observations, inputs and real timeout remain. The original failed run did not
 retain both timestamps, so their equality in that run is unconfirmed.
+
+The quota-pause browser fixture also waits for accepted loaded states before
+advancing virtual time. Request-entry counters alone did not establish that
+responses had activated every poller. Holding initial responses for two seconds
+reproduces the original three-expected, one-received assertion failure on both
+projects. The readiness assertions pass the same control. All original pause
+notices, request counts, activity events, timeout and 20-minute pause assertions
+remain. Historical CI response ordering was not captured and remains
+unconfirmed.
+
+Native source checks reuse typed ESLint's compiler programs instead of starting
+separate compiler checks for the same contexts. Each required context still
+produces complete pre-emit diagnostics, including sources ignored by ESLint.
+Context discovery, options, roots and configuration errors remain enforced, as
+do JavaScript lint errors and the zero-warning limit. Unsupported source types,
+parsers/processors, project references, incremental/composite builds and
+emission modes fail the combined command. Standalone lint and typecheck remain
+available. The retained synthetic controls exercise compiler errors and missing
+coverage rather than only checking the helper's structure. No new compiler,
+persistent cache or receipt protocol is introduced.
 
 Real PDF isolation, production browser/document capture, current authentication,
 quota denial, stale/unknown evidence, uncertain replay, concurrency and owned

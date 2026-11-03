@@ -9,8 +9,7 @@
         "-j2",
         "data-scan",
         "format-check",
-        "lint",
-        "typecheck",
+        "lint-typecheck",
         "d1-migration-check"
       ],
       "timeout_seconds": 600,
@@ -30,7 +29,10 @@
         "scripts/d1-maintenance.ts",
         "scripts/d1-maintenance-export.ts",
         ".github/workflows/post-merge.yml",
-        ".github/workflows/private-document-backup.yml"
+        ".github/workflows/private-document-backup.yml",
+        "scripts/lint-typecheck.mjs",
+        "scripts/lint-typecheck.test.ts",
+        "pnpm-workspace.yaml"
       ],
       "runtime": null,
       "depends_on": ["gate-and-artifact-integrity"]

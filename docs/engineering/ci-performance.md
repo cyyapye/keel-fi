@@ -88,6 +88,25 @@ memory budget. Build, migration and bounded PDF prerequisites can still overlap
 source checks. The 900-second active budget, per-case deadlines and three-worker
 main unit ceiling remain.
 
+The native source flow uses `make lint-typecheck` to collect full compiler
+diagnostics from the TypeScript programs already loaded by typed ESLint. It
+retains every root, workspace and catalogue context, all lint files and rules,
+and the zero-warning limit. Standalone `make lint` and `make typecheck` retain
+their existing commands. The combined command validates canonical context
+discovery, configuration syntax, CLI options, complete roots and supported
+source types. Missing contexts and unsupported compiler modes fail rather than
+silently reducing coverage. Alternative parsers and processors are refused
+because transformed input can hide diagnostics from the original source. It
+creates no persistent cache or receipt.
+
+Normal run `41600540573` spent 269.761 seconds in source checks and admitted
+wide phases at offset 351.88. It failed a browser case that passed on retry at
+893.586 active seconds, before the 900-second boundary. Remaining unit and
+browser work was interrupted. A private five-pair macOS prototype comparison
+found less compiler CPU work, no elapsed improvement and higher reported child
+peak RSS. That experiment justifies testing reuse on Linux; it does not
+establish whole-run headroom.
+
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
 integrity. It retains the former browser wrapper's 50-second child timeout, 128

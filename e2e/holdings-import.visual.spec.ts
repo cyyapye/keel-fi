@@ -1393,6 +1393,12 @@ test("pauses running source status checks until the database reset", async ({
   await expect
     .poll(() => checks)
     .toEqual({ angellist: 1, tokenfolio: 1, sydecar: 1, investment: 1 });
+  await expect(
+    page.getByRole("heading", { name: "Reading portfolio", exact: true }),
+  ).toHaveCount(3);
+  await expect(
+    page.getByRole("button", { name: "Checking…", exact: true }),
+  ).toBeDisabled();
   await page.clock.runFor(10_100);
   await expect(page.getByText(quota.error, { exact: true })).toHaveCount(3);
   await expect(
