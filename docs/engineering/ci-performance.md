@@ -81,15 +81,13 @@ preflight evidence fails verification.
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
 most three native flows run concurrently. Admission follows the reviewed map's
-first-ready order. The current phase trial makes browser work wait for main
-units. Source checks and main units may still overlap. Browser work may overlap
-source checks or PDF isolation after main units complete. PDF isolation waits
-for source checks, so its scanner cannot overlap the compiler flow. Source
-checks still must pass in the same complete receipt. Configured scanner and
-compiler limits do not establish observed memory use or available host capacity.
-The 900-second active budget and per-case deadlines remain. Native main units
-and standalone execution use three workers after the two-worker trial below
-failed the complete budget.
+first-ready order. Unit and browser work may overlap source checks after their
+own prerequisites pass. PDF isolation waits for source checks, so its scanner
+cannot overlap the compiler flow. Source checks still must pass in the same
+complete receipt. Configured scanner and compiler limits do not establish
+observed memory use or available host capacity. The 900-second active budget and
+per-case deadlines remain. Native main units and standalone execution use three
+workers after the two-worker trial below failed the complete budget.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It

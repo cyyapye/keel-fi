@@ -379,8 +379,7 @@
       "depends_on": [
         "browser-fixture-preparation",
         "build-and-entry-budget",
-        "provider-document-runtime",
-        "native-unit-and-cost"
+        "provider-document-runtime"
       ]
     },
     {
