@@ -78,16 +78,20 @@ the complementary cases. Both reports must account for the entire reviewed
 Vitest inventory exactly once. Missing, stale, substituted or overlapping
 preflight evidence fails verification.
 
-Source checks, the PDF image build and workspace build now wait for that gate,
-along with the flows that already depended on integrity. After preflight, at
-most three native flows run concurrently. Admission follows the reviewed map's
-first-ready order. Unit and browser work may overlap source checks after their
-own prerequisites pass. PDF isolation waits for source checks, so its scanner
-cannot overlap the compiler flow. Source checks still must pass in the same
-complete receipt. Configured scanner and compiler limits do not establish
-observed memory use or available host capacity. The 900-second active budget and
-per-case deadlines remain. Native main units and standalone execution use three
-workers after the two-worker trial below failed the complete budget.
+The current phase trial runs source checks alone after preflight. Every other
+native flow waits for source checks as well as its existing correctness
+prerequisites. This tests whether Source contention contributes to the complete
+gate's repeated failures. It postpones unit and browser admission, so a shorter
+source phase alone cannot establish a useful improvement.
+
+After source checks, at most three native flows run concurrently. Admission
+retains the reviewed map's first-ready order. All eleven flows must still pass
+in the same complete receipt. Configured scanner and compiler limits do not
+establish observed memory use or available host capacity. The 900-second active
+budget and per-case deadlines remain. Native main units and standalone execution
+use three workers after the two-worker trial below failed the complete budget.
+Browser workers, case membership, exclusions, retries and flaky-result rejection
+remain unchanged.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It

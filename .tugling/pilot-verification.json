@@ -45,7 +45,7 @@
       "timeout_seconds": 30,
       "sources": ["compose.yaml"],
       "runtime": null,
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["gate-and-artifact-integrity", "source-quality"]
     },
     {
       "id": "gate-and-artifact-integrity",
@@ -119,7 +119,7 @@
         "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
         "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
       },
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["gate-and-artifact-integrity", "source-quality"]
     },
     {
       "id": "migration-and-seed",
@@ -139,7 +139,7 @@
         "health": "Scenario readback assertions check migrations, seeds and relationships.",
         "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
       },
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["gate-and-artifact-integrity", "source-quality"]
     },
     {
       "id": "native-unit-and-cost",
@@ -265,7 +265,7 @@
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Capacity cases exercise conditional R2, cumulative quotas, expiry and denied work.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["gate-and-artifact-integrity", "source-quality"]
     },
     {
       "id": "provider-document-runtime",
@@ -286,7 +286,11 @@
         "health": "Zod validates the complete capture; exact request/download counts, one capture/document and the original legal-name/page assertions must pass.",
         "cleanup": "The child closes Chromium in finally; the native owner enforces the outer deadline and descendant cleanup. This flow completes before either the four-worker UI suite or the remaining PDF probes start."
       },
-      "depends_on": ["gate-and-artifact-integrity", "pdf-sandbox-build"]
+      "depends_on": [
+        "gate-and-artifact-integrity",
+        "pdf-sandbox-build",
+        "source-quality"
+      ]
     },
     {
       "id": "browser-fixture-preparation",
@@ -312,7 +316,7 @@
         "health": "A source-input digest and complete prepared-tree digest seal the verified fixture; the browser consumer rejects missing, stale, mutated or symlinked state without rebuilding it.",
         "cleanup": "Failure leaves no valid seal. The prepared browser command consumes the exact owned seed after cloning, while a later preparation safely replaces an unconsumed owned seed."
       },
-      "depends_on": ["migration-and-seed"]
+      "depends_on": ["migration-and-seed", "source-quality"]
     },
     {
       "id": "build-and-entry-budget",
@@ -326,7 +330,7 @@
         "scripts/check-web-entry-budget.mjs"
       ],
       "runtime": null,
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["gate-and-artifact-integrity", "source-quality"]
     },
     {
       "id": "browser-workflows",
@@ -379,7 +383,8 @@
       "depends_on": [
         "browser-fixture-preparation",
         "build-and-entry-budget",
-        "provider-document-runtime"
+        "provider-document-runtime",
+        "source-quality"
       ]
     },
     {

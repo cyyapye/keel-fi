@@ -1053,20 +1053,20 @@ with native.cost_seed_directory() as seed:
         self.assertNotIn("make pdf-sandbox-build", probe)
         self.assertEqual(flows["pdf-sandbox-build"]["argv"], ["make", "pdf-sandbox-build"])
         self.assertEqual(flows["pdf-sandbox-build"]["timeout_seconds"], 1200)
-        self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], ["gate-and-artifact-integrity"])
+        self.assertEqual(flows["pdf-sandbox-build"]["depends_on"], ["gate-and-artifact-integrity", "source-quality"])
         self.assertEqual(
             flows["pdf-isolation"]["depends_on"],
             ["gate-and-artifact-integrity", "pdf-sandbox-build", "provider-document-runtime", "source-quality"],
         )
         self.assertEqual(flows["provider-document-runtime"]["argv"], ["make", "provider-document-runtime-verify"])
         self.assertEqual(flows["provider-document-runtime"]["timeout_seconds"], 60)
-        self.assertEqual(flows["provider-document-runtime"]["depends_on"], ["gate-and-artifact-integrity", "pdf-sandbox-build"])
+        self.assertEqual(flows["provider-document-runtime"]["depends_on"], ["gate-and-artifact-integrity", "pdf-sandbox-build", "source-quality"])
         boundary = (pilot.ROOT / "scripts/provider-document-runtime-verify.ts").read_text()
         self.assertIn("timeout: 50_000, maxBuffer: 128 * 1024", boundary)
         self.assertIn('resolve("scripts/test-support/provider-documents-runtime-smoke.ts")', boundary)
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["gate-and-artifact-integrity"],
+            ["gate-and-artifact-integrity", "source-quality"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("compose-configuration"), flow_order.index("migration-and-seed"))
@@ -1075,41 +1075,92 @@ with native.cost_seed_directory() as seed:
         self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("provider-document-runtime"), flow_order.index("pdf-isolation"))
         self.assertLess(flow_order.index("browser-workflows"), flow_order.index("pdf-isolation"))
-        # Workspace builds consume source files, not lint/typecheck or D1 output.
-        # Their prerequisites remain independently required for gate acceptance.
-        self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["gate-and-artifact-integrity"])
+        self.assertEqual(flows["build-and-entry-budget"]["depends_on"], ["gate-and-artifact-integrity", "source-quality"])
         required = {flow for requirement in plan["requirements"] for flow in requirement["flows"]}
         self.assertTrue({"source-quality", "migration-and-seed", "build-and-entry-budget"} <= required)
         self.assertEqual(flows["migration-and-seed"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "migration-seed"])
-        self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])
+        self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed", "source-quality"])
         self.assertIn("provider-document-runtime", flows["browser-workflows"]["depends_on"])
         self.assertEqual(flows["browser-workflows"]["depends_on"],
-                         ["browser-fixture-preparation", "build-and-entry-budget", "provider-document-runtime"])
+                         ["browser-fixture-preparation", "build-and-entry-budget", "provider-document-runtime", "source-quality"])
         # The sole Chromium PDF integration finishes before UI workers start;
         # remaining PDF kernel/scanner probes cannot add a fifth browser worker.
         self.assertNotIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
         self.assertEqual(flows["source-quality"]["depends_on"], ["gate-and-artifact-integrity"])
         self.assertEqual(flows["gate-and-artifact-integrity"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "preflight"])
         self.assertEqual(flows["native-unit-and-cost"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "vitest-main"])
+        expected_commands = {
+            "source-quality": (["make", "-j2", "data-scan", "format-check", "lint-typecheck", "d1-migration-check"], 600),
+            "compose-configuration": (["docker", "compose", "config", "--quiet"], 30),
+            "gate-and-artifact-integrity": (["python3", "-I", "scripts/pilot_native.py", "preflight"], 120),
+            "pdf-sandbox-build": (["make", "pdf-sandbox-build"], 1200),
+            "migration-and-seed": (["python3", "-I", "scripts/pilot_native.py", "migration-seed"], 300),
+            "native-unit-and-cost": (["python3", "-I", "scripts/pilot_native.py", "vitest-main"], 1500),
+            "provider-document-runtime": (["make", "provider-document-runtime-verify"], 60),
+            "browser-fixture-preparation": (["python3", "-I", "scripts/pilot_native.py", "browser-fixture"], 300),
+            "build-and-entry-budget": (["make", "build"], 300),
+            "browser-workflows": (["python3", "-I", "scripts/pilot_native.py", "playwright-prepared"], 1800),
+            "pdf-isolation": (["make", "pdf-sandbox-verify"], 600),
+        }
+        self.assertEqual(flow_order, list(expected_commands))
+        self.assertEqual({name: (flow["argv"], flow["timeout_seconds"]) for name, flow in flows.items()},
+                         expected_commands)
+        self.assertEqual(flows["compose-configuration"]["depends_on"], ["gate-and-artifact-integrity", "source-quality"])
+        self.assertEqual(flows["migration-and-seed"]["depends_on"], ["gate-and-artifact-integrity", "source-quality"])
+        self.assertEqual(flows["gate-and-artifact-integrity"]["depends_on"], [])
         native.validate_preflight_dependencies(plan)
-        for name in ("source-quality", "pdf-sandbox-build", "build-and-entry-budget"):
+        for name in flows:
+            if name == "gate-and-artifact-integrity":
+                continue
             invalid = json.loads(json.dumps(plan))
             next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = []
             with self.subTest(ungated=name), self.assertRaises(ValueError):
                 native.validate_preflight_dependencies(invalid)
-        invalid = json.loads(json.dumps(plan))
-        next(flow for flow in invalid["flows"] if flow["id"] == "pdf-isolation")["depends_on"].remove("source-quality")
-        with self.assertRaisesRegex(ValueError, "source-quality"):
-            native.validate_preflight_dependencies(invalid)
+            if name == "source-quality":
+                continue
+            next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = ["gate-and-artifact-integrity"]
+            with self.subTest(source_bypass=name), self.assertRaisesRegex(ValueError, "source-quality"):
+                native.validate_preflight_dependencies(invalid)
         transitive = json.loads(json.dumps(plan))
         by_id = {flow["id"]: flow for flow in transitive["flows"]}
         by_id["compose-configuration"]["depends_on"] = ["source-quality"]
-        by_id["pdf-isolation"]["depends_on"].remove("source-quality")
-        by_id["pdf-isolation"]["depends_on"].append("compose-configuration")
+        by_id["pdf-isolation"]["depends_on"] = ["compose-configuration"]
         native.validate_preflight_dependencies(transitive)
+        bypassed = json.loads(json.dumps(transitive))
+        next(flow for flow in bypassed["flows"] if flow["id"] == "compose-configuration")["depends_on"] = ["gate-and-artifact-integrity"]
+        with self.assertRaisesRegex(ValueError, "source-quality"):
+            native.validate_preflight_dependencies(bypassed)
         by_id["compose-configuration"]["depends_on"].append("compose-configuration")
         with self.assertRaisesRegex(ValueError, "cycle"):
             native.validate_preflight_dependencies(transitive)
+        invalid_graphs = [None, {}, {"flows": []}]
+        for replacement in (None, {}, {"id": []}, {"id": "", "depends_on": []},
+                            {"id": "named", "depends_on": None}, {"id": "named", "depends_on": [[]]},
+                            {"id": "named", "depends_on": [""]}):
+            invalid_graphs.append({"flows": [replacement]})
+        invalid = json.loads(json.dumps(plan))
+        invalid["flows"].append(invalid["flows"][0])
+        invalid_graphs.append(invalid)
+        for parents in (["missing"], ["gate-and-artifact-integrity"] * 2,
+                        ["gate-and-artifact-integrity", "source-quality"]):
+            invalid = json.loads(json.dumps(plan))
+            invalid["flows"][0]["depends_on"] = parents
+            invalid_graphs.append(invalid)
+        invalid = json.loads(json.dumps(plan))
+        by_id = {flow["id"]: flow for flow in invalid["flows"]}
+        by_id["compose-configuration"]["depends_on"] = ["build-and-entry-budget"]
+        by_id["build-and-entry-budget"]["depends_on"] = ["compose-configuration"]
+        invalid_graphs.append(invalid)
+        invalid = json.loads(json.dumps(plan))
+        next(flow for flow in invalid["flows"] if flow["id"] == "gate-and-artifact-integrity")["depends_on"] = ["source-quality"]
+        invalid_graphs.append(invalid)
+        for name in ("gate-and-artifact-integrity", "source-quality", "pdf-isolation"):
+            invalid = json.loads(json.dumps(plan))
+            invalid["flows"] = [flow for flow in invalid["flows"] if flow["id"] != name]
+            invalid_graphs.append(invalid)
+        for index, invalid in enumerate(invalid_graphs):
+            with self.subTest(invalid_graph=index), self.assertRaises(ValueError):
+                native.validate_preflight_dependencies(invalid)
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         config = json.loads((pilot.ROOT / ".tugling/pilot.json").read_text())
         self.assertEqual(config["project"]["verification_budget_seconds"], 900)
