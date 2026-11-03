@@ -23,6 +23,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 INVENTORY = ROOT / ".tugling/pilot-cases.json"
+RESOURCE_INVENTORY = ROOT / ".tugling/pilot-unit-resources.json"
 ARTIFACTS = ROOT / ".tugling/local/pilot"
 PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot", "test_pdf_sandbox_owner", "test_ci_diagnostics", "test_ci_verification")
 BROWSER_LANES = ("mocked", "mocked-development", "stateful-development", "stateful-a", "stateful-b")
@@ -38,6 +39,12 @@ STRICT_VITEST_FILES = (
     "scripts/provider-agent-usage.test.ts",
     "packages/database/src/exposures.test.ts",
 )
+
+VITEST_PHASES = {
+    "preflight": {"partition": "strict", "stem": "vitest-preflight", "predecessor": None},
+    "vitest-resource": {"partition": "resource", "stem": "vitest-resource", "predecessor": "preflight"},
+    "vitest-main": {"partition": "remaining", "stem": "vitest-main", "predecessor": "vitest-resource"},
+}
 
 
 @contextmanager
@@ -59,7 +66,7 @@ def native_lease(runner):
 def native_lease_name(runner):
     if runner in ("migration-seed", "browser-fixture", "playwright", "playwright-prepared"):
         return "playwright"
-    if runner in ("preflight", "vitest-main"):
+    if runner in VITEST_PHASES:
         return "vitest"
     return runner
 
@@ -653,33 +660,78 @@ def cost_seed_directory():
 
 
 
-def vitest_partition(inventory, strict):
-    selected = [identity for identity in inventory["vitest"]
-                if (identity.split(" :: ", 1)[0] in STRICT_VITEST_FILES) is strict]
-    if not selected or (strict and {identity.split(" :: ", 1)[0] for identity in selected}
-                        != set(STRICT_VITEST_FILES)):
-        raise ValueError("Vitest partition is empty or omits a strict workload file")
-    return {"vitest": selected, "exclusions": [entry for entry in inventory["exclusions"]
-                                               if entry["id"] in selected]}
+def vitest_partitions(inventory):
+    if RESOURCE_INVENTORY.resolve() != RESOURCE_INVENTORY:
+        raise ValueError("Vitest resource registry must not follow symlinks")
+    registry = json.loads(read_vitest_artifact(RESOURCE_INVENTORY))
+    if (not isinstance(registry, dict) or set(registry) != {"schema_version", "files"}
+            or type(registry["schema_version"]) is not int or registry["schema_version"] != 1
+            or not isinstance(registry["files"], list) or not registry["files"]
+            or any(not isinstance(file, str) or not file or Path(file).is_absolute()
+                   or Path(file).as_posix() != file or ".." in Path(file).parts
+                   for file in registry["files"])
+            or registry["files"] != sorted(set(registry["files"]))):
+        raise ValueError("Vitest resource registry must contain sorted distinct relative files")
+    identities = inventory["vitest"]
+    if not identities or len(identities) != len(set(identities)):
+        raise ValueError("Vitest inventory must contain distinct case identities")
+    known = {identity.split(" :: ", 1)[0] for identity in identities}
+    strict, resource = set(STRICT_VITEST_FILES), set(registry["files"])
+    if not strict <= known or not resource <= known or strict & resource:
+        raise ValueError("Vitest resource and strict files must be known and disjoint")
+    files = {"strict": strict, "resource": resource, "remaining": known - strict - resource}
+    partitions = {}
+    for phase, members in files.items():
+        selected = [identity for identity in identities if identity.split(" :: ", 1)[0] in members]
+        if not selected:
+            raise ValueError("Vitest phases must not be empty")
+        partitions[phase] = {"vitest": selected, "exclusions": [entry for entry in inventory["exclusions"]
+                                                               if entry["id"] in selected]}
+    return partitions
 
 
 def validate_preflight_dependencies(mapping):
-    by_id = {flow["id"]: flow for flow in mapping["flows"]}
-    gate = "gate-and-artifact-integrity"
-    def follows(name, prerequisite, visiting):
-        if name == prerequisite:
-            return True
+    flows = mapping.get("flows") if isinstance(mapping, dict) else None
+    if not isinstance(flows, list) or not flows:
+        raise ValueError("Native dependencies need a nonempty flow list")
+    by_id = {}
+    for flow in flows:
+        if (not isinstance(flow, dict) or not isinstance(flow.get("id"), str) or not flow["id"]
+                or not isinstance(flow.get("depends_on"), list)
+                or any(not isinstance(parent, str) or not parent for parent in flow["depends_on"])):
+            raise ValueError("Native dependencies need named flows and parent lists")
+        if flow["id"] in by_id or len(flow["depends_on"]) != len(set(flow["depends_on"])):
+            raise ValueError("Native dependencies contain duplicate flows or parents")
+        by_id[flow["id"]] = flow["depends_on"]
+    if any(parent not in by_id for parents in by_id.values() for parent in parents):
+        raise ValueError("Native dependencies contain an unknown parent")
+    ancestors, visiting = {}, set()
+    def upstream(name):
         if name in visiting:
             raise ValueError("Native preflight dependencies contain a cycle")
-        parents = [follows(parent, prerequisite, visiting | {name})
-                   for parent in by_id[name]["depends_on"]]
-        return any(parents)
-    if (gate not in by_id or by_id[gate]["depends_on"]
-            or any(not follows(name, gate, set()) for name in by_id if name != gate)):
+        if name not in ancestors:
+            visiting.add(name)
+            parents = set()
+            for parent in by_id[name]:
+                parents.add(parent)
+                parents.update(upstream(parent))
+            visiting.remove(name)
+            ancestors[name] = parents
+        return ancestors[name]
+    for name in by_id:
+        upstream(name)
+    gate, resource = "gate-and-artifact-integrity", "native-resource-unit-and-cost"
+    if (by_id.get(gate) != []
+            or any(gate not in ancestors[name] for name in by_id if name != gate)):
         raise ValueError("Every native flow must follow the isolated preflight")
-    if ("source-quality" not in by_id or "pdf-isolation" not in by_id
-            or not follows("pdf-isolation", "source-quality", set())):
-        raise ValueError("PDF isolation must follow source-quality")
+    if by_id.get(resource) != [gate]:
+        raise ValueError("Resource units must follow only the isolated preflight")
+    for name in ("native-unit-and-cost", "browser-workflows"):
+        if name not in by_id or resource not in ancestors[name]:
+            raise ValueError("Remaining units and browser workflows must follow resource units")
+    for name in ("pdf-isolation", "browser-workflows"):
+        if name not in by_id or "source-quality" not in ancestors[name]:
+            raise ValueError("PDF isolation and browser workflows must follow source-quality")
 
 
 def vitest_context():
@@ -737,30 +789,82 @@ def write_vitest_artifact(path, value):
         stream.write("\n")
 
 
-def strict_vitest_report(inventory, context):
-    proof_path = ARTIFACTS / "vitest-preflight-proof.json"
-    proof = json.loads(read_vitest_artifact(proof_path))
+def validate_vitest_phase_report(report, inventory):
+    if not isinstance(report, dict):
+        raise ValueError("Vitest phase report must be an object")
+    try:
+        observed = vitest_cases(report)
+    except (KeyError, TypeError) as error:
+        raise ValueError("Vitest phase report has malformed case records") from error
+    compare_cases("vitest", observed, inventory)
+    counters = ("numTotalTestSuites", "numPassedTestSuites", "numFailedTestSuites", "numPendingTestSuites",
+                "numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests")
+    if (report.get("success") is not True
+            or any(type(report.get(key)) is not int or report[key] < 0 for key in counters)
+            or report["numTotalTests"] != len(observed)
+            or report["numPassedTests"] != sum(status == "passed" for _, status in observed)
+            or report["numPendingTests"] != sum(status == "skipped" for _, status in observed)
+            or report["numTotalTestSuites"] != sum(report[key] for key in (
+                "numPassedTestSuites", "numFailedTestSuites", "numPendingTestSuites"))
+            or any(report[key] for key in ("numFailedTestSuites", "numFailedTests", "numTodoTests"))
+            or not isinstance(report.get("snapshot"), dict)
+            or report["snapshot"].get("failure") is not False
+            or any(type(value) not in (bool, int, list) or (type(value) is int and value < 0)
+                   for value in report["snapshot"].values())):
+        raise ValueError("Vitest phase reported errors or inconsistent counters")
+
+
+def read_vitest_phase(runner, inventory, context, *, used):
+    phase = VITEST_PHASES[runner]
+    predecessor = phase["predecessor"]
+    proof_path = ARTIFACTS / f"{phase['stem']}-{'used' if used else 'proof'}.json"
+    proof_raw = read_vitest_artifact(proof_path)
+    proof = json.loads(proof_raw)
+    fields = {"context", "started_at", "completed_at", "report_sha256"}
+    if predecessor:
+        fields |= {"predecessor_proof_sha256", "predecessor_report_sha256"}
     budget = json.loads((ROOT / ".tugling/pilot.json").read_text())["project"]["verification_budget_seconds"]
-    if (not isinstance(proof, dict) or set(proof) != {"context", "started_at", "completed_at", "report_sha256"}
-            or proof["context"] != context
+    if (not isinstance(proof, dict) or set(proof) != fields or proof["context"] != context
             or type(proof["started_at"]) is not int or type(proof["completed_at"]) is not int
             or not proof["started_at"] <= proof["completed_at"]
             or not 0 <= time.time() * 1000 - proof["completed_at"] <= budget * 1000):
-        raise ValueError("Vitest preflight evidence is stale or from another source or attempt")
-    raw = read_vitest_artifact(ARTIFACTS / "vitest-preflight.json")
+        raise ValueError("Vitest phase evidence is stale or from another source or attempt")
+    raw = read_vitest_artifact(ARTIFACTS / f"{phase['stem']}.json")
     if hashlib.sha256(raw).hexdigest() != proof["report_sha256"]:
-        raise ValueError("Vitest preflight report differs from its completed proof")
+        raise ValueError("Vitest phase report differs from its completed proof")
     report = json.loads(raw)
-    if (type(report.get("startTime")) is not int
+    if (not isinstance(report, dict) or type(report.get("startTime")) is not int
             or not proof["started_at"] <= report["startTime"] <= proof["completed_at"]):
-        raise ValueError("Vitest report predates its preflight execution")
-    compare_cases("vitest", vitest_cases(report), vitest_partition(inventory, True))
-    if not report["success"]:
-        raise ValueError("Vitest preflight reported errors")
-    claimed = ARTIFACTS / "vitest-preflight-used.json"
-    prepare_report(claimed)
-    proof_path.replace(claimed)
-    return report
+        raise ValueError("Vitest report predates its phase execution")
+    validate_vitest_phase_report(report, vitest_partitions(inventory)[phase["partition"]])
+    chain = read_vitest_phase(predecessor, inventory, context, used=True) if predecessor else []
+    if predecessor and (proof["predecessor_proof_sha256"] != chain[-1]["proof_sha256"]
+                        or proof["predecessor_report_sha256"] != chain[-1]["report_sha256"]
+                        or chain[-1]["proof"]["completed_at"] > proof["started_at"]):
+        raise ValueError("Vitest phase predecessor differs from its consumed evidence")
+    return [*chain, {"runner": runner, "report": report, "proof": proof,
+                    "proof_sha256": hashlib.sha256(proof_raw).hexdigest(),
+                    "report_sha256": hashlib.sha256(raw).hexdigest()}]
+
+
+def claim_vitest_phase(runner, inventory, context):
+    chain = read_vitest_phase(runner, inventory, context, used=False)
+    stem = VITEST_PHASES[runner]["stem"]
+    proof, claimed = ARTIFACTS / f"{stem}-proof.json", ARTIFACTS / f"{stem}-used.json"
+    os.link(proof, claimed, follow_symlinks=False)
+    proof.unlink()
+    current = read_vitest_phase(runner, inventory, context, used=True)
+    if current != chain:
+        raise ValueError("Vitest phase evidence changed while it was claimed")
+    return current
+
+
+def remove_vitest_artifact(path):
+    try:
+        read_vitest_artifact(path)
+    except FileNotFoundError:
+        return
+    path.unlink()
 
 
 def merge_vitest_reports(strict, main):
@@ -780,19 +884,22 @@ def merge_vitest_reports(strict, main):
 
 
 def run_vitest(runner, inventory):
-    partitioned = runner in ("preflight", "vitest-main")
+    phase = VITEST_PHASES.get(runner)
     strict = runner == "preflight"
-    subset = vitest_partition(inventory, strict) if partitioned else inventory
-    context = vitest_context() if partitioned else None
-    earlier = strict_vitest_report(inventory, context) if runner == "vitest-main" else None
-    output = ARTIFACTS / ("vitest-preflight.json" if strict else "vitest-main.json"
-                          if partitioned else "vitest.json")
-    prepare_report(output)
-    if partitioned:
-        prepare_report(ARTIFACTS / "vitest.json")
-    proof = ARTIFACTS / "vitest-preflight-proof.json"
+    subset = vitest_partitions(inventory)[phase["partition"]] if phase else inventory
+    context = vitest_context() if phase else None
+    earlier = claim_vitest_phase(phase["predecessor"], inventory, context) if phase and phase["predecessor"] else []
+    output = ARTIFACTS / f"{phase['stem']}.json" if phase else ARTIFACTS / "vitest.json"
     if strict:
-        prepare_report(proof)
+        for item in VITEST_PHASES.values():
+            for suffix in (".json", "-proof.json", "-used.json"):
+                remove_vitest_artifact(ARTIFACTS / f"{item['stem']}{suffix}")
+    prepare_report(output)
+    if phase:
+        prepare_report(ARTIFACTS / "vitest.json")
+    proof_path = ARTIFACTS / f"{phase['stem']}-proof.json" if phase else None
+    if phase and runner != "vitest-main":
+        prepare_report(proof_path)
     command = ["node", "node_modules/vitest/vitest.mjs", "run", "--config=vitest.config.ts",
                "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
                "--reporter=./scripts/pilot-vitest-reporter.ts", f"--outputFile={output}"]
@@ -801,30 +908,45 @@ def run_vitest(runner, inventory):
         command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
         returncode = subprocess.run(command, cwd=ROOT, check=False).returncode
     else:
-        if partitioned:
-            command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
+        if phase:
+            command.extend(dict.fromkeys(identity.split(" :: ", 1)[0] for identity in subset["vitest"]))
         with cost_seed_directory() as seed:
-            subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
-                           cwd=ROOT, check=True)
+            if runner != "vitest-main":
+                subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
+                               cwd=ROOT, check=True)
             unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
             if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
                 raise ValueError("Unit PDF boundary must remain unprovisioned")
             returncode = subprocess.run(command, cwd=ROOT, check=False,
                                         env={**os.environ, "KEEL_TEST_D1_SEED": seed,
                                              "KEEL_PDF_SANDBOX_CONFIG": str(unavailable_pdf)}).returncode
-    report = json.loads(output.read_text())
-    compare_cases("vitest", vitest_cases(report), subset)
-    if returncode or not report["success"]:
+    report = json.loads(read_vitest_artifact(output))
+    completed_at = int(time.time() * 1000)
+    if phase:
+        if (not isinstance(report, dict) or type(report.get("startTime")) is not int
+                or not started_at <= report["startTime"] <= completed_at):
+            raise ValueError("Vitest report predates its phase execution")
+        validate_vitest_phase_report(report, subset)
+    else:
+        compare_cases("vitest", vitest_cases(report), subset)
+    if returncode or report["success"] is not True:
         raise ValueError(f"vitest reported errors (exit {returncode})")
-    if partitioned and context != vitest_context():
+    if phase and context != vitest_context():
         raise ValueError("Vitest source changed during its partition execution")
-    if strict:
-        write_vitest_artifact(proof, {"context": context, "started_at": started_at,
-                                     "completed_at": int(time.time() * 1000),
-                                     "report_sha256": hashlib.sha256(output.read_bytes()).hexdigest()})
-    elif partitioned:
-        merged = merge_vitest_reports(earlier, report)
-        compare_cases("vitest", vitest_cases(merged), inventory)
+    if earlier and read_vitest_phase(phase["predecessor"], inventory, context, used=True) != earlier:
+        raise ValueError("Vitest predecessor evidence changed during its partition execution")
+    if phase and runner != "vitest-main":
+        proof = {"context": context, "started_at": started_at, "completed_at": completed_at,
+                 "report_sha256": hashlib.sha256(read_vitest_artifact(output)).hexdigest()}
+        if earlier:
+            proof.update(predecessor_proof_sha256=earlier[-1]["proof_sha256"],
+                         predecessor_report_sha256=earlier[-1]["report_sha256"])
+        write_vitest_artifact(proof_path, proof)
+    elif phase:
+        merged = report
+        for completed in reversed(earlier):
+            merged = merge_vitest_reports(completed["report"], merged)
+        validate_vitest_phase_report(merged, inventory)
         write_vitest_artifact(ARTIFACTS / "vitest.json", merged)
 
 
@@ -843,7 +965,7 @@ def run_suite(runner):
         if not result.wasSuccessful():
             raise ValueError("native Python tests failed")
         return
-    if runner in ("vitest", "vitest-main", "preflight"):
+    if runner == "vitest" or runner in VITEST_PHASES:
         if runner == "preflight":
             validate_preflight_dependencies(json.loads((ROOT / ".tugling/pilot-verification.json").read_text()))
         run_vitest(runner, inventory)
@@ -864,13 +986,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "runner",
-        choices=("migration-seed", "browser-fixture", "vitest", "vitest-main", "preflight", "playwright", "playwright-prepared", "python"),
+        choices=("migration-seed", "browser-fixture", "vitest", "vitest-main", "vitest-resource", "preflight", "playwright", "playwright-prepared", "python"),
     )
     args = parser.parse_args()
     load_module("tugling-pilot").require_unfiltered_environment()
     ARTIFACTS.mkdir(parents=True, exist_ok=True, mode=0o700)
     if ARTIFACTS.resolve() != ARTIFACTS or any((ARTIFACTS / name).is_symlink() for name in (".lease", "browser-results", "vitest.json", "vitest-main.json", "vitest-preflight.json",
-                                                                                   "vitest-preflight-proof.json", "vitest-preflight-used.json", "playwright.json")):
+                                                                                   "vitest-preflight-proof.json", "vitest-preflight-used.json", "vitest-resource.json",
+                                                                                   "vitest-resource-proof.json", "vitest-resource-used.json", "playwright.json")):
         raise ValueError("native artifact ownership must not follow symlinks")
     # One report slot per runner, scoped to this checkout; never replace a
     # report still owned by another active verification process.

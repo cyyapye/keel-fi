@@ -72,22 +72,33 @@ servers, ports and cleanup; each partition remains serial internally.
 ## Bounded execution plan
 
 The verification map admits an exclusive preflight before any heavy flow. The
-existing integrity flow first executes six in-process workload files with one
-Vitest worker, then runs native Python accounting. The main unit flow executes
-the complementary cases. Both reports must account for the entire reviewed
-Vitest inventory exactly once. Missing, stale, substituted or overlapping
-preflight evidence fails verification.
+integrity flow executes the strict in-process files with one unit worker, then
+runs native Python accounting. A separate resource-unit flow runs the declared
+external-runtime files. The main unit flow executes the remaining complement.
+The resource registry selects whole files, preserving their internal case
+sequence. It follows inspected runtime ownership rather than a slow-case filter.
 
-Source checks, the PDF image build and workspace build now wait for that gate,
-along with the flows that already depended on integrity. After preflight, at
-most three native flows run concurrently. Admission follows the reviewed map's
-first-ready order. Unit and browser work may overlap source checks after their
-own prerequisites pass. PDF isolation waits for source checks, so its scanner
-cannot overlap the compiler flow. Source checks still must pass in the same
-complete receipt. Configured scanner and compiler limits do not establish
-observed memory use or available host capacity. The 900-second active budget and
-per-case deadlines remain. Native main units and standalone execution use three
-workers after the two-worker trial below failed the complete budget.
+The reports form a one-use chain. Resource claims preflight evidence, validates
+its exact partition and closes its owned runtimes and seed before writing its
+proof. Main claims resource evidence, validates both predecessor reports and
+writes the full unit report only after the complete disjoint union passes.
+Missing, stale, substituted, overlapping or consumed evidence fails
+verification. Standalone full-unit execution retains its existing scope.
+
+Source checks and resource units may overlap after preflight. Browser work waits
+for both to finish, in addition to its existing fixture, build and provider
+prerequisites. Main waits for the terminal resource flow, so its unit workers
+cannot overlap resource workers. PDF isolation still follows source checks. The
+first-ready map and native concurrency limit remain, as do all existing flow
+caps, the complete-gate ceiling, per-case deadlines, browser workers, retries
+and flaky-result rejection. Resource uses only the available aggregate timeout
+allowance; this scheduling policy does not establish observed resource capacity.
+
+Resource owns prepared D1 seed generation and consumption. Remaining units
+retain a fresh owned unprovisioned PDF path without creating another D1 seed. An
+unexpected seed consumer encounters a missing seal rather than silently
+receiving a prepared-seed claim. New runtime factories still require registry
+review; the remaining group is not a claim of permanent process-free execution.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It

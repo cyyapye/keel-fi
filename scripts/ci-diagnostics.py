@@ -17,7 +17,10 @@ LIMITS = {"success": MIB, "failure": 12 * MIB, "cancelled": 12 * MIB}
 REPORTS = (
     "pilot-required.json", "pilot-probe-required.json", "pilot-probe-summary.json",
     "pilot-probe.log", "ci-resources.jsonl", "verification/required.json",
-    "verification/managed-v1/*.json", "pilot/vitest.json", "pilot/playwright*.json",
+    "verification/managed-v1/*.json", "pilot/vitest.json", "pilot/vitest-main.json",
+    "pilot/vitest-preflight.json", "pilot/vitest-preflight-proof.json",
+    "pilot/vitest-preflight-used.json", "pilot/vitest-resource.json",
+    "pilot/vitest-resource-proof.json", "pilot/vitest-resource-used.json", "pilot/playwright*.json",
 )
 SUMMARY_BYTES = 2 * MIB
 SUMMARY_LINES = 361

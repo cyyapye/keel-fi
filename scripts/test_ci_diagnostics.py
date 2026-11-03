@@ -52,6 +52,19 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertLessEqual(path.stat().st_size, 1024 * 1024)
         self.assertEqual(manifest["status"], "success")
         self.assertTrue(image.exists())
+        for name in ("vitest-preflight.json", "vitest-preflight-proof.json", "vitest-preflight-used.json",
+                     "vitest-resource.json", "vitest-resource-proof.json", "vitest-resource-used.json", "vitest-main.json"):
+            self.write(f"pilot/{name}", b'{"synthetic":"phase"}')
+        foreign_reports = [self.write(f"pilot/{name}", b'{"foreign":"untouched"}') for name in (
+            "vitest-preflight-unrelated.json", "vitest-resource-unrelated.json")]
+        _, phase_contents, _ = self.bundle("failure")
+        self.assertTrue(all(f"pilot/{name}" in phase_contents for name in (
+            "vitest-preflight.json", "vitest-preflight-proof.json", "vitest-preflight-used.json",
+            "vitest-resource.json", "vitest-resource-proof.json", "vitest-resource-used.json", "vitest-main.json")))
+        for foreign in foreign_reports:
+            self.assertNotIn(f"pilot/{foreign.name}", phase_contents)
+            self.assertEqual(foreign.read_bytes(), b'{"foreign":"untouched"}')
+
         (self.root / ".tugling/pilot-verification.json").write_text(json.dumps({
             "flows": [{"id": "unit"}, {"id": "browser"}],
         }))
