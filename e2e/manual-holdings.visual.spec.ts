@@ -207,7 +207,10 @@ async function routeOverviewReads(page: Page) {
   );
 }
 
-async function setup(page: Page, currentHolding = holding) {
+async function registerManualHoldingRoutes(
+  page: Page,
+  currentHolding = holding,
+) {
   let accepted = false;
   await page.clock.setFixedTime(new Date("2026-11-01T18:45:00.000Z"));
   await routeHoldingsPage(page, () => ({
@@ -224,6 +227,15 @@ async function setup(page: Page, currentHolding = holding) {
     `**/api/investment-positions/${positionId}/history`,
     (route) => route.fulfill({ json: { entries: [], next: null } }),
   );
+  return {
+    accept: () => {
+      accepted = true;
+    },
+  };
+}
+
+async function setup(page: Page, currentHolding = holding) {
+  const fixture = await registerManualHoldingRoutes(page, currentHolding);
   await page.goto("/holdings/new");
   await expect(
     page.getByRole("heading", { name: "Add holding", exact: true }),
@@ -231,11 +243,7 @@ async function setup(page: Page, currentHolding = holding) {
   await expect(
     page.getByText("Loading owner and company choices…", { exact: true }),
   ).toHaveCount(0);
-  return {
-    accept: () => {
-      accepted = true;
-    },
-  };
+  return fixture;
 }
 
 test("keeps type controls stationary across project-owned viewport and disclosure states", async ({
@@ -915,7 +923,7 @@ test("opens the dedicated editor from empty and regular Holdings and restores tr
   page.on("console", (message) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
-  const fixture = await setup(page);
+  const fixture = await registerManualHoldingRoutes(page);
   await routeOverviewReads(page);
   await page.goto("/holdings");
   const emptyAction = page.getByRole("button", {
@@ -987,7 +995,7 @@ test("keeps a Fund company grouping distinct from unknown allocation", async ({
 test("preserves multiple current company groupings when only the legal name changes", async ({
   page,
 }) => {
-  const fixture = await setup(page, () => {
+  const fixture = await registerManualHoldingRoutes(page, () => {
     const current = holding();
     return HoldingSchema.parse({
       ...current,
@@ -1056,7 +1064,7 @@ test("shows manual creation and only actual identity corrections in normal Histo
     name: "Synthetic Orchard Fund Revised",
     companies: [...grouped.companies].reverse(),
   };
-  const fixture = await setup(page, () =>
+  const fixture = await registerManualHoldingRoutes(page, () =>
     HoldingSchema.parse({
       ...holding(),
       positionName: final.name,
@@ -1156,7 +1164,7 @@ test("reads current receipt cash instead of immutable initial cash after partial
   page,
 }) => {
   let receipt = receiptWithCash(2_500_000);
-  const fixture = await setup(page, () =>
+  const fixture = await registerManualHoldingRoutes(page, () =>
     HoldingSchema.parse({
       ...holding(),
       positionKind: "spv_interest",
@@ -1282,7 +1290,7 @@ test("does not present source cash as basis or return in manual inventory rows",
     positionKind: "fund_interest",
     investedMinor: 2_500_000,
   });
-  await setup(page, () => current);
+  await registerManualHoldingRoutes(page, () => current);
   await routeOverviewReads(page);
   const view = investmentHoldingsViewFor([current]);
   for (const connection of view.positionView.connections) {
@@ -1350,7 +1358,7 @@ test("does not present source cash as basis or return in manual inventory rows",
 test("keeps company mappings unchanged when a mapped Direct holding is changed to Fund", async ({
   page,
 }) => {
-  const fixture = await setup(page, () => {
+  const fixture = await registerManualHoldingRoutes(page, () => {
     const current = holding();
     return HoldingSchema.parse({
       ...current,

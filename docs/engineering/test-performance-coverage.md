@@ -17,6 +17,25 @@ fixed 116-table input list; a private fixed SQLite clock proves exact state
 equivalence while preserving its fresh per-clone trigger clocks. No financial
 dates or output values are normalized. Real D1 and migration proof is unchanged.
 
+Four further ordinary setup helpers reuse that same snapshot helper. A five-file
+comparison, including the unchanged one-use API fixture, retains all 28
+identities and 117 assertion chains. Full schema, rows, foreign keys, rollback,
+independent clones and cleanup match without normalization for the four changed
+helpers. Explicit migration paths and real-D1 proof remain.
+
+The manual visual fixture also removes six preliminary creation visits from
+existing-holding or inventory journeys. It retains all 32 project identities, 22
+Linux PNGs, financial and responsive assertions, 24 observed mutations and 16
+reloads. Private paired observations count 12 fewer document navigations, 12
+fewer Holdings projection GETs and 24 fewer options GETs; canceled requests are
+included. The original creation wrapper and readiness checks remain in creation
+journeys. The stale-identity and single-company Fund cases retain the new-editor
+prelude to challenge new/existing draft isolation. A seven-removal prototype
+passed ordinary replay but lost the Fund-only collision fault, so that version
+is rejected. All seven final paired fault families reject both variants at the
+same observed boundary. These Darwin behavior and counted-work results do not
+prove a full Linux speedup.
+
 | Change                        | Removed work                                                                     | Retained observable proof                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Share-price setup             | Host-to-D1 proxy traffic for three synthetic imports and watch-target setup      | The host still runs every measured valuation-evidence read, plan and budget assertion across 120 holdings, repeated history, 1,200 unrelated companies and empty results.                                                                                                                                                                                  |

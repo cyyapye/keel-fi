@@ -182,6 +182,24 @@ restore the source-before-PDF dependency and prior browser priority. Retain the
 ordinary fixture improvements. All 11 flows, deadlines, case coverage and
 concurrency ceilings remain required.
 
+The restored policy in run `41663108413` also fails the global budget, at
+901.127 seconds. All 1,648 unit cases and 49 Python cases pass; browsers stop
+after 413 successful pass lines, including 23 of the final 36-case tail. This is
+not a complete passing receipt or a fast-run result.
+
+The manual visual fixture separates route registration from opening the creation
+editor. Six existing-holding or inventory journeys avoid the unused creation
+visit. The complete private paired file retains all 32 identities and observed
+states, 24 mutations and 16 reloads. It records 12 fewer document navigations,
+12 fewer Holdings projection GETs and 24 fewer options GETs. These are counted
+requests, including canceled reads, rather than elapsed savings. The
+stale-identity and single-company Fund preludes remain: removing the Fund
+prelude let a draft-key collision pass. Seven paired fault families retain their
+rejection boundaries. Named screenshots use separate private Darwin references;
+all 22 Linux PNGs remain unchanged. Extra diagnostic captures initially match 29
+of 32 pairs; six bounded settled follow-up pairs match. This component proof
+does not establish complete Linux fit or useful headroom.
+
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
 integrity. It retains the former browser wrapper's 50-second child timeout, 128
