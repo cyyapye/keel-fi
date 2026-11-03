@@ -664,45 +664,22 @@ def vitest_partition(inventory, strict):
 
 
 def validate_preflight_dependencies(mapping):
-    flows = mapping.get("flows") if isinstance(mapping, dict) else None
-    if not isinstance(flows, list) or not flows:
-        raise ValueError("Native dependencies need a nonempty flow list")
-    by_id = {}
-    for flow in flows:
-        if (not isinstance(flow, dict) or not isinstance(flow.get("id"), str)
-                or not flow["id"] or not isinstance(flow.get("depends_on"), list)
-                or any(not isinstance(parent, str) or not parent
-                       for parent in flow["depends_on"])):
-            raise ValueError("Native dependencies need named flows and parent lists")
-        if flow["id"] in by_id or len(flow["depends_on"]) != len(set(flow["depends_on"])):
-            raise ValueError("Native dependencies contain duplicate flows or parents")
-        by_id[flow["id"]] = flow["depends_on"]
-    if any(parent not in by_id for parents in by_id.values() for parent in parents):
-        raise ValueError("Native dependencies contain an unknown parent")
-    ancestors = {}
-    visiting = set()
-    def upstream(name):
+    by_id = {flow["id"]: flow for flow in mapping["flows"]}
+    gate = "gate-and-artifact-integrity"
+    def follows(name, prerequisite, visiting):
+        if name == prerequisite:
+            return True
         if name in visiting:
             raise ValueError("Native preflight dependencies contain a cycle")
-        if name not in ancestors:
-            visiting.add(name)
-            parents = set()
-            for parent in by_id[name]:
-                parents.add(parent)
-                parents.update(upstream(parent))
-            visiting.remove(name)
-            ancestors[name] = parents
-        return ancestors[name]
-    for name in by_id:
-        upstream(name)
-    gate = "gate-and-artifact-integrity"
-    if (by_id.get(gate) != []
-            or any(gate not in ancestors[name] for name in by_id if name != gate)):
+        parents = [follows(parent, prerequisite, visiting | {name})
+                   for parent in by_id[name]["depends_on"]]
+        return any(parents)
+    if (gate not in by_id or by_id[gate]["depends_on"]
+            or any(not follows(name, gate, set()) for name in by_id if name != gate)):
         raise ValueError("Every native flow must follow the isolated preflight")
-    source = "source-quality"
-    if (by_id.get(source) != [gate] or "pdf-isolation" not in by_id
-            or any(source not in ancestors[name] for name in by_id if name not in (gate, source))):
-        raise ValueError("Every later native flow must follow exclusive source-quality")
+    if ("source-quality" not in by_id or "pdf-isolation" not in by_id
+            or not follows("pdf-isolation", "source-quality", set())):
+        raise ValueError("PDF isolation must follow source-quality")
 
 
 def vitest_context():
