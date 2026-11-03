@@ -329,6 +329,39 @@
       "depends_on": ["gate-and-artifact-integrity"]
     },
     {
+      "id": "pdf-isolation",
+      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
+      "argv": ["make", "pdf-sandbox-verify"],
+      "timeout_seconds": 600,
+      "sources": [
+        "Makefile",
+        "scripts/pdf-sandbox-verify.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox-owner.ts",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/pdf-sandbox-error.ts",
+        "scripts/test-support/pdf-sandbox-caller.ts",
+        "scripts/test-support/pdf-orphan-client.ts",
+        "scripts/legal-document-extraction.ts",
+        "scripts/test-support/legal-documents.ts",
+        "scripts/test-support/watchdog-removal.ts",
+        "scripts/test-support/sandbox-proof-diagnostics.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The first-ready map admits these probes before browser workflows when both are ready, without waiting for source checks or adding a PDF completion barrier to browsers. The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
+        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
+        "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
+      },
+      "depends_on": [
+        "gate-and-artifact-integrity",
+        "pdf-sandbox-build",
+        "provider-document-runtime"
+      ]
+    },
+    {
       "id": "browser-workflows",
       "description": "Exercise the complete desktop/mobile browser contract, including minimal review, automatic decisions, persisted saves, layout, recovery and real synthetic document capture.",
       "argv": [
@@ -380,40 +413,6 @@
         "browser-fixture-preparation",
         "build-and-entry-budget",
         "provider-document-runtime"
-      ]
-    },
-    {
-      "id": "pdf-isolation",
-      "description": "Run real synthetic reader, scanner and adversarial isolation probes, including resource exhaustion and owned-container removal.",
-      "argv": ["make", "pdf-sandbox-verify"],
-      "timeout_seconds": 600,
-      "sources": [
-        "Makefile",
-        "scripts/pdf-sandbox-verify.ts",
-        "scripts/pdf-sandbox.ts",
-        "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/boundary.py",
-        "scripts/pdf-sandbox-owner.ts",
-        "scripts/pdf-sandbox-owner.py",
-        "scripts/pdf-sandbox-error.ts",
-        "scripts/test-support/pdf-sandbox-caller.ts",
-        "scripts/test-support/pdf-orphan-client.ts",
-        "scripts/legal-document-extraction.ts",
-        "scripts/test-support/legal-documents.ts",
-        "scripts/test-support/watchdog-removal.ts",
-        "scripts/test-support/sandbox-proof-diagnostics.ts"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "Source checks complete before scanner isolation starts. The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
-        "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
-        "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
-      },
-      "depends_on": [
-        "gate-and-artifact-integrity",
-        "pdf-sandbox-build",
-        "provider-document-runtime",
-        "source-quality"
       ]
     }
   ],

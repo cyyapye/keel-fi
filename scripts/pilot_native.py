@@ -664,22 +664,46 @@ def vitest_partition(inventory, strict):
 
 
 def validate_preflight_dependencies(mapping):
-    by_id = {flow["id"]: flow for flow in mapping["flows"]}
+    flows = mapping["flows"]
+    by_id = {}
+    for flow in flows:
+        name, parents = flow["id"], flow["depends_on"]
+        if (not isinstance(name, str) or name in by_id
+                or not isinstance(parents, list)
+                or any(not isinstance(parent, str) for parent in parents)
+                or len(parents) != len(set(parents))):
+            raise ValueError("Native dependencies need distinct IDs and parent lists")
+        by_id[name] = parents
     gate = "gate-and-artifact-integrity"
-    def follows(name, prerequisite, visiting):
-        if name == prerequisite:
-            return True
+    pdf, browser, source = "pdf-isolation", "browser-workflows", "source-quality"
+    retained = {gate, "pdf-sandbox-build", "provider-document-runtime"}
+    if (not retained | {pdf, browser, source} <= by_id.keys()
+            or any(parent not in by_id for parents in by_id.values() for parent in parents)):
+        raise ValueError("Native dependencies omit required flows or reference unknown parents")
+    ancestors, visiting = {}, set()
+
+    def visit(name):
+        if name in ancestors:
+            return ancestors[name]
         if name in visiting:
             raise ValueError("Native preflight dependencies contain a cycle")
-        parents = [follows(parent, prerequisite, visiting | {name})
-                   for parent in by_id[name]["depends_on"]]
-        return any(parents)
-    if (gate not in by_id or by_id[gate]["depends_on"]
-            or any(not follows(name, gate, set()) for name in by_id if name != gate)):
+        visiting.add(name)
+        result = set(by_id[name])
+        for parent in by_id[name]:
+            result.update(visit(parent))
+        visiting.remove(name)
+        ancestors[name] = result
+        return result
+
+    for name in by_id:
+        visit(name)
+    if (by_id[gate] or any(gate not in ancestors[name] for name in by_id if name != gate)):
         raise ValueError("Every native flow must follow the isolated preflight")
-    if ("source-quality" not in by_id or "pdf-isolation" not in by_id
-            or not follows("pdf-isolation", "source-quality", set())):
-        raise ValueError("PDF isolation must follow source-quality")
+    if (not retained <= set(by_id[pdf]) or list(by_id).index(pdf) >= list(by_id).index(browser)
+            or not ancestors[pdf] <= ancestors[browser] or pdf in ancestors[browser]):
+        raise ValueError("PDF priority requires retained prerequisites and browser readiness closure")
+    if source not in {name for requirement in mapping["requirements"] for name in requirement["flows"]}:
+        raise ValueError("Source-quality must remain independently required")
 
 
 def vitest_context():

@@ -62,7 +62,11 @@ required flows prove real Chromium, reader and scanner behavior. Canonical
 migrations prepare the sealed browser fixture. The provider-document boundary
 completes before UI workers and remaining PDF isolation probes start. Workspace
 builds can use any available native slot; source checks, migrations and all 11
-flows remain independently required.
+flows remain independently required. A bounded scheduling trial gives ready PDF
+isolation priority over browsers without a completion barrier. Its prerequisites
+must be a subset of browser prerequisites. Source checks may overlap PDF probes;
+all existing deadlines, cases and concurrency limits remain. This is an
+experiment pending complete exact-revision Linux evidence and useful headroom.
 
 The unit watchdog remains 25 minutes; the independent active-verification budget
 is 15 minutes for the complete gate. Individual test deadlines, case accounting,
