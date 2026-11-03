@@ -1,4 +1,10 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./api-mocked-test";
+import {
+  alphaFixture,
+  emptyPortfolioBaseline,
+  emptyInvestmentConnections,
+  emptyPrivateExposureReviews,
+} from "./holdings-detail-fixtures";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
   PurchaseReceiptSchema,
@@ -132,6 +138,31 @@ async function setup(
     stale?: boolean;
   } = {},
 ) {
+  await page.route("**/api/portfolio-baseline", (route) =>
+    route.request().method() !== "GET"
+      ? route.fallback()
+      : route.fulfill({ json: emptyPortfolioBaseline }),
+  );
+  await page.route("**/api/investment-connections", (route) =>
+    route.request().method() !== "GET"
+      ? route.fallback()
+      : route.fulfill({ json: emptyInvestmentConnections }),
+  );
+  await page.route("**/api/private-exposure-reviews", (route) =>
+    route.request().method() !== "GET"
+      ? route.fallback()
+      : route.fulfill({ json: emptyPrivateExposureReviews }),
+  );
+  await page.route("**/api/portfolio-baseline/refresh", (route) =>
+    route.request().method() !== "POST"
+      ? route.fallback()
+      : route.fulfill({ json: emptyPortfolioBaseline }),
+  );
+  await page.route("**/api/alpha", (route) =>
+    route.request().method() !== "GET"
+      ? route.fallback()
+      : route.fulfill({ json: alphaFixture }),
+  );
   await page.clock.setFixedTime(new Date("2026-10-08T12:00:00.000Z"));
   let receipt = initialReceipt();
   configure?.(receipt);

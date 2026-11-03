@@ -36,6 +36,25 @@ is rejected. All seven final paired fault families reject both variants at the
 same observed boundary. These Darwin behavior and counted-work results do not
 prove a full Linux speedup.
 
+Purchase visuals also isolate their background reads with the existing
+fail-closed browser fixture. Their financial writes, projections and history
+were already mocked; a live unrelated Alpha refresh did not establish coherent
+D1 persistence. The existing rich Alpha initializer and its contexts are shared
+with holding-detail visuals without changing their values. Explicit validated
+background responses replace test-server calls. All 30 purchase and two
+holding-detail identities, callback bodies, target handlers, assertions,
+projects, screenshots and limits remain.
+
+Controlled paired runs retain 34 browser Alpha requests and 40 browser mutation
+requests on each side while owned backend visits fall from 34 to zero. One
+additional already-mocked review GET is retained as a count exception. Mock
+acceptance and canceled response delivery remain distinct. Slow background Alpha
+reproduces the old assertion failure; failed target receipt, stale projection,
+missing history and absent exposure faults still reject. Existing real-D1
+purchase/API/history and valuation-domain tests remain the persistence,
+authentication, integer arithmetic and cost owners. Private HTTP fixture proof
+is not actual D1 cost or production Alpha latency proof.
+
 | Change                        | Removed work                                                                     | Retained observable proof                                                                                                                                                                                                                                                                                                                                  |
 | ----------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Share-price setup             | Host-to-D1 proxy traffic for three synthetic imports and watch-target setup      | The host still runs every measured valuation-evidence read, plan and budget assertion across 120 holdings, repeated history, 1,200 unrelated companies and empty results.                                                                                                                                                                                  |

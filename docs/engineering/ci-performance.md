@@ -200,6 +200,39 @@ all 22 Linux PNGs remain unchanged. Extra diagnostic captures initially match 29
 of 32 pairs; six bounded settled follow-up pairs match. This component proof
 does not establish complete Linux fit or useful headroom.
 
+Run `41670925141` fails within budget at 811.453 seconds. All 1,648 units, 49
+Python cases and the 32 manual visual identities pass; the latter have zero
+retries and match the exact published tree. A purchase-history case misses its
+unchanged five-second Edit valuation assertion, then passes on retry. Native
+accounting rejects that flaky result and cancels the other browser roots. The
+364 successful browser pass lines do not form a complete receipt.
+
+Purchase visuals previously mocked financial mutations while an accepted
+valuation also waited for live Alpha data from unrelated test-database state.
+The fixture now uses the existing fail-closed API guard and explicit background
+responses. The Alpha initializer and three contexts move unchanged from the
+holding-detail spec into a shared browser fixture. Small background response
+initializers reuse existing synthetic values. All original callback bodies,
+financial routes, assertions, project settings and deadlines remain.
+
+A controlled HTTP pair passes 30 purchase and two holding-detail cases on each
+side. Browser Alpha calls remain 34; owned Alpha HTTP visits fall from 26 to
+zero and all owned backend visits from 34 to zero. One candidate holding-detail
+case makes one additional already-mocked review GET with the same body and no
+backend visit. Request-count parity is not universal. Mock valuation
+fulfillments remain 16 per side; only 14 responses are browser-observed after an
+original immediate reload, so receipt delivery is not inferred from fixture
+acceptance. Subsequent projection and history readback remain separate proof.
+
+An eight-second Alpha response reproduces the old five-second failure in both
+projects; isolated cases pass. Failed valuation, stale projection, empty history
+and absent exposure controls still reject. All 32 settled states and final
+camera pairs match; original crop assertions and Linux PNGs remain unchanged.
+These are private Darwin and controlled HTTP results, not real-D1 parity,
+complete Linux acceptance or elapsed savings. Production still awaits Alpha;
+this test change does not fix or certify that latency behavior, and the exact CI
+failure cause remains unproven without its unavailable trace.
+
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
 integrity. It retains the former browser wrapper's 50-second child timeout, 128
