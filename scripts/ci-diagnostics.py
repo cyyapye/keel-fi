@@ -70,10 +70,13 @@ def resource_summary(root, flow_ids):
     if len(lines) > SUMMARY_LINES or any(len(line) > SUMMARY_LINE_BYTES for line in lines):
         return {"status": "limit-exceeded"}
     extrema = {"cpu_busy_percent": ("max", 100), "iowait_percent": ("max", 100),
-               "memory_available_mib": ("min", 10**12), "swap_used_mib": ("max", 10**12)}
+               "memory_available_mib": ("min", 10**12), "swap_used_mib": ("max", 10**12),
+               "logical_cpu_count": ("min", 8192), "memory_total_mib": ("min", 10**12),
+               "swap_total_mib": ("min", 10**12)}
     values = {key: None for key in extrema}
     pressure = {kind: None for kind in ("cpu", "memory", "io")}
-    flows = {name: {"cpu_ns": None, "runqueue_ns": None, "max_observed_processes": None}
+    flows = {name: {"cpu_ns": None, "runqueue_ns": None, "max_observed_processes": None,
+                    "max_process_rss_bytes_sum": None}
              for name in flow_ids}
     times, invalid, limited, errors, unavailable_flows, schedstats = [], 0, 0, None, 0, 0
     cpu_deltas, previous_cpu, previous_time = [0] * 8, None, None
@@ -106,6 +109,9 @@ def resource_summary(root, flow_ids):
         times.append(instant)
         for key, (operation, maximum) in extrema.items():
             value = summary_number(row.get(key), maximum)
+            if ((key == "logical_cpu_count" and type(value) is not int)
+                    or (key in ("logical_cpu_count", "memory_total_mib") and value == 0)):
+                value = None
             if value is not None:
                 values[key] = value if values[key] is None else (
                     min(values[key], value) if operation == "min" else max(values[key], value))
@@ -145,6 +151,9 @@ def resource_summary(root, flow_ids):
             count = summary_number(source.get("observed_processes"), 512)
             if type(count) is int:
                 total["max_observed_processes"] = max(total["max_observed_processes"] or 0, count)
+                rss = summary_number(source.get("process_rss_bytes_sum"))
+                if count > 0 and type(rss) is int:
+                    total["max_process_rss_bytes_sum"] = max(total["max_process_rss_bytes_sum"] or 0, rss)
     total_ticks = sum(cpu_deltas)
     cpu_ticks = {"scope": "host-wide", "aggregation": "weighted-tick-deltas",
                  "valid_intervals": cpu_intervals, "rejected_intervals": rejected_cpu_intervals,
@@ -160,13 +169,18 @@ def resource_summary(root, flow_ids):
                      "cpu_tick_summary": cpu_ticks,
                      "load_average": None, "pressure_some_avg10_peak": pressure},
             "flow_measurement": "sampled-lower-bound", "limited_samples": limited,
+            "flow_rss_measurement": {"aggregation": "peak-of-observed-process-rss-sums",
+                                     "shared_pages_may_repeat": True,
+                                     "excludes_processes_outside_verified_flow_tree": True},
             "read_errors": errors, "unavailable_flow_samples": unavailable_flows,
             "schedstats_enabled_samples": schedstats,
             "flows": [{"id": name, "cpu_seconds_observed": round(total["cpu_ns"] / 10**9, 3)
                        if total["cpu_ns"] is not None else None,
                        "main_thread_runqueue_seconds_observed": round(total["runqueue_ns"] / 10**9, 3)
                        if total["runqueue_ns"] is not None else None,
-                       "max_observed_processes": total["max_observed_processes"]}
+                       "max_observed_processes": total["max_observed_processes"],
+                       "max_observed_process_rss_sum_mib": round(total["max_process_rss_bytes_sum"] / MIB, 3)
+                       if total["max_process_rss_bytes_sum"] is not None else None}
                       for name, total in sorted(flows.items())]}
 
 

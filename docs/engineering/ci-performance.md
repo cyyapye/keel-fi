@@ -86,8 +86,8 @@ own prerequisites pass. PDF isolation waits for source checks, so its scanner
 cannot overlap the compiler flow. Source checks still must pass in the same
 complete receipt. Configured scanner and compiler limits do not establish
 observed memory use or available host capacity. The 900-second active budget and
-per-case deadlines remain. The native main-unit trial uses two workers within
-the unchanged three-worker standalone configuration.
+per-case deadlines remain. Native main units and standalone execution use three
+workers after the two-worker trial below failed the complete budget.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It
@@ -125,16 +125,29 @@ iowait and idle from the existing raw tick samples. Its legacy busy peak
 includes steal. These are host-wide observations; flow CPU remains a sampled
 lower bound.
 
+The same samples also expose host logical CPU count, total memory and total swap
+from their existing buffers. Per-flow resident memory is a peak of sums of
+observed process RSS. Shared pages can be counted more than once, and containers
+outside the owned process tree are excluded. This is not aggregate physical
+memory or an effective CPU quota. Sampling frequency, target paths and read
+bounds remain unchanged. One page-size query per sampler converts resident pages
+to bytes without assuming a host page size.
+
 Run `41627807001` passes all eleven flows, 1,648 unit cases, 426 browser cases
 with 32 existing exclusions and 49 Python cases at 861.783 active seconds. Its
 38.217-second margin is insufficient practical headroom. Browser work is
 critical at 605.639 seconds; main units take 693.996 seconds and source checks
 408.303 seconds. Host samples show memory and I/O pressure, but do not attribute
-that pressure to a particular flow. The next controlled trial overrides only
-native main units to two workers. It keeps the exclusive one-worker preflight,
-standalone three-worker setting, native-flow and browser ceilings, complete
-inventory, assertions and all deadlines. A complete exact-revision receipt must
-establish its result; fewer workers can also extend the unit critical path.
+that pressure to a particular flow.
+
+The native-main-only two-worker trial, run `41635613228`, fails the global
+budget at 903.027 active seconds. All browser cases and 49 Python cases pass,
+but main unit work is interrupted after 797.248 seconds and the complete unit
+union is not established. Source checks take 372.072 seconds and browser work
+578.553 seconds. These are different attempts, not an isolated causal
+comparison. Restore three native main workers and retain the proven duplicate
+browser-read removal. The exclusive one-worker preflight, native-flow and
+browser ceilings, complete inventory, assertions and all deadlines remain.
 
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
@@ -197,29 +210,28 @@ without moving setup outside the unchanged 120-second deadline. Run
 other 1,645 unit cases and the complete browser inventory passed. A fresh
 complete native receipt must establish this candidate's Linux fit.
 
-Standalone unit execution uses three workers. The native main-unit trial uses
-two, and preflight uses one. Priority alone did not isolate the strict CPU
-workloads: run `41587011543` timed out both the runtime graph and capacity day
-before browser startup while source/migration work was active. The explicit gate
-supersedes priority-only admission for those two files. Cash-account,
-purchase-route and provider-usage files also run in the one-worker preflight.
-The purchase-route case previously exceeded its unchanged five-second deadline
-during browser overlap in run `41383958842`. Its authentication, validation,
-accepted-write, valuation, history and fixture work remain inside that same test
-and deadline. The two D1 cost files remain in main, which can run alongside
-source checks and browsers. Main unit files retain their measured cost
-priorities. The automatic-review day/history case has early main-phase priority
-after run `40443347834` exceeded its unchanged 90-second deadline during browser
-overlap. That run's host CPU pressure (`some avg10`) had a 65.6% median. Those
-admission changes retained its 120-item histories, request envelope, D1
-assertions, worker pool and timeout. The separate concurrency trial changes only
-the native main pool. A complete Linux run remains the acceptance check. The
-reviewed-rename cost fixture runs its synthetic import and 240 company-review
-operations inside its existing workerd fixture to avoid repeated Node-to-D1
-bridge calls. It uses the same repository methods, accepted decisions and link
-records. The test still meters every positive, history, empty and
-unrelated-household read against real D1, with the same 120-position scale, row
-budgets and query-plan assertions.
+Standalone and native main-unit execution use three workers. Preflight uses one.
+Priority alone did not isolate the strict CPU workloads: run `41587011543` timed
+out both the runtime graph and capacity day before browser startup while
+source/migration work was active. The explicit gate supersedes priority-only
+admission for those two files. Cash-account, purchase-route and provider-usage
+files also run in the one-worker preflight. The purchase-route case previously
+exceeded its unchanged five-second deadline during browser overlap in run
+`41383958842`. Its authentication, validation, accepted-write, valuation,
+history and fixture work remain inside that same test and deadline. The two D1
+cost files remain in main, which can run alongside source checks and browsers.
+Main unit files retain their measured cost priorities. The automatic-review
+day/history case has early main-phase priority after run `40443347834` exceeded
+its unchanged 90-second deadline during browser overlap. That run's host CPU
+pressure (`some avg10`) had a 65.6% median. Those admission changes retained its
+120-item histories, request envelope, D1 assertions, worker pool and timeout.
+The two-worker native trial was rejected above. A complete Linux run remains the
+acceptance check. The reviewed-rename cost fixture runs its synthetic import and
+240 company-review operations inside its existing workerd fixture to avoid
+repeated Node-to-D1 bridge calls. It uses the same repository methods, accepted
+decisions and link records. The test still meters every positive, history, empty
+and unrelated-household read against real D1, with the same 120-position scale,
+row budgets and query-plan assertions.
 
 Browser verification produces five reports while admitting at most four workers.
 The initial four lanes each use one worker. After they validate and close, the

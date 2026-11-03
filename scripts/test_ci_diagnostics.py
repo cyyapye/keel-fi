@@ -14,6 +14,9 @@ import zipfile
 spec = importlib.util.spec_from_file_location("ci_diagnostics", Path(__file__).with_name("ci-diagnostics.py"))
 diagnostics = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(diagnostics)
+sampler_spec = importlib.util.spec_from_file_location("ci_resource_sampler", Path(__file__).with_name("ci-resource-sampler.py"))
+sampler = importlib.util.module_from_spec(sampler_spec)
+sampler_spec.loader.exec_module(sampler)
 
 
 class DiagnosticsTests(unittest.TestCase):
@@ -54,19 +57,23 @@ class DiagnosticsTests(unittest.TestCase):
         }))
         samples = [
             {"time": 100, "cpu_busy_percent": 25, "iowait_percent": 2,
+             "logical_cpu_count": 6, "memory_total_mib": 12000, "swap_total_mib": 4000,
              "memory_available_mib": 4000, "swap_used_mib": 10,
              "pressure": {"cpu": {"some": {"avg10": "40.5"}}},
              "flow_resources": {"status": "sampled-lower-bound", "read_errors": 1,
                                 "schedstats_enabled": False,
-                                "flows": {"unit": {"cpu_delta_ns": None, "observed_processes": 2}}}},
+                                "flows": {"unit": {"cpu_delta_ns": None, "observed_processes": 2,
+                                                    "process_rss_bytes_sum": 4 * 1024 * 1024}}}},
             {"time": 105, "cpu_busy_percent": 75, "iowait_percent": 1,
+             "logical_cpu_count": 4, "memory_total_mib": 11000, "swap_total_mib": 3000,
              "memory_available_mib": 3000, "swap_used_mib": 20,
              "pressure": {"cpu": {"some": {"avg10": "60.5"}}},
              "flow_resources": {"status": "sampled-lower-bound", "read_errors": 2,
                                 "tracking_limited": True, "schedstats_enabled": True,
                                 "flows": {"unit": {"cpu_delta_ns": 2_000_000_000,
                                                     "main_thread_runqueue_delta_ns": 500_000_000,
-                                                    "observed_processes": 3},
+                                                    "observed_processes": 3,
+                                                    "process_rss_bytes_sum": 6 * 1024 * 1024},
                                           "foreign-secret": {"cpu_delta_ns": 99}}}},
         ]
         self.write("ci-resources.jsonl", b"\n".join(json.dumps(row).encode() for row in samples))
@@ -82,6 +89,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(resources["samples"], 2)
         self.assertEqual(resources["sample_time_span_seconds"], 5)
         self.assertEqual(resources["host"], {"cpu_busy_percent": 75, "iowait_percent": 2,
+            "logical_cpu_count": 4, "memory_total_mib": 11000, "swap_total_mib": 3000,
             "memory_available_mib": 3000, "swap_used_mib": 20, "load_average": None,
             "cpu_busy_percent_includes_steal": True,
             "cpu_tick_summary": {"scope": "host-wide", "aggregation": "weighted-tick-deltas",
@@ -90,10 +98,15 @@ class DiagnosticsTests(unittest.TestCase):
             "pressure_some_avg10_peak": {"cpu": 60.5, "memory": None, "io": None}})
         self.assertEqual(resources["flows"], [
             {"id": "browser", "cpu_seconds_observed": None,
-             "main_thread_runqueue_seconds_observed": None, "max_observed_processes": None},
+             "main_thread_runqueue_seconds_observed": None, "max_observed_processes": None,
+             "max_observed_process_rss_sum_mib": None},
             {"id": "unit", "cpu_seconds_observed": 2,
-             "main_thread_runqueue_seconds_observed": 0.5, "max_observed_processes": 3},
+             "main_thread_runqueue_seconds_observed": 0.5, "max_observed_processes": 3,
+             "max_observed_process_rss_sum_mib": 6},
         ])
+        self.assertEqual(resources["flow_rss_measurement"], {
+            "aggregation": "peak-of-observed-process-rss-sums", "shared_pages_may_repeat": True,
+            "excludes_processes_outside_verified_flow_tree": True})
         self.assertEqual((resources["read_errors"], resources["limited_samples"],
                           resources["schedstats_enabled_samples"]), (3, 1, 1))
         self.assertEqual(summary["native"], {"status": "available-unverified", "state": "FLOWS_FAIL",
@@ -154,6 +167,69 @@ class DiagnosticsTests(unittest.TestCase):
         gap = diagnostics.resource_summary(self.root, set())["host"]["cpu_tick_summary"]
         self.assertEqual((gap["valid_intervals"], gap["rejected_intervals"], gap["covered_ticks"]), (0, 2, None))
 
+        proc = self.root / "proc"
+        (proc / "sys/kernel").mkdir(parents=True)
+        (proc / "sys/kernel/sched_schedstats").write_text("0\n")
+        def process(pid, parent, group, session, rss, command=()):
+            directory = proc / str(pid)
+            directory.mkdir(exist_ok=True)
+            fields = ["0"] * 24
+            fields[0] = "S"
+            for index, value in ((1, parent), (2, group), (3, session), (11, 7), (12, 3), (19, pid), (21, rss)):
+                fields[index] = str(value)
+            if rss is None:
+                fields = fields[:21]
+            (directory / "stat").write_text(f"{pid} (synthetic process) " + " ".join(fields))
+            (directory / "cmdline").write_bytes(b"\0".join(item.encode() for item in command) + b"\0")
+        process(100, 1, 90, 90, 1000, ("python3", "wrapper"))
+        with patch.object(sampler.os, "sysconf", return_value=4096) as page_query:
+            observed = sampler.FlowSampler(self.root, self.root / "source", {"unit": ["make", "test"]},
+                                           proc=proc, scope_pid=100, ticks_per_second=100)
+        page_query.assert_called_once_with("SC_PAGE_SIZE")
+        process(200, 100, 200, 200, 1000, ("python3", *[item.decode() for item in observed.coordinator_args]))
+        process(300, 200, 300, 300, 3, ("make", "test"))
+        process(301, 300, 300, 300, 2)
+        process(400, 100, 400, 400, 10**9, ("make", "test"))
+        (proc / "300/cwd").symlink_to(self.root)
+        read_bytes = sampler.read_bytes
+        reads = []
+        def recorded_read(path, limit):
+            reads.append((str(path), limit))
+            return read_bytes(path, limit)
+        with patch.object(sampler, "read_bytes", side_effect=recorded_read):
+            first = observed.collect()
+        self.assertEqual(first["flows"]["unit"]["observed_processes"], 2)
+        self.assertEqual(first["flows"]["unit"]["process_rss_bytes_sum"], 5 * 4096)
+        self.assertTrue(all(path.startswith(str(proc) + "/") and limit in (16, 4096, sampler.MAX_CMD_BYTES)
+                            for path, limit in reads))
+        self.assertLessEqual(len(reads), 15)
+        for rss in (None, "invalid", -1, 2**64):
+            with self.subTest(rss=rss):
+                process(301, 300, 300, 300, rss)
+                current = observed.collect()
+                self.assertEqual(current["flows"]["unit"]["observed_processes"], 2)
+                self.assertIsNone(current["flows"]["unit"]["process_rss_bytes_sum"])
+        process(300, 200, 300, 300, 0, ("make", "test"))
+        process(301, 300, 300, 300, 0)
+        self.assertEqual(observed.collect()["flows"]["unit"]["process_rss_bytes_sum"], 0)
+        process(300, 200, 300, 300, 3, ("make", "foreign"))
+        self.assertIsNone(observed.collect()["flows"]["unit"]["process_rss_bytes_sum"])
+
+        host_inputs = {
+            "/proc/stat": "cpu 1 2 3 4 5 6 7 8\ncpu0 1 2 3\ncpu1 1 2 3\n",
+            "/proc/meminfo": "MemTotal: 12288 kB\nMemAvailable: 4096 kB\nSwapTotal: 2048 kB\nSwapFree: 1024 kB\n",
+            **{f"/proc/pressure/{kind}": "some avg10=0\n" for kind in ("cpu", "memory", "io")},
+        }
+        host_reads = []
+        def host_read(path):
+            host_reads.append(str(path))
+            return host_inputs[str(path)]
+        with patch.object(sampler.Path, "read_text", host_read):
+            host = sampler.sample()
+        self.assertEqual((host["logical_cpu_count"], host["memory_total_mib"], host["swap_total_mib"]),
+                         (2, 12, 2))
+        self.assertCountEqual(host_reads, host_inputs)
+
     def test_failure_and_cancellation_bound_120_cases_and_record_omissions(self):
         report = b'{"stats":{"unexpected":120},"errors":["synthetic failure"]}'
         self.write("pilot/playwright.json", report)
@@ -204,6 +280,28 @@ class DiagnosticsTests(unittest.TestCase):
         summary = diagnostics.diagnostic_summary(self.root)
         self.assertIsNone(summary["resources"]["host"]["cpu_busy_percent"])
         self.assertIsNone(summary["resources"]["host"]["swap_used_mib"])
+        for invalid in (None, True, -1, "1", 1e300, float("nan")):
+            with self.subTest(invalid_resource=invalid):
+                self.write("ci-resources.jsonl", json.dumps({"time": 1,
+                    "logical_cpu_count": invalid, "memory_total_mib": invalid,
+                    "swap_total_mib": invalid,
+                    "flow_resources": {"status": "sampled-lower-bound", "flows": {
+                        "unit": {"observed_processes": 1, "process_rss_bytes_sum": invalid}}}}).encode())
+                missing = diagnostics.resource_summary(self.root, {"unit"})
+                self.assertTrue(all(missing["host"][key] is None for key in (
+                    "logical_cpu_count", "memory_total_mib", "swap_total_mib")))
+                self.assertIsNone(missing["flows"][0]["max_observed_process_rss_sum_mib"])
+        for count, rss, expected in ((None, 10, None), (0, 10, None), (1, None, None), (1, 0, 0)):
+            self.write("ci-resources.jsonl", json.dumps({"time": 1,
+                "flow_resources": {"status": "sampled-lower-bound", "flows": {
+                    "unit": {"observed_processes": count, "process_rss_bytes_sum": rss}}}}).encode())
+            self.assertEqual(diagnostics.resource_summary(self.root, {"unit"})["flows"][0][
+                "max_observed_process_rss_sum_mib"], expected)
+        self.write("ci-resources.jsonl", b'{"time":1,"logical_cpu_count":1.5,"memory_total_mib":0,"swap_total_mib":0}')
+        capacities = diagnostics.resource_summary(self.root, set())["host"]
+        self.assertIsNone(capacities["logical_cpu_count"])
+        self.assertIsNone(capacities["memory_total_mib"])
+        self.assertEqual(capacities["swap_total_mib"], 0)
         self.write("verification/required.json", json.dumps({"results": [{"id": ["private-secret"]}]}).encode())
         self.assertNotIn("private-secret", json.dumps(diagnostics.diagnostic_summary(self.root)))
         self.write("verification/required.json", b'{"state":"REQUIRED_PASS"}')

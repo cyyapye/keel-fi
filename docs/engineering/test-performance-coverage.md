@@ -114,8 +114,9 @@ outcomes remain. All 123 assertions, six case declarations, actions, screenshots
 and limits are retained. A delayed-response holdout proves selection of a new
 request over an earlier buffered request; it does not establish delivery of the
 earlier response after navigation. These counts do not establish elapsed
-improvement. The native main-unit two-worker trial changes scheduling only;
-standalone units remain at three workers and strict preflight at one.
+improvement. The native main-unit two-worker trial failed the complete budget
+and is reverted. Native main and standalone units use three workers; strict
+preflight uses one.
 
 Native source checks reuse typed ESLint's compiler programs instead of starting
 separate compiler checks for the same contexts. Each required context still
