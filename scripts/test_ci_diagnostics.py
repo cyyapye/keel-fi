@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 spec = importlib.util.spec_from_file_location("ci_diagnostics", Path(__file__).with_name("ci-diagnostics.py"))
@@ -48,6 +49,55 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertLessEqual(path.stat().st_size, 1024 * 1024)
         self.assertEqual(manifest["status"], "success")
         self.assertTrue(image.exists())
+        (self.root / ".tugling/pilot-verification.json").write_text(json.dumps({
+            "flows": [{"id": "unit"}, {"id": "browser"}],
+        }))
+        samples = [
+            {"time": 100, "cpu_busy_percent": 25, "iowait_percent": 2,
+             "memory_available_mib": 4000, "swap_used_mib": 10,
+             "pressure": {"cpu": {"some": {"avg10": "40.5"}}},
+             "flow_resources": {"status": "sampled-lower-bound", "read_errors": 1,
+                                "schedstats_enabled": False,
+                                "flows": {"unit": {"cpu_delta_ns": None, "observed_processes": 2}}}},
+            {"time": 105, "cpu_busy_percent": 75, "iowait_percent": 1,
+             "memory_available_mib": 3000, "swap_used_mib": 20,
+             "pressure": {"cpu": {"some": {"avg10": "60.5"}}},
+             "flow_resources": {"status": "sampled-lower-bound", "read_errors": 2,
+                                "tracking_limited": True, "schedstats_enabled": True,
+                                "flows": {"unit": {"cpu_delta_ns": 2_000_000_000,
+                                                    "main_thread_runqueue_delta_ns": 500_000_000,
+                                                    "observed_processes": 3},
+                                          "foreign-secret": {"cpu_delta_ns": 99}}}},
+        ]
+        self.write("ci-resources.jsonl", b"\n".join(json.dumps(row).encode() for row in samples))
+        evidence = {"state": "FLOWS_FAIL", "performance": {"active_seconds": 900.1,
+                    "budget_seconds": 900, "within_budget": False},
+                    "results": [{"id": "unit", "started_offset_seconds": 4,
+                                 "duration_seconds": 50, "exit_code": -15, "failure": "private-secret"},
+                                {"id": "foreign-secret", "argv": ["private-secret"]}]}
+        self.write("pilot-required.json", json.dumps({"flow_verification": {
+            "evidence": evidence, "path": "https://private-secret"}, "unknown": "private-secret"}).encode())
+        summary = diagnostics.diagnostic_summary(self.root)
+        resources = summary["resources"]
+        self.assertEqual(resources["samples"], 2)
+        self.assertEqual(resources["sample_time_span_seconds"], 5)
+        self.assertEqual(resources["host"], {"cpu_busy_percent": 75, "iowait_percent": 2,
+            "memory_available_mib": 3000, "swap_used_mib": 20, "load_average": None,
+            "pressure_some_avg10_peak": {"cpu": 60.5, "memory": None, "io": None}})
+        self.assertEqual(resources["flows"], [
+            {"id": "browser", "cpu_seconds_observed": None,
+             "main_thread_runqueue_seconds_observed": None, "max_observed_processes": None},
+            {"id": "unit", "cpu_seconds_observed": 2,
+             "main_thread_runqueue_seconds_observed": 0.5, "max_observed_processes": 3},
+        ])
+        self.assertEqual((resources["read_errors"], resources["limited_samples"],
+                          resources["schedstats_enabled_samples"]), (3, 1, 1))
+        self.assertEqual(summary["native"], {"status": "available-unverified", "state": "FLOWS_FAIL",
+            "active_seconds": 900.1, "budget_seconds": 900, "within_budget": False,
+            "invalid_flow_rows": 1, "flows": [{"id": "unit", "started_offset_seconds": 4,
+                "duration_seconds": 50, "exit_code": -15, "failure_present": True}]})
+        self.assertNotIn("private-secret", json.dumps(summary))
+        self.assertNotIn("foreign-secret", json.dumps(summary))
 
     def test_failure_and_cancellation_bound_120_cases_and_record_omissions(self):
         report = b'{"stats":{"unexpected":120},"errors":["synthetic failure"]}'
@@ -79,6 +129,60 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertEqual(set(contents), {"manifest.json"})
             self.assertEqual(manifest["included"], [])
             self.assertEqual(foreign.read_bytes(), b"foreign")
+        summary = diagnostics.diagnostic_summary(self.root)
+        self.assertEqual(summary["resources"], {"status": "missing"})
+        self.assertEqual(summary["native"], {"status": "missing"})
+        self.write("ci-resources.jsonl", b'{"time":1,"unknown":"private-secret"}\ninvalid')
+        summary = diagnostics.diagnostic_summary(self.root)
+        self.assertEqual(summary["resources"]["status"], "partial")
+        self.assertEqual(summary["resources"]["invalid_samples"], 1)
+        self.assertIsNone(summary["resources"]["host"]["cpu_busy_percent"])
+        self.assertIsNone(summary["resources"]["read_errors"])
+        self.assertNotIn("private-secret", json.dumps(summary))
+        for data in (b"x" * (diagnostics.SUMMARY_BYTES + 1),
+                     b"x" * (diagnostics.SUMMARY_LINE_BYTES + 1),
+                     b"{}\n" * (diagnostics.SUMMARY_LINES + 1)):
+            self.write("ci-resources.jsonl", data)
+            self.assertIn(diagnostics.diagnostic_summary(self.root)["resources"]["status"],
+                          ("invalid", "limit-exceeded"))
+        self.write("ci-resources.jsonl", b'{"time":1,"cpu_busy_percent":NaN,"swap_used_mib":1e300}')
+        summary = diagnostics.diagnostic_summary(self.root)
+        self.assertIsNone(summary["resources"]["host"]["cpu_busy_percent"])
+        self.assertIsNone(summary["resources"]["host"]["swap_used_mib"])
+        self.write("verification/required.json", json.dumps({"results": [{"id": ["private-secret"]}]}).encode())
+        self.assertNotIn("private-secret", json.dumps(diagnostics.diagnostic_summary(self.root)))
+        self.write("verification/required.json", b'{"state":"REQUIRED_PASS"}')
+        self.assertEqual(diagnostics.diagnostic_summary(self.root)["native"], {"status": "missing"})
+        self.write("pilot-required.json", b'{"flow_verification":{"state":"FLOWS_FAIL"}}')
+        self.assertEqual(diagnostics.diagnostic_summary(self.root)["native"],
+                         {"status": "missing-current-evidence"})
+        (self.root / ".tugling/pilot-verification.json").write_text('{"flows":[{"id":"unit"}]}')
+        self.write("verification/managed-v1/current.json", json.dumps({"state": "FLOWS_FAIL",
+            "performance": {"active_seconds": 900.2, "budget_seconds": 900, "within_budget": False},
+            "results": [{"id": "unit", "started_offset_seconds": 3,
+                         "duration_seconds": 897.2, "exit_code": -15, "failure": "private-secret"}]}).encode())
+        wrapper = {"flow_verification": {"state": "FLOWS_FAIL",
+                   "path": ".tugling/local/verification/managed-v1/current.json"}}
+        self.write("pilot-required.json", json.dumps(wrapper).encode())
+        current = diagnostics.diagnostic_summary(self.root)["native"]
+        self.assertEqual((current["state"], current["active_seconds"], current["within_budget"]),
+                         ("FLOWS_FAIL", 900.2, False))
+        self.assertNotIn("private-secret", json.dumps(current))
+        for name in (".tugling/local/verification/required.json", "../private-secret.json",
+                     "/private-secret.json", "https://private-secret", ".tugling/local/verification/managed-v1/../current.json"):
+            wrapper["flow_verification"]["path"] = name
+            self.write("pilot-required.json", json.dumps(wrapper).encode())
+            self.assertEqual(diagnostics.diagnostic_summary(self.root)["native"],
+                             {"status": "missing-current-evidence"})
+        nested = b"[" * 2000 + b"0" + b"]" * 2000
+        self.write("pilot-required.json", nested)
+        self.write("ci-resources.jsonl", nested)
+        self.assertEqual(diagnostics.diagnostic_summary(self.root)["native"], {"status": "invalid"})
+        self.assertEqual(diagnostics.diagnostic_summary(self.root)["resources"]["status"], "invalid")
+        with patch.object(diagnostics.json, "loads", side_effect=RecursionError):
+            summary = diagnostics.diagnostic_summary(self.root)
+            self.assertEqual(summary["native"], {"status": "invalid"})
+            self.assertEqual(summary["resources"]["status"], "invalid")
 
     def test_rejects_symlinks_and_hardlinks_without_touching_target(self):
         target = self.root / "foreign"
@@ -91,6 +195,8 @@ class DiagnosticsTests(unittest.TestCase):
         os.link(target, report)
         with self.assertRaisesRegex(ValueError, "one link"):
             self.bundle("failure")
+        with self.assertRaises(ValueError):
+            diagnostics.summary_input(self.root, report)
         report.unlink()
         output = self.local / "ci-upload/diagnostics.zip"
         self.assertFalse(output.exists())
@@ -98,6 +204,20 @@ class DiagnosticsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             self.bundle("failure")
         self.assertEqual(target.read_bytes(), b"foreign")
+        report.symlink_to(target)
+        with self.assertRaises(ValueError):
+            diagnostics.summary_input(self.root, report)
+        report.unlink(missing_ok=True)
+        report.write_bytes(b"{}")
+        with patch.object(diagnostics, "regular_file", side_effect=lambda *_: report.write_bytes(b"x" * 65)):
+            with self.assertRaisesRegex(ValueError, "byte bound"):
+                diagnostics.summary_input(self.root, report, 64)
+        def replace_with_fifo(*_):
+            report.unlink()
+            os.mkfifo(report)
+        with patch.object(diagnostics, "regular_file", side_effect=replace_with_fifo):
+            with self.assertRaisesRegex(ValueError, "changed during acquisition"):
+                diagnostics.summary_input(self.root, report, 64)
 
     def test_cli_and_oversized_file_keep_manifest_instead_of_unbounded_upload(self):
         self.write("pilot/vitest.json", b"x" * (8 * 1024 * 1024 + 1))
@@ -106,6 +226,13 @@ class DiagnosticsTests(unittest.TestCase):
         with zipfile.ZipFile(json.loads(result.stdout)["path"]) as archive:
             manifest = json.loads(archive.read("manifest.json"))
         self.assertEqual(manifest["omitted_counts"], {"file exceeds 8 MiB": 1})
+        result_data = json.loads(result.stdout)
+        self.assertEqual(result_data["summary"]["schema_version"], 1)
+        self.assertLessEqual(len(json.dumps(result_data["summary"]).encode()), diagnostics.SUMMARY_OUTPUT_BYTES)
+        with patch.object(diagnostics, "SUMMARY_OUTPUT_BYTES", 64):
+            summary = diagnostics.diagnostic_summary(self.root)
+            self.assertEqual(summary, {"schema_version": 1, "status": "output-limit-exceeded"})
+            self.assertLessEqual(len(json.dumps(summary).encode()), 64)
 
 
 if __name__ == "__main__":

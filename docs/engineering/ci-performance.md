@@ -72,19 +72,21 @@ servers, ports and cleanup; each partition remains serial internally.
 ## Bounded execution plan
 
 The verification map admits an exclusive preflight before any heavy flow. The
-existing integrity flow first executes the database capacity and runtime graph
-files with one Vitest worker, then runs native Python accounting. The main unit
-flow executes the complementary cases. Both reports must account for the entire
-reviewed Vitest inventory exactly once. Missing, stale, substituted or
-overlapping preflight evidence fails verification.
+existing integrity flow first executes five in-process workload files with one
+Vitest worker, then runs native Python accounting. The main unit flow executes
+the complementary cases. Both reports must account for the entire reviewed
+Vitest inventory exactly once. Missing, stale, substituted or overlapping
+preflight evidence fails verification.
 
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
 most three native flows run concurrently. Ready compose and migration work
 precede main unit admission, keeping the browser fixture path moving. The
 workspace build can release a slot for units while migrations run. Source checks
-remain concurrent and independently required after preflight. The 900-second
-active budget, per-case deadlines and three-worker main unit ceiling remain.
+finish before the wide main unit and browser phases, protecting their CPU and
+memory budget. Build, migration and bounded PDF prerequisites can still overlap
+source checks. The 900-second active budget, per-case deadlines and three-worker
+main unit ceiling remain.
 
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
@@ -110,6 +112,8 @@ flowchart LR
   pdfBuild --> provider
   provider --> pdf[PDF isolation]
   integrity --> unit[Unit and D1 tests]
+  source --> unit
+  source --> browser
   migrations --> browserFixture[Browser fixture]
   build --> browser[Browser suite]
   provider --> browser
@@ -150,22 +154,25 @@ Standalone unit execution and the main native unit phase use three workers. The
 preflight uses one. Priority alone did not isolate the strict CPU workloads: run
 `41587011543` timed out both the runtime graph and capacity day before browser
 startup while source/migration work was active. The explicit gate supersedes
-priority-only admission for those two files. Main unit files retain their
-measured cost priorities. The automatic-review day/history case joins this early
-group after run `40443347834` exceeded its unchanged 90-second deadline during
-browser overlap. That run's host CPU pressure (`some avg10`) had a 65.6% median.
-Moving admission does not change its 120-item histories, request envelope, D1
+priority-only admission for those two files. Cash-account, purchase-route and
+provider-usage files also run in the one-worker preflight. The purchase-route
+case previously exceeded its unchanged five-second deadline during browser
+overlap in run `41383958842`. Its authentication, validation, accepted-write,
+valuation, history and fixture work remain inside that same test and deadline.
+The two D1 cost files remain in main, which waits for source checks before
+running alongside browsers. Main unit files retain their measured cost
+priorities. The automatic-review day/history case has early main-phase priority
+after run `40443347834` exceeded its unchanged 90-second deadline during browser
+overlap. That run's host CPU pressure (`some avg10`) had a 65.6% median. Moving
+admission does not change its 120-item histories, request envelope, D1
 assertions, worker count or timeout. A complete Linux run remains the acceptance
-check. The purchase-route case joins the early group after run `41383958842`
-exceeded its unchanged five-second deadline during browser overlap. Its
-authentication, validation, accepted-write, valuation, history and fixture work
-remain inside that same test and deadline. Earlier admission changes neither the
-three-worker unit pool nor the case inventory. The reviewed-rename cost fixture
-runs its synthetic import and 240 company-review operations inside its existing
-workerd fixture to avoid repeated Node-to-D1 bridge calls. It uses the same
-repository methods, accepted decisions and link records. The test still meters
-every positive, history, empty and unrelated-household read against real D1,
-with the same 120-position scale, row budgets and query-plan assertions.
+check. Earlier admission changes neither the three-worker main pool nor the case
+inventory. The reviewed-rename cost fixture runs its synthetic import and 240
+company-review operations inside its existing workerd fixture to avoid repeated
+Node-to-D1 bridge calls. It uses the same repository methods, accepted decisions
+and link records. The test still meters every positive, history, empty and
+unrelated-household read against real D1, with the same 120-position scale, row
+budgets and query-plan assertions.
 
 Browser verification produces five reports while admitting at most four workers.
 The initial four lanes each use one worker. After they validate and close, the

@@ -33,6 +33,9 @@ BROWSER_SEED_SEAL = ROOT / ".keel-local/pilot-browser-seed.json"
 STRICT_VITEST_FILES = (
     "packages/database/src/d1-capacity.test.ts",
     "scripts/runtime-work-inventory.test.ts",
+    "packages/database/src/cash-accounts.test.ts",
+    "apps/api/src/position-purchases.test.ts",
+    "scripts/provider-agent-usage.test.ts",
 )
 
 
@@ -662,16 +665,21 @@ def vitest_partition(inventory, strict):
 def validate_preflight_dependencies(mapping):
     by_id = {flow["id"]: flow for flow in mapping["flows"]}
     gate = "gate-and-artifact-integrity"
-    def follows_gate(name, visiting):
-        if name == gate:
+    def follows(name, prerequisite, visiting):
+        if name == prerequisite:
             return True
         if name in visiting:
             raise ValueError("Native preflight dependencies contain a cycle")
-        return any(follows_gate(parent, visiting | {name})
-                   for parent in by_id[name]["depends_on"])
+        parents = [follows(parent, prerequisite, visiting | {name})
+                   for parent in by_id[name]["depends_on"]]
+        return any(parents)
     if (gate not in by_id or by_id[gate]["depends_on"]
-            or any(not follows_gate(name, set()) for name in by_id if name != gate)):
+            or any(not follows(name, gate, set()) for name in by_id if name != gate)):
         raise ValueError("Every native flow must follow the isolated preflight")
+    if ("source-quality" not in by_id
+            or any(name not in by_id or not follows(name, "source-quality", set())
+                   for name in ("native-unit-and-cost", "browser-workflows"))):
+        raise ValueError("Wide native flows must follow source-quality")
 
 
 def vitest_context():

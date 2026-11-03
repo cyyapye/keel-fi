@@ -982,7 +982,7 @@ with native.cost_seed_directory() as seed:
                 extra_link.unlink()
                 merged = native.merge_vitest_reports(strict, main)
                 native.compare_cases("vitest", native.vitest_cases(merged), inventory)
-                self.assertEqual(merged["numPassedTests"], 3)
+                self.assertEqual(merged["numPassedTests"], len(inventory["vitest"]))
                 for identities in ([], [main_id, strict_ids[0]]):
                     with self.subTest(main=identities), self.assertRaises(ValueError):
                         native.compare_cases("vitest", native.vitest_cases(native.merge_vitest_reports(strict, report(identities))), inventory)
@@ -1066,7 +1066,7 @@ with native.cost_seed_directory() as seed:
         self.assertIn('resolve("scripts/test-support/provider-documents-runtime-smoke.ts")', boundary)
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["gate-and-artifact-integrity"],
+            ["gate-and-artifact-integrity", "source-quality"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("compose-configuration"), flow_order.index("migration-and-seed"))
@@ -1095,6 +1095,20 @@ with native.cost_seed_directory() as seed:
             next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = []
             with self.subTest(ungated=name), self.assertRaises(ValueError):
                 native.validate_preflight_dependencies(invalid)
+        for name in ("native-unit-and-cost", "browser-workflows"):
+            invalid = json.loads(json.dumps(plan))
+            flow = next(flow for flow in invalid["flows"] if flow["id"] == name)
+            flow["depends_on"].remove("source-quality")
+            with self.subTest(source_ungated=name), self.assertRaisesRegex(ValueError, "source-quality"):
+                native.validate_preflight_dependencies(invalid)
+        transitive = json.loads(json.dumps(plan))
+        by_id = {flow["id"]: flow for flow in transitive["flows"]}
+        by_id["compose-configuration"]["depends_on"] = ["source-quality"]
+        by_id["native-unit-and-cost"]["depends_on"] = ["compose-configuration"]
+        native.validate_preflight_dependencies(transitive)
+        by_id["source-quality"]["depends_on"].append("source-quality")
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            native.validate_preflight_dependencies(transitive)
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         config = json.loads((pilot.ROOT / ".tugling/pilot.json").read_text())
         self.assertEqual(config["project"]["verification_budget_seconds"], 900)

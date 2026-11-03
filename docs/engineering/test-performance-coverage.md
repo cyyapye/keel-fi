@@ -62,17 +62,30 @@ replay nor post-migration query tests substitute for this proof.
 The capacity virtual day still executes all 1,440 attempts through the original
 JSON CAS store and real WebCrypto. Every charge, read, write, compaction and
 byte assertion retains its five-second deadline. Priority alone failed in normal
-CI before browser startup, so the native integrity gate runs the 21 strict cases
-with one worker before admitting heavy flows. Its 49 Python cases remain. The
-main phase runs the other 1,624 Vitest cases, and combined accounting requires
-all 1,645 exactly once. Missing, stale, substituted, omitted or duplicated proof
-fails. Standalone Vitest still runs the full inventory.
+CI before browser startup, so the native integrity gate runs the 56 in-process
+strict cases with one worker before admitting heavy flows. Its 49 Python cases
+remain. The main phase runs the other 1,589 Vitest cases, and combined
+accounting requires all 1,645 exactly once. Missing, stale, substituted, omitted
+or duplicated proof fails. Standalone Vitest still runs the full inventory.
 
 Small fixture and SHA-driver prototypes did not establish meaningful gains and
-were rejected. The capacity tests and production source remain unchanged. A
-separate local-source Linux probe stopped at SSH authentication before any
-remote command; it supplies no timing evidence. Complete normal CI remains the
-acceptance path for the isolated resource phase.
+were rejected. The capacity-owner and runtime-graph tests and all production
+source remain unchanged. A separate local-source Linux probe stopped at SSH
+authentication before any remote command; it supplies no timing evidence. Source
+checks finish before the wide unit and browser phases; bounded build, migration
+and PDF prerequisites retain parallel execution. Existing resource samples and
+flow outcomes receive a bounded console summary, so paused artifact uploads do
+not hide the remaining resource evidence. Complete normal CI remains the
+acceptance path for this resource schedule.
+
+The quieter gate exposed a cash fixture that relied on wall-clock review times
+being different. With tied observations and tied review times, the existing
+projection deliberately prefers a reported balance. A private fixed-clock
+control reproduces that assertion failure. The fixture now sets Date explicitly
+and advances the second review by 1 ms. The unreviewed account still retains its
+reported amount, then becomes unknown after the later review. All assertions,
+observations, inputs and real timeout remain. The original failed run did not
+retain both timestamps, so their equality in that run is unconfirmed.
 
 Real PDF isolation, production browser/document capture, current authentication,
 quota denial, stale/unknown evidence, uncertain replay, concurrency and owned
