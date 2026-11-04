@@ -1561,7 +1561,6 @@
     "scripts/shared-ui-usage.test.ts :: shared UI usage > uses DisclosureIndicator for the shared select popup",
     "scripts/sql-replay.test.ts :: batches only adjacent standalone reads without changing real billing or production round trips",
     "scripts/sql-replay.test.ts :: coalesces proven zero-write updates while retaining actual writes, triggers and billing",
-    "scripts/sql-replay.test.ts :: rejects D1 result divergence instead of trusting the SQLite behavior oracle",
     "scripts/sql-replay.test.ts :: rejects incomplete replay, missing billing metadata and failed SQL traces",
     "scripts/sql-replay.test.ts :: replays setup, atomic batches, bindings and reads with actual D1 index-write costs",
     "scripts/sql-replay.test.ts :: validates consumed affected-row counts against D1 while rejecting synthetic billing metadata",

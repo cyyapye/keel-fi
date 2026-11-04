@@ -72,15 +72,7 @@ it("replays setup, atomic batches, bindings and reads with actual D1 index-write
         .bind("synthetic-one")
         .first("value"),
     ).toBe(8);
-  } finally {
-    trace.close();
-    await fixture.close();
-  }
-}, 30_000);
 
-it("rejects D1 result divergence instead of trusting the SQLite behavior oracle", async () => {
-  const fixture = await createCostDatabase();
-  try {
     await expect(
       replaySql(fixture.database, {
         queries: ["SELECT id FROM households WHERE id = ?"],
@@ -95,6 +87,7 @@ it("rejects D1 result divergence instead of trusting the SQLite behavior oracle"
       }),
     ).rejects.toThrow("D1/SQLite result mismatch at operation 500");
   } finally {
+    trace.close();
     await fixture.close();
   }
 }, 30_000);

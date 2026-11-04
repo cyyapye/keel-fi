@@ -623,3 +623,14 @@ executions took 3.4 summed seconds on Linux at `5c139dbc`. Their exact source
 and viewport combinations leave the browser matrix. The registered desktop cases
 still catch a missing refresh for either public holdings or cash, and the
 retained mobile case catches overflow.
+
+At `66a0e671`, all 2,107 required Linux cases passed on the first attempt. The
+native gate took 828.140 seconds. The latest five runs on `keel-ci-us-1` had a
+median of 804.904 seconds and a maximum of 834.899 seconds.
+[Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41819386085)
+
+The SQL replay test now checks both a correct replay and a divergent D1 read in
+the same real database. The positive replay writes only to its own probe table.
+The negative assertion then reads the seeded household, supplies an empty
+expected result and requires the mismatch to name operation 500. This removes
+one database startup and keeps the grouped-read mismatch as a separate check.
