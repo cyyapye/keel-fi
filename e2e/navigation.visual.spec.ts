@@ -12,17 +12,20 @@ const navigationLabels = [
 ] as const;
 
 test("keeps portfolio loading concise", async ({ page }) => {
+  let heldAlphaRequests = 0;
   let releaseResponse!: () => void;
   const responseGate = new Promise<void>((resolve) => {
     releaseResponse = resolve;
   });
   await page.route("**/api/alpha", async (route) => {
+    heldAlphaRequests += 1;
     const response = await route.fetch();
     await responseGate;
     await route.fulfill({ response });
   });
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => heldAlphaRequests).toBe(1);
   const loading = page.getByRole("status");
   await expect(
     loading.getByRole("heading", { name: "Loading your portfolio" }),
@@ -56,17 +59,20 @@ test("keeps portfolio loading concise", async ({ page }) => {
 test("paints the Holdings route before the full application loads", async ({
   page,
 }) => {
+  let heldApplicationRequests = 0;
   let releaseApplication!: () => void;
   const applicationGate = new Promise<void>((resolve) => {
     releaseApplication = resolve;
   });
   await page.route("**/src/App.tsx*", async (route) => {
+    heldApplicationRequests += 1;
     const response = await route.fetch();
     await applicationGate;
     await route.fulfill({ response });
   });
 
   await page.goto("/holdings", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => heldApplicationRequests).toBe(1);
   await expect(
     page.getByRole("heading", { level: 1, name: "Holdings" }),
   ).toBeVisible();

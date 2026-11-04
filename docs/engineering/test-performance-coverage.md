@@ -363,3 +363,38 @@ Python and 417 browser tests, with 30 explicit browser exclusions and no retry
 passes. Browser verification finished last (856.922s), after the unit and cost
 flow (772.218s) and PDF isolation (745.285s). The run exceeded the 750-second
 performance target. It predates the Watch and pure-function reductions above.
+
+On that Linux run the longest Vitest files were the six provider days
+(248.926s), populated migrations (115.271s), Watch activity (77.960s) and the
+portfolio baseline (75.983s). Each needs real D1 to count rows read and written.
+Among browser cases, cold Sydecar renewal took 51.4s. The Holdings detail
+journey took 27.2s on desktop and 21.4s on mobile; it opens the date control and
+compares 17 rendered states per project. These are case or file durations, not
+additive contributions to gate time.
+
+Twenty-five Vitest files used to load Wrangler and split all 89 migrations and
+the synthetic seed during test collection. A sealed fixture now verifies the
+ordered input paths and bytes plus the lockfile. Unseeded databases and custom
+SQL still call Wrangler's splitter. Changes to a migration, seed, order,
+lockfile or seal failed the fixture checks. All 59 cases passed both ways in two
+local pairs. Their elapsed savings were 8.5 and 21.0 seconds; the Linux gate
+must be measured separately.
+
+The scanner decoder still classifies all thirteen inputs with production Python
+and checks the TypeScript findings schema, now using one interpreter launch. Two
+PDF cleanup unit tests advance the fake clock used by the poll instead of
+sleeping for 1.5 seconds. They reject premature cleanup, lost retries and a 249
+ms poll interval in place of the required 250 ms. Native isolation and
+process-death tests keep real timers.
+
+[Run 41785562625](https://github.com/cyyapye/keel-fi/actions/runs/41785562625)
+passed all 11 flows on its first attempt at 856.479 active seconds. The Linux
+browser suite took 583.597s (413 passes and 30 approved exclusions), 14.632s
+less than the preceding run, but it started 14.190s later. The full gate was
+only 0.443s faster. Neither run meets the 750-second ceiling.
+
+The two navigation loading tests now confirm their intended request is held
+before checking the loading state. The original screenshots could pass even when
+the test held the wrong route. All six normal browser cases passed; substituting
+the wrong Alpha or application path now fails on both projects. The request
+guard does not wait for upstream response time.
