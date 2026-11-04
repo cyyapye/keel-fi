@@ -55,6 +55,7 @@
       "sources": [
         "scripts/pilot_native.py",
         "scripts/test_tugling_pilot.py",
+        "scripts/ci-case-timings.py",
         "scripts/test_linux_test_run.py",
         "scripts/linux-test-run.py",
         ".tugling/pilot-cases.json",

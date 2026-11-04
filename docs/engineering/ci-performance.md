@@ -1096,3 +1096,35 @@ injected only into synthetic test-host transports, not into production or the
 Worker-side D1 operations. These are focused transport-sensitivity measurements,
 not a complete CI speedup claim. Full Linux required-gate evidence is still
 required for the changed revision.
+
+## Per-case timings from Linux job logs
+
+Once a native suite passes its existing case accounting, its runner writes one
+`KEEL_CASE_TIMINGS_V1` line to the job log. This works while artifact uploads
+are paused. Python measures each unittest case with the monotonic clock. Vitest
+timing comes from the complete merged JSON report. Playwright uses the duration
+of the single native result. The ranked CSV reports integer microseconds rounded
+up. An explicit platform exclusion has a blank duration. A missing measurement
+from a required case suppresses that suite's timing line. The maximum line size
+is 16 KiB, including its checksum and metadata.
+
+Get the checkout SHA from the native verification job's
+`Uses: .../native-verification.yml@refs/pull/.../merge (...)` log line or its
+checkout step. On a pull request this identifies the synthetic merge commit. The
+PR head SHA describes a different checkout. Run the following from Keel with
+`RUN`, `ATTEMPT` and `REVISION` set to the values for the same CI attempt.
+
+```sh
+gh run view "$RUN" --attempt "$ATTEMPT" --log > native-run.log
+git cat-file -e "$REVISION^{commit}" || git fetch --no-tags origin "$REVISION"
+python3 -I scripts/ci-case-timings.py native-run.log \
+  --revision "$REVISION" --run "$RUN" --attempt "$ATTEMPT" > cases.csv
+```
+
+The decoder loads the ordered registry and exclusions from that Git object. It
+validates the revision, run, attempt, platform, checksum, expected exclusions
+and vector lengths before writing CSV. The default requires complete Python,
+Vitest and Playwright vectors. Pass `--suite python`, `--suite vitest` or
+`--suite playwright` to rank a completed suite when another was interrupted. An
+unavailable historical merge object must be recovered from an existing checkout
+of that revision before the log can be decoded.

@@ -1,6 +1,7 @@
 """Synthetic native-runner and pre-execution source boundary holdouts."""
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -1113,6 +1114,41 @@ with native.cost_seed_directory() as seed:
         for observed in ([('replacement', 'passed')], [('accepted', 'passed')] * 2, [('accepted', 'skipped')]):
             with self.assertRaises(ValueError):
                 native.compare_cases("python", observed, inventory)
+
+        measured = unittest.FunctionTestCase(lambda: None)
+        with patch.object(native.time, "monotonic_ns", side_effect=(1_000, 3_500)):
+            result = unittest.TextTestRunner(stream=io.StringIO(), resultclass=native.AccountedResult).run(measured)
+        self.assertEqual(result.observed, [(measured.id(), "passed")])
+        self.assertEqual(result.durations_ms[measured.id()], 0.0025)
+
+        decoder = load("case_timings", "ci-case-timings.py")
+        identity = ("1" * 40, "321", "2")
+        registry = {"python": ["fast", "slow", "excluded"], "exclusions": [
+            {"runner": "python", "id": "excluded", "platforms": ["linux"]}]}
+        records = [("slow", "passed", 2.5), ("fast", "passed", 0.0001), ("excluded", "skipped", None)]
+        def encode(observed=records, source=registry):
+            return native.timing_line("python", observed, source, *identity, "linux")
+        def decode(lines, source=registry, revision=identity[0], attempt=identity[2]):
+            return decoder.ranked_cases(lines, source, revision, identity[1], attempt, ("python",))
+        line = encode()
+        self.assertEqual(decode(["some native output", "2026-08-07T00:00:00Z " + line]),
+                         [("python", "slow", "passed", 2500), ("python", "fast", "passed", 1),
+                          ("python", "excluded", "excluded", None)])
+        for invalid in ([("fast", "passed", 0)], [*records, records[0]],
+                        [("slow", "passed", None), *records[1:]],
+                        [("slow", "passed", float("nan")), *records[1:]],
+                        [*records[:2], ("excluded", "passed", 0)]):
+            with self.subTest(records=invalid), self.assertRaises(ValueError):
+                encode(invalid)
+        for lines in ([], [line, line], [line[:-1]], [line + "0"]):
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                decode(lines)
+        with self.assertRaises(ValueError):
+            decode([line], revision="2" * 40)
+        with self.assertRaises(ValueError):
+            decode([line], attempt="3")
+        with self.assertRaises(ValueError):
+            decode([line], source={**registry, "python": list(reversed(registry["python"]))})
 
     def test_ci_selects_pr_head_and_keeps_privileged_actions_out(self):
         # Ordinary CI verifies the event merge candidate once; the manual probe

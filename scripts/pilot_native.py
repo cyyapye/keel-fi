@@ -9,7 +9,9 @@ import fcntl
 import hashlib
 import importlib.util
 import json
+import math
 import os
+import re
 from pathlib import Path
 import signal
 import shutil
@@ -594,17 +596,21 @@ def compare_cases(runner, observed, inventory, platform=sys.platform):
     print(f"{runner}: all {len(expected)} reviewed cases accounted for; {len(exclusions)} explicit exclusions")
 
 
-def vitest_cases(report):
-    return [
+def vitest_observations(report):
+    return (
         (f"{Path(suite['name']).relative_to(ROOT).as_posix()} :: " +
          " > ".join([*case["ancestorTitles"], case["title"]]),
          "invalid" if case.get("failureMessages") else
-         "skipped" if case["status"] == "pending" else case["status"])
+         "skipped" if case["status"] == "pending" else case["status"], case.get("duration"))
         for suite in report["testResults"] for case in suite["assertionResults"]
-    ]
+    )
 
 
-def playwright_cases(report):
+def vitest_cases(report):
+    return [(identity, status) for identity, status, _ in vitest_observations(report)]
+
+
+def playwright_observations(report):
     observed = []
     def visit(suite, ancestors):
         for spec in suite.get("specs", []):
@@ -618,7 +624,8 @@ def playwright_cases(report):
                     status = "passed"
                 elif results and all(r["status"] == "skipped" for r in results):
                     status = "skipped"
-                observed.append((identity, status))
+                duration = results[0].get("duration") if len(results) == 1 else None
+                observed.append((identity, status, duration))
         for child in suite.get("suites", []):
             visit(child, [*ancestors, child["title"]])
     for suite in report["suites"]:
@@ -626,10 +633,72 @@ def playwright_cases(report):
     return observed
 
 
+def playwright_cases(report):
+    return [(identity, status) for identity, status, _ in playwright_observations(report)]
+
+
+TIMING_PREFIX = "KEEL_CASE_TIMINGS_V1 "
+TIMING_LINE_LIMIT = 16 * 1024
+
+
+def timing_registry_hash(inventory):
+    data = json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(data).hexdigest()
+
+
+def timing_line(runner, observations, inventory, revision, run, attempt, platform):
+    # Units are microseconds rounded up. Null belongs exclusively to reviewed skips.
+    if (runner not in ("python", "vitest", "playwright") or not re.fullmatch(r"[0-9a-f]{40}", revision)
+            or not all(re.fullmatch(r"[1-9][0-9]{0,19}", value) for value in (run, attempt))):
+        raise ValueError("incomplete timing source")
+    names = inventory[runner]
+    excluded = {entry["id"] for entry in inventory["exclusions"]
+                if entry["runner"] == runner and platform in entry["platforms"]}
+    durations = {}
+    for identity, state, milliseconds in observations:
+        if identity in durations:
+            raise ValueError("duplicate case timing")
+        if state == "skipped" and identity in excluded:
+            durations[identity] = None
+        elif (state == "passed" and identity not in excluded and type(milliseconds) in (int, float)
+              and 0 <= milliseconds <= 86_400_000):
+            durations[identity] = math.ceil(milliseconds * 1000)
+        else:
+            raise ValueError("missing duration or unexpected outcome")
+    if not names or len(names) != len(set(names)) or durations.keys() != set(names):
+        raise ValueError("incomplete case timings")
+    content = json.dumps({"suite": runner, "revision": revision, "run": run, "attempt": attempt,
+                          "platform": platform, "registry": timing_registry_hash(inventory),
+                          "us": [durations[name] for name in names]}, separators=(",", ":"))
+    line = TIMING_PREFIX + hashlib.sha256(content.encode()).hexdigest() + " " + content
+    if len(line) + 1 > TIMING_LINE_LIMIT:
+        raise ValueError("case timing line exceeds log budget")
+    return line
+
+
+def log_timings(runner, observations, inventory):
+    # Timings are optional diagnostics emitted after native accounting succeeds.
+    try:
+        line = timing_line(runner, observations, inventory, os.environ["GITHUB_SHA"],
+                           os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"], sys.platform)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        line = f"Case timing diagnostics unavailable for {runner}."
+    print(line, file=sys.stderr, flush=True)
+
+
 class AccountedResult(unittest.TextTestResult):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.observed = []
+        self.durations_ms = {}
+
+    def startTest(self, test):
+        super().startTest(test)
+        self.started_ns = time.monotonic_ns()
+
+    def stopTest(self, test):
+        self.durations_ms[test.id()] = (time.monotonic_ns() - self.started_ns) / 1_000_000
+        super().stopTest(test)
 
     def addSuccess(self, test):
         super().addSuccess(test)
@@ -912,9 +981,12 @@ def run_vitest(runner, inventory):
         merged = merge_vitest_reports(earlier[0], report)
         validate_vitest_phase_report(merged, inventory)
         write_vitest_artifact(ARTIFACTS / "vitest.json", merged)
+        return merged
+    elif not strict:
+        return report
 
 
-def run_suite(runner):
+def run_suite(runner, *, record_timings=False):
     if runner == "migration-seed":
         prepare_browser_seed()
         return
@@ -928,14 +1000,19 @@ def run_suite(runner):
         compare_cases(runner, result.observed, inventory)
         if not result.wasSuccessful():
             raise ValueError("native Python tests failed")
+        if record_timings:
+            log_timings("python", ((name, state, result.durations_ms.get(name))
+                                   for name, state in result.observed), inventory)
         return
     if runner in ("vitest", "vitest-main", "preflight"):
         if runner == "preflight":
             validate_preflight_dependencies(json.loads((ROOT / ".tugling/pilot-verification.json").read_text()))
-        run_vitest(runner, inventory)
+        report = run_vitest(runner, inventory)
+        if record_timings and report is not None:
+            log_timings("vitest", vitest_observations(report), inventory)
         if runner == "preflight":
             with native_lease("python"):
-                run_suite("python")
+                run_suite("python", record_timings=record_timings)
         return
     output = ARTIFACTS / "playwright.json"
     prepare_report(output)
@@ -944,6 +1021,8 @@ def run_suite(runner):
     compare_cases("playwright", playwright_cases(report), inventory)
     if returncode or report["errors"]:
         raise ValueError(f"playwright reported errors (exit {returncode})")
+    if record_timings:
+        log_timings("playwright", playwright_observations(report), inventory)
 
 
 def main():
@@ -961,7 +1040,7 @@ def main():
     # One report slot per runner, scoped to this checkout; never replace a
     # report still owned by another active verification process.
     with native_lease(native_lease_name(args.runner)):
-        run_suite(args.runner)
+        run_suite(args.runner, record_timings=os.environ.get("GITHUB_ACTIONS") == "true" and sys.platform == "linux")
 
 
 if __name__ == "__main__":
