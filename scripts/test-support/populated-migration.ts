@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { Miniflare, Log, LogLevel } from "miniflare";
 import { unstable_splitSqlQuery } from "wrangler";
@@ -202,7 +203,13 @@ function insertBaseline(
     );
 }
 
-async function buildFixture(history: number, frontier: "0088" | "0089") {
+type Frontier = PopulatedMigrationFixture["frontier"];
+
+async function buildFixture(
+  history: number,
+  frontier: Frontier,
+  captureOld?: (fixture: PopulatedMigrationFixture) => void,
+) {
   const oldFiles = migrationFiles("0088");
   const db = new DatabaseSync(":memory:");
   const statements = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
@@ -306,6 +313,7 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
         }
       }
     }
+    if (captureOld) captureOld(snapshotFixture("0088"));
     if (frontier === "0089") {
       statements.clear();
       const priorIndexes = new Set(
@@ -351,6 +359,13 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
         valuation: { state: "unknown" },
       });
     }
+    return snapshotFixture(frontier);
+  } finally {
+    statements.clear();
+    db.close();
+  }
+
+  function snapshotFixture(boundary: Frontier) {
     if (db.prepare("PRAGMA foreign_key_check").all().length)
       throw new Error("Invalid old-schema fixture foreign keys");
     const names = db
@@ -419,7 +434,7 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
         .map((table) => [table.name, table.rows.length]),
     );
     return FixtureSchema.parse({
-      frontier,
+      frontier: boundary,
       history,
       mainPositions: 120,
       unrelatedPositions: 120,
@@ -432,9 +447,6 @@ async function buildFixture(history: number, frontier: "0088" | "0089") {
         JSON.stringify(tables.map(({ name, sha256 }) => ({ name, sha256 }))),
       ),
     });
-  } finally {
-    statements.clear();
-    db.close();
   }
 }
 
@@ -445,10 +457,9 @@ export function migrationFiles(frontier: string): string[] {
     .map((file) => `packages/database/migrations/${file}`);
 }
 
-export async function populatedMigrationFixture(
-  history: 12 | 24,
-  frontier: "0088" | "0089",
-) {
+const fixtureByteLimit = 32 * 1024 * 1024;
+
+async function fixtureOutput(history: 12 | 24, frontier: Frontier | "both") {
   const { stdout } = await promisify(execFile)(
     process.execPath,
     [
@@ -459,9 +470,43 @@ export async function populatedMigrationFixture(
       String(history),
       frontier,
     ],
-    { maxBuffer: 32 * 1024 * 1024, timeout: 90_000 },
+    { maxBuffer: fixtureByteLimit, timeout: 90_000 },
   );
-  return FixtureSchema.parse(JSON.parse(stdout));
+  return stdout;
+}
+
+function packFixture(fixture: PopulatedMigrationFixture) {
+  const json = JSON.stringify(fixture) + "\n";
+  if (Buffer.byteLength(json) > fixtureByteLimit)
+    throw new Error("Populated migration fixture exceeds its size limit");
+  return gzipSync(json, { level: 1 }).toString("base64");
+}
+
+// Only the expected SQLite history is shared. Each D1 trial unpacks its own
+// fixture and initializes its own independently metered database.
+export function populatedMigrationFixtures() {
+  let pair: Promise<Record<Frontier, string>> | undefined;
+
+  return async (history: 12 | 24, frontier: Frontier) => {
+    let text: string;
+    if (history === 24) {
+      pair ??= fixtureOutput(history, "both").then((stdout) =>
+        z
+          .object({ "0088": z.string(), "0089": z.string() })
+          .strict()
+          .parse(JSON.parse(stdout)),
+      );
+      text = gunzipSync(Buffer.from((await pair)[frontier], "base64"), {
+        maxOutputLength: fixtureByteLimit,
+      }).toString("utf8");
+    } else {
+      text = await fixtureOutput(history, frontier);
+    }
+    const fixture = FixtureSchema.parse(JSON.parse(text));
+    if (fixture.history !== history || fixture.frontier !== frontier)
+      throw new Error("Unexpected populated migration fixture boundary");
+    return fixture;
+  };
 }
 
 const quote = (value: z.infer<typeof cell>) =>
@@ -882,6 +927,15 @@ if (
   const history = z
     .union([z.literal(12), z.literal(24)])
     .parse(Number(process.argv[3]));
-  const frontier = z.enum(["0088", "0089"]).parse(process.argv[4]);
-  console.log(JSON.stringify(await buildFixture(history, frontier)));
+  const frontier = z.enum(["0088", "0089", "both"]).parse(process.argv[4]);
+  if (frontier === "both") {
+    z.literal(24).parse(history);
+    let old: string | undefined;
+    const terminal = await buildFixture(history, "0089", (fixture) => {
+      old = packFixture(fixture);
+    });
+    console.log(JSON.stringify({ "0088": old, "0089": packFixture(terminal) }));
+  } else {
+    console.log(JSON.stringify(await buildFixture(history, frontier)));
+  }
 }

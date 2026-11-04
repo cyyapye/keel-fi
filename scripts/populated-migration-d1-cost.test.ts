@@ -19,7 +19,7 @@ import {
   migrationForeignKeyPlans,
   migrationDigest,
   populatedMigrationDatabase,
-  populatedMigrationFixture,
+  populatedMigrationFixtures,
   preparePopulatedMigrationSeed,
   preserveMigrationFixture,
 } from "./test-support/populated-migration";
@@ -46,6 +46,7 @@ const receiptPath =
     ? join(process.env.KEEL_NATIVE_EVIDENCE_DIR, "migration-safety.json")
     : undefined);
 let sourceDigest = "";
+const populatedMigrationFixture = populatedMigrationFixtures();
 
 beforeAll(() => {
   if (receiptPath) rmSync(receiptPath, { force: true });
