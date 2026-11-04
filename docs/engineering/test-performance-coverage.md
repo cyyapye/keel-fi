@@ -708,3 +708,23 @@ database build took 335 ms and the recovery loop took 18.5 ms. Putting this file
 in preflight preserves its five-second deadline and the independent
 expired-lease case. The complete local run accounted for 114 preflight cases and
 1,535 main cases. Linux preflight still has a 120-second limit.
+
+At `43237e84` all 1,649 Vitest and 49 Python cases passed on Linux. The Sydecar
+recovery case took 1.265 seconds and the preflight took 103.909 seconds. The
+native gate expired at 901.487 seconds with 316 of 408 browser cases passed on
+their first attempt and PDF isolation unfinished.
+[Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41864857908)
+
+Each native Vitest phase now replays the current migrations and synthetic seed
+once in Node's in-memory SQLite database. Workers receive the compressed image.
+Each matching fixture still opens its own mutable database. Keys include the
+ordered input paths and raw bytes. Historical migration frontiers, changed
+inputs and custom fixtures still use their own replay. The canonical image
+matched the original byte for byte across all 137 tables.
+
+On a local comparison, all 482 affected cases passed in both modes. Total wall
+time fell from 31.985 to 30.085 seconds and child CPU time fell from 87.803 to
+79.103 seconds. The first Sydecar case fell from 263 to 34 ms. The position
+write fell from 305 to 73 ms. An independent 158-case group that did not use the
+image paid about 0.32 seconds for its creation. These measurements cover the
+selected files on macOS.

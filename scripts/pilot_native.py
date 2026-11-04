@@ -970,22 +970,24 @@ def run_vitest(runner, inventory):
                "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
                "--reporter=./scripts/pilot-vitest-reporter.ts", f"--outputFile={output}"]
     started_at = int(time.time() * 1000)
-    if strict:
-        command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
-        returncode = subprocess.run(command, cwd=ROOT, check=False).returncode
-    else:
-        if partitioned:
-            command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
-        with cost_seed_directory() as seed, provider_day_scratch() as provider_scratch:
-            subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
-                           cwd=ROOT, check=True)
-            unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
-            if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
-                raise ValueError("Unit PDF boundary must remain unprovisioned")
-            returncode = subprocess.run(command, cwd=ROOT, check=False,
-                                        env={**os.environ, "KEEL_TEST_D1_SEED": seed,
-                                             "KEEL_PROVIDER_DAY_SCRATCH": provider_scratch,
-                                             "KEEL_PDF_SANDBOX_CONFIG": str(unavailable_pdf)}).returncode
+    with cost_seed_directory() as seed:
+        env = {**os.environ, "KEEL_TEST_SQLITE_SNAPSHOT_ROOT": seed}
+        if strict:
+            command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
+            returncode = subprocess.run(command, cwd=ROOT, check=False, env=env).returncode
+        else:
+            if partitioned:
+                command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
+            with provider_day_scratch() as provider_scratch:
+                subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
+                               cwd=ROOT, check=True)
+                unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
+                if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
+                    raise ValueError("Unit PDF boundary must remain unprovisioned")
+                returncode = subprocess.run(command, cwd=ROOT, check=False,
+                                            env={**env, "KEEL_TEST_D1_SEED": seed,
+                                                 "KEEL_PROVIDER_DAY_SCRATCH": provider_scratch,
+                                                 "KEEL_PDF_SANDBOX_CONFIG": str(unavailable_pdf)}).returncode
     completed_at = int(time.time() * 1000)
     raw = read_vitest_artifact(output) if partitioned else output.read_bytes()
     report = json.loads(raw)

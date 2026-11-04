@@ -1,11 +1,21 @@
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  fstatSync,
+  lstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
-// Process-local, synthetic fixtures only. The key includes every ordered input;
-// migration tests and the real D1 migration gate still replay migrations directly.
+import { fixtureSourceKey, providedFixtureBytes } from "./sqlite-snapshot";
+
+// Each isolated worker keeps immutable fixture bytes; every caller gets its own database.
 const snapshots = new Map<string, Buffer>();
 
 export class FixtureDatabase extends DatabaseSync {
@@ -51,28 +61,59 @@ export class FixtureDatabase extends DatabaseSync {
   }
 }
 
+function removeFixtureImage(path: string, fd: number) {
+  const opened = fstatSync(fd);
+  const entry = lstatSync(path);
+  if (
+    entry.dev !== opened.dev ||
+    entry.ino !== opened.ino ||
+    opened.nlink !== 1
+  ) {
+    throw new Error("SQLite fixture image changed during export");
+  }
+  unlinkSync(path);
+}
+
+/** Materialize the ordinary in-memory replay without sharing a mutable database. */
+export function withFixtureImage<T>(
+  directory: string,
+  sources: readonly Buffer[],
+  readImage: (fd: number) => T,
+): T {
+  const source = new DatabaseSync(":memory:");
+  try {
+    source.exec("PRAGMA foreign_keys = ON");
+    for (const sql of sources) source.exec(sql.toString("utf8"));
+    const path = join(directory, "snapshot.sqlite");
+    // Reserve an empty, private target. VACUUM INTO refuses a nonempty database.
+    const fd = openSync(path, "wx+", 0o600);
+    try {
+      source.prepare("VACUUM INTO ?").run(path);
+      return readImage(fd);
+    } finally {
+      try {
+        removeFixtureImage(path, fd);
+      } finally {
+        closeSync(fd);
+      }
+    }
+  } finally {
+    source.close();
+  }
+}
+
 /** Fresh mutable database from a complete, immutable migration/seed snapshot. */
 export function createSqliteFixture(files: readonly string[]): FixtureDatabase {
-  const sources = files.map((file) => readFileSync(file, "utf8"));
-  const key = createHash("sha256")
-    .update(JSON.stringify(files.map((file, index) => [file, sources[index]])))
-    .digest("hex");
+  const sources = files.map((file) => readFileSync(file));
+  const key = fixtureSourceKey(files, sources);
   let snapshot = snapshots.get(key);
   const directory = mkdtempSync(join(tmpdir(), "keel-sqlite-fixture-"));
   try {
     if (snapshot === undefined) {
-      const source = new DatabaseSync(":memory:");
-      try {
-        source.exec("PRAGMA foreign_keys = ON");
-        for (const sql of sources) source.exec(sql);
-        const file = join(directory, "snapshot.sqlite");
-        source.prepare("VACUUM INTO ?").run(file);
-        snapshot = readFileSync(file);
-        rmSync(file);
-        snapshots.set(key, snapshot);
-      } finally {
-        source.close();
-      }
+      snapshot =
+        providedFixtureBytes(key) ??
+        withFixtureImage(directory, sources, (fd) => readFileSync(fd));
+      snapshots.set(key, snapshot);
     }
     writeFileSync(join(directory, "fixture.sqlite"), snapshot, { mode: 0o600 });
     return new FixtureDatabase(directory);
