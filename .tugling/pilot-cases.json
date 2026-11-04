@@ -1796,7 +1796,6 @@
     "e2e/legal-entities.visual.spec.ts :: chromium :: omits absent optional profile fields and preserves a recorded zero interest",
     "e2e/legal-entities.visual.spec.ts :: chromium :: opens Holdings sections directly and returns from nested workspaces",
     "e2e/legal-entities.visual.spec.ts :: chromium :: owner-only source groupings do not become legal identity tasks",
-    "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns denied",
     "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_closed",
     "e2e/legal-entities.visual.spec.ts :: chromium :: reads the complete saved entity profile and refreshes it after edits",
     "e2e/legal-entities.visual.spec.ts :: chromium :: retains a new legal entity draft when the save loses its connection",
@@ -1813,7 +1812,6 @@
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: opens Holdings sections directly and returns from nested workspaces",
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: owner-only source groupings do not become legal identity tasks",
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns denied",
-    "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns popup_closed",
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reads the complete saved entity profile and refreshes it after edits",
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: retains a new legal entity draft when the save loses its connection",
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reviews legal entities and exports selected counsel fields",
@@ -1962,7 +1960,6 @@
     "e2e/private-alpha.spec.ts :: chromium :: loads the database-backed dashboard and primary views",
     "e2e/private-alpha.spec.ts :: mobile-chromium :: loads the database-backed dashboard and primary views",
     "e2e/provider-browser-lifecycle.spec.ts :: chromium :: Sydecar closes between captures and preserves its saved profile across browser restarts",
-    "e2e/provider-browser-lifecycle.spec.ts :: mobile-chromium :: Sydecar closes between captures and preserves its saved profile across browser restarts",
     "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar associates same-label investments by source IDs and reads their linked memos",
     "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central Documents association fails closed for duplicate position labels",
     "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements",
@@ -2068,16 +2065,12 @@
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal fails closed at its provider-request admission bound",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal verifies expiry through the production tsx runner",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar survives the next daily capture with bounded renewal",
-    "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
     "e2e/sydecar-session-renewal.spec.ts :: chromium :: a working Sydecar access token does not prove a refresh token survived another login",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies dns refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies invalid refresh failures without logging credentials",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal fails closed at its provider-request admission bound",
-    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal verifies expiry through the production tsx runner",
-    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal",
-    "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
     "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: a working Sydecar access token does not prove a refresh token survived another login",
     "e2e/ui-catalogue.visual.spec.ts :: chromium :: automatic collections stop after failure and keep automatic appends from stealing focus",
     "e2e/ui-catalogue.visual.spec.ts :: chromium :: captures blinded design-review variants and semantic holdouts",
@@ -2330,31 +2323,13 @@
     },
     {
       "runner": "playwright",
-      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal",
-      "platforms": ["darwin", "linux"],
-      "reason": "The existing Sydecar provider worker tests use desktop Chrome; matching chromium cases remain required."
-    },
-    {
-      "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies dns refresh failures without logging credentials",
       "platforms": ["darwin", "linux"],
       "reason": "The Sydecar provider worker uses desktop Chrome; the matching chromium diagnostic case is required."
     },
     {
       "runner": "playwright",
-      "id": "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
-      "platforms": ["darwin"],
-      "reason": "The production worker shutdown path uses Linux process ownership; the matching Linux chromium case remains required."
-    },
-    {
-      "runner": "playwright",
       "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies invalid refresh failures without logging credentials",
-      "platforms": ["darwin", "linux"],
-      "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
-    },
-    {
-      "runner": "playwright",
-      "id": "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
       "platforms": ["darwin", "linux"],
       "reason": "The Sydecar provider worker uses desktop Chrome; the matching Linux chromium case remains required."
     },

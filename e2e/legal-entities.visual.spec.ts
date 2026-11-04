@@ -1873,42 +1873,44 @@ test("creates a Google Sheet from selected records and columns and prevents unch
 });
 
 for (const outcome of ["popup_closed", "denied"] as const) {
-  test(`preserves export choices when Google authorization returns ${outcome}`, async ({
-    page,
-  }) => {
-    await routeGoogleExport(page, outcome);
-    const writes: string[] = [];
-    await page.route("**/api/legal-entity-export", (route) => {
-      writes.push(route.request().url());
-      return route.abort();
-    });
-    await page.route("https://sheets.googleapis.com/**", (route) => {
-      writes.push(route.request().url());
-      return route.abort();
-    });
-    await page.goto("/holdings/entities");
-    await page.getByRole("button", { name: "Export", exact: true }).click();
-    await page.getByRole("checkbox", { name: "Notes", exact: true }).check();
-    await page
-      .getByRole("button", { name: "Create Google Sheet", exact: true })
-      .click();
-    await expect(
-      page.getByText(
-        outcome === "denied"
-          ? "Allow Keel to create the Google Sheet, or download CSV instead."
-          : outcome === "popup_closed"
-            ? "Google sign-in was closed. Your export choices are unchanged."
-            : "Google sign-in could not open. Allow pop-ups for Keel and try again.",
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("checkbox", { name: "Notes", exact: true }),
-    ).toBeChecked();
-    await expect(
-      page.getByRole("button", { name: /Download CSV/u }),
-    ).toBeEnabled();
-    expect(writes).toEqual([]);
-  });
+  test(
+    `preserves export choices when Google authorization returns ${outcome}`,
+    { tag: outcome === "denied" ? "@mobile-only" : "@desktop-only" },
+    async ({ page }) => {
+      await routeGoogleExport(page, outcome);
+      const writes: string[] = [];
+      await page.route("**/api/legal-entity-export", (route) => {
+        writes.push(route.request().url());
+        return route.abort();
+      });
+      await page.route("https://sheets.googleapis.com/**", (route) => {
+        writes.push(route.request().url());
+        return route.abort();
+      });
+      await page.goto("/holdings/entities");
+      await page.getByRole("button", { name: "Export", exact: true }).click();
+      await page.getByRole("checkbox", { name: "Notes", exact: true }).check();
+      await page
+        .getByRole("button", { name: "Create Google Sheet", exact: true })
+        .click();
+      await expect(
+        page.getByText(
+          outcome === "denied"
+            ? "Allow Keel to create the Google Sheet, or download CSV instead."
+            : outcome === "popup_closed"
+              ? "Google sign-in was closed. Your export choices are unchanged."
+              : "Google sign-in could not open. Allow pop-ups for Keel and try again.",
+        ),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("checkbox", { name: "Notes", exact: true }),
+      ).toBeChecked();
+      await expect(
+        page.getByRole("button", { name: /Download CSV/u }),
+      ).toBeEnabled();
+      expect(writes).toEqual([]);
+    },
+  );
 }
 
 test("retains a new legal entity draft when the save loses its connection", async ({

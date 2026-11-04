@@ -25,40 +25,48 @@ const table =
   '<table data-testid="investments-table"><tr><td>Synthetic portfolio</td></tr></table>';
 const login = '<input type="password"><button>Sign in</button>';
 
-test("Sydecar renewal verifies expiry through the production tsx runner", async () => {
-  test.setTimeout(60_000);
-  const { stdout } = await promisify(execFile)(
-    process.execPath,
-    [
-      path.resolve("node_modules/tsx/dist/cli.mjs"),
-      path.resolve("scripts/test-support/sydecar-renewal-runtime-smoke.ts"),
-    ],
-    { timeout: 50_000, maxBuffer: 128 * 1024 },
-  );
-  const records: unknown[] = stdout
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as unknown);
-  expect(records).toEqual([
-    {
-      event: "provider_session_renewal_verified",
-      provider: "sydecar",
-      admittedRequests: 1,
-      refreshRemainingSeconds: 43_200,
-    },
-    {
-      cases: [
-        { name: "renewed", outcome: "verified", requests: 1 },
-        { name: "missing refresh", outcome: "unexpected_failure", requests: 1 },
-        {
-          name: "malformed refresh",
-          outcome: "unexpected_failure",
-          requests: 1,
-        },
+test(
+  "Sydecar renewal verifies expiry through the production tsx runner",
+  { tag: "@desktop-only" },
+  async () => {
+    test.setTimeout(60_000);
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        path.resolve("node_modules/tsx/dist/cli.mjs"),
+        path.resolve("scripts/test-support/sydecar-renewal-runtime-smoke.ts"),
       ],
-    },
-  ]);
-});
+      { timeout: 50_000, maxBuffer: 128 * 1024 },
+    );
+    const records: unknown[] = stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as unknown);
+    expect(records).toEqual([
+      {
+        event: "provider_session_renewal_verified",
+        provider: "sydecar",
+        admittedRequests: 1,
+        refreshRemainingSeconds: 43_200,
+      },
+      {
+        cases: [
+          { name: "renewed", outcome: "verified", requests: 1 },
+          {
+            name: "missing refresh",
+            outcome: "unexpected_failure",
+            requests: 1,
+          },
+          {
+            name: "malformed refresh",
+            outcome: "unexpected_failure",
+            requests: 1,
+          },
+        ],
+      },
+    ]);
+  },
+);
 
 function syntheticToken(expires: number, generation = 0) {
   return [
@@ -330,35 +338,39 @@ async function fixture(
   };
 }
 
-test("Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture", async ({
-  isMobile,
-}) => {
-  test.skip(
-    isMobile || process.platform !== "linux",
-    "The deployed worker uses Linux desktop Chrome.",
-  );
-  test.setTimeout(180_000);
-  const runtime = await fixture(false, null, true);
-  try {
-    const first = await runtime.launch(true);
-    await ordinaryCapture(first.context);
-    await first.close();
-    for (const hours of [6, 12, 18]) {
-      runtime.state.now = start + hours * hour;
-      const next = await runtime.launch();
-      await renewSavedSydecarSession(next.context, () => runtime.state.now);
-      await next.close();
+test(
+  "Sydecar survives the next daily capture with bounded renewal",
+  { tag: "@desktop-only" },
+  async () => {
+    // Five cold starts exercise the deployed shutdown on Linux and graceful
+    // Chrome shutdown on macOS. The provider's idle interval is virtual.
+    const productionShutdown = process.platform === "linux";
+    test.setTimeout(productionShutdown ? 180_000 : 120_000);
+    const runtime = await fixture(false, null, productionShutdown);
+    try {
+      const first = await runtime.launch(true);
+      await ordinaryCapture(first.context);
+      await first.close();
+      for (const hours of [6, 12, 18]) {
+        runtime.state.now = start + hours * hour;
+        const next = await runtime.launch();
+        await renewSavedSydecarSession(next.context, () => runtime.state.now);
+        expect(runtime.state.refreshes).toBe(hours / 6);
+        expect(runtime.state.documents).toBe(hours / 6 + 1);
+        await expect.poll(() => next.context.pages().length).toBe(1);
+        await next.close();
+      }
+      runtime.state.now = start + 24 * hour;
+      const nextDay = await runtime.launch();
+      await ordinaryCapture(nextDay.context);
+      expect(runtime.state.refreshes).toBe(4);
+      expect(runtime.state.documents).toBe(5);
+      await nextDay.close();
+    } finally {
+      await runtime.cleanup();
     }
-    runtime.state.now = start + 24 * hour;
-    const nextDay = await runtime.launch();
-    await ordinaryCapture(nextDay.context);
-    expect(runtime.state.refreshes).toBe(4);
-    expect(runtime.state.documents).toBe(5);
-    await nextDay.close();
-  } finally {
-    await runtime.cleanup();
-  }
-});
+  },
+);
 
 async function ordinaryCapture(context: BrowserContext) {
   const page = await portfolioPage(context, "sydecar");
@@ -466,45 +478,26 @@ for (const failure of ["invalid", "dns"] as const) {
   });
 }
 
-for (const maintain of [false, true]) {
-  test(`Sydecar ${maintain ? "survives the next daily capture with bounded renewal" : "loses a twelve-hour refresh session despite closing Chrome"}`, async ({
-    isMobile,
-  }) => {
-    test.skip(isMobile, "The provider worker uses desktop Chrome.");
-    // Five real cold Chrome starts each retain production's twenty-second
-    // startup bound. The twenty-four-hour idle interval itself is virtual.
-    test.setTimeout(120_000);
-    const runtime = await fixture();
-    try {
-      const first = await runtime.launch(true);
-      await ordinaryCapture(first.context);
-      await first.close();
-      if (maintain)
-        for (const hours of [6, 12, 18]) {
-          runtime.state.now = start + hours * hour;
-          const next = await runtime.launch();
-          await renewSavedSydecarSession(next.context, () => runtime.state.now);
-          expect(runtime.state.documents).toBe(hours / 6 + 1);
-          await expect.poll(() => next.context.pages().length).toBe(1);
-          await next.close();
-        }
-      runtime.state.now = start + 24 * hour;
-      const nextDay = await runtime.launch();
-      if (maintain) {
-        await ordinaryCapture(nextDay.context);
-        expect(runtime.state.refreshes).toBe(4);
-        expect(runtime.state.documents).toBe(5);
-      } else {
-        await expect(ordinaryCapture(nextDay.context)).rejects.toThrow(
-          "provider_sign_in_required",
-        );
-        expect(runtime.state.refreshes).toBe(1);
-      }
-    } finally {
-      await runtime.cleanup();
-    }
-  });
-}
+test("Sydecar loses a twelve-hour refresh session despite closing Chrome", async ({
+  isMobile,
+}) => {
+  test.skip(isMobile, "The provider worker uses desktop Chrome.");
+  test.setTimeout(120_000);
+  const runtime = await fixture();
+  try {
+    const first = await runtime.launch(true);
+    await ordinaryCapture(first.context);
+    await first.close();
+    runtime.state.now = start + 24 * hour;
+    const nextDay = await runtime.launch();
+    await expect(ordinaryCapture(nextDay.context)).rejects.toThrow(
+      "provider_sign_in_required",
+    );
+    expect(runtime.state.refreshes).toBe(1);
+  } finally {
+    await runtime.cleanup();
+  }
+});
 
 test("Sydecar renewal fails closed at its provider-request admission bound", async ({
   isMobile,

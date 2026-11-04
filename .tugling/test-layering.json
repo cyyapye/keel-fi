@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 40,
+  "retiredBrowserCaseCount": 47,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -147,7 +147,9 @@
     },
     {
       "id": "renewal-expiry",
-      "retiredBrowserCases": [],
+      "retiredBrowserCases": [
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar renewal verifies expiry through the production tsx runner"
+      ],
       "unitCases": [
         "scripts/sydecar-session-expiry.test.ts :: exhausted request admission rejects otherwise sufficient session expiry",
         "scripts/sydecar-session-expiry.test.ts :: rejects fractional browser expiry metadata",
@@ -168,7 +170,7 @@
       "browserCases": [
         "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal verifies expiry through the production tsx runner"
       ],
-      "assertions": "Full prior eight-case expiry matrix plus exact horizon and malformed metadata. Real tsx/Chromium keeps valid, missing and malformed storage cases."
+      "assertions": "Full prior eight-case expiry matrix plus exact horizon and malformed metadata. Real tsx/Chromium keeps valid, missing and malformed storage cases. The production tsx smoke launches its own desktop Chromium independent of the Playwright device."
     },
     {
       "id": "link-suggestion",
@@ -220,7 +222,9 @@
       "id": "google-authorization",
       "retiredBrowserCases": [
         "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_failed_to_open",
-        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns popup_failed_to_open"
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns popup_failed_to_open",
+        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns denied",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns popup_closed"
       ],
       "unitCases": [
         "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK denied result with least privilege and no export request",
@@ -229,10 +233,10 @@
         "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK success result with least privilege and no export request"
       ],
       "browserCases": [
-        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns denied",
-        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_closed"
+        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_closed",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns denied"
       ],
-      "assertions": "All SDK results, exact error messages, least-privilege scope, gesture timing and no export request. Browser keeps both SDK callback channels, choices and CSV recovery."
+      "assertions": "The SDK unit tests cover every outcome, exact message, least-privilege scope, gesture timing and no fetch. Desktop popup closure and mobile denial exercise both real callback channels, preserve export choices and CSV availability, and assert zero export writes."
     },
     {
       "id": "holdings-search",
@@ -316,6 +320,26 @@
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts"
       ],
       "assertions": "The component renders the singular count and accessible legal-position action. Both viewports check the settled brokerage list with a singleton and a larger reviewed-history source, then expand the grouped exposure and follow the position into its detail and back."
+    },
+    {
+      "id": "sydecar-desktop-profile-lifecycle",
+      "retiredBrowserCases": [
+        "e2e/provider-browser-lifecycle.spec.ts :: mobile-chromium :: Sydecar closes between captures and preserves its saved profile across browser restarts",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar survives the next daily capture with bounded renewal",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture"
+      ],
+      "unitCases": [
+        "scripts/provider-portfolio-mac-agent.test.ts :: provider browser lifetime > keeps Sydecar open until the complete sync settles, then closes only its profile",
+        "scripts/provider-portfolio-mac-agent.test.ts :: provider browser profile persistence > fails closed after forced cleanup for deadline shutdown",
+        "scripts/provider-portfolio-mac-agent.test.ts :: provider browser profile persistence > fails closed after forced cleanup for unreachable shutdown",
+        "scripts/provider-portfolio-mac-agent.test.ts :: provider browser profile persistence > waits for Chrome to finish saving instead of signaling after the close acknowledgement"
+      ],
+      "browserCases": [
+        "e2e/provider-browser-lifecycle.spec.ts :: chromium :: Sydecar closes between captures and preserves its saved profile across browser restarts",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar survives the next daily capture with bounded renewal"
+      ],
+      "assertions": "Desktop Chromium retains a real saved profile through three bounded renewal intervals and a next-day capture. Every interval checks refreshes, document loads, and one remaining tab. Linux uses the deployed shutdown path and macOS uses graceful Chrome closure. The standalone lifecycle case also verifies cleanup after capture fails in an independently launched desktop browser."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
