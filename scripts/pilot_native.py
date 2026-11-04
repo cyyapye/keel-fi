@@ -41,6 +41,8 @@ STRICT_VITEST_FILES = (
     "packages/database/src/exposures.test.ts",
     "packages/database/src/manual-holdings-migration.test.ts",
     "scripts/seed-entity-review.test.ts",
+    "packages/database/src/price-proxies.test.ts",
+    "scripts/public-company-worker-runtime.test.ts",
 )
 
 

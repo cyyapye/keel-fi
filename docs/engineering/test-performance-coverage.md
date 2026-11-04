@@ -471,3 +471,15 @@ independent database and verifies the resulting review state. This moves one
 case into preflight, giving 88 preflight and 1,562 main Vitest cases. The local
 preflight passed all 88 cases and 49 Python controls with the original
 deadlines.
+
+On the next Linux run, the seed replay passed in 1.524 seconds. The first
+price-proxy case exceeded its five-second deadline at 5.081 seconds. Native
+verification stopped at 702.533 seconds after 298 browser passes.
+[Linux run 41798994443](https://github.com/cyyapye/keel-fi/actions/runs/41798994443)
+
+The price-proxy file builds its 120-position database inside the timed case. The
+issuer Worker case also starts its real runtime inside a five-second test and
+reached 4.291 seconds on an earlier run. Both files now run in the same
+single-worker preflight. Its 96 Vitest cases and the 1,554 main cases retain
+their original assertions and deadlines. The previous eight Linux preflights
+took 66–79 seconds against the 120-second command limit.
