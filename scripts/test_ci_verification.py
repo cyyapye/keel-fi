@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -50,6 +51,74 @@ class ReceiptTransportTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Missing"):
                     ci.main()
                 verifier.assert_not_called()
+
+
+class DraftSelectionTests(unittest.TestCase):
+    def test_requires_complete_git_history_and_reviewed_file_ownership(self):
+        selector_spec = importlib.util.spec_from_file_location(
+            "ci_draft_plan", Path(__file__).with_name("ci-draft-plan.py"))
+        selector = importlib.util.module_from_spec(selector_spec)
+        selector_spec.loader.exec_module(selector)
+        owner = "packages/database/src/exposures.test.ts"
+        doc = "docs/engineering/ci-performance.md"
+
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=Synthetic Contributor", "-c", "user.email=unit@example.invalid",
+                     "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", *args],
+                    cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+
+            def change(path, text):
+                target = root / path
+                target.parent.mkdir(exist_ok=True, parents=True)
+                target.write_text(text)
+
+            def commit():
+                git("add", "-A")
+                git("commit", "-qm", "synthetic change")
+                return git("rev-parse", "HEAD")
+
+            git("init", "-q", "-b", "base")
+            change(owner, "original synthetic case")
+            change(doc, "original synthetic notes")
+            change(".tugling/pilot-cases.json",
+                   json.dumps({"schema_version": 1, "vitest": [owner + " :: synthetic"]}))
+            initial = commit()
+            git("switch", "-qc", "topic")
+            change(doc, "updated notes")
+            docs_head = commit()
+            change(owner, "updated case")
+            test_head = commit()
+            git("switch", "-q", "base")
+            change("packages/database/migrations/new.sql", "base-only input")
+            base = commit()
+
+            # The planner reads git objects from the repository, not working-tree contents.
+            previous = os.getcwd()
+            try:
+                os.chdir(root)
+                result = selector.plan(base, test_head)
+                self.assertEqual((result["profile"], result["merge_base"], result["changed_count"],
+                                  result["test_files"]), ("test-files", initial, 2, [owner]))
+                self.assertEqual(selector.plan(base, docs_head)["profile"], "docs")
+                self.assertEqual(selector.plan("HEAD", test_head)["profile"], "full")
+                self.assertEqual(selector.plan(base, "f" * 40)["profile"], "full")
+                self.assertEqual(selector.plan(initial, base)["profile"], "full")
+
+                header = b":100644 100644 " + b"a" * 40 + b" " + b"b" * 40 + b" M\0"
+                regular = header + doc.encode() + b"\0"
+                for diff in [regular + header + b".github/workflows/ci.yml\0",
+                             regular + header + b"pnpm-lock.yaml\0", regular + header + b"-odd\nfile\0",
+                             regular.replace(b" M\0", b" D\0"), regular.replace(b"100644", b"120000"),
+                             regular + header + b"docs/new", regular * 351]:
+                    with self.subTest(diff=diff[-70:]):
+                        _, files, reason = selector.reviewed_changes(diff)
+                        self.assertEqual(files, {})
+                        self.assertIsNotNone(reason)
+            finally:
+                os.chdir(previous)
 
 
 if __name__ == "__main__":

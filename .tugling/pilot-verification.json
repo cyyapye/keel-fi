@@ -62,6 +62,8 @@
         "scripts/tugling-pilot.py",
         "scripts/ci-verification.py",
         "scripts/test_ci_verification.py",
+        "scripts/ci-draft-plan.py",
+        "scripts/ci-draft-checks.py",
         ".github/workflows/native-verification.yml",
         ".github/actions/verify-native-receipt/action.yml",
         "scripts/ci-resource-sampler.py",

@@ -33,6 +33,18 @@ candidate workflow is manual-only, so ordinary PRs no longer run a second full
 verification suite. See
 [CI performance](../../docs/engineering/ci-performance.md).
 
+Draft pull requests report the checks a selector would run for the complete PR
+diff. During the shadow trial, every draft still runs the full native gate. The
+selector can recognize a small set of contributor documents and test files whose
+dependencies have been reviewed. Unknown paths and changes to runtime, CI
+policy, migrations or the test registry select full verification. Ready pull
+requests, merge groups and post-merge verification use the full gate.
+
+The trial compares the proposed checks with recorded full results on the same
+source tree. A missing or interrupted full result cannot establish agreement.
+The partial test runner also has to detect missing, skipped, duplicated or
+retried cases and ordinary assertion failures before a profile can be enabled.
+
 All GitHub artifact uploads use the repository's bounded upload action.
 Successful diagnostics expire after one day; failure/cancellation diagnostics
 are compacted to at most 12 MiB and kept seven days. Backups keep their 14-day
