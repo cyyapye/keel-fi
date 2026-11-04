@@ -223,3 +223,48 @@ Instrumented profiles diagnose the limiter and are excluded from timing samples.
 Per-case work and concurrent flow durations are not added to claim elapsed time.
 The final exact-revision CI receipt remains the end-to-end result; a local or
 isolated gain does not establish tail reliability.
+
+## Duration inventory and test-layer decisions
+
+The inventory at `dfed2a00` accounts for 1,648 Vitest cases, 458 Playwright
+project cases and 49 Python cases. All 2,123 Linux-required cases have at least
+one timing across the measured Linux and Darwin runs. A local timing is not a
+Linux measurement. Eight ordinary Linux attempts supplied file and case
+observations; only
+[run 41627807001](https://github.com/cyyapye/keel-fi/actions/runs/41627807001)
+finished the full browser suite. Interrupted cases have no completed duration.
+The three control runs had identical trees; their completed file and case
+timings can identify costly work even though none passed the whole gate.
+
+| Workload                          | Observed seconds | What needs to remain true                                                                                                                                                 |
+| --------------------------------- | ---------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Six full provider days            |            273.5 | Keep all six real D1 traces. Permanent failure, intermittent failure, transport recovery and revocation produce different statements and state.                           |
+| Populated migrations              |            126.2 | Share the deterministic expected-data prefix. Keep independent real migration execution, preservation, FK and cost checks at each frontier.                               |
+| Purchase history                  |             84.6 | Run 120 extra acceptances and 360 link decisions inside the test worker; keep real writes, cost per decision, stored row counts, both history directions and query plans. |
+| Compiler regression fixtures      |             83.7 | Keep stale-source and diagnostic controls. Child reuse may remove startup but must clear parser state between inputs.                                                     |
+| Watch activity                    |             75.8 | Keep the isolated D1 cases for fairness, races and refresh recovery. Building a ninth shared seed saved only 1.3s of setup in one local trial.                            |
+| Legal entities (32 project cases) |            239.4 | Keep export writes, drafts, reload and responsive flows. Exercise both authorization failures in the SDK; pair one with each browser viewport.                            |
+| Investment review (34)            |            228.7 | Preserve real browser navigation, focus, edits, source evidence and failed-save recovery.                                                                                 |
+| Manual holdings visuals (32)      |            174.3 | Keep the money and geometry checks in both viewports. Remove creation-editor visits only for cases that do not validate draft isolation.                                  |
+
+The first five numbers are median Linux **file wall times** from completed files
+in the three controls. The last three are sums of **individual case times** in
+the complete Linux run. Neither column measures removable gate time. The
+expensive checks on the critical path change as flows overlap.
+
+Two screenshot-free holdings checks now exercise production components and
+retain their loaded-state assertions in real desktop and mobile journeys. Fixed
+desktop provider processes run once, and the five-start renewal journey retains
+real restarts, token rotation, document bounds and shutdown. The current
+inventory has 1,650 Vitest, 447 Playwright and 49 Python cases; Linux has 417
+required browser executions and 30 explicit exclusions. All 435 Linux image
+references are unchanged. Replacing a case requires a named remaining owner and
+evidence that a plausible fault still fails; a shorter case list alone is not
+proof.
+
+A follow-up audit covered 28 screenshot-free financial test families. Keep the
+no-valuation cash save: a production component test caught four rendering
+faults, but accepted a broken save in that state. The real D1 save exercises a
+holding with a valuation. Also keep the agreement-selection setup in the
+historical closure journey: removing it lost the adjacent company draft in both
+viewports. Six other executions saved only 720 ms combined.
