@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 50,
+  "retiredBrowserCaseCount": 52,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -358,6 +358,25 @@
         "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio recognizes a dedicated sign-in page before its form loads"
       ],
       "assertions": "The real desktop browser retains both providers’ dedicated sign-in checks before the form loads and the complete Tokenfolio hosted Auth0 route, origin, visibility, same-form and provider boundaries. Both projects retain the full MFA, optional enrollment and responsive readiness checks. The existing unit owners verify the normal Chrome setup launches for each provider."
+    },
+    {
+      "id": "routine-baseline-refresh-projects",
+      "retiredBrowserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: automatically refreshes routine cash changes without a baseline review",
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: automatically refreshes routine public changes without a baseline review"
+      ],
+      "unitCases": [
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > applies clear holdings and refreshes the baseline alongside isolated exceptions",
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > refreshes private value changes without another planning decision and records its policy",
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > refreshes the established FI baseline from automatically accepted cash without changing planning choices"
+      ],
+      "browserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine cash changes without a baseline review",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine private changes without a baseline review",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine public changes without a baseline review",
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: automatically refreshes routine private changes without a baseline review"
+      ],
+      "assertions": "Desktop exercises public, private and cash changes. Mobile exercises the shared pending and settled views with private changes. Each case holds the real refresh POST, observes the pending status, releases the response and verifies dismissal, one refresh, zero confirmation requests and no horizontal overflow. Both private screenshots remain. The API and database cases cover source-specific refresh policy."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

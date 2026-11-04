@@ -600,3 +600,26 @@ proxy price failed the original financial assertions. The preflight now owns 97
 Vitest cases and the main partition owns 1,553. In a local comparison, the
 refund case fell from 364 ms to 25 ms. The complete pair of partitions showed no
 overall speedup.
+
+On Linux x64 the regrouped refund case took 0.097 seconds at `c650517f`, down
+from 3.950 seconds. The entity-review case took 1.252 seconds, down from 1.610
+seconds. All eleven native commands passed on the first attempt in 803.444
+seconds. Across the five most recent runs, the median was 804.904 seconds and
+the slowest was 839.836 seconds.
+[Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41817306338)
+
+The public and cash baseline refresh scenarios previously passed on both
+viewports when their POST never returned. Their status locator treated the
+visible message as an accessible name and matched zero elements even while the
+message was visible. Each retained browser case now holds the POST, observes the
+pending status, releases the response, and requires the status to disappear. It
+checks for exactly one refresh and zero confirmation requests.
+
+Desktop covers all three source classes. Mobile covers the shared pending and
+settled views with the private source. Both private reference images remain. At
+each viewport the three inputs produced identical accessibility trees and
+main-content element dimensions in both states. The two retired mobile
+executions took 3.4 summed seconds on Linux at `5c139dbc`. Their exact source
+and viewport combinations leave the browser matrix. The registered desktop cases
+still catch a missing refresh for either public holdings or cash, and the
+retained mobile case catches overflow.

@@ -713,9 +713,9 @@ test("keeps a 120-source baseline review DOM bounded", async ({ page }) => {
 });
 
 for (const kind of ["public", "private", "cash"] as const) {
-  test(`automatically refreshes routine ${kind} changes without a baseline review`, async ({
-    page,
-  }) => {
+  const title = `automatically refreshes routine ${kind} changes without a baseline review`;
+  const tag = kind === "private" ? [] : "@desktop-only";
+  test(title, { tag }, async ({ page }) => {
     const alphaResponse = await page.request.get("/api/alpha");
     const alphaFixture = {
       ...(await alphaResponse.json()),
@@ -768,19 +768,31 @@ for (const kind of ["public", "private", "cash"] as const) {
       confirmationCount += 1;
       return route.fulfill({ status: 500 });
     });
-    await page.route("**/api/portfolio-baseline/refresh", (route) => {
+    let releaseRefresh!: () => void;
+    const refreshResponse = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    await page.route("**/api/portfolio-baseline/refresh", async (route) => {
       expect(route.request().method()).toBe("POST");
       refreshCount += 1;
-      return route.fulfill({ json: current });
+      await refreshResponse;
+      await route.fulfill({ json: current });
     });
-    await page.goto("/holdings");
-    await expect.poll(() => refreshCount).toBe(1);
-    await expect(
-      page.getByRole("status", { name: "Updating planning values…" }),
-    ).toHaveCount(0);
+    const updating = page
+      .getByRole("status")
+      .filter({ hasText: "Updating planning values…" });
+    try {
+      await page.goto("/holdings");
+      await expect.poll(() => refreshCount).toBe(1);
+      await expect(updating).toBeVisible();
+    } finally {
+      releaseRefresh();
+    }
+    await expect(updating).toHaveCount(0);
     await expect(
       page.locator(".portfolio-baseline, .portfolio-baseline-review"),
     ).toHaveCount(0);
+    expect(refreshCount).toBe(1);
     expect(confirmationCount).toBe(0);
     await expectNoHorizontalOverflow(page);
     if (kind === "private")
