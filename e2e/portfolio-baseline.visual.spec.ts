@@ -510,7 +510,7 @@ test("keeps a possible overlap behind an explicit baseline decision", async ({
     ...automaticReadyState,
     requiresDuplicateReview: true,
   };
-  let confirmationBody: Record<string, unknown> | null = null;
+  const confirmationBodies: unknown[] = [];
 
   await page.route("**/api/alpha", async (route) => {
     await route.fulfill({ json: alphaFixture });
@@ -526,10 +526,8 @@ test("keeps a possible overlap behind an explicit baseline decision", async ({
     await route.fulfill({ json: baselineState });
   });
   await page.route("**/api/portfolio-baselines", async (route) => {
-    confirmationBody = (await route.request().postDataJSON()) as Record<
-      string,
-      unknown
-    >;
+    expect(route.request().method()).toBe("POST");
+    confirmationBodies.push(route.request().postDataJSON());
     baselineState = {
       ...automaticReadyState,
       status: "current",
@@ -583,15 +581,16 @@ test("keeps a possible overlap behind an explicit baseline decision", async ({
     });
   });
 
+  await page.clock.install();
   await page.goto("/holdings");
   await expect(
     page.getByRole("heading", { name: "1 baseline change is ready" }),
   ).toBeVisible();
-  await page.waitForTimeout(250);
-  expect(confirmationBody).toBeNull();
+  await page.clock.fastForward(60_000);
   await expect(
     page.getByRole("button", { name: "Review changes" }),
   ).toBeVisible();
+  expect(confirmationBodies).toHaveLength(0);
   await page.getByRole("button", { name: "Review changes" }).click();
   await expect(
     page.getByRole("heading", { name: "Review 1 baseline change" }),
@@ -613,10 +612,15 @@ test("keeps a possible overlap behind an explicit baseline decision", async ({
     maxDiffPixelRatio: 0.025,
     threshold: 0.25,
   });
+  const apply = page.getByRole("button", { name: "Apply changes" });
+  await apply.focus();
   await expectNoHorizontalOverflow(page);
-  await page.getByRole("button", { name: "Apply changes" }).click();
-  await expect.poll(() => confirmationBody).not.toBeNull();
-  expect(confirmationBody).toMatchObject({
+  await page.clock.fastForward(60_000);
+  expect(confirmationBodies).toHaveLength(0);
+  await apply.click();
+  await expect(review).toHaveCount(0);
+  expect(confirmationBodies).toHaveLength(1);
+  expect(confirmationBodies[0]).toMatchObject({
     sourceRevision: automaticReadyState.sourceRevision,
     baseForecastSnapshotId: "snap_fi_v3",
     baseForecastSnapshotVersion: 3,

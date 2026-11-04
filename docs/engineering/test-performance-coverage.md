@@ -555,3 +555,18 @@ five paired Linux arm64 runs, median replay time across all six days fell from
 Process-tree block writes fell from 242.8 to 27.3 MiB per suite. The supervisor
 cleans up its own attempt directory. If it is killed before cleanup, subsequent
 runs use disk while that directory remains occupied.
+
+All six days used shared memory on the x64 CI runner at `f1fbe6c8`. Compared
+with `9f8ae14e`, their combined D1 replay time fell from 148.957 to 86.496
+seconds. Every scenario retained the same HTTP requests, Worker calls, D1 round
+trips, statements and billed rows. The complete gate took 804.904 seconds.
+Across the five consecutive first-attempt passes, the median was 828.915 seconds
+and the slowest was 839.836 seconds.
+[Fifth Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41811365451)
+
+The baseline overlap review used to check for a premature save after a 250 ms
+sleep. It missed a delayed confirmation while the review was open. The test now
+advances the browser clock with the review closed and with Apply focused, then
+checks that the user's click produces exactly one confirmation. Focusing Apply
+also caught a faulty handler that started the request early and reused it on
+click. Desktop and mobile retain the original review screenshot.
