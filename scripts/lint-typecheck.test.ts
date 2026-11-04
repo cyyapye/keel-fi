@@ -92,7 +92,7 @@ async function withFixture<T>(
     );
     write(
       "main.ts",
-      fixture.source ?? "export const title: string = document.title;\n",
+      fixture.source ?? 'export const title: string = "synthetic";\n',
     );
     write(
       "tsconfig.json",
@@ -100,7 +100,7 @@ async function withFixture<T>(
         JSON.stringify({
           compilerOptions: {
             ...options,
-            lib: ["ES2023", "DOM"],
+            lib: ["ES2023"],
             ...fixture.options,
           },
           files: fixture.rootFiles ?? ["main.ts"],
@@ -182,19 +182,31 @@ async function refusesWorker(
 }
 
 it("preserves compiler diagnostics and the complete lint failure contract", async () => {
-  await withFixture({}, (cwd) => {
-    const clean = cli(cwd);
-    expect(clean.status, clean.output).toBe(0);
-    expect(clean.output).toContain('"contexts":2');
-    const invalid = cli(cwd, ["--skip"]);
-    expect(invalid.status, invalid.output).toBe(1);
-    expect(invalid.output).toContain("Usage:");
-  });
-  await withFixture({ source: "export const value: string = 1;\n" }, (cwd) => {
-    const bad = cli(cwd);
-    expect(bad.status, bad.output).toBe(1);
-    expect(bad.output).toContain("TS2322");
-  });
+  await withFixture(
+    {
+      source: "export const title: string = document.title;\n",
+      options: { lib: ["ES2023", "DOM"] },
+    },
+    (cwd) => {
+      const clean = cli(cwd);
+      expect(clean.status, clean.output).toBe(0);
+      expect(clean.output).toContain('"contexts":2');
+      const invalid = cli(cwd, ["--skip"]);
+      expect(invalid.status, invalid.output).toBe(1);
+      expect(invalid.output).toContain("Usage:");
+    },
+  );
+  await withFixture(
+    {
+      source: "export const value: string = 1;\n",
+      options: { lib: ["ES2023", "DOM"] },
+    },
+    (cwd) => {
+      const bad = cli(cwd);
+      expect(bad.status, bad.output).toBe(1);
+      expect(bad.output).toContain("TS2322");
+    },
+  );
   const clean = await run();
   expect(clean.status, clean.output).toBe(0);
   expect(clean.output).toContain('"contexts":2');
@@ -236,6 +248,7 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
     [
       {
         source: 'console.info("synthetic"); export const value = 1;\n',
+        options: { lib: ["ES2023", "DOM"] },
         rules: { "no-console": "warn" },
       },
       '"warnings":1',
@@ -256,6 +269,8 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
   }
   await withFixture(
     {
+      source: "export const title: string = document.title;\n",
+      options: { lib: ["ES2023", "DOM"] },
       rootFiles: ["main.ts", "hidden.ts"],
       files: { "hidden.ts": 'export const hidden: string = "synthetic";\n' },
       ignores: ["hidden.ts"],
