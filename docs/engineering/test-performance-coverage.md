@@ -700,3 +700,11 @@ previous receipt with a 201 response fails that check. The legal-entity Cancel
 case also observes attempts to create or update an entity in the browser. An
 injected Cancel that submitted the valid draft passed the old fixture's
 empty-write assertion on both viewports.
+
+The 16 Sydecar repository cases now run in the one-worker preflight. The
+reported-failure case builds all 89 migrations and the synthetic seed before
+exercising 24 hours of renewal and recovery. In a local profile, the cold
+database build took 335 ms and the recovery loop took 18.5 ms. Putting this file
+in preflight preserves its five-second deadline and the independent
+expired-lease case. The complete local run accounted for 114 preflight cases and
+1,535 main cases. Linux preflight still has a 120-second limit.

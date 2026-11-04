@@ -44,6 +44,7 @@ STRICT_VITEST_FILES = (
     "scripts/seed-scenarios.test.ts",
     "packages/database/src/price-proxies.test.ts",
     "scripts/public-company-worker-runtime.test.ts",
+    "packages/database/src/provider-portfolio-agent.test.ts",
 )
 
 
