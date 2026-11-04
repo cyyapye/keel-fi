@@ -428,3 +428,33 @@ exceptions and D1 budgets from the host. One refresh from identical synthetic
 databases produced the same 412 ordered SQL trace events, all four D1 counters
 and the contents of all 138 tables. In two local pairs the original case took
 9.90 seconds and the worker version took 3.92–3.93 seconds.
+
+At `955d6e3d`, the full native gate took 811.658 seconds on its first attempt.
+All 11 commands and all 2,112 required cases passed. Compared with the preceding
+run, the 120-position portfolio-baseline case fell from 76.801 to 39.562
+seconds. The browser flow fell from 578.200 to 549.794 seconds and finished
+last. These two runs include both the fixture and Vite changes. Neither run
+meets the 750-second ceiling.
+[Linux run 41792170136](https://github.com/cyyapye/keel-fi/actions/runs/41792170136)
+
+The second 120-position private-continuity import now runs in its D1 fixture
+worker. The host still checks actual billing, query plans and stored positions.
+Both paths produced the same 2,849 ordered database operations, all 484 plan
+rows and identical contents across 138 tables. The complete local case fell from
+8.13–9.19 to 1.07–1.08 seconds across two pairs. A missing query, a scan,
+incorrect amounts and invalid counters each failed the test.
+
+The dashboard cost fixture builds 120 historical forecasts and their children in
+one real D1 batch. The host reads back every new snapshot's version, tied date
+and child counts before measuring the dashboard again. Both paths executed the
+same 1,200 inserts. An extra failing insert rolled back the entire batch. The
+eight-case file took 9.37 and 9.72 seconds locally before the change and 2.94
+and 2.91 seconds afterward. All 24 cases sharing the fixture worker passed.
+
+At `47bfa244`, the private-continuity case took 12.266 seconds on Linux, down
+from 56.334 seconds on the preceding run. The full native gate took 799.117
+seconds. Its 413 required browser cases finished last, 108.568 seconds after
+units. The last five first-attempt passes with this case inventory had a median
+of 840.515 seconds and a maximum of 887.371 seconds. The targets are 600 and 750
+seconds respectively.
+[Linux run 41794057292](https://github.com/cyyapye/keel-fi/actions/runs/41794057292)
