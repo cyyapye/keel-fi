@@ -81,18 +81,20 @@ overlapping preflight evidence fails verification.
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
 most three native flows run concurrently. Admission follows the reviewed map's
-first-ready order. The workspace build takes a free slot ahead of main units
-once the migration has been admitted. Browser tests still wait for the built
-assets, verified seed and provider runtime. In six completed runs, replaying
-that order with each measured command duration held fixed shortened the modeled
-gate by 20 to 52 seconds. Actual command times can change when they overlap
-different work. Unit and browser work may overlap source checks after their own
-prerequisites pass. PDF isolation waits for source checks, so its scanner cannot
-overlap the compiler flow. Source checks still must pass in the same complete
-receipt. Configured scanner and compiler limits do not establish observed memory
-use or available host capacity. The 900-second active budget and per-case
-deadlines remain. Native main units and standalone execution use three workers
-after the two-worker trial below failed the complete budget.
+first-ready order. Unit and browser work may overlap source checks after their
+own prerequisites pass. PDF isolation waits for source checks, so its scanner
+cannot overlap the compiler flow. Source checks still must pass in the same
+complete receipt. Configured scanner and compiler limits do not establish
+observed memory use or available host capacity. The 900-second active budget and
+per-case deadlines remain. Native main units and standalone execution use three
+workers after the two-worker trial below failed the complete budget.
+
+Draft PR #340 tried admitting the workspace build before the main unit suite in
+[run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
+All 11 flows passed. Compared with the preceding run, the browser suite started
+55.640 seconds earlier but took 39.265 seconds longer to execute. The complete
+gate fell from 828.915 to 812.540 seconds and missed the 750-second trial
+cutoff. The map restores the previous order.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It

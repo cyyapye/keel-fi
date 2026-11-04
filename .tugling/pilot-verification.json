@@ -148,20 +148,6 @@
       "depends_on": ["gate-and-artifact-integrity"]
     },
     {
-      "id": "build-and-entry-budget",
-      "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
-      "argv": ["make", "build"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "package.json",
-        "apps/web/package.json",
-        "scripts/check-web-entry-budget.mjs"
-      ],
-      "runtime": null,
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
       "id": "native-unit-and-cost",
       "description": "Execute the complementary native domain, API, database, client, workflow, resource and billing cases, then validate the complete preflight/main unit union.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest-main"],
@@ -334,6 +320,20 @@
         "cleanup": "Failure leaves no valid seal. The prepared browser command consumes the exact owned seed after cloning, while a later preparation safely replaces an unconsumed owned seed."
       },
       "depends_on": ["migration-and-seed"]
+    },
+    {
+      "id": "build-and-entry-budget",
+      "description": "Build every workspace and enforce the native 100 KiB initial JavaScript gzip budget and lazy application boundary.",
+      "argv": ["make", "build"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "apps/web/package.json",
+        "scripts/check-web-entry-budget.mjs"
+      ],
+      "runtime": null,
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "browser-workflows",
