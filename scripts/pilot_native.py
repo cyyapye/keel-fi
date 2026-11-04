@@ -3,7 +3,7 @@
 
 import argparse
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from datetime import datetime
 import fcntl
 import hashlib
@@ -26,6 +26,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 INVENTORY = ROOT / ".tugling/pilot-cases.json"
 ARTIFACTS = ROOT / ".tugling/local/pilot"
+SHARED_MEMORY = Path("/dev/shm")
 PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot", "test_pdf_sandbox_owner", "test_ci_diagnostics", "test_ci_verification")
 BROWSER_LANES = ("mocked", "mocked-development", "stateful-development", "stateful-a", "stateful-b")
 BROWSER_MAX_ACTIVE_WORKERS = 4
@@ -724,6 +725,29 @@ def cost_seed_directory():
         for name, handler in previous.items():
             signal.signal(name, handler)
 
+@contextmanager
+def provider_day_scratch():
+    if sys.platform != "linux" or os.environ.get("CI") != "true":
+        yield ""
+        return
+    slot = SHARED_MEMORY / f"keel-provider-days-{os.getuid()}"
+    scratch = ""
+    with ExitStack() as cleanup:
+        try:
+            slot.mkdir(mode=0o700, exist_ok=True)
+            descriptor = os.open(slot, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            cleanup.callback(os.close, descriptor)
+            info = os.fstat(descriptor)
+            if info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if not os.listdir(descriptor):
+                    # Keep both the child and cleanup on our directory if the fixed name is replaced.
+                    parent = f"/proc/{os.getpid()}/fd/{descriptor}"
+                    scratch = cleanup.enter_context(tempfile.TemporaryDirectory(dir=parent))
+        except OSError:
+            pass
+        yield scratch
+
 
 
 def vitest_partition(inventory, strict):
@@ -951,7 +975,7 @@ def run_vitest(runner, inventory):
     else:
         if partitioned:
             command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
-        with cost_seed_directory() as seed:
+        with cost_seed_directory() as seed, provider_day_scratch() as provider_scratch:
             subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
                            cwd=ROOT, check=True)
             unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
@@ -959,6 +983,7 @@ def run_vitest(runner, inventory):
                 raise ValueError("Unit PDF boundary must remain unprovisioned")
             returncode = subprocess.run(command, cwd=ROOT, check=False,
                                         env={**os.environ, "KEEL_TEST_D1_SEED": seed,
+                                             "KEEL_PROVIDER_DAY_SCRATCH": provider_scratch,
                                              "KEEL_PDF_SANDBOX_CONFIG": str(unavailable_pdf)}).returncode
     completed_at = int(time.time() * 1000)
     raw = read_vitest_artifact(output) if partitioned else output.read_bytes()

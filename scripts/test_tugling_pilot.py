@@ -1,5 +1,6 @@
 """Synthetic native-runner and pre-execution source boundary holdouts."""
 
+from contextlib import ExitStack
 import importlib.util
 import io
 import json
@@ -800,6 +801,32 @@ class NativeAccountingTests(unittest.TestCase):
                     with native.cost_seed_directory() as failed:
                         raise ValueError("synthetic failure")
                 self.assertFalse(Path(failed).exists())
+            with patch.object(native, "SHARED_MEMORY", root), patch.dict(os.environ, {"CI": "true"}):
+                if sys.platform == "linux":
+                    slot = root / f"keel-provider-days-{os.getuid()}"
+                    with ExitStack() as replacement:
+                        with native.provider_day_scratch() as first:
+                            self.assertTrue(first)
+                            (Path(first) / "original").write_text("first")
+                            with native.provider_day_scratch() as competing:
+                                self.assertEqual(competing, "")
+                            displaced = root / "displaced"
+                            slot.rename(displaced)
+                            second = replacement.enter_context(native.provider_day_scratch())
+                            self.assertTrue(second)
+                            live = Path(second) / "other-run"
+                            live.write_text("second")
+                        self.assertEqual(live.read_text(), "second")
+                        self.assertEqual(list(displaced.iterdir()), [])
+                    self.assertEqual(list(slot.iterdir()), [])
+                    slot.rmdir()
+                    slot.symlink_to(sentinel)
+                    with native.provider_day_scratch() as occupied:
+                        self.assertEqual(occupied, "")
+                    self.assertTrue(slot.is_symlink())
+                else:
+                    with native.provider_day_scratch() as scratch:
+                        self.assertEqual(scratch, "")
             code = f"""import sys, time
 from pathlib import Path
 sys.path.insert(0, {str(pilot.ROOT / 'scripts')!r})

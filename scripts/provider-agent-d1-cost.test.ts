@@ -49,21 +49,31 @@ it.each([
       logLevel: "silent",
     });
     const bundledAt = performance.now();
-    const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
-    const trace = createSqliteTrace();
-    const initializedAt = performance.now();
-    let clock = START;
-    const now = () => new Date(clock);
-    const credentials = new D1MacAgentCredentialRepository(trace.database, now);
-    const angellist = new D1AngelListMacAgentRepository(trace.database, now);
-    const portfolios = new D1ProviderPortfolioAgentRepository(
-      trace.database,
-      now,
-    );
-    const authorizations: MacAgentAuthorization[] = [];
-    const log = console.info.bind(console);
-    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const fixture = await createCostDatabase(bundled.outputFiles[0]!.text, {
+      sharedMemoryParent:
+        process.env.CI === "true"
+          ? process.env.KEEL_PROVIDER_DAY_SCRATCH
+          : undefined,
+    });
+    let closeTrace: (() => void) | undefined;
     try {
+      const trace = createSqliteTrace();
+      closeTrace = trace.close;
+      const initializedAt = performance.now();
+      let clock = START;
+      const now = () => new Date(clock);
+      const credentials = new D1MacAgentCredentialRepository(
+        trace.database,
+        now,
+      );
+      const angellist = new D1AngelListMacAgentRepository(trace.database, now);
+      const portfolios = new D1ProviderPortfolioAgentRepository(
+        trace.database,
+        now,
+      );
+      const authorizations: MacAgentAuthorization[] = [];
+      const log = console.info.bind(console);
+      vi.spyOn(console, "info").mockImplementation(() => undefined);
       for (const provider of ["angellist", "tokenfolio", "sydecar"] as const) {
         if (provider === "angellist") {
           await angellist.register(SUBJECT);
@@ -323,6 +333,7 @@ it.each([
         JSON.stringify({
           actualD1AgentDay: {
             scenario,
+            storage: fixture.storage,
             sessionLeaseRequests,
             browserStarts,
             rejected,
@@ -340,8 +351,11 @@ it.each([
         }),
       );
     } finally {
-      trace.close();
-      await fixture.close();
+      try {
+        closeTrace?.();
+      } finally {
+        await fixture.close();
+      }
     }
   },
   180_000,

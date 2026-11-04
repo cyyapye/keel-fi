@@ -545,3 +545,13 @@ Auth0 case. Both viewports still run the full MFA and responsive-readiness
 checks. The three retired mobile executions accounted for 3.07–4.56 seconds of
 case work per run on three Linux revisions. The retained mobile case caught two
 narrow-screen regressions that passed on desktop.
+
+The six full-day provider cost tests can put their private D1 databases in Linux
+shared memory. Each day needs 128 MiB of available filesystem space and 512 MiB
+of available memory at admission. An occupied directory or insufficient space
+selects disk before D1 opens. A later write failure still fails the test. In
+five paired Linux arm64 runs, median replay time across all six days fell from
+9.634 to 5.673 seconds with identical D1 billing and workload counts.
+Process-tree block writes fell from 242.8 to 27.3 MiB per suite. The supervisor
+cleans up its own attempt directory. If it is killed before cleanup, subsequent
+runs use disk while that directory remains occupied.

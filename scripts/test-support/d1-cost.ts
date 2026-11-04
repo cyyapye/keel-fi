@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statfsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -97,11 +98,45 @@ async function costDatabaseBootstrap(sources: readonly Buffer[]) {
   };
 }
 
+function allocateCostDirectory(sharedMemoryParent?: string) {
+  if (sharedMemoryParent && process.platform === "linux") {
+    try {
+      const owner = lstatSync(sharedMemoryParent);
+      const volume = statfsSync(sharedMemoryParent);
+      if (
+        owner.isDirectory() &&
+        owner.uid === process.getuid!() &&
+        (owner.mode & 0o777) === 0o700 &&
+        volume.type === 0x01021994 && // Linux TMPFS_MAGIC
+        volume.bavail * volume.bsize >= 128 * 1024 ** 2 &&
+        process.availableMemory() >= 512 * 1024 ** 2
+      ) {
+        return {
+          directory: mkdtempSync(join(sharedMemoryParent, "keel-cost-d1-")),
+          storage: "tmpfs",
+        };
+      }
+    } catch {
+      // Choose storage before opening D1. Setup and replay errors must propagate.
+    }
+  }
+  return {
+    directory: mkdtempSync(join(tmpdir(), "keel-cost-d1-")),
+    storage: "default",
+  };
+}
+
 export async function createCostDatabase(
   script?: string,
-  options: { seed?: string | null; persist?: string } = {},
+  options: {
+    seed?: string | null;
+    persist?: string;
+    sharedMemoryParent?: string | undefined;
+  } = {},
 ) {
-  const directory = mkdtempSync(join(tmpdir(), "keel-cost-d1-"));
+  const { directory, storage } = allocateCostDirectory(
+    options.persist === undefined ? options.sharedMemoryParent : undefined,
+  );
   const persist = options.persist ?? join(directory, "d1");
   const seed =
     options.seed === undefined ? process.env.KEEL_TEST_D1_SEED : options.seed;
@@ -171,6 +206,7 @@ export async function createCostDatabase(
     }
     return {
       database,
+      storage,
       seedInput: inputs.fingerprint,
       execute,
       dispatchFetch: runtime.dispatchFetch.bind(runtime),
