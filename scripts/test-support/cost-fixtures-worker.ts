@@ -46,6 +46,22 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("read-budgets") }).strict(),
   z.object({ operation: z.literal("provider-reconnect") }).strict(),
   z.object({ operation: z.literal("portfolio-watch-day") }).strict(),
+  z
+    .object({
+      operation: z.literal("position-link-history"),
+      positions: z
+        .array(
+          z
+            .object({
+              id: z.string().min(1).max(256),
+              snapshotId: z.string().min(1).max(256),
+            })
+            .strict(),
+        )
+        .length(120),
+      reviewIds: z.array(z.string().uuid()).length(60),
+    })
+    .strict(),
   z.object({ operation: z.literal("watch-targets") }).strict(),
 ]);
 export type CostFixtureSetupOperation = z.input<typeof setupOperationSchema>;
@@ -148,6 +164,30 @@ export default {
         globalThis.Date = originalDate;
       }
       result = { operation: operation.operation, importId };
+    } else if (operation.operation === "position-link-history") {
+      const statements = [];
+      for (let index = 0; index < operation.positions.length; index += 2) {
+        const source = operation.positions[index]!;
+        const target = operation.positions[index + 1]!;
+        statements.push(
+          bindings.DB.prepare(
+            `INSERT INTO holding_position_link_reviews(id,household_id,source_position_id,target_position_id,source_snapshot_id,target_snapshot_id,source_participation_review_id,target_participation_review_id,prior_id,relationship,state,use_source_value,note,reviewer_user_id,accepted_at)
+          VALUES(?,'hh_demo',?,?,?,?,NULL,NULL,(SELECT review_id FROM holding_position_link_heads WHERE source_position_id=?),'same_investment','linked',1,'Synthetic cost history','usr_demo','2026-09-20T12:00:00.000Z')`,
+          ).bind(
+            operation.reviewIds[index / 2]!,
+            source.id,
+            target.id,
+            source.snapshotId,
+            target.snapshotId,
+            source.id,
+          ),
+        );
+      }
+      const applied = await bindings.DB.batch(statements);
+      result = {
+        operation: operation.operation,
+        statementCount: applied.length,
+      };
     } else if (operation.operation === "watch-targets") {
       await seedCostWatchTargets(bindings.DB);
       result = { operation: operation.operation, completed: true };

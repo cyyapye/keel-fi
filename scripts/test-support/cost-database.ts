@@ -51,6 +51,13 @@ const portfolioWatchCostSchema = z
 const setupResultSchema = z.discriminatedUnion("operation", [
   z
     .object({
+      operation: z.literal("position-link-history"),
+      statementCount: z.literal(60),
+    })
+    .strict(),
+
+  z
+    .object({
       operation: z.literal("watch-targets"),
       completed: z.literal(true),
     })
