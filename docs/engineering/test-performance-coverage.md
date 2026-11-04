@@ -412,3 +412,19 @@ cold starts per version, the React DOM transfer fell from 3.16 MB to 1.01 MB.
 The 116 application modules still matched after normalizing the temporary cache
 URLs, including the application's refresh hooks. A broken import still failed
 readiness. This comparison measures the development server, not full CI.
+
+[Run 41789366974](https://github.com/cyyapye/keel-fi/actions/runs/41789366974)
+at `274778f1` supplied exact Linux timings for all 2,112 required cases: 1,650
+Vitest, 49 Python and 413 Playwright. Thirty reviewed browser exclusions had no
+timing. The first attempt passed all five checks in 840.515 active seconds. The
+median case took 0.016 seconds in Vitest, 0.032 in Python and 3.863 in
+Playwright. The portfolio baseline took 76.801 seconds, the longest individual
+case. See the [timing decoder](../../scripts/ci-case-timings.py) to rank a
+completed native run; concurrent case times do not add up to gate time.
+
+The portfolio baseline cost test runs its ten refreshes in the existing D1
+fixture worker. The test still reads state and checks query plans, history,
+exceptions and D1 budgets from the host. One refresh from identical synthetic
+databases produced the same 412 ordered SQL trace events, all four D1 counters
+and the contents of all 138 tables. In two local pairs the original case took
+9.90 seconds and the worker version took 3.92–3.93 seconds.

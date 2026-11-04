@@ -2,7 +2,9 @@ import { z } from "zod";
 import { ShareBasisSchema } from "../../packages/domain/src/valuation-record";
 import { D1InvestmentConnectionsRepository } from "../../packages/database/src/investment-connections";
 import { D1ProviderPortfolioAgentRepository } from "../../packages/database/src/provider-portfolio-agent";
+import { refreshAcceptedPortfolioBaseline } from "../../packages/database/src/portfolio-baseline";
 import { measureD1 } from "./d1-meter";
+import { baselineCostRepositories } from "./portfolio-baseline-cost";
 import { providerReconnectCost } from "./provider-reconnect-cost";
 import { portfolioWatchSourceCost } from "./portfolio-watch-cost";
 import {
@@ -43,6 +45,12 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
     operation: z.literal("portfolio-watch"),
     nextCheckAt: z.string().datetime(),
   }),
+  z
+    .object({
+      operation: z.literal("baseline-refresh"),
+      missingPosition: z.boolean(),
+    })
+    .strict(),
   z.object({ operation: z.literal("read-budgets") }).strict(),
   z.object({ operation: z.literal("provider-reconnect") }).strict(),
   z.object({ operation: z.literal("portfolio-watch-day") }).strict(),
@@ -164,6 +172,21 @@ export default {
         globalThis.Date = originalDate;
       }
       result = { operation: operation.operation, importId };
+    } else if (operation.operation === "baseline-refresh") {
+      const measured = measureD1(bindings.DB);
+      const { baseline } = baselineCostRepositories(
+        measured.database,
+        () => operation.missingPosition,
+      );
+      const refresh = await refreshAcceptedPortfolioBaseline(
+        baseline,
+        COST_SUBJECT,
+      );
+      result = {
+        operation: operation.operation,
+        ...refresh,
+        cost: measured.cost,
+      };
     } else if (operation.operation === "position-link-history") {
       const statements = [];
       for (let index = 0; index < operation.positions.length; index += 2) {
