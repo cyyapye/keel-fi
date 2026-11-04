@@ -81,14 +81,13 @@
         "packages/database/src/exposures.test.ts",
         "scripts/test-support/sqlite-fixture.ts",
         "scripts/test-support/legal-documents.ts",
-        "scripts/test-support/cost-fixtures.ts",
-        ".tugling/pilot-unit-resources.json"
+        "scripts/test-support/cost-fixtures.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "A one-worker Vitest preflight executes six in-process graph/day, cash, route and exposure files before the 49 Python ownership and accounting cases. Every other native flow waits for this gate. A same-source, same-attempt, same-coordinator proof binds its complete report for one Resource consumer.",
-        "health": "Preflight, Resource and remaining Main Vitest partitions must form the complete reviewed unit inventory exactly once. Existing five-second deadlines, all 1,440 minute attempts, real hashes, JSON CAS accounting and Python failure controls remain.",
-        "cleanup": "Owned leases prevent report replacement. Resource claims the preflight proof once, then Main claims the Resource proof and revalidates the consumed chain. Missing, stale, mismatched or overlapping results fail. Existing temporary checkout and process cleanup remains mandatory."
+        "launch": "A one-worker Vitest preflight executes six in-process graph/day, cash, route and exposure files before the 49 Python ownership and accounting cases. Every other native flow waits for this gate. A same-source, same-attempt, same-coordinator proof binds its complete report for one main-phase consumer.",
+        "health": "Preflight and main Vitest partitions must form the complete reviewed unit inventory exactly once. Existing five-second deadlines, all 1,440 minute attempts, real hashes, JSON CAS accounting and Python failure controls remain.",
+        "cleanup": "Owned leases prevent report replacement. Main claims the preflight proof once; missing, stale, mismatched or overlapping results fail. Existing temporary checkout and process cleanup remains mandatory."
       },
       "depends_on": []
     },
@@ -143,30 +142,8 @@
       "depends_on": ["gate-and-artifact-integrity"]
     },
     {
-      "id": "native-resource-unit-and-cost",
-      "description": "Execute the declared external-runtime unit files with owned seed preparation and teardown, then bind their report to the consumed preflight proof.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest-resource"],
-      "timeout_seconds": 390,
-      "sources": [
-        "scripts/pilot_native.py",
-        "scripts/test_tugling_pilot.py",
-        ".tugling/pilot-cases.json",
-        ".tugling/pilot-unit-resources.json",
-        "scripts/pilot-vitest-reporter.ts",
-        "scripts/prepare-d1-cost-seed.ts",
-        "scripts/test-support/d1-cost-seed.ts"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "After isolated preflight, claim its one-use proof and run the declared external-runtime files with the existing unit worker limit. Each D1 fixture copies the verified closed seed into a fresh owned runtime. Unit PDF configuration stays explicitly unavailable.",
-        "health": "Exact case membership, native outcomes, source context and predecessor report digests must validate before the resource proof is emitted. Actual D1 billing and preservation evidence remains produced by its existing cases.",
-        "cleanup": "The unit child and fixture runtimes finish, then the owned seed directory is removed before the completion proof is written. The coordinator still requires terminal flow success and its existing process-group checks."
-      },
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
       "id": "native-unit-and-cost",
-      "description": "Execute the remaining native unit cases, then validate the exact preflight/resource/remaining unit union.",
+      "description": "Execute the complementary native domain, API, database, client, workflow, resource and billing cases, then validate the complete preflight/main unit union.",
       "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest-main"],
       "timeout_seconds": 1500,
       "sources": [
@@ -280,19 +257,15 @@
         "scripts/d1-maintenance-baseline.test.ts",
         "scripts/test-support/query-inventory.ts",
         "scripts/test-support/query-inventory.test.ts",
-        "scripts/test-support/lint-typecheck-fixture.mjs",
-        ".tugling/pilot-unit-resources.json"
+        "scripts/test-support/lint-typecheck-fixture.mjs"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "After the terminal resource flow, claim its one-use proof, validate both predecessor reports and run the exact remaining complement. Standalone full-unit execution retains its existing scope.",
-        "health": "The full unit report is written only after all phase outcomes, source bindings and disjoint complete membership validate. Native report counters and snapshot fields are preserved.",
-        "cleanup": "The remaining phase uses a fresh owned temporary directory and an explicitly unavailable PDF configuration without preparing another D1 seed. The native owner closes its unit child and removes temporary files before returning."
+        "launch": "After the isolated gate, Vitest runs every remaining unit case with three workers. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. The unchanged first-ready map order controls admission; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
+        "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Capacity cases exercise conditional R2, cumulative quotas, expiry and denied work.",
+        "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
       },
-      "depends_on": [
-        "gate-and-artifact-integrity",
-        "native-resource-unit-and-cost"
-      ]
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "provider-document-runtime",
@@ -406,9 +379,7 @@
       "depends_on": [
         "browser-fixture-preparation",
         "build-and-entry-budget",
-        "provider-document-runtime",
-        "native-resource-unit-and-cost",
-        "source-quality"
+        "provider-document-runtime"
       ]
     },
     {
@@ -456,7 +427,6 @@
       ],
       "flows": [
         "gate-and-artifact-integrity",
-        "native-resource-unit-and-cost",
         "native-unit-and-cost",
         "browser-workflows",
         "provider-document-runtime"
@@ -468,7 +438,6 @@
       "sources": ["AGENTS.md", "docs/product/principles.md"],
       "flows": [
         "source-quality",
-        "native-resource-unit-and-cost",
         "native-unit-and-cost",
         "migration-and-seed",
         "browser-fixture-preparation",
@@ -482,11 +451,7 @@
         "docs/architecture/source-update-policy.md",
         "docs/product/ui-and-copy.md"
       ],
-      "flows": [
-        "native-resource-unit-and-cost",
-        "native-unit-and-cost",
-        "browser-workflows"
-      ]
+      "flows": ["native-unit-and-cost", "browser-workflows"]
     },
     {
       "id": "shared-responsive-ui",
@@ -497,11 +462,7 @@
         "docs/product/ui-library.md",
         ".tugling/ui.json"
       ],
-      "flows": [
-        "native-resource-unit-and-cost",
-        "native-unit-and-cost",
-        "browser-workflows"
-      ]
+      "flows": ["native-unit-and-cost", "browser-workflows"]
     },
     {
       "id": "projection-scale-and-cost",
@@ -510,17 +471,13 @@
         "AGENTS.md",
         "docs/engineering/query-and-worker-cost-audit.md"
       ],
-      "flows": ["native-resource-unit-and-cost", "native-unit-and-cost"]
+      "flows": ["native-unit-and-cost"]
     },
     {
       "id": "recurring-work-envelope",
       "description": "Preserve combined idle, outage and useful-work budgets, bounded queue admission, unchanged replay, latency, cancellation and current authorization.",
       "sources": ["docs/engineering/recurring-work-budgets.md"],
-      "flows": [
-        "native-resource-unit-and-cost",
-        "native-unit-and-cost",
-        "browser-workflows"
-      ]
+      "flows": ["native-unit-and-cost", "browser-workflows"]
     },
     {
       "id": "authentication-and-external-boundaries",
@@ -532,7 +489,6 @@
         "docs/security/threat-model.md"
       ],
       "flows": [
-        "native-resource-unit-and-cost",
         "native-unit-and-cost",
         "browser-workflows",
         "provider-document-runtime"
@@ -549,7 +505,6 @@
       ],
       "flows": [
         "pdf-sandbox-build",
-        "native-resource-unit-and-cost",
         "native-unit-and-cost",
         "pdf-isolation",
         "browser-workflows",
@@ -567,8 +522,7 @@
       "flows": [
         "gate-and-artifact-integrity",
         "browser-fixture-preparation",
-        "provider-document-runtime",
-        "native-resource-unit-and-cost"
+        "provider-document-runtime"
       ]
     },
     {
@@ -596,11 +550,7 @@
         "docs/deployment/checklist.md",
         "docs/engineering/tugling-pilot.md"
       ],
-      "flows": [
-        "gate-and-artifact-integrity",
-        "native-resource-unit-and-cost",
-        "native-unit-and-cost"
-      ]
+      "flows": ["gate-and-artifact-integrity", "native-unit-and-cost"]
     }
   ],
   "execution": {

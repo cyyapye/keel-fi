@@ -13,7 +13,6 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
-from contextlib import contextmanager
 
 
 def load(name, filename):
@@ -107,7 +106,6 @@ class NativeAccountingTests(unittest.TestCase):
             self.assertEqual(native.native_lease_name("migration-seed"), "playwright")
             self.assertEqual(native.native_lease_name("playwright-prepared"), "playwright")
             self.assertEqual(native.native_lease_name("preflight"), "vitest")
-            self.assertEqual(native.native_lease_name("vitest-resource"), "vitest")
             self.assertEqual(native.native_lease_name("vitest-main"), "vitest")
             with native.native_lease("vitest"), native.native_lease("playwright"):
                 with self.assertRaises(BlockingIOError):
@@ -759,28 +757,34 @@ class NativeAccountingTests(unittest.TestCase):
             config = root / "config.cjs"
             config.write_text("module.exports={testDir:'.',testMatch:'fixture.ts',workers:1,use:{serviceWorkers:'allow'}};\n")
             imported = json.dumps(str(pilot.ROOT / "e2e/api-mocked-test.ts"))
-            for path, method, success in (("legal-entities", "GET", True), ("unknown", "GET", False), ("legal-entities", "POST", False)):
-                fixture.write_text(
-                    f"import {{test,expect}} from {imported};\n"
-                    "test('isolated API boundary',async({page,serviceWorkers})=>{"
-                    "expect(serviceWorkers).toBe('block');"
-                    "await page.route('http://keel.test/',r=>r.fulfill({contentType:'text/html',body:'synthetic'}));"
-                    "await page.goto('http://keel.test/');"
-                    "const value=await page.evaluate(async(args)=>{"
-                    "const response=await fetch('/api/'+args.path,{method:args.method});"
-                    "return response.json();}," + json.dumps({"path": path, "method": method}) + ");"
-                    "expect(value.version).toBe(3);});\n"
-                )
-                result = subprocess.run([
-                    "node", str(pilot.ROOT / "node_modules/@playwright/test/cli.js"), "test",
-                    "--config", str(config), "--reporter=list", f"--output={root / 'results'}",
-                ], cwd=pilot.ROOT, text=True, capture_output=True)
-                with self.subTest(path=path, method=method):
-                    if success:
-                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    else:
-                        self.assertNotEqual(result.returncode, 0)
-                        self.assertIn("Mocked browser test made an unhandled application API request", result.stdout + result.stderr)
+            routes = (("legal-entities", "GET"), ("unknown", "GET"), ("legal-entities", "POST"))
+            fixture.write_text(
+                f"import {{test,expect}} from {imported};\n"
+                f"for (const [path,method] of {json.dumps(routes)}) {{\n"
+                "test(method+' '+path,async({page,serviceWorkers})=>{"
+                "expect(serviceWorkers).toBe('block');"
+                "await page.route('http://keel.test/',r=>r.fulfill({contentType:'text/html',body:'synthetic'}));"
+                "await page.goto('http://keel.test/');"
+                "const value=await page.evaluate(async({path,method})=>"
+                "(await fetch('/api/'+path,{method})).json(),{path,method});"
+                "expect(value.version).toBe(3);});}\n"
+            )
+            report = root / "report.json"
+            result = subprocess.run([
+                "node", str(pilot.ROOT / "node_modules/@playwright/test/cli.js"), "test",
+                "--config", str(config), "--reporter=json", f"--output={root / 'results'}",
+            ], cwd=pilot.ROOT, text=True, capture_output=True,
+                env={**os.environ, "PLAYWRIGHT_JSON_OUTPUT_FILE": str(report)})
+            self.assertEqual(result.returncode, 1, result.stderr)
+            cases = {spec["title"]: spec["tests"][0]["results"] for spec in json.loads(report.read_text())["suites"][0]["specs"]}
+            self.assertEqual(set(cases), {f"{method} {path}" for path, method in routes})
+            self.assertEqual([r["status"] for r in cases["GET legal-entities"]], ["passed"])
+            for path, method in routes[1:]:
+                with self.subTest(method=method, path=path):
+                    actual = cases[f"{method} {path}"]
+                    self.assertEqual([r["status"] for r in actual], ["failed"])
+                    self.assertIn(f"Mocked browser test made an unhandled application API request: {method} /api/{path}",
+                                  str(actual[0]["errors"]))
 
     def test_cost_seed_cleanup_on_success_failure_and_cancellation(self):
         with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
@@ -867,48 +871,40 @@ with native.cost_seed_directory() as seed:
             report = root / "report.json"
             config.write_text("export default {test:{include:['fixture.ts'],maxWorkers:1}}\n")
             prefix = fixture.relative_to(pilot.ROOT).as_posix() + " :: "
-            inventory = {"vitest": [prefix + "kept", prefix + "required"], "exclusions": []}
-            for variant in ("restored", "removed", "skipped", "filtered", "expected-failure", "retry-success"):
-                source = "import {it,expect} from 'vitest';\nit('kept',()=>expect(1).toBe(1));\n"
-                if variant == "expected-failure":
-                    source += "it.fails('required',()=>expect(2).toBe(3));\n"
-                elif variant == "retry-success":
-                    source += "let tries=0;it('required',{retry:1},()=>expect(++tries).toBe(2));\n"
-                elif variant != "removed":
-                    source += "it" + (".skip" if variant == "skipped" else "") + "('required',()=>expect(2).toBe(2));\n"
-                fixture.write_text(source)
-                args = ["node", str(pilot.ROOT / "node_modules/vitest/vitest.mjs"), "run", "--root", str(root), "--config", str(config), "--reporter=json", f"--outputFile={report}"]
-                if variant == "filtered":
-                    args.extend(["-t", "^kept$"])
-                args.append("--reporter=" + str(pilot.ROOT / "scripts/pilot-vitest-reporter.ts"))
-                result = subprocess.run(args, cwd=pilot.ROOT, text=True, capture_output=True)
-                if variant in ("expected-failure", "retry-success"):
-                    self.assertNotEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("Required native cases cannot use", result.stderr)
-                    continue
-                self.assertEqual(result.returncode, 0, result.stderr)
-                observed = native.vitest_cases(json.loads(report.read_text()))
-                if variant == "restored":
-                    native.compare_cases("vitest", observed, inventory)
-                else:
-                    with self.subTest(variant=variant), self.assertRaises(ValueError):
-                        native.compare_cases("vitest", observed, inventory)
+            inventory = {"vitest": [prefix + title for title in ("kept", "removed", "skipped", "filtered")], "exclusions": []}
+            args = ["node", str(pilot.ROOT / "node_modules/vitest/vitest.mjs"), "run", "--root", str(root),
+                    "--config", str(config), "--reporter=json", f"--outputFile={report}",
+                    "--reporter=" + str(pilot.ROOT / "scripts/pilot-vitest-reporter.ts")]
+            setup = "import {it,expect} from 'vitest';\n"
+            kept = "it('kept',()=>expect(1).toBe(1));\n"
+            filtered = "it('filtered',()=>expect(1).toBe(1));\n"
+            fixture.write_text(setup + kept + filtered + "it('skipped',()=>{});it('removed',()=>{});\n")
+            subprocess.run(args, cwd=pilot.ROOT, capture_output=True, check=True)
+            baseline = native.vitest_cases(json.loads(report.read_text()))
+            native.compare_cases("vitest", baseline, inventory)
+            fixture.write_text(setup + kept + filtered + "it.skip('skipped',()=>{});\n")
+            subprocess.run([*args, "-t", "kept|skipped"], cwd=pilot.ROOT, capture_output=True, check=True)
+            self.assert_rejected_cases("vitest", baseline, native.vitest_cases(json.loads(report.read_text())), inventory, prefix)
 
+            for title, source in (
+                ("expected failure", "it.fails('expected failure',()=>expect(2).toBe(3));"),
+                ("retry success", "let tries=0;it('retry success',{retry:1},()=>expect(++tries).toBe(2));"),
+            ):
+                fixture.write_text(setup + source)
+                result = subprocess.run(args, cwd=pilot.ROOT, text=True, capture_output=True)
+                with self.subTest(title=title):
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("Required native cases cannot use", result.stderr)
+                    self.assertIn(f"{fixture} :: {title}", result.stderr)
 
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
+            root = Path(temporary)
             strict_ids = [f"{file} :: required" for file in native.STRICT_VITEST_FILES]
-            resource_ids = ["resource.test.ts :: required"]
-            main_ids = ["main.test.ts :: required"]
-            inventory = {"vitest": [*strict_ids, *resource_ids, *main_ids], "exclusions": []}
+            main_id = "main.test.ts :: required"
+            inventory = {"vitest": [*strict_ids, main_id], "exclusions": []}
             context = {"revision": "synthetic-revision", "source_sha256": "synthetic-source",
                        "github": {"GITHUB_RUN_ID": "1", "GITHUB_RUN_ATTEMPT": "1"},
                        "coordinator": {"pid": 1, "started": "synthetic-start"}}
-            registry = root / "resources.json"
-            registry.write_text(json.dumps({"schema_version": 1, "files": ["resource.test.ts"]}))
-            config = root / ".tugling/pilot.json"
-            config.parent.mkdir()
-            config.write_text(json.dumps({"project": {"verification_budget_seconds": 900}}))
             def report(identities, started=1000):
                 result = {"success": True, "startTime": started, "testResults": [],
                           "snapshot": {"added": 0, "failure": False, "filesAdded": 0, "filesRemoved": 0,
@@ -951,255 +947,126 @@ with native.cost_seed_directory() as seed:
                                                  {"filePath": "file", "keys": [1]},
                                                  {"filePath": "file", "keys": [False]},
                                                  {"filePath": "file", "keys": [{}]}))
-            def stage(runner, identities, started, completed, change=None):
-                stem = native.VITEST_PHASES[runner]["stem"]
-                output = root / f"{stem}.json"
-                output.write_text(json.dumps(report(identities, started)))
-                value = {"context": json.loads(json.dumps(context)), "started_at": started,
-                         "completed_at": completed, "report_sha256": native.hashlib.sha256(output.read_bytes()).hexdigest()}
-                predecessor = native.VITEST_PHASES[runner]["predecessor"]
-                if predecessor:
-                    previous = native.VITEST_PHASES[predecessor]["stem"]
-                    value.update(predecessor_proof_sha256=native.hashlib.sha256((root / f"{previous}-used.json").read_bytes()).hexdigest(),
-                                 predecessor_report_sha256=native.hashlib.sha256((root / f"{previous}.json").read_bytes()).hexdigest())
-                if change:
-                    change(value)
-                (root / f"{stem}-proof.json").write_text(json.dumps(value))
-            def reset(resource=False, change=None):
-                for path in root.glob("vitest*.json"):
-                    path.unlink()
-                stage("preflight", strict_ids, 1000, 1500, None if resource else change)
-                if resource:
-                    native.claim_vitest_phase("preflight", inventory, context)
-                    stage("vitest-resource", resource_ids, 1500, 1800, change)
+            strict = report(strict_ids)
+            main = report([main_id])
+            config = root / ".tugling/pilot.json"
+            config.parent.mkdir()
+            config.write_text(json.dumps({"project": {"verification_budget_seconds": 900}}))
+            output = root / "vitest-preflight.json"
+            proof_path = root / "vitest-preflight-proof.json"
+            def proof():
+                return {"context": json.loads(json.dumps(context)), "started_at": 1000, "completed_at": 1500,
+                        "report_sha256": native.hashlib.sha256(output.read_bytes()).hexdigest()}
+            def reset(changed_report=None, change_proof=None):
+                (root / "vitest-preflight-used.json").unlink(missing_ok=True)
+                output.unlink(missing_ok=True)
+                output.write_text(json.dumps(changed_report or strict))
+                value = proof()
+                if change_proof:
+                    change_proof(value)
+                proof_path.unlink(missing_ok=True)
+                proof_path.write_text(json.dumps(value))
             with (patch.object(native, "ROOT", root), patch.object(native, "ARTIFACTS", root),
-                  patch.object(native, "RESOURCE_INVENTORY", registry),
                   patch.object(native, "vitest_context", return_value=context), patch.object(native.time, "time", return_value=2)):
-                parts = native.vitest_partitions(inventory)
-                self.assertEqual(parts["strict"]["vitest"], strict_ids)
-                self.assertEqual(parts["resource"]["vitest"], resource_ids)
-                self.assertEqual(parts["remaining"]["vitest"], main_ids)
-                for runner, identities in (("preflight", strict_ids), ("vitest-resource", resource_ids)):
-                    resource = runner == "vitest-resource"
-                    reset(resource)
-                    proof_path = root / f"{native.VITEST_PHASES[runner]['stem']}-proof.json"
-                    original = proof_path.read_bytes()
-                    chain = native.claim_vitest_phase(runner, inventory, context)
-                    self.assertEqual(chain[-1]["report"], report(identities, 1500 if resource else 1000))
-                    self.assertFalse(proof_path.exists())
-                    with self.assertRaises(FileNotFoundError):
-                        native.claim_vitest_phase(runner, inventory, context)
-                    proof_path.write_bytes(original)
-                    used = root / f"{native.VITEST_PHASES[runner]['stem']}-used.json"
-                    consumed = used.read_bytes()
-                    with self.assertRaises(FileExistsError):
-                        native.claim_vitest_phase(runner, inventory, context)
-                    self.assertEqual(used.read_bytes(), consumed)
-                    for label, change in (
-                        ("source", lambda value: value["context"].update(source_sha256="other")),
-                        ("revision", lambda value: value["context"].update(revision="other")),
-                        ("attempt", lambda value: value["context"]["github"].update(GITHUB_RUN_ATTEMPT="2")),
-                        ("coordinator", lambda value: value["context"]["coordinator"].update(pid=2)),
-                        ("coordinator-start", lambda value: value["context"]["coordinator"].update(started="other")),
-                        ("stale", lambda value: value.update(started_at=-901000, completed_at=-900000)),
-                        ("future", lambda value: value.update(completed_at=3000)),
-                        ("old-report", lambda value: value.update(started_at=1501 if resource else 1001)),
-                        ("hash", lambda value: value.update(report_sha256="other")),
-                        ("boolean-time", lambda value: value.update(started_at=True)),
-                        ("extra", lambda value: value.update(unreviewed=True)),
-                    ):
-                        reset(resource, change)
-                        with self.subTest(runner=runner, label=label), self.assertRaises(ValueError):
-                            native.claim_vitest_phase(runner, inventory, context)
-                    for changed in (identities[:-1], [*identities, identities[0]], [*identities, main_ids[0]]):
-                        reset(resource)
-                        stage(runner, changed, 1500 if resource else 1000, 1800 if resource else 1500)
-                        with self.subTest(runner=runner, identities=changed), self.assertRaises(ValueError):
-                            native.claim_vitest_phase(runner, inventory, context)
-                    for mutation in (lambda value: value.update(success=False),
-                                     lambda value: value.update(numPassedTests=0),
-                                     lambda value: value.update(numTotalTestSuites=999),
-                                     lambda value: value.update(snapshot={"failure": True}),
-                                     lambda value: value.update(testResults=None),
-                                     lambda value: value["testResults"][0]["assertionResults"][0].update(status="pending")):
-                        reset(resource)
-                        output = root / f"{native.VITEST_PHASES[runner]['stem']}.json"
-                        value = json.loads(output.read_text()); mutation(value); output.write_text(json.dumps(value))
-                        proof = json.loads(proof_path.read_text()); proof["report_sha256"] = native.hashlib.sha256(output.read_bytes()).hexdigest()
-                        proof_path.write_text(json.dumps(proof))
-                        with self.subTest(runner=runner, report=mutation), self.assertRaises(ValueError):
-                            native.claim_vitest_phase(runner, inventory, context)
-                    for label, invalid_snapshot in snapshot_faults:
-                        reset(resource)
-                        output = root / f"{native.VITEST_PHASES[runner]['stem']}.json"
-                        value = json.loads(output.read_text()); value["snapshot"] = invalid_snapshot
-                        output.write_text(json.dumps(value))
-                        proof = json.loads(proof_path.read_text()); proof["report_sha256"] = native.hashlib.sha256(output.read_bytes()).hexdigest()
-                        proof_path.write_text(json.dumps(proof))
-                        with self.subTest(runner=runner, snapshot=label), self.assertRaises(ValueError):
-                            native.claim_vitest_phase(runner, inventory, context)
-                        self.assertTrue(proof_path.is_file())
-                        self.assertFalse(used.exists())
-                    for unsafe in ("symlink", "hardlink", "oversized"):
-                        reset(resource)
-                        if unsafe == "symlink":
-                            proof_path.unlink(); proof_path.symlink_to(registry)
-                        elif unsafe == "hardlink":
-                            os.link(proof_path, root / "extra-proof-link")
-                        else:
-                            proof_path.write_bytes(b"x" * (4 * 1024 * 1024 + 1))
-                        with self.subTest(runner=runner, unsafe=unsafe), self.assertRaises(ValueError):
-                            native.claim_vitest_phase(runner, inventory, context)
-                        (root / "extra-proof-link").unlink(missing_ok=True)
-                for field in ("predecessor_proof_sha256", "predecessor_report_sha256"):
-                    reset(True, lambda value: value.update({field: "other"}))
-                    with self.subTest(predecessor=field), self.assertRaises(ValueError):
-                        native.claim_vitest_phase("vitest-resource", inventory, context)
-                reset(True, lambda value: value.update(started_at=1499))
+                for label, invalid_snapshot in snapshot_faults:
+                    with self.subTest(snapshot=label), self.assertRaises(ValueError):
+                        native.validate_vitest_phase_report({**strict, "snapshot": invalid_snapshot}, native.vitest_partition(inventory, True))
+                reset({**strict, "snapshot": {"failure": False}})
                 with self.assertRaises(ValueError):
-                    native.claim_vitest_phase("vitest-resource", inventory, context)
-                for path in ("vitest-preflight.json", "vitest-preflight-used.json"):
-                    reset(True)
-                    (root / path).write_text("{}")
-                    with self.subTest(mutated=path), self.assertRaises(ValueError):
-                        native.claim_vitest_phase("vitest-resource", inventory, context)
-                valid_registry = registry.read_text()
-                for value in ({}, {"schema_version": True, "files": ["resource.test.ts"]},
-                              {"schema_version": 1, "files": []},
-                              {"schema_version": 1, "files": ["resource.test.ts"] * 2},
-                              {"schema_version": 1, "files": ["missing.test.ts"]},
-                              {"schema_version": 1, "files": [native.STRICT_VITEST_FILES[0]]},
-                              {"schema_version": 1, "files": ["./resource.test.ts"]},
-                              {"schema_version": 1, "files": ["../resource.test.ts"]},
-                              {"schema_version": 1, "files": ["/resource.test.ts"]}):
-                    registry.write_text(json.dumps(value))
-                    with self.subTest(registry=value), self.assertRaises(ValueError):
-                        native.vitest_partitions(inventory)
-                registry.write_text(valid_registry)
-                reset(True)
-                chain = native.claim_vitest_phase("vitest-resource", inventory, context)
-                merged = report(main_ids, 1800)
-                for earlier in reversed(chain):
-                    merged = native.merge_vitest_reports(earlier["report"], merged)
+                    native.strict_vitest_report(inventory, context)
+                self.assertTrue(proof_path.is_file())
+                self.assertEqual(native.vitest_partition(inventory, True)["vitest"], strict_ids)
+                self.assertEqual(native.vitest_partition(inventory, False)["vitest"], [main_id])
+                reset()
+                self.assertEqual(native.strict_vitest_report(inventory, context)[0], strict)
+                self.assertFalse(proof_path.exists())
+                with self.assertRaises(FileNotFoundError):
+                    native.strict_vitest_report(inventory, context)
+                for label, change in (
+                    ("source", lambda value: value["context"].update(source_sha256="other")),
+                    ("revision", lambda value: value["context"].update(revision="other")),
+                    ("attempt", lambda value: value["context"]["github"].update(GITHUB_RUN_ATTEMPT="2")),
+                    ("coordinator", lambda value: value["context"]["coordinator"].update(pid=2)),
+                    ("coordinator-start", lambda value: value["context"]["coordinator"].update(started="other")),
+                    ("stale", lambda value: value.update(started_at=-901000, completed_at=-900000)),
+                    ("future", lambda value: value.update(completed_at=3000)),
+                    ("old-report", lambda value: value.update(started_at=1001)),
+                    ("hash", lambda value: value.update(report_sha256="other")),
+                ):
+                    reset(change_proof=change)
+                    with self.subTest(label=label), self.assertRaises(ValueError):
+                        native.strict_vitest_report(inventory, context)
+                for identities in (strict_ids[:-1], [*strict_ids, strict_ids[0]], [*strict_ids, main_id]):
+                    reset(report(identities))
+                    with self.subTest(identities=identities), self.assertRaises(ValueError):
+                        native.strict_vitest_report(inventory, context)
+                invalid = report(strict_ids)
+                invalid["testResults"][0]["assertionResults"][0]["status"] = "pending"
+                reset(invalid)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                invalid = report(strict_ids)
+                invalid["success"] = False
+                reset(invalid)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                reset()
+                proof_path.unlink()
+                proof_path.symlink_to(output)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                reset()
+                extra_link = root / "linked-proof"
+                os.link(proof_path, extra_link)
+                with self.assertRaises(ValueError):
+                    native.strict_vitest_report(inventory, context)
+                extra_link.unlink()
+                used = root / "vitest-preflight-used.json"
+                reset()
+                used.write_bytes(b"already claimed")
+                with self.assertRaises(FileExistsError):
+                    native.strict_vitest_report(inventory, context)
+                self.assertEqual(used.read_bytes(), b"already claimed")
+
+                # Exercise production, claim and publication together without starting more runtimes.
+                for fault in ("none", "strict snapshot", "main timestamp", "main snapshot", "changed proof"):
+                    def execute(command, **options):
+                        if "--reporter=json" in command:
+                            path = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("--outputFile=")))
+                            first = path.name == "vitest-preflight.json"
+                            value = report(strict_ids if first else [main_id], started=2000)
+                            if fault == ("strict snapshot" if first else "main snapshot"):
+                                value["snapshot"] = {"failure": False}
+                            if not first and fault == "main timestamp":
+                                value["startTime"] -= 1
+                            if not first and fault == "changed proof":
+                                used.write_bytes(used.read_bytes() + b" ")
+                            path.write_text(json.dumps(value))
+                        return subprocess.CompletedProcess(command, 0)
+                    with self.subTest(fault=fault), patch.object(native.subprocess, "run", side_effect=execute):
+                        if fault == "strict snapshot":
+                            with self.assertRaises(ValueError):
+                                native.run_vitest("preflight", inventory)
+                            self.assertEqual(proof_path.read_bytes(), b"")
+                        else:
+                            native.run_vitest("preflight", inventory)
+                            if fault == "none":
+                                native.run_vitest("vitest-main", inventory)
+                                union = json.loads((root / "vitest.json").read_bytes())
+                                native.validate_vitest_phase_report(union, inventory)
+                                continue
+                            with self.assertRaises(ValueError):
+                                native.run_vitest("vitest-main", inventory)
+                        self.assertEqual((root / "vitest.json").read_bytes(), b"")
+                merged = native.merge_vitest_reports(strict, main)
                 native.compare_cases("vitest", native.vitest_cases(merged), inventory)
                 self.assertEqual(merged["numPassedTests"], len(inventory["vitest"]))
-                ordered = [report(strict_ids), report(resource_ids), report(main_ids)]
-                for index, value in enumerate(ordered, 1):
-                    for key in ("added", "filesAdded", "filesRemoved", "filesUnmatched", "filesUpdated",
-                                "matched", "total", "unchecked", "unmatched", "updated"):
-                        value["snapshot"][key] = index
-                    value["snapshot"].update(filesRemovedList=[str(index)], didUpdate=index == 2,
-                                             uncheckedKeysByFile=[{"filePath": str(index), "keys": [f"key-{index}"]}])
-                    native.validate_vitest_phase_report(value, {"vitest": (strict_ids, resource_ids, main_ids)[index - 1], "exclusions": []})
-                combined = native.merge_vitest_reports(native.merge_vitest_reports(*ordered[:2]), ordered[2])
-                expected_snapshot = {"added": 6, "failure": False, "filesAdded": 6, "filesRemoved": 6,
-                                     "filesRemovedList": ["1", "2", "3"], "filesUnmatched": 6, "filesUpdated": 6,
-                                     "matched": 6, "total": 6, "unchecked": 6,
-                                     "uncheckedKeysByFile": [{"filePath": "1", "keys": ["key-1"]},
-                                                             {"filePath": "2", "keys": ["key-2"]},
-                                                             {"filePath": "3", "keys": ["key-3"]}],
-                                     "unmatched": 6, "updated": 6, "didUpdate": True}
-                self.assertEqual(combined["snapshot"], expected_snapshot)
-                native.validate_vitest_phase_report(combined, inventory)
-
-                for changed in ([], [*main_ids, strict_ids[0]], [*main_ids, resource_ids[0]]):
-                    with self.subTest(remaining=changed), self.assertRaises(ValueError):
-                        native.compare_cases("vitest", native.vitest_cases(native.merge_vitest_reports(
-                            native.merge_vitest_reports(report(strict_ids), report(resource_ids)), report(changed))), inventory)
-                prepared, directories = [], []
-                selected = {"vitest-preflight.json": strict_ids, "vitest-resource.json": resource_ids,
-                            "vitest-main.json": main_ids}
-                def execute(command, **options):
-                    if "scripts/prepare-d1-cost-seed.ts" in command:
-                        prepared.append(Path(command[-1]))
-                        (Path(command[-1]) / "synthetic-seal").write_text("prepared")
-                    else:
-                        output = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("--outputFile=")))
-                        if "env" in options:
-                            directory = Path(options["env"]["KEEL_TEST_D1_SEED"])
-                            directories.append(directory)
-                            self.assertTrue(directory.is_dir())
-                            pdf = Path(options["env"]["KEEL_PDF_SANDBOX_CONFIG"])
-                            self.assertTrue(pdf.is_relative_to(directory))
-                            self.assertFalse(pdf.exists())
-                            self.assertEqual((directory / "synthetic-seal").exists(), output.name == "vitest-resource.json")
-                            if output.name == "vitest-resource.json":
-                                self.assertEqual((root / "vitest-resource-proof.json").read_bytes(), b"")
-                            else:
-                                self.assertFalse((root / "vitest-resource-proof.json").exists())
-                                self.assertTrue((root / "vitest-resource-used.json").is_file())
-                                self.assertFalse(prepared[0].exists())
-                        value = report(selected[output.name], 2000)
-                        value["snapshot"] = ordered[list(selected).index(output.name)]["snapshot"]
-                        output.write_text(json.dumps(value))
-                    return subprocess.CompletedProcess(command, 0)
-                with (patch.object(native.subprocess, "run", side_effect=execute),
-                      patch.dict(os.environ, {"KEEL_PDF_SANDBOX_CONFIG": "/synthetic/ambient.json"})):
-                    for runner in ("preflight", "vitest-resource", "vitest-main"):
-                        native.run_vitest(runner, inventory)
-                self.assertEqual(len(prepared), 1)
-                self.assertTrue(all(not path.exists() for path in directories))
-                final = json.loads((root / "vitest.json").read_text())
-                native.compare_cases("vitest", native.vitest_cases(final), inventory)
-                self.assertEqual(final["snapshot"], expected_snapshot)
-                for failure in ("process", "cancel", "cleanup", "source", "counters"):
-                    reset()
-                    def fail(command, **options):
-                        value = execute(command, **options)
-                        if "scripts/prepare-d1-cost-seed.ts" not in command:
-                            if failure == "counters":
-                                output = root / "vitest-resource.json"
-                                invalid = json.loads(output.read_text()); invalid["numPassedTests"] = 0
-                                output.write_text(json.dumps(invalid))
-                            if failure == "cancel":
-                                raise SystemExit(143)
-                            if failure == "process":
-                                return subprocess.CompletedProcess(command, 1)
-                        return value
-                    with (patch.object(native.subprocess, "run", side_effect=fail),
-                          patch.object(native, "vitest_context", side_effect=[context, {**context, "source_sha256": "changed"}]
-                                       if failure == "source" else None, return_value=context)):
-                        if failure == "cleanup":
-                            original_directory = native.cost_seed_directory
-                            @contextmanager
-                            def interrupted_cleanup():
-                                with original_directory() as seed:
-                                    yield seed
-                                raise ValueError("synthetic cleanup failure")
-                            with patch.object(native, "cost_seed_directory", interrupted_cleanup), self.assertRaises(ValueError):
-                                native.run_vitest("vitest-resource", inventory)
-                        else:
-                            with self.subTest(failure=failure), self.assertRaises((ValueError, SystemExit)):
-                                native.run_vitest("vitest-resource", inventory)
-                    self.assertEqual((root / "vitest-resource-proof.json").read_bytes(), b"")
-                    self.assertTrue(all(not path.exists() for path in directories))
-                for runner in ("vitest-resource", "vitest-main"):
-                    for label, invalid_snapshot in snapshot_faults:
-                        reset(runner == "vitest-main")
-                        def malformed_snapshot(command, **options):
-                            result = execute(command, **options)
-                            if "scripts/prepare-d1-cost-seed.ts" not in command:
-                                output = root / f"{native.VITEST_PHASES[runner]['stem']}.json"
-                                value = json.loads(output.read_text()); value["snapshot"] = invalid_snapshot
-                                output.write_text(json.dumps(value))
-                            return result
-                        with (patch.object(native.subprocess, "run", side_effect=malformed_snapshot),
-                              self.subTest(runner=runner, snapshot=label), self.assertRaises(ValueError)):
-                            native.run_vitest(runner, inventory)
-                        artifact = "vitest-resource-proof.json" if runner == "vitest-resource" else "vitest.json"
-                        self.assertEqual((root / artifact).read_bytes(), b"")
-                        self.assertTrue(all(not path.exists() for path in directories))
-                reset(True)
-                def malformed_main(command, **options):
-                    result = execute(command, **options)
-                    output = root / "vitest-main.json"
-                    value = json.loads(output.read_text()); value["numPassedTests"] = 0
-                    output.write_text(json.dumps(value))
-                    return result
-                with patch.object(native.subprocess, "run", side_effect=malformed_main), self.assertRaises(ValueError):
-                    native.run_vitest("vitest-main", inventory)
-                self.assertEqual((root / "vitest.json").read_bytes(), b"")
-                self.assertTrue(all(not path.exists() for path in directories))
+                for identities in ([], [main_id, strict_ids[0]]):
+                    with self.subTest(main=identities), self.assertRaises(ValueError):
+                        native.compare_cases("vitest", native.vitest_cases(native.merge_vitest_reports(strict, report(identities))), inventory)
+                for identities in ([main_id], [*strict_ids, main_id, main_id]):
+                    with self.subTest(expected=identities), self.assertRaises(ValueError):
+                        native.compare_cases("vitest", native.vitest_cases(merged), {**inventory, "vitest": identities})
 
 
     def test_native_playwright_removed_skipped_and_filtered_cases_fail_accounting(self):
@@ -1210,24 +1077,36 @@ with native.cost_seed_directory() as seed:
             report = root / "report.json"
             config.write_text("module.exports={testDir:'.',testMatch:'fixture.ts',workers:1,projects:[{name:'synthetic'}]};\n")
             prefix = "e2e/fixture.ts :: synthetic :: "
-            inventory = {"playwright": [prefix + "kept", prefix + "required"], "exclusions": []}
-            for variant in ("restored", "removed", "skipped", "filtered"):
-                source = "import {test,expect} from '@playwright/test';\ntest('kept',()=>expect(1).toBe(1));\n"
-                if variant != "removed":
-                    source += "test" + (".skip" if variant == "skipped" else "") + "('required',()=>expect(2).toBe(2));\n"
-                fixture.write_text(source)
-                args = ["node", str(pilot.ROOT / "node_modules/@playwright/test/cli.js"), "test", "--config", str(config), "--reporter=json", f"--output={root / 'results'}"]
-                if variant == "filtered":
-                    args.extend(["--grep", "kept"])
-                result = subprocess.run(args, cwd=pilot.ROOT, text=True, capture_output=True,
-                                        env={**os.environ, "PLAYWRIGHT_JSON_OUTPUT_FILE": str(report)})
-                self.assertEqual(result.returncode, 0, result.stderr)
-                observed = native.playwright_cases(json.loads(report.read_text()))
-                if variant == "restored":
-                    native.compare_cases("playwright", observed, inventory)
+            inventory = {"playwright": [prefix + title for title in ("kept", "removed", "skipped", "filtered")], "exclusions": []}
+            args = ["node", str(pilot.ROOT / "node_modules/@playwright/test/cli.js"), "test", "--config", str(config),
+                    "--reporter=json", f"--output={root / 'results'}"]
+            env = {**os.environ, "PLAYWRIGHT_JSON_OUTPUT_FILE": str(report)}
+            setup = "import {test,expect} from '@playwright/test';\n"
+            kept = "test('kept',()=>expect(1).toBe(1));\n"
+            filtered = "test('filtered',()=>expect(1).toBe(1));\n"
+            fixture.write_text(setup + kept + filtered + "test('skipped',()=>{});test('removed',()=>{});\n")
+            subprocess.run(args, cwd=pilot.ROOT, capture_output=True, check=True, env=env)
+            baseline = native.playwright_cases(json.loads(report.read_text()))
+            native.compare_cases("playwright", baseline, inventory)
+            fixture.write_text(setup + kept + filtered + "test.skip('skipped',()=>{});\n")
+            subprocess.run([*args, "--grep", "kept|skipped"], cwd=pilot.ROOT, capture_output=True, check=True, env=env)
+            self.assert_rejected_cases("playwright", baseline, native.playwright_cases(json.loads(report.read_text())), inventory, prefix)
+
+    def assert_rejected_cases(self, runner, baseline, observed, inventory, prefix):
+        self.assertIn((prefix + "kept", "passed"), observed)
+        for title in ("removed", "skipped", "filtered"):
+            identity = prefix + title
+            fault = [case for case in observed if case[0] == identity]
+            restored = [case for case in baseline if case[0] != identity]
+            with self.subTest(title=title):
+                if title == "removed":
+                    self.assertEqual(fault, [])
+                elif title == "skipped":
+                    self.assertEqual(fault, [(identity, "skipped")])
                 else:
-                    with self.subTest(variant=variant), self.assertRaises(ValueError):
-                        native.compare_cases("playwright", observed, inventory)
+                    self.assertIn(fault, ([], [(identity, "skipped")]))
+                with self.assertRaises(ValueError):
+                    native.compare_cases(runner, restored + fault, inventory)
 
     def test_rejects_replacement_identity_duplicates_and_unexpected_success(self):
         inventory = {"python": ["accepted"], "exclusions": []}
@@ -1277,7 +1156,7 @@ with native.cost_seed_directory() as seed:
         self.assertIn('resolve("scripts/test-support/provider-documents-runtime-smoke.ts")', boundary)
         self.assertEqual(
             flows["native-unit-and-cost"]["depends_on"],
-            ["gate-and-artifact-integrity", "native-resource-unit-and-cost"],
+            ["gate-and-artifact-integrity"],
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("compose-configuration"), flow_order.index("migration-and-seed"))
@@ -1295,46 +1174,15 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])
         self.assertIn("provider-document-runtime", flows["browser-workflows"]["depends_on"])
         self.assertEqual(flows["browser-workflows"]["depends_on"],
-                         ["browser-fixture-preparation", "build-and-entry-budget", "provider-document-runtime", "native-resource-unit-and-cost", "source-quality"])
+                         ["browser-fixture-preparation", "build-and-entry-budget", "provider-document-runtime"])
         # The sole Chromium PDF integration finishes before UI workers start;
         # remaining PDF kernel/scanner probes cannot add a fifth browser worker.
         self.assertNotIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
         self.assertEqual(flows["source-quality"]["depends_on"], ["gate-and-artifact-integrity"])
         self.assertEqual(flows["gate-and-artifact-integrity"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "preflight"])
         self.assertEqual(flows["native-unit-and-cost"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "vitest-main"])
-        resource = "native-resource-unit-and-cost"
-        self.assertEqual(flows[resource]["depends_on"], ["gate-and-artifact-integrity"])
-        expected_commands = {
-            'source-quality': (['make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 600),
-            'compose-configuration': (['docker', 'compose', 'config', '--quiet'], 30),
-            'gate-and-artifact-integrity': (['python3', '-I', 'scripts/pilot_native.py', 'preflight'], 120),
-            'pdf-sandbox-build': (['make', 'pdf-sandbox-build'], 1200),
-            'migration-and-seed': (['python3', '-I', 'scripts/pilot_native.py', 'migration-seed'], 300),
-            'native-resource-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-resource'], 390),
-            'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
-            'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
-            'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
-            'build-and-entry-budget': (['make', 'build'], 300),
-            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 1800),
-            'pdf-isolation': (['make', 'pdf-sandbox-verify'], 600),
-        }
-        self.assertEqual(flow_order, list(expected_commands))
-        self.assertEqual({name: (flow["argv"], flow["timeout_seconds"]) for name, flow in flows.items()}, expected_commands)
-        self.assertEqual(sum(flow["timeout_seconds"] for flow in flows.values()), 7200)
-        registry = json.loads((pilot.ROOT / ".tugling/pilot-unit-resources.json").read_text())
-        parts = native.vitest_partitions(json.loads((pilot.ROOT / ".tugling/pilot-cases.json").read_text()))
-        self.assertEqual({name: len(value["vitest"]) for name, value in parts.items()},
-                         {"strict": 84, "resource": 164, "remaining": 1400})
-        self.assertEqual(registry["schema_version"], 1)
-        self.assertEqual(len(registry["files"]), 39)
-        for requirement in plan["requirements"]:
-            if "native-unit-and-cost" in requirement["flows"]:
-                self.assertIn(resource, requirement["flows"])
-        self.assertIn(resource, next(item for item in plan["requirements"] if item["id"] == "temporary-work-ownership")["flows"])
         native.validate_preflight_dependencies(plan)
-        for name in flows:
-            if name == "gate-and-artifact-integrity":
-                continue
+        for name in ("source-quality", "pdf-sandbox-build", "build-and-entry-budget"):
             invalid = json.loads(json.dumps(plan))
             next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = []
             with self.subTest(ungated=name), self.assertRaises(ValueError):
@@ -1352,23 +1200,6 @@ with native.cost_seed_directory() as seed:
         by_id["compose-configuration"]["depends_on"].append("compose-configuration")
         with self.assertRaisesRegex(ValueError, "cycle"):
             native.validate_preflight_dependencies(transitive)
-        for name in ("native-unit-and-cost", "browser-workflows"):
-            invalid = json.loads(json.dumps(plan))
-            next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = ["gate-and-artifact-integrity", "source-quality"]
-            with self.subTest(resource_bypass=name), self.assertRaisesRegex(ValueError, "resource"):
-                native.validate_preflight_dependencies(invalid)
-        invalid = json.loads(json.dumps(plan))
-        next(flow for flow in invalid["flows"] if flow["id"] == "browser-workflows")["depends_on"].remove("source-quality")
-        with self.assertRaisesRegex(ValueError, "source-quality"):
-            native.validate_preflight_dependencies(invalid)
-        transitive = json.loads(json.dumps(plan))
-        by_id = {flow["id"]: flow for flow in transitive["flows"]}
-        by_id["compose-configuration"]["depends_on"] = [resource]
-        by_id["native-unit-and-cost"]["depends_on"] = ["compose-configuration"]
-        native.validate_preflight_dependencies(transitive)
-        by_id["compose-configuration"]["depends_on"] = ["gate-and-artifact-integrity"]
-        with self.assertRaisesRegex(ValueError, "resource"):
-            native.validate_preflight_dependencies(transitive)
         invalid_graphs = [None, {}, {"flows": []}, {"flows": [None]}, {"flows": [{"id": "x", "depends_on": [1]}]}]
         invalid = json.loads(json.dumps(plan)); invalid["flows"].append(invalid["flows"][0]); invalid_graphs.append(invalid)
         for parents in (["unknown"], ["gate-and-artifact-integrity"] * 2, ["source-quality"]):
@@ -1378,7 +1209,7 @@ with native.cost_seed_directory() as seed:
         by_id["compose-configuration"]["depends_on"] = ["build-and-entry-budget"]
         by_id["build-and-entry-budget"]["depends_on"] = ["compose-configuration"]
         invalid_graphs.append(invalid)
-        for name in ("gate-and-artifact-integrity", resource, "source-quality", "pdf-isolation", "native-unit-and-cost", "browser-workflows"):
+        for name in ("gate-and-artifact-integrity", "source-quality", "pdf-isolation", "native-unit-and-cost", "browser-workflows"):
             invalid = json.loads(json.dumps(plan)); invalid["flows"] = [flow for flow in invalid["flows"] if flow["id"] != name]; invalid_graphs.append(invalid)
         for index, invalid in enumerate(invalid_graphs):
             with self.subTest(graph=index), self.assertRaises(ValueError):

@@ -1,5 +1,6 @@
 """Exercise the real CI packager with synthetic growth and partial runs."""
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -52,19 +53,14 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertLessEqual(path.stat().st_size, 1024 * 1024)
         self.assertEqual(manifest["status"], "success")
         self.assertTrue(image.exists())
-        for name in ("vitest-preflight.json", "vitest-preflight-proof.json", "vitest-preflight-used.json",
-                     "vitest-resource.json", "vitest-resource-proof.json", "vitest-resource-used.json", "vitest-main.json"):
+        phases = ("vitest-preflight.json", "vitest-preflight-proof.json", "vitest-preflight-used.json", "vitest-main.json")
+        for name in phases:
             self.write(f"pilot/{name}", b'{"synthetic":"phase"}')
-        foreign_reports = [self.write(f"pilot/{name}", b'{"foreign":"untouched"}') for name in (
-            "vitest-preflight-unrelated.json", "vitest-resource-unrelated.json")]
-        _, phase_contents, _ = self.bundle("failure")
-        self.assertTrue(all(f"pilot/{name}" in phase_contents for name in (
-            "vitest-preflight.json", "vitest-preflight-proof.json", "vitest-preflight-used.json",
-            "vitest-resource.json", "vitest-resource-proof.json", "vitest-resource-used.json", "vitest-main.json")))
-        for foreign in foreign_reports:
-            self.assertNotIn(f"pilot/{foreign.name}", phase_contents)
-            self.assertEqual(foreign.read_bytes(), b'{"foreign":"untouched"}')
-
+        foreign = self.write("pilot/vitest-preflight-unrelated.json", b'{"foreign":"untouched"}')
+        _, contents, _ = self.bundle("failure")
+        self.assertTrue(all(f"pilot/{name}" in contents for name in phases))
+        self.assertNotIn(f"pilot/{foreign.name}", contents)
+        self.assertEqual(foreign.read_bytes(), b'{"foreign":"untouched"}')
         (self.root / ".tugling/pilot-verification.json").write_text(json.dumps({
             "flows": [{"id": "unit"}, {"id": "browser"}],
         }))
@@ -246,23 +242,31 @@ class DiagnosticsTests(unittest.TestCase):
     def test_failure_and_cancellation_bound_120_cases_and_record_omissions(self):
         report = b'{"stats":{"unexpected":120},"errors":["synthetic failure"]}'
         self.write("pilot/playwright.json", report)
-        # One incompressible MiB per case forces actual compressed-byte admission.
-        payload = os.urandom(1024 * 1024)
+        mib = 1024 * 1024
+        noise = hashlib.shake_256(b"synthetic diagnostics").digest(1488 * 1024)
+        small = noise[:32 * 1024]
         for index in range(120):
             base = f"pilot/browser-results/stateful-a/case-{index:03}"
-            self.write(base + "/actual.png", payload)
+            image = noise[:mib] if index < 10 else small
+            if index == 0:
+                # The admitted inputs must exceed the cap before compression.
+                image += bytes(2 * mib)
+            self.write(base + "/actual.png", image)
             self.write(base + "/error-context.md", b"synthetic failure context")
-            self.write(base + "/trace.zip", payload)
+            self.write(base + "/trace.zip", noise if index == 0 else small)
             self.write(base + "/synthetic-provider-profile/Default/Cookies", b"never upload profile")
             self.write(base + "/downloads/source.pdf", b"never upload download")
         for status in ("failure", "cancelled"):
             with self.subTest(status=status):
                 path, contents, manifest = self.bundle(status)
-                self.assertLessEqual(path.stat().st_size, 12 * 1024 * 1024)
+                self.assertEqual(manifest["limit_bytes"], 12 * mib)
+                self.assertLessEqual(path.stat().st_size, 12 * mib)
                 self.assertEqual(contents["pilot/playwright.json"], report)
                 self.assertEqual(sum(name.endswith("error-context.md") for name in contents), 120)
-                self.assertGreater(manifest["omitted_counts"]["bundle byte budget"], 0)
-                self.assertTrue(any(name.endswith("trace.zip") for name in contents))
+                self.assertGreater(sum(len(data) for name, data in contents.items() if name != "manifest.json"), 12 * mib)
+                self.assertGreater(manifest["omitted_counts"]["bundle byte budget"], 200)
+                self.assertEqual(len(manifest["omitted_sample"]), 200)
+                self.assertIn("pilot/browser-results/stateful-a/case-000/trace.zip", contents)
                 self.assertTrue(any(name.endswith("actual.png") for name in contents))
                 self.assertFalse(any("profile" in name or "downloads" in name for name in contents))
 
