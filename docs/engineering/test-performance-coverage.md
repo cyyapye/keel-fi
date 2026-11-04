@@ -483,3 +483,12 @@ reached 4.291 seconds on an earlier run. Both files now run in the same
 single-worker preflight. Its 96 Vitest cases and the 1,554 main cases retain
 their original assertions and deadlines. The previous eight Linux preflights
 took 66–79 seconds against the 120-second command limit.
+
+The production SQL inventory took 26.856 seconds on Linux against its 30-second
+deadline. The test now sends each batch of queries and bindings to its D1 Worker
+for preparation. The host still discovers the queries from production source and
+checks the plans for unscoped base-table scans, including scans through views.
+On identical inputs both paths returned the same 2,951 plan rows for 592 queries
+in ten batches. Five local pairs reduced the median case time from 3.740 to
+0.254 seconds. Invalid SQL, incorrect bindings and a real base-table scan still
+failed the case.

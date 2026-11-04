@@ -172,6 +172,7 @@
         ".tugling/pilot-cases.json",
         "scripts/shared-ui-usage.test.ts",
         "scripts/d1-query-cost.test.ts",
+        "scripts/test-support/query-plan-worker.ts",
         "scripts/d1-read-budgets.test.ts",
         "scripts/holding-history-d1-cost.test.ts",
         "scripts/portfolio-baseline-d1-cost.test.ts",
