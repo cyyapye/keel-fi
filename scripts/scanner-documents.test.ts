@@ -1,3 +1,4 @@
+import { strictEqual } from "node:assert/strict";
 import { crc32, inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
@@ -55,19 +56,42 @@ describe("synthetic scanner budget PDFs", () => {
     let central = end.readUInt32LE(16);
     let expandedBytes = 0;
     for (let index = 0; index < 10_001; index += 1) {
-      expect(bytes.readUInt32LE(offset)).toBe(0x04034b50);
-      expect(bytes.readUInt32LE(central)).toBe(0x02014b50);
-      expect(bytes.readUInt32LE(central + 42)).toBe(offset);
+      const entry = `ZIP entry ${index.toString()}`;
+      strictEqual(
+        bytes.readUInt32LE(offset),
+        0x04034b50,
+        `${entry} local signature`,
+      );
+      strictEqual(
+        bytes.readUInt32LE(central),
+        0x02014b50,
+        `${entry} central signature`,
+      );
+      strictEqual(
+        bytes.readUInt32LE(central + 42),
+        offset,
+        `${entry} local offset`,
+      );
       const size = bytes.readUInt32LE(offset + 18);
-      expect(bytes.readUInt32LE(offset + 22)).toBe(size);
+      strictEqual(
+        bytes.readUInt32LE(offset + 22),
+        size,
+        `${entry} expanded size`,
+      );
       const nameSize = bytes.readUInt16LE(offset + 26);
       const content = bytes.subarray(
         offset + 30 + nameSize,
         offset + 30 + nameSize + size,
       );
-      expect(crc32(content)).toBe(bytes.readUInt32LE(offset + 14));
-      expect(content.toString()).toBe(
+      strictEqual(
+        crc32(content),
+        bytes.readUInt32LE(offset + 14),
+        `${entry} CRC`,
+      );
+      strictEqual(
+        content.toString(),
         `Synthetic scanner budget item ${index.toString()}\n`,
+        `${entry} content`,
       );
       expandedBytes += size;
       offset += 30 + nameSize + size;

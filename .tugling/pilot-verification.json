@@ -77,7 +77,7 @@
         "scripts/__snapshots__/runtime-work-inventory.test.ts.snap",
         "tsconfig.json",
         "packages/database/src/cash-accounts.test.ts",
-        "apps/api/src/position-purchases.test.ts",
+        "apps/api/src/position-routes.test.ts",
         "scripts/provider-agent-usage.test.ts",
         "packages/database/src/exposures.test.ts",
         "packages/database/src/manual-holdings-migration.test.ts",

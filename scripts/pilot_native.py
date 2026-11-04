@@ -37,7 +37,7 @@ STRICT_VITEST_FILES = (
     "packages/database/src/d1-capacity.test.ts",
     "scripts/runtime-work-inventory.test.ts",
     "packages/database/src/cash-accounts.test.ts",
-    "apps/api/src/position-purchases.test.ts",
+    "apps/api/src/position-routes.test.ts",
     "scripts/provider-agent-usage.test.ts",
     "packages/database/src/exposures.test.ts",
     "packages/database/src/manual-holdings-migration.test.ts",

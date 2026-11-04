@@ -634,3 +634,37 @@ the same real database. The positive replay writes only to its own probe table.
 The negative assertion then reads the seeded household, supplies an empty
 expected result and requires the mismatch to name operation 500. This removes
 one database startup and keeps the grouped-read mismatch as a separate check.
+
+The quota-error transport test advances virtual time to both the HTTP
+`Retry-After` deadline and the reset timestamp in the response body. It checks
+that a failed legal-entity or manual-holding POST is sent only once per user
+action. The desktop and mobile editor cases keep the real Save click and draft
+readback. They count calls in the page as well as POSTs received by the route so
+a delayed request notification cannot hide a replay. Injecting an extra POST in
+the transport or the editor passed the former one-minute browser check. The
+revised unit catches both transport timers, and the browser also catches a timer
+scheduled by the editor.
+
+The first Linux attempt at `216d4382` stopped after 863.012 seconds. The SQL
+replay file passed. Three main-suite cases failed, and the browser suite had
+recorded 267 passes when it was interrupted.
+[Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41850958685)
+
+- The viewer test signed a JWT expiring at the next whole second. Under load,
+  the gateway rejected it before the WebSocket could open. The test now holds
+  time fixed through the real upgrade, verifies the viewer is live one
+  millisecond before expiry, then advances that millisecond and waits for the
+  actual socket to close.
+- The scanner archive integrity test took 5.400 seconds against its five-second
+  deadline. It now uses Node's strict equality assertion inside the ZIP record
+  loop. All 10,001 local and central records are checked, including the final
+  payload and each CRC. In five paired local runs, the median fell from 201 ms
+  to 17 ms. Both implementations rejected six deliberately corrupted archives.
+- The authenticated position-link route test took 5.023 seconds against five
+  seconds. It now runs in `apps/api/src/position-routes.test.ts` after the
+  purchase route test. Each opens its own mutable SQLite database. The second
+  clones the immutable migration and seed snapshot the first already built. Both
+  retain their titles, five-second deadlines and authenticated API calls. The
+  link case also runs independently from a cold start. A local one-worker
+  comparison measured 287 ms in the separate file and 47 ms in the combined
+  file. The preflight owns 98 Vitest cases and the main partition owns 1,551.

@@ -7,6 +7,11 @@ import {
 } from "@keel/database";
 import { legalDocumentTestDatabase } from "../../../scripts/test-support/legal-documents";
 import { seedCostHoldings } from "../../../scripts/test-support/cost-fixtures";
+import { seedPositionLinks } from "../../../scripts/seed-position-links";
+import {
+  PositionLinkReceiptSchema,
+  PositionLinkWorkspaceSchema,
+} from "@keel/domain/position-links";
 const env = { ENVIRONMENT: "local" } as Env;
 const input = {
   expectedSnapshotId: "snapshot",
@@ -182,5 +187,103 @@ it("validates optional purchase details and scopes accepted writes to the authen
     ).not.toBe(200);
   } finally {
     database.sqlite.close();
+  }
+});
+
+it("validates authenticated link decisions and reloads the saved current projection", async () => {
+  const db = legalDocumentTestDatabase();
+  const changes = () =>
+    db.sqlite.prepare("SELECT total_changes() AS count").get()!.count;
+  try {
+    await seedPositionLinks(db.asD1());
+    const seededChanges = changes();
+    const app = createApp();
+    const env = { ENVIRONMENT: "local", DB: db.asD1() } as Env;
+    const get = await app.request("/api/investment-position-links", {}, env);
+    expect(get.status).toBe(200);
+    const w = PositionLinkWorkspaceSchema.parse(await get.json());
+    expect(w.positions).toHaveLength(6);
+    expect(w.links).toEqual([]);
+    const source = w.positions.find(
+      (p) => p.legalVehicleName === "Demo Atlas AI source",
+    )!;
+    const target = w.positions.find(
+      (p) => p.legalVehicleName === "Demo Atlas II SPV",
+    )!;
+    const input = {
+      sourcePositionId: source.id,
+      targetPositionId: target.id,
+      expectedSourceSnapshotId: source.snapshot.id,
+      expectedTargetSnapshotId: target.snapshot.id,
+      expectedSourceParticipationReviewId: null,
+      expectedTargetParticipationReviewId: null,
+      expectedReviewId: null,
+      relationship: "same_investment",
+      state: "linked",
+      useSourceValue: true,
+      note: "",
+    };
+    const request = (value: unknown, bindings = env) =>
+      app.request(
+        "/api/investment-position-links",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(value),
+        },
+        bindings,
+      );
+    expect((await request({ ...input, useSourceValue: "true" })).status).toBe(
+      400,
+    );
+    expect(changes()).toBe(seededChanges);
+    expect(
+      (await request(input, { ...env, ENVIRONMENT: "production" })).status,
+    ).toBe(401);
+    expect(changes()).toBe(seededChanges);
+    const accepted = await request(input);
+    expect(accepted.status).toBe(201);
+    const receipt = PositionLinkReceiptSchema.parse(await accepted.json());
+    expect(receipt).toMatchObject({
+      sourcePositionId: source.id,
+      targetPositionId: target.id,
+      relationship: "same_investment",
+      state: "linked",
+      useSourceValue: true,
+      note: "",
+    });
+    const acceptedChanges = changes();
+    expect(acceptedChanges).not.toBe(seededChanges);
+    const loaded = await app.request("/api/investment-position-links", {}, env);
+    const savedLinks = PositionLinkWorkspaceSchema.parse(
+      await loaded.json(),
+    ).links;
+    expect(savedLinks).toHaveLength(1);
+    expect(savedLinks).toEqual([receipt]);
+    expect((await request(input)).status).toBe(409);
+    expect(changes()).toBe(acceptedChanges);
+    const legal = await app.request("/api/legal-entities", {}, env);
+    expect(legal.status).toBe(200);
+    const inventory = await legal.json<{
+      candidates: { source: { id: string } }[];
+      entities: { sources: { source: { id: string } }[] }[];
+    }>();
+    expect(
+      [
+        ...inventory.candidates,
+        ...inventory.entities.flatMap((e) => e.sources),
+      ].some((s) => s.source.id === source.id),
+    ).toBe(true);
+    const holdings = await app.request("/api/holdings-page", {}, env);
+    expect(holdings.status).toBe(200);
+    const body = await holdings.json<{
+      holdings: { id: string; administratorNavMinor: number }[];
+    }>();
+    expect(body.holdings.some((p) => p.id === source.id)).toBe(false);
+    expect(
+      body.holdings.find((p) => p.id === target.id)?.administratorNavMinor,
+    ).toBe(4_200_000);
+  } finally {
+    db.sqlite.close();
   }
 });

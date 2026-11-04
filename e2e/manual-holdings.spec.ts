@@ -132,7 +132,29 @@ test("retains an uncertain holding draft through database quota exhaustion witho
   page,
 }, testInfo) => {
   const name = `Synthetic quota draft ${testInfo.project.name}`;
+  const retryAfterSeconds = 3_600;
+  const retryAt = new Date("2026-11-02T00:00:00.000Z");
+  // Timers and Date must both advance past the server's reset.
+  await page.clock.setSystemTime(new Date("2026-11-01T18:45:00.000Z"));
   await start(page, "Direct", name);
+  const attempts = await page.evaluateHandle(() => {
+    const endpoint = new URL("/api/manual-holdings", location.href).href;
+    const count = { value: 0 };
+    const send = window.fetch.bind(window);
+    window.fetch = (input, init) => {
+      const url = input instanceof Request ? input.url : input;
+      const method =
+        init?.method ?? (input instanceof Request ? input.method : "GET");
+      if (
+        method.toUpperCase() === "POST" &&
+        new URL(url, location.href).href === endpoint
+      ) {
+        count.value++;
+      }
+      return send(input, init);
+    };
+    return count;
+  });
   let submissions = 0;
   const message =
     "Database capacity is temporarily unavailable. Check for this holding before trying again.";
@@ -142,24 +164,27 @@ test("retains an uncertain holding draft through database quota exhaustion witho
     await route.fulfill({
       status: 503,
       contentType: "application/json",
-      headers: { "Retry-After": "3600" },
+      headers: { "Retry-After": String(retryAfterSeconds) },
       body: JSON.stringify({
         error: message,
         code: "d1_quota_exhausted",
-        retryAt: "2026-11-02T00:00:00.000Z",
+        retryAt: retryAt.toISOString(),
         outcome: "unknown",
       }),
     });
   });
   await page.getByRole("button", { name: "Save holding", exact: true }).click();
   await expect(page.getByText(message, { exact: true })).toBeVisible();
+  await page.clock.fastForward(retryAfterSeconds * 1_000);
+  const now = await page.evaluate(() => Date.now());
+  await page.clock.fastForward(retryAt.getTime() - now + 1);
+  expect(await attempts.evaluate((count) => count.value)).toBe(1);
   await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
     name,
   );
   await expect(
     page.getByLabel("Owner or account name", { exact: true }),
   ).toHaveValue("Synthetic manual owner");
-  await page.clock.fastForward(60_000);
   expect(submissions).toBe(1);
   await expect(page).toHaveURL(/\/holdings\/new$/u);
   await testInfo.attach("database-quota-retained-draft", {
