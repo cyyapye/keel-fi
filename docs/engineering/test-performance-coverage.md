@@ -458,3 +458,16 @@ units. The last five first-attempt passes with this case inventory had a median
 of 840.515 seconds and a maximum of 887.371 seconds. The targets are 600 and 750
 seconds respectively.
 [Linux run 41794057292](https://github.com/cyyapye/keel-fi/actions/runs/41794057292)
+
+The subsequent forecast-history run stopped after 700.311 seconds. The dashboard
+history case passed in 4.895 seconds, but the entity-review seed replay took
+5.164 seconds against its five-second deadline. CI stopped the browser suite
+after 302 passes. This run breaks the first-attempt pass streak.
+[Linux run 41795908974](https://github.com/cyyapye/keel-fi/actions/runs/41795908974)
+
+The complete seed replay now runs in the existing single-worker preflight. It
+still builds the real synthetic seed and document hashes, replays its SQL in an
+independent database and verifies the resulting review state. This moves one
+case into preflight, giving 88 preflight and 1,562 main Vitest cases. The local
+preflight passed all 88 cases and 49 Python controls with the original
+deadlines.
