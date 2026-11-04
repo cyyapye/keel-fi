@@ -537,17 +537,16 @@ test("drills each portfolio chart into its corresponding Holdings detail without
     await expectNoHorizontalOverflow(page);
     return exposure;
   };
-  const openSnapshot = async () => {
-    await page.goto("/");
-    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+  const expectSnapshot = async () => {
     await expect(
       snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
     ).toBeVisible();
     await expect(snapshot).not.toContainText("→");
-    return snapshot;
   };
 
-  let snapshot = await openSnapshot();
+  await page.goto("/");
+  await expectSnapshot();
   const topExposureLink = snapshot
     .getByLabel(/Top 10 holdings grouped by economic exposure/u)
     .getByRole("link", { name: /View Orion Compute holdings detail/u });
@@ -570,8 +569,7 @@ test("drills each portfolio chart into its corresponding Holdings detail without
   );
 
   await page.goBack();
-  snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-  await expect(snapshot).toBeVisible();
+  await expectSnapshot();
   await snapshot
     .getByLabel("Largest decreases in USD")
     .getByRole("link", { name: /View Juniper Mobility holdings detail/u })
@@ -589,7 +587,8 @@ test("drills each portfolio chart into its corresponding Holdings detail without
     },
   ] as const;
   for (const [index, access] of accessCases.entries()) {
-    snapshot = await openSnapshot();
+    await page.goBack();
+    await expectSnapshot();
     const accessButton = snapshot.getByRole("button", {
       name: new RegExp(`View ${access.label} holdings detail`, "u"),
     });

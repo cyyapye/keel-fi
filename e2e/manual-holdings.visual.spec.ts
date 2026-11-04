@@ -931,7 +931,7 @@ test("keeps a Fund company grouping distinct from unknown allocation", async ({
 test("preserves multiple current company groupings when only the legal name changes", async ({
   page,
 }) => {
-  const fixture = await registerManualHoldingRoutes(page, () => {
+  const fixture = await setup(page, () => {
     const current = holding();
     return HoldingSchema.parse({
       ...current,
@@ -974,6 +974,17 @@ test("preserves multiple current company groupings when only the legal name chan
   );
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await expect.poll(() => posted).toBe(true);
+  await expect(
+    page.getByText("Synthetic identity rejected for readback.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
+    "Synthetic revised legal name",
+  );
+  await expect(
+    page.getByRole("combobox", { name: "Company · optional", exact: true }),
+  ).toContainText("Keep current company groupings");
 });
 
 test("shows manual creation and only actual identity corrections in normal History", async ({
