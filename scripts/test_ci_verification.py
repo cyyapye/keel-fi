@@ -1,4 +1,5 @@
 """Exercise receipt transport without weakening the existing native verifier."""
+import base64
 import importlib.util
 import json
 import os
@@ -66,8 +67,11 @@ class DraftSelectionTests(unittest.TestCase):
         stylesheet = "apps/web/src/startup.css"
         shared_stylesheet = "packages/ui/src/styles.css"
         reference, alternate, *_ = sorted(selector.OVERVIEW_REFERENCES)
-        project = Path(__file__).resolve().parent.parent
-        original_png, updated_png = ((project / name).read_bytes() for name in (reference, alternate))
+        # Two distinct, synthetic one-pixel references keep the simulated Git edit deterministic.
+        original_png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==")
+        updated_png = base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGP4DwABAQEAsTj2FAAAAABJRU5ErkJggg==")
 
         with tempfile.TemporaryDirectory() as workspace:
             root = Path(workspace)
