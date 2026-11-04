@@ -1181,6 +1181,21 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["source-quality"]["depends_on"], ["gate-and-artifact-integrity"])
         self.assertEqual(flows["gate-and-artifact-integrity"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "preflight"])
         self.assertEqual(flows["native-unit-and-cost"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "vitest-main"])
+        expected_commands = {
+            'source-quality': (['make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 600),
+            'compose-configuration': (['docker', 'compose', 'config', '--quiet'], 30),
+            'gate-and-artifact-integrity': (['python3', '-I', 'scripts/pilot_native.py', 'preflight'], 120),
+            'pdf-sandbox-build': (['make', 'pdf-sandbox-build'], 1200),
+            'migration-and-seed': (['python3', '-I', 'scripts/pilot_native.py', 'migration-seed'], 300),
+            'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
+            'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
+            'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
+            'build-and-entry-budget': (['make', 'build'], 300),
+            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 1800),
+            'pdf-isolation': (['make', 'pdf-sandbox-verify'], 600),
+        }
+        self.assertEqual(flow_order, list(expected_commands))
+        self.assertEqual({name: (flow["argv"], flow["timeout_seconds"]) for name, flow in flows.items()}, expected_commands)
         native.validate_preflight_dependencies(plan)
         for name in ("source-quality", "pdf-sandbox-build", "build-and-entry-budget"):
             invalid = json.loads(json.dumps(plan))
