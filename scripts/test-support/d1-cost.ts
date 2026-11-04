@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   lstatSync,
   mkdtempSync,
@@ -8,7 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Miniflare, Log, LogLevel } from "miniflare";
-import { unstable_splitSqlQuery } from "wrangler";
 import { z } from "zod";
 import { copyCostSeed, costSeedInput, sealCostSeed } from "./d1-cost-seed";
 
@@ -62,25 +62,40 @@ export default {
 };
 `;
 
-const costDatabaseBootstrap = (() => {
-  const directory = resolve("packages/database/migrations");
-  const migrations = readdirSync(directory)
+function costDatabaseSources() {
+  const directory = "packages/database/migrations";
+  const paths = readdirSync(directory)
     .filter((file) => file.endsWith(".sql"))
     .sort()
-    .map((file) =>
-      unstable_splitSqlQuery(readFileSync(resolve(directory, file), "utf8")),
-    );
-  const seed = unstable_splitSqlQuery(
-    readFileSync(resolve("packages/database/seed/synthetic.sql"), "utf8"),
+    .map((file) => directory + "/" + file);
+  paths.push("packages/database/seed/synthetic.sql");
+  const sources = paths.map((path) => readFileSync(resolve(path)));
+  const fingerprint = costSeedInput(
+    JSON.stringify([
+      "keel-d1-cost-raw-sources-v1",
+      paths.map((path, index) => [
+        path,
+        createHash("sha256").update(sources[index]!).digest("hex"),
+      ]),
+    ]),
+  );
+  return { sources, fingerprint };
+}
+
+async function costDatabaseBootstrap(sources: readonly Buffer[]) {
+  const { unstable_splitSqlQuery } = await import("wrangler");
+  const batches = sources.map((source) =>
+    unstable_splitSqlQuery(source.toString("utf8")),
   );
   return {
-    body: JSON.stringify([...migrations, seed]),
-    batchCount: migrations.length + 1,
-    statementCount:
-      migrations.reduce((count, statements) => count + statements.length, 0) +
-      seed.length,
+    body: JSON.stringify(batches),
+    batchCount: batches.length,
+    statementCount: batches.reduce(
+      (count, statements) => count + statements.length,
+      0,
+    ),
   };
-})();
+}
 
 export async function createCostDatabase(
   script?: string,
@@ -99,8 +114,8 @@ export async function createCostDatabase(
     }
   };
   try {
-    if (seed)
-      copyCostSeed(seed, persist, costSeedInput(costDatabaseBootstrap.body));
+    const inputs = costDatabaseSources();
+    if (seed) copyCostSeed(seed, persist, inputs.fingerprint);
     runtime = new Miniflare({
       modules: [
         {
@@ -121,16 +136,19 @@ export async function createCostDatabase(
       compatibilityDate: "2026-07-28",
     });
     const database = await runtime.getD1Database("DB");
-    const execute = (sql: string) =>
-      database.batch(
+    const execute = async (sql: string) => {
+      const { unstable_splitSqlQuery } = await import("wrangler");
+      return database.batch(
         unstable_splitSqlQuery(sql).map((statement) =>
           database.prepare(statement),
         ),
       );
+    };
     if (!seed) {
+      const bootstrap = await costDatabaseBootstrap(inputs.sources);
       const response = await runtime.dispatchFetch(bootstrapUrl, {
         method: "POST",
-        body: costDatabaseBootstrap.body,
+        body: bootstrap.body,
       });
       if (!response.ok) {
         throw new Error(
@@ -139,8 +157,8 @@ export async function createCostDatabase(
       }
       const result = bootstrapResultSchema.parse(await response.json());
       if (
-        result.batchCount !== costDatabaseBootstrap.batchCount ||
-        result.statementCount !== costDatabaseBootstrap.statementCount
+        result.batchCount !== bootstrap.batchCount ||
+        result.statementCount !== bootstrap.statementCount
       )
         throw new Error("Cost database bootstrap was incomplete");
     }
@@ -153,6 +171,7 @@ export async function createCostDatabase(
     }
     return {
       database,
+      seedInput: inputs.fingerprint,
       execute,
       dispatchFetch: runtime.dispatchFetch.bind(runtime),
       close,
@@ -173,5 +192,5 @@ export async function prepareCostDatabaseSeed(root: string) {
     persist: join(root, "d1"),
   });
   await fixture.close();
-  sealCostSeed(root, costSeedInput(costDatabaseBootstrap.body));
+  sealCostSeed(root, fixture.seedInput);
 }
