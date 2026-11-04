@@ -164,11 +164,12 @@ async function fixture(
     // Restored tabs can load the actual provider before routing is installed.
     // Assert the cold-start boundary, including after a saved portfolio visit.
     expect(context.pages()).toHaveLength(0);
-    if (seed)
-      await context.addInitScript((value) => {
-        localStorage.setItem("auth_token", value.access_token);
-        localStorage.setItem("refresh_token", value.refresh_token);
-      }, tokens());
+    const seedScript = seed
+      ? await context.addInitScript((value) => {
+          localStorage.setItem("auth_token", value.access_token);
+          localStorage.setItem("refresh_token", value.refresh_token);
+        }, tokens())
+      : undefined;
     // Every network request is synthetic. Production's admission handler uses
     // fallback, so its cap runs before this fixture rather than bypassing it.
     await context.route("**/*", async (route) => {
@@ -300,6 +301,7 @@ async function fixture(
     });
     return {
       context,
+      seedScript,
       close: () =>
         productionShutdown
           ? closeControlledChrome("sydecar", syntheticKeelOrigin)
@@ -430,16 +432,17 @@ for (const failure of ["invalid", "dns"] as const) {
     const messages: string[] = [];
     const original = console.error;
     try {
-      const first = await runtime.launch(true);
-      await ordinaryCapture(first.context);
-      await first.close();
+      const { context, seedScript } = await runtime.launch(true);
+      const captured = await ordinaryCapture(context);
+      await seedScript?.dispose();
+      // Leave only the renewal page on the provider origin when it reports expiry.
+      await captured.goto("about:blank");
       runtime.state.now += 6 * hour;
-      const next = await runtime.launch();
       console.error = (message: unknown) => {
         messages.push(String(message));
       };
       await expect(
-        renewSavedSydecarSession(next.context, () => runtime.state.now),
+        renewSavedSydecarSession(context, () => runtime.state.now),
       ).rejects.toMatchObject({
         code:
           failure === "dns"
