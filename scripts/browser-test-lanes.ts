@@ -17,14 +17,16 @@ export function assertBrowserSnapshotRenderer(
 export const BROWSER_TEST_LANES = {
   mocked: [
     "ui-catalogue.visual.spec.ts",
-    "agreement-security.visual.spec.ts",
     "automatic-investment-review.visual.spec.ts",
     "company-names.visual.spec.ts",
     "holdings-detail.visual.spec.ts",
     "holdings-import.visual.spec.ts",
     "investment-review.visual.spec.ts",
   ],
-  "mocked-development": ["investment-holdings.visual.spec.ts"],
+  "mocked-development": [
+    "agreement-security.visual.spec.ts",
+    "investment-holdings.visual.spec.ts",
+  ],
   "stateful-development": [
     "app-recovery.visual.spec.ts",
     "navigation.visual.spec.ts",
