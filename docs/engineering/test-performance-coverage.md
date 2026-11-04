@@ -511,3 +511,37 @@ insert statements. D1 still executed all 219 inserts across the original
 transactions. A wrong participation version rolled back its batch and a wrong
 event predecessor left the original revision intact. The two files finished 0.89
 and 0.95 seconds sooner in opposite-order local pairs.
+
+At `30e07030`, all 2,112 required Linux cases passed on the first attempt. The
+table compares two runs with the same flow order. Measurements include each
+whole test case. Their work overlaps with other cases and commands.
+
+| Case                                  | `413fc174` | `30e07030` |
+| ------------------------------------- | ---------: | ---------: |
+| Production SQL plan inventory         |   24.959 s |    3.139 s |
+| Manual holding identities and history |   50.020 s |   44.897 s |
+| Participation projections and history |   43.986 s |   36.316 s |
+
+The full gate took 839.836 seconds, compared with 828.915 seconds on `413fc174`.
+Browser execution finished last in both runs. These were the first and third
+consecutive complete passes after the price-proxy timeout. All three exceeded
+750 seconds.
+[First Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41801709670) ·
+[Third Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41806323107)
+
+Six D1 cost tests now insert their unrelated household with two explicit
+statements in the original atomic batch. This avoids loading Wrangler to split
+fixed SQL. Both statements, the stored rows and their billed operations matched
+in the local comparison. Injected failures still rolled back the batch.
+
+On `9f8ae14e`, four agreement-security cases ran in the final browser lane. The
+browser flow took 557.378 seconds, down from 565.610. The full gate took 834.899
+seconds. All five checks passed on the first attempt. This was the fourth
+consecutive complete pass above the 750-second trial ceiling.
+[Fourth Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41808599250)
+
+Desktop Chromium retains both providers’ dedicated sign-in cases and the hosted
+Auth0 case. Both viewports still run the full MFA and responsive-readiness
+checks. The three retired mobile executions accounted for 3.07–4.56 seconds of
+case work per run on three Linux revisions. The retained mobile case caught two
+narrow-screen regressions that passed on desktop.

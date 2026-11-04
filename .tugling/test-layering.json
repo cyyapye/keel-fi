@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 47,
+  "retiredBrowserCaseCount": 50,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -340,6 +340,24 @@
         "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar survives the next daily capture with bounded renewal"
       ],
       "assertions": "Desktop Chromium retains a real saved profile through three bounded renewal intervals and a next-day capture. Every interval checks refreshes, document loads, and one remaining tab. Linux uses the deployed shutdown path and macOS uses graceful Chrome closure. The standalone lifecycle case also verifies cleanup after capture fails in an independently launched desktop browser."
+    },
+    {
+      "id": "provider-recognition-projects",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: sydecar recognizes a dedicated sign-in page before its form loads",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: tokenfolio recognizes a dedicated sign-in page before its form loads"
+      ],
+      "unitCases": [
+        "scripts/provider-portfolio-mac-agent.test.ts :: provider portfolio Mac agent > opens sydecar sign-in in normal Chrome before automation",
+        "scripts/provider-portfolio-mac-agent.test.ts :: provider portfolio Mac agent > opens tokenfolio sign-in in normal Chrome before automation"
+      ],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar recognizes a dedicated sign-in page before its form loads",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio recognizes a dedicated sign-in page before its form loads"
+      ],
+      "assertions": "The real desktop browser retains both providers’ dedicated sign-in checks before the form loads and the complete Tokenfolio hosted Auth0 route, origin, visibility, same-form and provider boundaries. Both projects retain the full MFA, optional enrollment and responsive readiness checks. The existing unit owners verify the normal Chrome setup launches for each provider."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

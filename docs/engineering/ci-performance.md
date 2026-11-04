@@ -327,9 +327,9 @@ row budgets and query-plan assertions.
 Browser verification produces five reports while admitting at most four workers.
 The initial four lanes each use one worker. After they validate and close, four
 workers run the holdings and agreement-security tests against the built frontend
-in `mocked-development`. The development stateful lane registers 100 cases,
+in `mocked-development`. The development stateful lane registers 97 cases,
 production stateful-a 111, production stateful-b 88, the initial production
-mocked lane 106 and the final mocked lane 38. Of the 443 registered cases, 413
+mocked lane 106 and the final mocked lane 38. Of the 440 registered cases, 410
 run on Linux and 30 have reviewed exclusions. The geometry consolidation and
 retained failure proof are recorded in
 [test performance coverage](test-performance-coverage.md).

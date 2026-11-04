@@ -83,45 +83,47 @@ for (const [provider, origin, control] of [
     ).resolves.toBeUndefined();
   });
 
-  test(`${provider} recognizes a dedicated sign-in page before its form loads`, async ({
-    page,
-  }) => {
-    let html = "<h1>Log in to your account</h1><div>Loading…</div>";
-    await page.route(`${origin}/**`, (route) =>
-      route.fulfill({ body: html, contentType: "text/html" }),
-    );
-    await page.goto(`${origin}/login`);
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "provider_sign_in_required",
-    );
-
-    // A heading without the dedicated route is not proof of an expired session.
-    await page.goto(`${origin}/portfolio?redirect=/login`);
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
-    // Neither an auth route alone nor hidden authentication copy is sufficient.
-    for (const content of [
-      "<h1>Temporarily unavailable</h1>",
-      "<h1 hidden>Log in to your account</h1><div>Loading…</div>",
-    ]) {
-      html = content;
+  test(
+    `${provider} recognizes a dedicated sign-in page before its form loads`,
+    { tag: "@desktop-only" },
+    async ({ page }) => {
+      let html = "<h1>Log in to your account</h1><div>Loading…</div>";
+      await page.route(`${origin}/**`, (route) =>
+        route.fulfill({ body: html, contentType: "text/html" }),
+      );
       await page.goto(`${origin}/login`);
       await expect(
         requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("provider_sign_in_required");
+
+      // A heading without the dedicated route is not proof of an expired session.
+      await page.goto(`${origin}/portfolio?redirect=/login`);
+      await expect(
+        requireProviderPageReady(page, provider, 100),
       ).rejects.toThrow("page_not_supported");
-    }
-    await page.route("https://unrelated.example/**", (route) =>
-      route.fulfill({
-        body: "<h1>Log in to your account</h1>",
-        contentType: "text/html",
-      }),
-    );
-    await page.goto("https://unrelated.example/login");
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
-  });
+      // Neither an auth route alone nor hidden authentication copy is sufficient.
+      for (const content of [
+        "<h1>Temporarily unavailable</h1>",
+        "<h1 hidden>Log in to your account</h1><div>Loading…</div>",
+      ]) {
+        html = content;
+        await page.goto(`${origin}/login`);
+        await expect(
+          requireProviderPageReady(page, provider, 100),
+        ).rejects.toThrow("page_not_supported");
+      }
+      await page.route("https://unrelated.example/**", (route) =>
+        route.fulfill({
+          body: "<h1>Log in to your account</h1>",
+          contentType: "text/html",
+        }),
+      );
+      await page.goto("https://unrelated.example/login");
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("page_not_supported");
+    },
+  );
 }
 
 test("Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in", async ({
@@ -187,39 +189,41 @@ test("Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without 
   ).rejects.toThrow("page_not_supported");
 });
 
-test("Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages", async ({
-  page,
-}) => {
-  const origin = "https://tokenfolio.eu.auth0.com";
-  let html =
-    '<form><input autocomplete="username"><input type="password"><button>Continue</button></form>';
-  await page.route(`${origin}/**`, (route) =>
-    route.fulfill({ body: html, contentType: "text/html" }),
-  );
-  await page.goto(`${origin}/u/login/password?state=synthetic`);
-  await expect(
-    requireProviderPageReady(page, "tokenfolio", 100),
-  ).rejects.toThrow("provider_sign_in_required");
-  await expect(requireProviderPageReady(page, "sydecar", 100)).rejects.toThrow(
-    "page_not_supported",
-  );
-  for (const content of [
-    '<form hidden><input type="password"><button>Continue</button></form>',
-    '<form><input type="password"></form><form><button>Continue</button></form>',
-    "<h1>Temporarily unavailable</h1>",
-  ]) {
-    html = content;
-    await page.reload();
+test(
+  "Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const origin = "https://tokenfolio.eu.auth0.com";
+    let html =
+      '<form><input autocomplete="username"><input type="password"><button>Continue</button></form>';
+    await page.route(`${origin}/**`, (route) =>
+      route.fulfill({ body: html, contentType: "text/html" }),
+    );
+    await page.goto(`${origin}/u/login/password?state=synthetic`);
+    await expect(
+      requireProviderPageReady(page, "tokenfolio", 100),
+    ).rejects.toThrow("provider_sign_in_required");
+    await expect(
+      requireProviderPageReady(page, "sydecar", 100),
+    ).rejects.toThrow("page_not_supported");
+    for (const content of [
+      '<form hidden><input type="password"><button>Continue</button></form>',
+      '<form><input type="password"></form><form><button>Continue</button></form>',
+      "<h1>Temporarily unavailable</h1>",
+    ]) {
+      html = content;
+      await page.reload();
+      await expect(
+        requireProviderPageReady(page, "tokenfolio", 100),
+      ).rejects.toThrow("page_not_supported");
+    }
+    html = '<form><input type="password"><button>Continue</button></form>';
+    await page.goto(`${origin}/settings`);
     await expect(
       requireProviderPageReady(page, "tokenfolio", 100),
     ).rejects.toThrow("page_not_supported");
-  }
-  html = '<form><input type="password"><button>Continue</button></form>';
-  await page.goto(`${origin}/settings`);
-  await expect(
-    requireProviderPageReady(page, "tokenfolio", 100),
-  ).rejects.toThrow("page_not_supported");
-});
+  },
+);
 
 function tokenfolioPage(
   activeCount = 2,
