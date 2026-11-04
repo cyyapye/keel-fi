@@ -2,13 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 // Process-local, synthetic fixtures only. The key includes every ordered input;
 // migration tests and the real D1 migration gate still replay migrations directly.
 const snapshots = new Map<string, Buffer>();
 
-class FixtureDatabase extends DatabaseSync {
+export class FixtureDatabase extends DatabaseSync {
+  private readonly compiled = new Map<string, StatementSync>();
+
   constructor(private readonly directory: string) {
     super(join(directory, "fixture.sqlite"));
     // Match the disposable in-memory fixtures' lack of crash durability while
@@ -22,8 +24,26 @@ class FixtureDatabase extends DatabaseSync {
     }
   }
 
+  // Cursors and mutable statement options need independent handles from prepare().
+  statement(sql: string): Pick<StatementSync, "get" | "all" | "run"> {
+    let statement = this.compiled.get(sql);
+    if (statement === undefined) {
+      statement = this.prepare(sql);
+      this.compiled.set(sql, statement);
+    }
+    return statement;
+  }
+
+  override exec(sql: string): void {
+    if (sql !== "BEGIN" && sql !== "COMMIT" && sql !== "ROLLBACK") {
+      this.compiled.clear();
+    }
+    super.exec(sql);
+  }
+
   override close() {
     try {
+      this.compiled.clear();
       super.close();
     } finally {
       rmSync(this.directory, { recursive: true, force: true });
@@ -32,7 +52,7 @@ class FixtureDatabase extends DatabaseSync {
 }
 
 /** Fresh mutable database from a complete, immutable migration/seed snapshot. */
-export function createSqliteFixture(files: readonly string[]): DatabaseSync {
+export function createSqliteFixture(files: readonly string[]): FixtureDatabase {
   const sources = files.map((file) => readFileSync(file, "utf8"));
   const key = createHash("sha256")
     .update(JSON.stringify(files.map((file, index) => [file, sources[index]])))

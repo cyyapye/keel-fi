@@ -1,4 +1,7 @@
-import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import {
+  createSqliteFixture,
+  type FixtureDatabase,
+} from "../../../scripts/test-support/sqlite-fixture";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -277,7 +280,7 @@ describe("nullable private investment date migration", () => {
 
 class TestD1Statement {
   public constructor(
-    private readonly database: DatabaseSync,
+    private readonly database: FixtureDatabase,
     private readonly sql: string,
     private readonly values: readonly SQLInputValue[] = [],
     private readonly recordRoundTrip: () => void = () => undefined,
@@ -295,25 +298,25 @@ class TestD1Statement {
   public first<T>(): Promise<T | null> {
     this.recordRoundTrip();
     return Promise.resolve(
-      (this.database.prepare(this.sql).get(...this.values) as T) ?? null,
+      (this.database.statement(this.sql).get(...this.values) as T) ?? null,
     );
   }
 
   public all<T>(): Promise<{ results: T[] }> {
     this.recordRoundTrip();
     return Promise.resolve({
-      results: this.database.prepare(this.sql).all(...this.values) as T[],
+      results: this.database.statement(this.sql).all(...this.values) as T[],
     });
   }
 
   public run(): Promise<{ meta: { changes: number } }> {
     this.recordRoundTrip();
-    const result = this.database.prepare(this.sql).run(...this.values);
+    const result = this.database.statement(this.sql).run(...this.values);
     return Promise.resolve({ meta: { changes: Number(result.changes) } });
   }
 
   public execute(): void {
-    this.database.prepare(this.sql).run(...this.values);
+    this.database.statement(this.sql).run(...this.values);
   }
 }
 
@@ -321,7 +324,7 @@ class TestD1Database {
   public roundTripCount = 0;
   public readonly preparedSql: string[] = [];
 
-  public constructor(private readonly database: DatabaseSync) {}
+  public constructor(private readonly database: FixtureDatabase) {}
 
   public prepare(sql: string): TestD1Statement {
     this.preparedSql.push(sql);
@@ -589,7 +592,7 @@ function providerTemplateStageInput(
 }
 
 describe("AngelList holding import persistence", () => {
-  let sqlite: DatabaseSync;
+  let sqlite: FixtureDatabase;
   let database: TestD1Database;
   let repository: D1HoldingImportRepository;
 
@@ -2679,7 +2682,7 @@ describe("AngelList holding import persistence", () => {
 });
 
 describe("exception-based source updates", () => {
-  let sqlite: DatabaseSync;
+  let sqlite: FixtureDatabase;
   let database: TestD1Database;
   let imports: D1HoldingImportRepository;
   let baselines: D1PortfolioBaselineRepository;
@@ -3103,7 +3106,7 @@ describe("exception-based source updates", () => {
 });
 
 describe("reviewed portfolio baseline persistence", () => {
-  let sqlite: DatabaseSync;
+  let sqlite: FixtureDatabase;
   let database: TestD1Database;
   let holdingImports: D1HoldingImportRepository;
   let baselines: D1PortfolioBaselineRepository;
