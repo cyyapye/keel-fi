@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import runpy
 import subprocess
@@ -23,7 +24,7 @@ def checked_plan(stream, selector):
     if len(raw) > 4096:
         raise ValueError("draft plan exceeds its size limit")
     supplied = json.loads(raw, object_pairs_hook=unique_fields)
-    if not isinstance(supplied, dict) or supplied.get("profile") not in ("docs", "test-files"):
+    if not isinstance(supplied, dict) or supplied.get("profile") not in ("docs", "test-files", "layout"):
         raise ValueError("only a selective draft plan can run partial checks")
     expected = selector(supplied.get("base"), supplied.get("head"))
     if json.dumps(supplied, sort_keys=True) != json.dumps(expected, sort_keys=True):
@@ -66,14 +67,15 @@ def select_merge(selector, base, head, merge):
     plan = selector["plan"](base, head)
     if plan["profile"] == "full":
         return plan
-    if (plan["profile"] not in ("docs", "test-files") or plan["schema_version"] != 1
+    if (plan["profile"] not in ("docs", "test-files", "layout") or plan["schema_version"] != 1
             or (plan["base"], plan["head"]) != (base, head)):
         raise ValueError("unrecognized draft selection")
     if checked_merge(plan) != merge:
         raise ValueError("draft merge does not match the event SHA")
     # A cumulative topic diff and the tree about to run must both be eligible.
     effective = selector["plan"](base, merge)
-    if any(effective[key] != plan[key] for key in ("profile", "test_files", "changed_count")):
+    if any(effective.get(key) != plan.get(key) for key in ("profile", "test_files", "layout_files", "changed_count")):
+        plan.pop("layout_files", None)
         return {**plan, "profile": "full", "reason": "effective-merge-differs", "test_files": []}
     return plan
 
@@ -82,6 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--plan-stdin", action="store_true")
+    mode.add_argument("--layout-plan-stdin", action="store_true")
     mode.add_argument("--route", nargs=3, metavar=("BASE", "HEAD", "MERGE"))
     args = parser.parse_args()
     root = Path.cwd()
@@ -90,7 +93,18 @@ def main():
         plan = select_merge(selector, *args.route)
         print(json.dumps(plan, sort_keys=True, separators=(",", ":")))
         return
+    if args.layout_plan_stdin:
+        revision = os.environ["GITHUB_SHA"]
+        plan = checked_plan(sys.stdin.buffer, lambda base, head: select_merge(selector, base, head, revision))
+        if plan["profile"] != "layout":
+            raise ValueError("layout verification requires a reviewed stylesheet change")
+        subprocess.run([sys.executable, "-I", "scripts/tugling-pilot.py", "layout-draft"], cwd=root, check=True)
+        if checked_merge(plan) != revision:
+            raise ValueError("draft checkout changed during layout verification")
+        return
     plan = checked_plan(sys.stdin.buffer, selector["plan"])
+    if plan["profile"] == "layout":
+        raise ValueError("layout changes require the native draft workflow")
     revision = checked_merge(plan)
     targets = ["data-scan", "format-check"]
     if plan["test_files"]:

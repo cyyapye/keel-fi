@@ -14,7 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 def load(name, filename):
@@ -96,6 +96,36 @@ class SourceBoundaryTests(unittest.TestCase):
 
 
 class NativeAccountingTests(unittest.TestCase):
+    def test_layout_draft_preserves_the_required_graph_and_budget(self):
+        mapping = json.loads((pilot.ROOT / ".tugling/pilot-verification.json").read_text())
+        names = [flow["id"] for flow in mapping["flows"]]
+        required = [flow["argv"] for flow in mapping["flows"]]
+        pdf_index = names.index("pdf-isolation")
+        contract = Mock()
+        contract.clean_revision.return_value = "1" * 40
+        contract.required_flow_ids.return_value = names
+        contract.validate_project.return_value = {"verification": mapping, "verification_budget_seconds": 900}
+        contract.execute_flow_plan.return_value = [
+            {"id": name, "exit_code": 0, "failure": None, "forced_cleanup": False} for name in names
+        ]
+        contract.performance_summary.return_value = {"within_budget": True}
+        with patch("sys.stdout", new_callable=io.StringIO):
+            pilot.run_layout_draft(contract, Path("/candidate"))
+        contract.execute_flow_plan.assert_called_once_with(pilot.ROOT, mapping, names, active_budget=900)
+        contract.validate_execution_timing.assert_called_once()
+        actual = [flow["argv"] for flow in mapping["flows"]]
+        self.assertEqual(actual[pdf_index], ["node", "--import", "tsx", "scripts/pdf-sandbox-verify.ts", "--layout-draft"])
+        self.assertEqual(actual[:pdf_index] + actual[pdf_index + 1:], required[:pdf_index] + required[pdf_index + 1:])
+        # A changed canonical PDF command needs a new scope review.
+        with self.assertRaisesRegex(ValueError, "review the layout draft command"):
+            pilot.run_layout_draft(contract, Path("/candidate"))
+        for field, bad_value in (("failure", "timeout"), ("exit_code", 1), ("forced_cleanup", True)):
+            mapping["flows"][pdf_index]["argv"] = required[pdf_index]
+            row = contract.execute_flow_plan.return_value[0]
+            with self.subTest(field=field), patch.dict(row, {field: bad_value}), patch("sys.stdout", new_callable=io.StringIO):
+                with self.assertRaisesRegex(ValueError, "verification failed"):
+                    pilot.run_layout_draft(contract, Path("/candidate"))
+
     def test_rejects_selection_and_reporter_environment_overrides(self):
         for name in ("TEST_ARGS", "E2E_ARGS", "MAKEFLAGS", "PNPM", "NODE_OPTIONS", "VITEST_MAX_THREADS", "PW_TEST_GREP", "PLAYWRIGHT_JSON_OUTPUT_FILE", "KEEL_BROWSER_LANE"):
             with self.subTest(name=name), patch.dict(os.environ, {name: "narrowed"}):
@@ -1195,7 +1225,7 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(ci.count("needs: [secret-scan, native]"), 3)
         self.assertEqual(ci.count("!cancelled() && (needs.secret-scan.result != 'success' ||"), 3)
         self.assertIn("if: success() && needs.secret-scan.outputs.plan == ''", ci)
-        self.assertIn("if: success() && needs.secret-scan.outputs.plan != ''", ci)
+        self.assertIn("if: success() && needs.secret-scan.outputs.plan != ''", " ".join(ci.split()))
         self.assertIn("github.event_name == 'pull_request' && github.event.pull_request.draft", ci)
         self.assertIn("github.event.pull_request.base.ref == 'main'", ci)
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", ci)

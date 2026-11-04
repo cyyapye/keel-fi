@@ -30,10 +30,29 @@ TEST_FILES = frozenset({
     "packages/domain/src/position-value.test.ts",
     "packages/domain/src/valuation-record.test.ts",
 })
+# These stylesheets are consumed by the web entry points. Keep the entire
+# native suite for layout changes, including browser, PDF build and extraction.
+LAYOUT_FILES = frozenset({
+    "apps/web/src/startup.css",
+    "apps/web/src/styles.css",
+    "packages/ui/src/styles.css",
+})
+OVERVIEW_SPEC = "e2e/overview-links.visual.spec.ts"
+OVERVIEW_REFERENCES = frozenset(
+    f"{OVERVIEW_SPEC}-snapshots/overview-goal-overview{state}-{project}-{platform}.png"
+    for state in ("", "-swiped")
+    for project in ("chromium", "mobile-chromium")
+    for platform in ("darwin", "linux")
+)
+LAYOUT_COMPANIONS = {OVERVIEW_SPEC} | OVERVIEW_REFERENCES
+REVIEWED_FILES = DOCS | TEST_FILES | LAYOUT_FILES | LAYOUT_COMPANIONS
 OID = re.compile(r"[0-9a-f]{40}\Z")
 MODIFIED = re.compile(rb":100644 100644 ([0-9a-f]{40}) ([0-9a-f]{40}) M\Z")
 DIFF_LIMIT = 128 * 1024
 BLOB_LIMIT = 1024 * 1024
+PNG_LIMIT = 256 * 1024
+PNG_HEADER = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+PNG_END = b"\x00\x00\x00\x00IEND\xaeB`\x82"
 
 
 def read_git(*args, deadline, limit=DIFF_LIMIT):
@@ -66,7 +85,7 @@ def reviewed_changes(raw):
     if fields.pop() or len(fields) % 2:
         return None, {}, "unverified-diff"
     count = len(fields) // 2
-    if count > len(DOCS | TEST_FILES):
+    if count > len(REVIEWED_FILES):
         return count, {}, "outside-reviewed-owners"
     files = {}
     for status, path in zip(fields[::2], fields[1::2]):
@@ -75,9 +94,12 @@ def reviewed_changes(raw):
             # Rename folding is off, so any move includes a deletion.
             return count, {}, "unsupported-change"
         name = path.decode("utf-8")
-        if name not in DOCS | TEST_FILES or name in files:
+        if name not in REVIEWED_FILES or name in files:
             return count, {}, "outside-reviewed-owners"
         files[name] = match.groups()
+    if ((files.keys() & LAYOUT_COMPANIONS and not files.keys() & LAYOUT_FILES)
+            or (files.keys() & OVERVIEW_REFERENCES and OVERVIEW_SPEC not in files)):
+        return count, {}, "outside-reviewed-owners"
     return count, files, None
 
 
@@ -115,11 +137,16 @@ def plan(base, head):
         if reason:
             return {**result, "reason": reason}
         result["reason"] = "unverified-content"
-        for oid in sorted({oid for pair in files.values() for oid in pair}):
-            content = git("cat-file", "blob", oid.decode("ascii"), limit=BLOB_LIMIT)
-            if not content or b"\0" in content:
-                return result
-            content.decode("utf-8")
+        inputs = {(name in OVERVIEW_REFERENCES, oid) for name, pair in files.items() for oid in pair}
+        for reference, oid in sorted(inputs):
+            content = git("cat-file", "blob", oid.decode("ascii"), limit=PNG_LIMIT if reference else BLOB_LIMIT)
+            if reference:
+                if not content.startswith(PNG_HEADER) or not content.endswith(PNG_END):
+                    return result
+            else:
+                if not content or b"\0" in content:
+                    return result
+                content.decode("utf-8")
         tests = sorted(files.keys() & TEST_FILES)
         if tests:
             # The selected executor must verify *every* current reviewed identity
@@ -131,6 +158,10 @@ def plan(base, head):
                     or len(set(ids)) != len(ids)
                     or not all(any(i.startswith(f + " :: ") for i in ids) for f in tests)):
                 return result
+        layout = sorted(files.keys() & (LAYOUT_FILES | LAYOUT_COMPANIONS))
+        if layout:
+            return {**result, "profile": "layout", "reason": "reviewed-layout-files",
+                    "test_files": tests, "layout_files": layout}
         return {**result, "profile": "test-files" if tests else "docs",
                 "reason": "reviewed-test-files" if tests else "reviewed-docs", "test_files": tests}
     except (OSError, ValueError, TypeError, KeyError, RecursionError, subprocess.SubprocessError):

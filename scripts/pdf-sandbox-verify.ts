@@ -32,6 +32,13 @@ import {
 // Mandatory real-runtime proof, separate from mocked unit tests. Never skip or
 // substitute a host Poppler when the runtime has not been provisioned.
 async function main() {
+  const args = process.argv.slice(2);
+  const layoutDraft = args.length === 1 && args[0] === "--layout-draft";
+  if (args.length > 0 && !layoutDraft) {
+    console.error("Usage: pdf-sandbox-verify.ts [--layout-draft]");
+    process.exitCode = 1;
+    return;
+  }
   const config = await loadSandboxConfig();
   const probe = PdfSandboxConfigSchema.parse(
     JSON.parse(await readFile(`${sandboxConfigPath()}.probe`, "utf8")),
@@ -202,33 +209,39 @@ async function main() {
         console.log(
           `PASS: 512-stream synthetic PDF scanned and exact name extracted (${(Date.now() - started).toString()} ms, ${manyStreams.length.toString()} input bytes)`,
         );
-        // The inert marker is compressed in the final stream, beyond the old
-        // boundary. A scanner that only checks the outer bytes or stops after
-        // 100 streams cannot satisfy this assertion.
-        const embeddedThreat = await scanDocumentInSandbox(
-          syntheticManyStreamPdf(512, eicar),
-        );
-        assert.equal(embeddedThreat.outcome, "blocked");
-        assert.equal(embeddedThreat.findings[0]?.reason, "malware_signature");
-        assert.match(embeddedThreat.findings[0]?.signature ?? "", /EICAR/iu);
-        console.log("PASS: inert antivirus marker in stream 512 is detected");
-        // A huge PDF may correctly hit the unchanged scan-time budget before its
-        // item budget. Use small ZIP entries to prove the exact MaxFiles boundary
-        // independently; do not increase scan time to make a negative test pass.
-        const overBudget = syntheticManyFileZip(10_001);
-        assert.ok(overBudget.length < 8 * 1024 * 1024);
-        const exhausted = await scanDocumentInSandbox(overBudget);
-        assert.equal(exhausted.outcome, "blocked");
-        assert.ok(
-          exhausted.findings.some(
-            (finding) =>
-              finding.reason === "scan_limit" &&
-              finding.signature === "Heuristics.Limits.Exceeded.MaxFiles",
-          ),
-        );
-        console.log(
-          "PASS: container exceeding 10000 items is still blocked by MaxFiles",
-        );
+        if (layoutDraft) {
+          console.log(
+            "LAYOUT DRAFT: the late embedded signature and MaxFiles probes run in full verification",
+          );
+        } else {
+          // The inert marker is compressed in the final stream, beyond the old
+          // boundary. A scanner that only checks the outer bytes or stops after
+          // 100 streams cannot satisfy this assertion.
+          const embeddedThreat = await scanDocumentInSandbox(
+            syntheticManyStreamPdf(512, eicar),
+          );
+          assert.equal(embeddedThreat.outcome, "blocked");
+          assert.equal(embeddedThreat.findings[0]?.reason, "malware_signature");
+          assert.match(embeddedThreat.findings[0]?.signature ?? "", /EICAR/iu);
+          console.log("PASS: inert antivirus marker in stream 512 is detected");
+          // A huge PDF may correctly hit the unchanged scan-time budget before its
+          // item budget. Use small ZIP entries to prove the exact MaxFiles boundary
+          // independently; do not increase scan time to make a negative test pass.
+          const overBudget = syntheticManyFileZip(10_001);
+          assert.ok(overBudget.length < 8 * 1024 * 1024);
+          const exhausted = await scanDocumentInSandbox(overBudget);
+          assert.equal(exhausted.outcome, "blocked");
+          assert.ok(
+            exhausted.findings.some(
+              (finding) =>
+                finding.reason === "scan_limit" &&
+                finding.signature === "Heuristics.Limits.Exceeded.MaxFiles",
+            ),
+          );
+          console.log(
+            "PASS: container exceeding 10000 items is still blocked by MaxFiles",
+          );
+        }
       })(),
       (async () => {
         const access = await invoke("access");

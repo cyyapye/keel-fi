@@ -63,6 +63,11 @@ class DraftSelectionTests(unittest.TestCase):
         selector_spec.loader.exec_module(selector)
         owner = "packages/database/src/exposures.test.ts"
         doc = "docs/engineering/ci-performance.md"
+        stylesheet = "apps/web/src/startup.css"
+        shared_stylesheet = "packages/ui/src/styles.css"
+        reference, alternate, *_ = sorted(selector.OVERVIEW_REFERENCES)
+        project = Path(__file__).resolve().parent.parent
+        original_png, updated_png = ((project / name).read_bytes() for name in (reference, alternate))
 
         with tempfile.TemporaryDirectory() as workspace:
             root = Path(workspace)
@@ -85,6 +90,13 @@ class DraftSelectionTests(unittest.TestCase):
             git("init", "-q", "-b", "base")
             change(owner, "original synthetic case")
             change(doc, "original synthetic notes")
+            change(stylesheet, "html { color: black; }")
+            change(shared_stylesheet, ".button { color: black; }")
+            change(selector.OVERVIEW_SPEC, "original browser assertions")
+            for name in (reference, alternate):
+                target = root / name
+                target.parent.mkdir(exist_ok=True, parents=True)
+                target.write_bytes(original_png)
             change(".tugling/pilot-cases.json",
                    json.dumps({"schema_version": 1, "vitest": [owner + " :: synthetic"]}))
             initial = commit()
@@ -93,6 +105,17 @@ class DraftSelectionTests(unittest.TestCase):
             docs_head = commit()
             change(owner, "updated case")
             test_head = commit()
+            change(stylesheet, "html { color: navy; }")
+            layout_head = commit()
+            change(selector.OVERVIEW_SPEC, "updated browser assertions")
+            (root / reference).write_bytes(updated_png)
+            visual_head = commit()
+            (root / reference).write_bytes(b"not a PNG")
+            bad_png = commit()
+            change(stylesheet, "html { color: purple; }")
+            change(selector.OVERVIEW_SPEC, "updated geometry check")
+            (root / reference).write_bytes(original_png)
+            repaired = commit()
             git("switch", "-q", "base")
             change("packages/database/migrations/new.sql", "base-only input")
             base = commit()
@@ -105,6 +128,15 @@ class DraftSelectionTests(unittest.TestCase):
                 self.assertEqual((result["profile"], result["merge_base"], result["changed_count"],
                                   result["test_files"]), ("test-files", initial, 2, [owner]))
                 self.assertEqual(selector.plan(base, docs_head)["profile"], "docs")
+                layout = selector.plan(base, layout_head)
+                self.assertEqual((layout["profile"], layout["test_files"], layout["layout_files"]),
+                                 ("layout", [owner], [stylesheet]))
+                visual = selector.plan(base, visual_head)
+                self.assertEqual((visual["profile"], visual["layout_files"]),
+                                 ("layout", sorted([stylesheet, selector.OVERVIEW_SPEC, reference])))
+                for start, end in ((base, bad_png), (bad_png, repaired)):
+                    self.assertEqual(selector.plan(start, end)["reason"], "unverified-content")
+
                 self.assertEqual(selector.plan("HEAD", test_head)["profile"], "full")
                 self.assertEqual(selector.plan(base, "f" * 40)["profile"], "full")
                 self.assertEqual(selector.plan(initial, base)["profile"], "full")
@@ -119,6 +151,12 @@ class DraftSelectionTests(unittest.TestCase):
                         _, files, reason = selector.reviewed_changes(diff)
                         self.assertEqual(files, {})
                         self.assertIsNotNone(reason)
+                ref = header + reference.encode() + b"\0"
+                spec = header + selector.OVERVIEW_SPEC.encode() + b"\0"
+                css = header + stylesheet.encode() + b"\0"
+                for diff in (ref, spec + ref, css + ref, css + spec + ref.replace(b"-snapshots/", b"-snapshots/nested/"),
+                             css + spec + ref.replace(b"-linux.", b"-linux-extra.").replace(b"-darwin.", b"-darwin-extra.")):
+                    self.assertEqual(selector.reviewed_changes(diff)[2], "outside-reviewed-owners")
                 # The PR's cumulative diff is eligible, including when main has advanced.
                 git("merge", "--no-ff", "--no-edit", test_head)
                 merge = git("rev-parse", "HEAD")
@@ -132,6 +170,21 @@ class DraftSelectionTests(unittest.TestCase):
                 git("switch", "-q", "--detach", invalid)
                 effective = checks["select_merge"](vars(selector), base, test_head, invalid)
                 self.assertEqual((effective["profile"], effective["reason"]), ("full", "effective-merge-differs"))
+                # The same number of eligible CSS files can still name the wrong edited stylesheet.
+                git("switch", "-q", "--detach", merge)
+                change(shared_stylesheet, ".button { color: navy; }")
+                git("add", shared_stylesheet)
+                wrong_css = git("commit-tree", git("write-tree"), "-p", base, "-p", layout_head, "-m", "swapped CSS")
+                git("switch", "-q", "--detach", wrong_css)
+                swapped = checks["select_merge"](vars(selector), base, layout_head, wrong_css)
+                self.assertEqual((swapped["profile"], swapped["reason"]), ("full", "effective-merge-differs"))
+                self.assertNotIn("layout_files", swapped)
+                for path in ("scripts/pdf-sandbox-verify.ts", "scripts/pdf-sandbox/probe.py",
+                             "apps/web/src/ManualHoldingEditor.tsx", "apps/web/src/unknown.css"):
+                    with self.subTest(unreviewed=path):
+                        self.assertEqual(selector.reviewed_changes(
+                            header + stylesheet.encode() + b"\0" + header + path.encode() + b"\0"
+                        )[2], "outside-reviewed-owners")
             finally:
                 os.chdir(previous)
 

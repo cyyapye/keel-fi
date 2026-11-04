@@ -33,17 +33,27 @@ supply that receipt. The separate Tugling candidate workflow runs on manual
 dispatch. See [CI performance](../../docs/engineering/ci-performance.md).
 
 A same-repository draft targeting `main` can take a shorter path when its only
-changes are edits to seven reviewed documents or four registered Vitest files,
-or a combination of those edits. The policy must already exist on the event
-base. Both the full PR diff and the merge tree GitHub will test must qualify.
-Missing history, a policy change or an unfamiliar path selects the full gate.
+changes are edits to seven reviewed documents, four registered Vitest files,
+three web stylesheets and their reviewed visual checks, or a combination of
+those edits. The policy must already exist on the event base. Both the full PR
+diff and the merge tree GitHub will test must qualify. Missing history, a policy
+change or an unfamiliar path selects the full gate.
 
-Selected drafts run the repository public-data scan and formatting checks. A
+Selected documentation drafts run the public-data scan and formatting checks. A
 test-file edit also runs repository-wide lint and type checks, then executes
 every registered case in each edited test file with one worker. The job logs the
-merge SHA and the selected cases. Marking a PR ready, updating a ready PR, or
-entering a merge group runs the full gate. Preview deployment requires its own
-full receipt for the merged revision.
+merge SHA and the selected cases.
+
+Editing `apps/web/src/startup.css`, `apps/web/src/styles.css` or
+`packages/ui/src/styles.css` selects the native graph on the same runner with
+the same time budget. A stylesheet edit can include the Overview visual spec
+and, when that spec changes, its existing desktop and mobile goal overview
+references. Only the late embedded antivirus marker and the 10,001-entry scanner
+limit probe are omitted. Browser coverage, the real 512-stream clean scan, raw
+antivirus detection, expanded-size limit and sandbox isolation checks still run.
+The job reports a partial draft result. Marking a PR ready, updating a ready PR,
+or entering a merge group runs the full gate. Preview deployment requires its
+own full receipt for the merged revision.
 
 The
 [hosted shadow trial](https://github.com/cyyapye/keel-fi/actions/runs/41874712167/job/126740723278)

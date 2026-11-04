@@ -137,7 +137,7 @@ jobs:
           plan=$(jq -ces 'select(length == 1) | .[0] | select(.schema_version == 1 and (.reason | test("^[a-z-]{1,64}$")))' <<< "$raw") || full "invalid decision"
           profile=$(jq -r '.profile' <<< "$plan")
           if [[ "$profile" == full ]]; then full "$(jq -r '.reason' <<< "$plan")"; fi
-          [[ "$profile" == docs || "$profile" == test-files ]] || full "unknown profile"
+          [[ "$profile" == docs || "$profile" == test-files || "$profile" == layout ]] || full "unknown profile"
           jq -e --arg base "$BASE_SHA" --arg head "$HEAD_SHA" '
             .base == $base and .head == $head and (.merge_base | test("^[a-f0-9]{40}$"))
             and (.test_files | type == "array") and (.changed_count | type == "number" and . >= 1)
@@ -148,7 +148,9 @@ jobs:
   draft-checks:
     name: Selected draft checks
     needs: secret-scan
-    if: success() && needs.secret-scan.outputs.plan != ''
+    if:
+      success() && needs.secret-scan.outputs.plan != '' &&
+      fromJSON(needs.secret-scan.outputs.plan).profile != 'layout'
     runs-on: [self-hosted, Linux, X64, keel-ci]
     permissions:
       contents: read
@@ -177,3 +179,13 @@ jobs:
           test "$(git --no-replace-objects rev-parse HEAD)" = "$GITHUB_SHA"
           git --no-replace-objects diff --quiet --no-ext-diff HEAD --
           printf '%s\n' "$DRAFT_PLAN" | python3 -I scripts/ci-draft-checks.py --plan-stdin
+
+  draft-layout:
+    name: Layout draft checks
+    needs: secret-scan
+    if:
+      success() && needs.secret-scan.outputs.plan != '' &&
+      fromJSON(needs.secret-scan.outputs.plan).profile == 'layout'
+    uses: ./.github/workflows/native-verification.yml
+    with:
+      layout_plan: ${{ needs.secret-scan.outputs.plan }}

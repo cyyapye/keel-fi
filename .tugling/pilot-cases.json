@@ -2122,6 +2122,7 @@
     "test_tugling_pilot.NativeAccountingTests.test_cost_seed_cleanup_on_success_failure_and_cancellation",
     "test_tugling_pilot.NativeAccountingTests.test_mocked_browser_guard_rejects_unknown_reads_and_unexpected_writes",
     "test_tugling_pilot.NativeAccountingTests.test_native_playwright_removed_skipped_and_filtered_cases_fail_accounting",
+    "test_tugling_pilot.NativeAccountingTests.test_layout_draft_preserves_the_required_graph_and_budget",
     "test_tugling_pilot.NativeAccountingTests.test_native_suite_leases_allow_independent_suites_but_reject_same_suite",
     "test_tugling_pilot.NativeAccountingTests.test_native_vitest_removed_skipped_and_filtered_cases_fail_accounting",
     "test_tugling_pilot.NativeAccountingTests.test_rejects_replacement_identity_duplicates_and_unexpected_success",

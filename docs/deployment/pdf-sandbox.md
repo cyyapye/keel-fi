@@ -262,6 +262,12 @@ the item budget; a large PDF can correctly hit the unchanged scan-time budget
 first. The test string never reaches a provider or R2. Production capture has no
 network-enabled signature updater and cannot build an image itself.
 
+On eligible layout drafts, CI omits the stream-512 marker and 10,001-entry ZIP
+probes. The remaining isolation checks still run. Scanner, dependency and
+unclassified changes run both probes, as do ready PRs, merge groups and
+post-merge verification. See the
+[draft routing policy](../../.github/workflows/README.md).
+
 On OVH, install `scripts/keel-document-scanner-refresh@.service` and `.timer`
 for the two exact instances `sydecar` and `tokenfolio`. Do not install them for
 other identities. For each, an administrator must:
