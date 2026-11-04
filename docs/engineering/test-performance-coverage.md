@@ -580,3 +580,23 @@ storage in the collected samples. Under storage pressure, a write that failed
 after admission still rolled back the transaction. The same storage experiment
 produced mixed timing results for Portfolio Watch, which uses its original
 temporary directory.
+
+On Linux x64 at `5c139dbc`, the manual-holding file selected shared memory and
+finished in 34.526 seconds, down from 45.251 seconds. Both runs recorded the
+same query plans, 960 round trips, 3,241 statements, 16,888 rows read and 12,506
+rows written for acceptance. The native gate took 795.921 seconds. The five most
+recent first-attempt passes had a median of 812.540 seconds and a maximum of
+839.836 seconds. All 2,109 required Linux cases reported a duration.
+[Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41814782604)
+
+The entity-review and purchase-refund seed tests now share the file
+`scripts/seed-scenarios.test.ts`. Each keeps its original test title and
+five-second deadline. Historical timings use
+`scripts/seed-entity-review.test.ts` and `scripts/seed-purchase-refund.test.ts`,
+respectively. Each test opens its own mutable SQLite database. When the inputs
+match, the second test can clone the immutable migration and seed snapshot built
+by the first. Either test can still run alone. Changing the refund amount or
+proxy price failed the original financial assertions. The preflight now owns 97
+Vitest cases and the main partition owns 1,553. In a local comparison, the
+refund case fell from 364 ms to 25 ms. The complete pair of partitions showed no
+overall speedup.
