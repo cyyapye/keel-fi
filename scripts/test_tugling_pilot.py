@@ -1223,10 +1223,10 @@ with native.cost_seed_directory() as seed:
             'gate-and-artifact-integrity': (['python3', '-I', 'scripts/pilot_native.py', 'preflight'], 120),
             'pdf-sandbox-build': (['make', 'pdf-sandbox-build'], 1200),
             'migration-and-seed': (['python3', '-I', 'scripts/pilot_native.py', 'migration-seed'], 300),
+            'build-and-entry-budget': (['make', 'build'], 300),
             'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
             'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
             'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
-            'build-and-entry-budget': (['make', 'build'], 300),
             'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 1800),
             'pdf-isolation': (['make', 'pdf-sandbox-verify'], 600),
         }
