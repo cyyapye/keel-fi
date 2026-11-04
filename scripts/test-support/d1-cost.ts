@@ -98,18 +98,24 @@ async function costDatabaseBootstrap(sources: readonly Buffer[]) {
   };
 }
 
-function allocateCostDirectory(sharedMemoryParent?: string) {
+function allocateCostDirectory(
+  sharedMemoryParent?: string,
+  checkProviderDayHeadroom = false,
+) {
   if (sharedMemoryParent && process.platform === "linux") {
     try {
       const owner = lstatSync(sharedMemoryParent);
       const volume = statfsSync(sharedMemoryParent);
+      // The manual fixture stayed below 85 MiB in the Linux trial. At admission,
+      // allow another 128 MiB for an overlapping provider day.
+      const extraHeadroom = checkProviderDayHeadroom ? 128 * 1024 ** 2 : 0;
       if (
         owner.isDirectory() &&
         owner.uid === process.getuid!() &&
         (owner.mode & 0o777) === 0o700 &&
         volume.type === 0x01021994 && // Linux TMPFS_MAGIC
-        volume.bavail * volume.bsize >= 128 * 1024 ** 2 &&
-        process.availableMemory() >= 512 * 1024 ** 2
+        volume.bavail * volume.bsize >= 128 * 1024 ** 2 + extraHeadroom &&
+        process.availableMemory() >= 512 * 1024 ** 2 + extraHeadroom
       ) {
         return {
           directory: mkdtempSync(join(sharedMemoryParent, "keel-cost-d1-")),
@@ -132,10 +138,12 @@ export async function createCostDatabase(
     seed?: string | null;
     persist?: string;
     sharedMemoryParent?: string | undefined;
+    checkProviderDayHeadroom?: boolean;
   } = {},
 ) {
   const { directory, storage } = allocateCostDirectory(
     options.persist === undefined ? options.sharedMemoryParent : undefined,
+    options.checkProviderDayHeadroom,
   );
   const persist = options.persist ?? join(directory, "d1");
   const seed =

@@ -570,3 +570,13 @@ advances the browser clock with the review closed and with Apply focused, then
 checks that the user's click produces exactly one confirmation. Focusing Apply
 also caught a faulty handler that started the request early and reused it on
 click. Desktop and mobile retain the original review screenshot.
+
+The 120-holding D1 cost case also uses the supervisor's private shared-memory
+directory when at least 256 MiB of filesystem space and 640 MiB of memory are
+available at admission. It finished 2.62–2.73 seconds sooner in three paired
+Linux arm64 runs. Each pair retained its D1 billing and query plans. Running it
+beside a provider day and a third D1 fixture used at most 91.0 MiB of shared
+storage in the collected samples. Under storage pressure, a write that failed
+after admission still rolled back the transaction. The same storage experiment
+produced mixed timing results for Portfolio Watch, which uses its original
+temporary directory.

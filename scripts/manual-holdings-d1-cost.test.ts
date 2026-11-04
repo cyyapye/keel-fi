@@ -347,6 +347,7 @@ it("bounds manual options and current identities with 120 items, tied history an
     console.info(
       JSON.stringify({
         syntheticManualHoldingsCost: {
+          storage: fixture.storage,
           acceptance: acceptanceCost,
           before: before.cost,
           history: after.cost,
