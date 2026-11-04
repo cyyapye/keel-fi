@@ -1,7 +1,12 @@
 import { COST_SUBJECT, COST_TIME, seedCostHoldings } from "./cost-fixtures";
+import { measureD1 } from "./d1-meter";
 
-// Synthetic-only unmeasured fixture setup runs beside D1 to avoid repeated
-// Node-to-D1 RPC overhead. This worker is test support and has no app runtime.
+const realizedHolding = {
+  status: "Realized",
+  investedMinor: 130_000,
+  allocationMinor: 170_000,
+} as const;
+
 export default {
   async fetch(
     request: Request,
@@ -12,13 +17,32 @@ export default {
       await seedCostHoldings(bindings.DB, COST_SUBJECT, 1, true, {
         status: "Realized",
       });
+    } else if (operation === "second-import") {
+      const measured = measureD1(bindings.DB);
+      await seedCostHoldings(
+        measured.database,
+        COST_SUBJECT,
+        2,
+        false,
+        realizedHolding,
+      );
+      return Response.json({
+        operation,
+        cost: measured.cost,
+        queries: [...measured.queries].map((sql) => [
+          sql,
+          measured.byQuery.get(sql)?.calls ?? 0,
+        ]),
+      });
     } else if (operation === "history") {
       for (let revision = 3; revision < 6; revision++) {
-        await seedCostHoldings(bindings.DB, COST_SUBJECT, revision, false, {
-          status: "Realized",
-          investedMinor: 130_000,
-          allocationMinor: 170_000,
-        });
+        await seedCostHoldings(
+          bindings.DB,
+          COST_SUBJECT,
+          revision,
+          false,
+          realizedHolding,
+        );
       }
     } else if (operation === "unrelated") {
       await bindings.DB.batch([
