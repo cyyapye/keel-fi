@@ -683,3 +683,20 @@ The legacy correction case waits for the saved editor to appear before reading
 the submitted correction. Both viewport projects retain their original deadlines
 and reference images. Injecting a missing write, a duplicate, a rejection or a
 successful response that drops the saved classification fails the link case.
+
+At `2ed2863b` the link case passed on its first attempt on desktop and mobile.
+The native gate stopped after 812.973 seconds. The Sydecar reported-failure
+recovery case took 5.085 seconds against its five-second deadline. All other
+1,648 Vitest cases and 49 Python cases passed. The browser had reported 258
+passes when the unit failure interrupted the remaining work.
+[Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41860790061)
+
+The same delayed-write check exposed premature reads after Set baseline and in
+five purchase-detail or valuation flows. The baseline test now waits for the
+review editor to close. The purchase tests wait for the saved editor or the
+pending unlink request before reading fixture state. A separate partial-position
+case now reopens the saved investment and checks the edited carry. Returning the
+previous receipt with a 201 response fails that check. The legal-entity Cancel
+case also observes attempts to create or update an entity in the browser. An
+injected Cancel that submitted the valid draft passed the old fixture's
+empty-write assertion on both viewports.

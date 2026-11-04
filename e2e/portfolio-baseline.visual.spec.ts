@@ -486,6 +486,7 @@ test("sets the initial FI baseline while checking only manual cash", async ({
   await expectNoHorizontalOverflow(page);
 
   await page.getByRole("button", { name: "Set baseline" }).click();
+  await expect(page.locator(".portfolio-baseline-review")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Planning baseline is current" }),
   ).toHaveCount(0);

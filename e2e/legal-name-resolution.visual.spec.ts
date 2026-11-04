@@ -757,6 +757,31 @@ test("gates manual creation and editing on all profile fields without browser va
   page,
 }) => {
   const { writes } = await setup(page);
+  const attempts = await page.evaluateHandle((id) => {
+    const endpoints = ["/api/legal-entities", `/api/legal-entities/${id}`];
+    const submitted: string[] = [];
+    window.fetch = new Proxy(fetch, {
+      apply(send, receiver, args: Parameters<typeof fetch>) {
+        const [input, init] = args;
+        const url = new URL(
+          input instanceof Request ? input.url : input,
+          location.href,
+        );
+        const method = (
+          init?.method ?? (input instanceof Request ? input.method : "GET")
+        ).toUpperCase();
+        if (
+          url.origin === location.origin &&
+          endpoints.includes(url.pathname) &&
+          ["POST", "PUT"].includes(method)
+        ) {
+          submitted.push(`${method} ${url.pathname}`);
+        }
+        return Reflect.apply(send, receiver, args);
+      },
+    });
+    return submitted;
+  }, encodeURIComponent(existing.id));
   await page.getByRole("button", { name: "Add entity", exact: true }).click();
   const editor = page.locator(".legal-entity-editor");
   const name = editor.getByLabel("Legal name", { exact: true });
@@ -798,6 +823,7 @@ test("gates manual creation and editing on all profile fields without browser va
   await expect(save).toBeEnabled();
   await editor.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(writes).toHaveLength(0);
+  expect(await attempts.jsonValue()).toEqual([]);
 });
 
 for (const supportsObserver of [true, false])

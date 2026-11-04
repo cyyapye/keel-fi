@@ -509,6 +509,9 @@ test("valuation choices compare both amounts and preserve investment shares afte
     page.getByRole("radio", { name: /Calculated from your shares/ }),
   ).toBeChecked();
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation", exact: true }),
+  ).toBeVisible();
   expect(state.receipt().details.valuation!.selected!.method).toBe("shares");
   expect(state.receipt().details.valuation!.records[0]!.totalMinor).toBe(
     1_748_000,
@@ -823,7 +826,7 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
     links.getByRole("button", { name: "Unlinking…", exact: true }),
   ).toBeDisabled();
   await expect(info).toBeDisabled();
-  expect(writes).toBe(2);
+  await expect.poll(() => writes).toBe(2);
   release();
   await expect(
     timeline.getByRole("button", { name: /^Unlinked ·/ }),
@@ -882,11 +885,11 @@ test("sources restore GP facts and estimates without duplicate forms or acknowle
     "Synthetic Cedar funding update",
   );
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Edit valuation" }).click();
   expect(
     state.receipt().details.valuation!.records.find((r) => r.id === "mine")
       ?.watchEvidenceId,
   ).toBe("watch");
-  await page.getByRole("button", { name: "Edit valuation" }).click();
   await select(page, "Source", "Synthetic GP");
   await expect(
     page.getByRole("textbox", { name: "Position total · $" }),
@@ -926,6 +929,9 @@ test("investment fee percentages preserve unknown refund dates and failed drafts
   await screenshot(page, "investment-fee-error.png");
   state.reject(false);
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edit investment", exact: true }),
+  ).toBeVisible();
   expect(
     state.receipt().details.lots[0]!.fees!.find((f) => f.id === "management"),
   ).toMatchObject({
@@ -1010,6 +1016,9 @@ test("source conflicts recover with current prices while preserving user input",
   await page.getByRole("button", { name: "Reload sources" }).click();
   await page.getByRole("button", { name: "Use updated price" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation", exact: true }),
+  ).toBeVisible();
   expect(
     state.receipt().details.valuation!.records.find((r) => r.origin === "proxy")
       ?.priceMicros,
@@ -1032,12 +1041,15 @@ test("editing an existing partial investment preserves its recorded scope", asyn
     .getByRole("textbox", { name: "Carry · %", exact: true })
     .fill("14");
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Edit investment" }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Carry · %", exact: true }),
+  ).toHaveValue("14");
   expect(state.receipt().details.coversPosition).toBe(false);
   expect(state.receipt().details.cashCoversPosition).toBe(false);
   expect(
     state.receipt().details.lots[0]!.fees!.some((f) => f.kind === "management"),
   ).toBe(false);
-  await page.getByRole("button", { name: "Edit investment" }).click();
   await select(page, "Management fee entry", "Annual percentage");
   await expect(
     page.getByRole("textbox", {
