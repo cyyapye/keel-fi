@@ -257,10 +257,13 @@ retain their loaded-state assertions in real desktop and mobile journeys. Fixed
 desktop provider processes run once, and the five-start renewal journey retains
 real restarts, token rotation, document bounds and shutdown. The current
 inventory has 1,650 Vitest, 447 Playwright and 49 Python cases; Linux has 417
-required browser executions and 30 explicit exclusions. All 435 Linux image
-references are unchanged. Replacing a case requires a named remaining owner and
-evidence that a plausible fault still fails; a shorter case list alone is not
-proof.
+required browser executions and 30 explicit exclusions. Of 435 Linux image
+references, 434 are unchanged. The desktop empty-search comparison on Linux and
+Darwin uses the original 1056 × 720 main region, cropped without changing any
+retained pixel. The adjacent full-page SPV check covers the sidebar; mobile
+keeps both full-page checks. Replacing a case requires a named remaining owner
+and evidence that a plausible fault still fails; a shorter case list alone is
+not proof.
 
 A follow-up audit covered 28 screenshot-free financial test families. Keep the
 no-valuation cash save: a production component test caught four rendering

@@ -2126,11 +2126,33 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
     fullPage: true,
     animations: "disabled",
   });
-  await expect(page).toHaveScreenshot("investment-holdings-search-empty.png", {
-    animations: "disabled",
-    caret: "hide",
-    fullPage: true,
-  });
+  // The previous full-page SPV comparison owns the desktop navigation. Compare
+  // the empty result and page header without rechecking the sticky sidebar.
+  if (testInfo.project.name === "chromium") {
+    const main = page.getByRole("main");
+    expect(await main.boundingBox()).toEqual({
+      x: 224,
+      y: 0,
+      width: 1056,
+      height: 720,
+    });
+    await expect(main).toHaveScreenshot(
+      "investment-holdings-search-empty.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+      },
+    );
+  } else {
+    await expect(page).toHaveScreenshot(
+      "investment-holdings-search-empty.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        fullPage: true,
+      },
+    );
+  }
   await search.press("Escape");
   await expect(search).toHaveValue("");
   await expect(search).toBeFocused();
