@@ -57,6 +57,9 @@ it("bounds event detail and atomic conversion writes with 120 positions and grow
       .bind(ids[0]!)
       .first<{ household_id: string }>();
     // Exercise the documented 100-revision maximum, including tied timestamps.
+    const insertRevision = fixture.database.prepare(
+      "INSERT INTO investment_event_revisions (id, household_id, position_id, event_id, revision, supersedes_revision_id, review_id, content_sha256, payload_json, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    );
     const statements = [];
     let previous = original.revisionId;
     for (let revision = 2; revision <= 100; revision++) {
@@ -70,22 +73,18 @@ it("bounds event detail and atomic conversion writes with 120 positions and grow
         contentSha256: await investmentEvidenceRevision({ revision }),
       };
       statements.push(
-        fixture.database
-          .prepare(
-            "INSERT INTO investment_event_revisions (id, household_id, position_id, event_id, revision, supersedes_revision_id, review_id, content_sha256, payload_json, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          )
-          .bind(
-            id,
-            scope!.household_id,
-            ids[0]!,
-            event.eventId,
-            revision,
-            previous,
-            accepted.id,
-            payload.contentSha256,
-            JSON.stringify(payload),
-            original.recordedAt,
-          ),
+        insertRevision.bind(
+          id,
+          scope!.household_id,
+          ids[0]!,
+          event.eventId,
+          revision,
+          previous,
+          accepted.id,
+          payload.contentSha256,
+          JSON.stringify(payload),
+          original.recordedAt,
+        ),
       );
       previous = id;
     }

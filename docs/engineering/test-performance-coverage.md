@@ -484,6 +484,12 @@ single-worker preflight. Its 96 Vitest cases and the 1,554 main cases retain
 their original assertions and deadlines. The previous eight Linux preflights
 took 66–79 seconds against the 120-second command limit.
 
+All 2,112 required cases passed on the first attempt at `413fc174`. The
+price-proxy, issuer Worker and entity-review seed cases took 1.588, 1.098 and
+1.263 seconds respectively. Preflight took 74.713 seconds. Browsers finished
+last at 828.915 seconds, above the 750-second full-suite ceiling.
+[Linux run 41801709670](https://github.com/cyyapye/keel-fi/actions/runs/41801709670)
+
 The production SQL inventory took 26.856 seconds on Linux against its 30-second
 deadline. The test now sends each batch of queries and bindings to its D1 Worker
 for preparation. The host still discovers the queries from production source and
@@ -499,3 +505,9 @@ transactions with the same 600 binding vectors and identical per-statement
 billing. Skipping the last version and corrupting its company mapping each
 failed the original and revised case. Its local median fell from 11.123 to 9.156
 seconds across five runs per version.
+
+The participation and investment-event history fixtures also reuse their unbound
+insert statements. D1 still executed all 219 inserts across the original
+transactions. A wrong participation version rolled back its batch and a wrong
+event predecessor left the original revision intact. The two files finished 0.89
+and 0.95 seconds sooner in opposite-order local pairs.
