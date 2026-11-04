@@ -2,8 +2,9 @@
 
 The comparison starts at `525cfab1`, whose complete Linux run used 884.478 of
 900 active seconds. That near-limit result is the baseline to improve. The
-900-second gate, individual deadlines, worker limits, snapshot baselines and
-platform exclusions remain unchanged.
+900-second gate, individual deadlines and worker limits remain unchanged. The
+duration inventory below explains changes to case ownership, platform exclusions
+and the desktop empty-search image.
 
 ## Work removed
 
@@ -271,3 +272,38 @@ faults, but accepted a broken save in that state. The real D1 save exercises a
 holding with a valuation. Also keep the agreement-selection setup in the
 historical closure journey: removing it lost the adjacent company draft in both
 viewports. Six other executions saved only 720 ms combined.
+
+In
+[run 41776209558](https://github.com/cyyapye/keel-fi/actions/runs/41776209558),
+all unit and Python cases passed, but only 397 of 417 required browser cases
+finished before the 900-second deadline. That is a failed trial. The first four
+browser lanes held eleven package-manager parents and four additional `tsx` CLI
+processes. The isolated server now launches each workspace's same Vite and
+Wrangler entry points directly, with a separate Wrangler registry per stateful
+lane. Closed profiles and complete lane reports are still required. The local
+five-lane coordinator accounted for all 447 project cases: 417 first-attempt
+passes and 30 reviewed exclusions. The two full-page popup comparisons now
+verify the live viewport and anchor, then hold that measured placement during
+capture. This prevents the screenshot itself from resizing the popup. All 36
+position-link reference images stayed byte-identical.
+
+Position-link history still executes eight real D1 batches of 60 inserts. The
+test sends host-generated review IDs to its fixture worker and checks the stored
+count before measuring the original reads. In five alternating local pairs the
+file median fell from 7.25 to 4.80 seconds. A matched-input replay compared all
+480 results and billing counters and all 137 tables; a duplicate at statement 60
+rolled back the entire batch on both paths.
+
+Ordinary legal-document tests also reuse compiled statements for the lifetime of
+their own SQLite fixture. Across 146 cases the same 54,652 calls required 7,976
+native prepares instead of 55,177. Raw migration connections keep their original
+behavior. Two traced workflows retained identical SQL, bindings, results and
+final tables.
+
+The plain agreement's clean scanner verdict, empty findings, one page and exact
+citation are checked on the real provider capture. This removes a second scan
+and extraction of the same bytes from PDF isolation. Isolation still scans and
+reads the 512-stream clean PDF and checks the raw and embedded antivirus
+markers, expanded-file and item-count limits, kernel restrictions and orphan
+cleanup. Container starts removed are counted work, not a Linux wall-time
+estimate.

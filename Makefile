@@ -121,8 +121,8 @@ check:
 
 .PHONY: d1-migration-check
 d1-migration-check:
-	$(PNPM) exec tsx scripts/d1-migration-safety.ts check
-	$(PNPM) exec tsx scripts/d1-maintenance.ts check
+	node --import tsx scripts/d1-migration-safety.ts check
+	node --import tsx scripts/d1-maintenance.ts check
 
 .PHONY: ci-storage-test
 ci-storage-test:
@@ -201,10 +201,10 @@ pdf-sandbox-build:
 	$(PNPM) exec tsx scripts/pdf-sandbox-build.ts
 
 provider-document-runtime-verify:
-	$(PNPM) exec tsx scripts/provider-document-runtime-verify.ts
+	node --import tsx scripts/provider-document-runtime-verify.ts
 
 pdf-sandbox-verify:
-	$(PNPM) exec tsx scripts/pdf-sandbox-verify.ts
+	node --import tsx scripts/pdf-sandbox-verify.ts
 
 verify:
 	$(MAKE) provider-document-runtime-verify

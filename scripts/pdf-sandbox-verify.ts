@@ -160,10 +160,6 @@ async function main() {
     // even after failure so their finally blocks finish before shared cleanup.
     const verification = await Promise.allSettled([
       (async () => {
-        const clean = await scanDocumentInSandbox(syntheticAgreementPdf());
-        assert.equal(clean.outcome, "clean");
-        assert.equal(clean.version, 2);
-        assert.deepEqual(clean.findings, []);
         // Standard inert antivirus test string, never a live malware sample. It
         // exists only in memory in this synthetic proof and never reaches R2.
         const eicar = Buffer.from(
@@ -174,7 +170,7 @@ async function main() {
         assert.equal(threat.findings[0]?.reason, "malware_signature");
         assert.match(threat.findings[0]?.signature ?? "", /EICAR/iu);
         console.log(
-          "PASS: isolated scanner accepts a synthetic PDF and blocks the inert antivirus test sample",
+          "PASS: isolated scanner blocks the inert antivirus test sample",
         );
         // Benign compressed data crosses the scanner's fixed expanded-file limit,
         // while remaining well below the input cap. No real documents or malware.
@@ -193,6 +189,7 @@ async function main() {
         const started = Date.now();
         const complex = await scanDocumentInSandbox(manyStreams);
         assert.equal(complex.outcome, "clean");
+        assert.equal(complex.version, 2);
         assert.deepEqual(complex.findings, []);
         const complexName = await extractLegalNameFromPdf(manyStreams);
         assert.equal(complexName.problem, null);
@@ -201,6 +198,7 @@ async function main() {
           complexName.citations[0]?.legalName,
           "Synthetic Atlas SPV LLC",
         );
+        assert.equal(complexName.citations[0]?.page, 1);
         console.log(
           `PASS: 512-stream synthetic PDF scanned and exact name extracted (${(Date.now() - started).toString()} ms, ${manyStreams.length.toString()} input bytes)`,
         );
@@ -230,14 +228,6 @@ async function main() {
         );
         console.log(
           "PASS: container exceeding 10000 items is still blocked by MaxFiles",
-        );
-        const result = await extractLegalNameFromPdf(syntheticAgreementPdf());
-        assert.equal(result.problem, null);
-        assert.equal(result.pageCount, 1);
-        assert.equal(result.citations[0]?.legalName, "Synthetic Atlas SPV LLC");
-        assert.equal(result.citations[0]?.page, 1);
-        console.log(
-          "PASS: real PDF -> isolated Poppler -> exact source name and page",
         );
       })(),
       (async () => {
