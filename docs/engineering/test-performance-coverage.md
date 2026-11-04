@@ -256,15 +256,15 @@ expensive checks on the critical path change as flows overlap.
 Two screenshot-free holdings checks now exercise production components and
 retain their loaded-state assertions in real desktop and mobile journeys. Fixed
 desktop provider processes run once, and the five-start renewal journey retains
-real restarts, token rotation, document bounds and shutdown. The current
-inventory has 1,650 Vitest, 447 Playwright and 49 Python cases; Linux has 417
-required browser executions and 30 explicit exclusions. Of 435 Linux image
-references, 434 are unchanged. The desktop empty-search comparison on Linux and
-Darwin uses the original 1056 × 720 main region, cropped without changing any
-retained pixel. The adjacent full-page SPV check covers the sidebar; mobile
-keeps both full-page checks. Replacing a case requires a named remaining owner
-and evidence that a plausible fault still fails; a shorter case list alone is
-not proof.
+real restarts, token rotation, document bounds and shutdown. After the holdings
+change, the inventory had 1,650 Vitest, 447 Playwright and 49 Python cases;
+Linux had 417 required browser executions and 30 explicit exclusions. Of 435
+Linux image references, 434 are unchanged. The desktop empty-search comparison
+on Linux and Darwin uses the original 1056 × 720 main region, cropped without
+changing any retained pixel. The adjacent full-page SPV check covers the
+sidebar; mobile keeps both full-page checks. Replacing a case requires a named
+remaining owner and evidence that a plausible fault still fails; a shorter case
+list alone is not proof.
 
 A follow-up audit covered 28 screenshot-free financial test families. Keep the
 no-valuation cash save: a production component test caught four rendering
@@ -339,3 +339,12 @@ billing paths. Each intercept constructs the outgoing request once. The same API
 bindings serve the whole synthetic day. Unexpected harness errors now escape the
 production poller's recovery path: injected request and browser budget
 violations fail even in scenarios that expect provider errors.
+
+The Watch news journey now checks the legacy valuation range and the ambiguous
+financing card on its existing reloads in both viewports. Each check has a
+30-second step deadline and retains the original locator assertions. The
+standalone tests took four additional full document loads across both projects.
+The combined journey keeps the collapsed-news screenshot and selected evidence
+focus after reload. Hiding the legacy range or ambiguity label still fails. This
+leaves 443 registered browser cases, 413 required on Linux and 30 explicit
+exclusions.

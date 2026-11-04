@@ -321,9 +321,9 @@ Browser verification produces five reports while admitting at most four workers.
 The initial four lanes each use one worker. After they validate and close, the
 holdings lane uses four workers and production serving. Its historical
 `mocked-development` identifier remains; its declared frontend is production.
-The development stateful lane registers 104 cases, production stateful-a 111,
+The development stateful lane registers 100 cases, production stateful-a 111,
 production stateful-b 88, the production mocked lane 110 and the holdings
-tail 34. Of the 447 registered cases, 417 run on Linux and 30 have reviewed
+tail 34. Of the 443 registered cases, 413 run on Linux and 30 have reviewed
 exclusions. The geometry consolidation and retained failure proof are recorded
 in [test performance coverage](test-performance-coverage.md).
 

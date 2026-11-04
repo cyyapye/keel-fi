@@ -87,6 +87,35 @@ const portfolioWatchFixture = {
   ],
 };
 
+const ambiguousFinancingItem = {
+  id: "evt_watch_harbor_conflicting_financing",
+  companyName: "Harbor Health Systems",
+  eventType: "financing_announced",
+  headline: "Synthetic financing amounts need source review",
+  detectedAt: "2026-08-02T12:00:00.000Z",
+  effectiveDate: "2026-07-31",
+  status: "pending_review",
+  confidencePpm: 920_000,
+  modelConfidencePpm: 610_000,
+  sources: ["Official company website"],
+  sourceUrl:
+    "https://newsroom.harbor-health.example/updates/conflicting-financing",
+  sourceExcerpt:
+    "Harbor Health Systems announced USD 40 million in financing and a separate USD 15 million investment.",
+  priorValue: "Not set",
+  replacementValue: "Not set",
+  forecastImpactMinor: 0,
+  financingFacts: {
+    roundType: "series",
+    roundLabel: "Series C",
+    instrument: "undisclosed",
+    announcedAmount: null,
+    companyValuation: null,
+    ambiguities: ["multiple_funding_amounts"],
+  },
+  application: null,
+};
+
 const watchSourceFixture = {
   id: "source_harbor",
   targetId: "watch_harbor",
@@ -1501,110 +1530,18 @@ test("reconciles financing reports before creating a version-safe proposal", asy
   );
 });
 
-test("keeps conflicting financing amounts unchosen and reviewable", async ({
-  page,
-}, testInfo) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const liveAlpha = (await alphaResponse.json()) as Record<string, unknown>;
-  const sourceUrl =
-    "https://newsroom.harbor-health.example/updates/conflicting-financing";
-  const sourceExcerpt =
-    "Harbor Health Systems announced USD 40 million in financing and a separate USD 15 million investment.";
-  const alphaFixture = {
-    ...liveAlpha,
-    evidenceInbox: [
-      {
-        id: "evt_watch_harbor_conflicting_financing",
-        companyName: "Harbor Health Systems",
-        eventType: "financing_announced",
-        headline: "Synthetic financing amounts need source review",
-        detectedAt: "2026-08-02T12:00:00.000Z",
-        effectiveDate: "2026-07-31",
-        status: "pending_review",
-        confidencePpm: 920_000,
-        modelConfidencePpm: 610_000,
-        sources: ["Official company website"],
-        sourceUrl,
-        sourceExcerpt,
-        priorValue: "Not set",
-        replacementValue: "Not set",
-        forecastImpactMinor: 0,
-        financingFacts: {
-          roundType: "series",
-          roundLabel: "Series C",
-          instrument: "undisclosed",
-          announcedAmount: null,
-          companyValuation: null,
-          ambiguities: ["multiple_funding_amounts"],
-        },
-        application: null,
-      },
-    ],
-    portfolioWatch: { ...portfolioWatchFixture, observations: [] },
-  };
-
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Evidence/);
-
-  const card = page
-    .locator(".evidence-card")
-    .filter({ hasText: "Synthetic financing amounts need source review" });
-  await expect(card.getByText("Series C")).toBeVisible();
-  await expect(
-    card.getByText(`Source wording: “${sourceExcerpt}”`),
-  ).toBeVisible();
-  await expect(
-    card.getByText("Check source wording: multiple funding amounts"),
-  ).toBeVisible();
-  await expect(card.getByText(/USD 40M|USD 15M/)).toHaveCount(0);
-  await expect(
-    card.getByRole("link", { name: "Open official source" }),
-  ).toHaveAttribute("href", sourceUrl);
-  await expect(card.getByText("Holding impact")).toBeVisible();
-});
-
-test("keeps the legacy estimated range when financing facts are absent", async ({
-  page,
-}, testInfo) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const liveAlpha = (await alphaResponse.json()) as Record<string, unknown>;
-  const [observation] = portfolioWatchFixture.observations;
-  const alphaFixture = {
-    ...liveAlpha,
-    evidenceInbox: [],
-    portfolioWatch: {
-      ...portfolioWatchFixture,
-      observations: [{ ...observation, financingFacts: null }],
-    },
-  };
-
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Watch/);
-  await page.getByRole("tab", { name: "Updates", exact: true }).click();
-
-  await expect(page.getByText("Estimated range")).toHaveCount(0);
-  await page.getByRole("button", { name: "Details", exact: true }).click();
-  await expect(page.getByText("Estimated range")).toBeVisible();
-  await expect(page.getByText("$930k – $1.4M")).toBeVisible();
-  await expect(page.getByText("Reported financing")).toHaveCount(0);
-});
-
 test("reads news independently of decisions, restores read state, and opens the selected evidence", async ({
   page,
 }) => {
   // Includes cold navigation plus saved-state reloads in both Watch and Evidence Inbox.
   test.setTimeout(60_000);
-  const alpha = await (await page.request.get("/api/alpha")).json();
+  const alphaResponse = await test.step(
+    "Load the saved dashboard",
+    () => page.request.get("/api/alpha"),
+    { timeout: 30_000 },
+  );
+  expect(alphaResponse.ok()).toBe(true);
+  const alpha = await alphaResponse.json();
   const selected = alpha.evidenceInbox[0];
   const financing = {
     ...portfolioWatchFixture.observations[0]!,
@@ -1626,15 +1563,30 @@ test("reads news independently of decisions, restores read state, and opens the 
       "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
     readAt: null as string | null,
   };
-  const fixture = {
-    ...alpha,
-    signalReconciliations: [],
-    portfolioWatch: {
-      ...portfolioWatchFixture,
-      observations: [news, financing],
-    },
+  const legacy = {
+    ...financing,
+    id: "synthetic-legacy-range",
+    evidenceEventId: portfolioWatchFixture.observations[0]!.evidenceEventId,
+    sourceTitle: "Synthetic prior holding range",
+    financingFacts: null,
+    readAt: "2026-08-02T12:30:00.000Z",
+    readVersion: 1,
   };
-  await page.route("**/api/alpha", (route) => route.fulfill({ json: fixture }));
+  const additionalNews: (typeof legacy)[] = [];
+  const evidenceInbox = [...alpha.evidenceInbox];
+  await page.route("**/api/alpha", (route) =>
+    route.fulfill({
+      json: {
+        ...alpha,
+        signalReconciliations: [],
+        evidenceInbox,
+        portfolioWatch: {
+          ...portfolioWatchFixture,
+          observations: [news, financing, ...additionalNews],
+        },
+      },
+    }),
+  );
   await page.route("**/api/watch/activity**", (route) =>
     route.fulfill({ json: watchActivityFixture }),
   );
@@ -1696,18 +1648,42 @@ test("reads news independently of decisions, restores read state, and opens the 
   fail = false;
   await row.getByRole("button", { name: "Mark read", exact: true }).click();
   await expect(row).toHaveCount(0);
-  await page.reload();
-  await page
-    .getByRole("heading", { name: "Portfolio Watch", exact: true })
-    .waitFor();
-  await expect(
-    page.getByRole("button", { name: "Unread (1)", exact: true }),
-  ).toBeVisible();
-  await expect(row).toHaveCount(0);
-  await page.getByRole("button", { name: "All updates", exact: true }).click();
-  await expect(
-    row.getByRole("button", { name: "Mark unread", exact: true }),
-  ).toBeVisible();
+  await test.step(
+    "Show the legacy estimate after its Details disclosure",
+    async () => {
+      additionalNews.push(legacy);
+      await page.reload();
+      await page.getByRole("tab", { name: "Updates", exact: true }).click();
+      await page
+        .getByRole("heading", { name: "Portfolio Watch", exact: true })
+        .waitFor();
+      await expect(
+        page.getByRole("button", { name: "Unread (1)", exact: true }),
+      ).toBeVisible();
+      await expect(row).toHaveCount(0);
+      await page
+        .getByRole("button", { name: "All updates", exact: true })
+        .click();
+      await expect(
+        row.getByRole("button", { name: "Mark unread", exact: true }),
+      ).toBeVisible();
+      const rangeRow = page.getByRole("article", {
+        name: legacy.sourceTitle,
+        exact: true,
+      });
+      await expect(page.getByText("Estimated range")).toHaveCount(0);
+      await rangeRow
+        .getByRole("button", { name: "Details", exact: true })
+        .click();
+      await expect(rangeRow.getByText("Estimated range")).toBeVisible();
+      await expect(rangeRow.getByText("$930k – $1.4M")).toBeVisible();
+      await expect(page.getByText("Reported financing")).toHaveCount(0);
+      await rangeRow
+        .getByRole("button", { name: "Details", exact: true })
+        .click();
+    },
+    { timeout: 30_000 },
+  );
   expect(evidenceWrites).toBe(0);
   await page
     .getByRole("button", { name: "Review decision", exact: true })
@@ -1716,9 +1692,35 @@ test("reads news independently of decisions, restores read state, and opens the 
     new RegExp(`/evidence\\?event=${encodeURIComponent(selected.id)}`),
   );
   await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
-  await page.reload();
-  await page.getByRole("heading", { name: "Evidence Inbox" }).waitFor();
-  await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
+  await test.step(
+    "Show ambiguous financing without choosing an amount",
+    async () => {
+      evidenceInbox.push(ambiguousFinancingItem);
+      await page.reload();
+      await page.getByRole("heading", { name: "Evidence Inbox" }).waitFor();
+      await expect(
+        page.locator(`[id="evidence-${selected.id}"]`),
+      ).toBeFocused();
+      const card = page
+        .locator(".evidence-card")
+        .filter({ hasText: "Synthetic financing amounts need source review" });
+      await expect(card.getByText("Series C")).toBeVisible();
+      await expect(
+        card.getByText(
+          `Source wording: “${ambiguousFinancingItem.sourceExcerpt}”`,
+        ),
+      ).toBeVisible();
+      await expect(
+        card.getByText("Check source wording: multiple funding amounts"),
+      ).toBeVisible();
+      await expect(card.getByText(/USD 40M|USD 15M/)).toHaveCount(0);
+      await expect(
+        card.getByRole("link", { name: "Open official source" }),
+      ).toHaveAttribute("href", ambiguousFinancingItem.sourceUrl);
+      await expect(card.getByText("Holding impact")).toBeVisible();
+    },
+    { timeout: 30_000 },
+  );
 });
 
 test("confirms a missing website while keeping source verification pending", async ({
