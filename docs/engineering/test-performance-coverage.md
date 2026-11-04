@@ -492,3 +492,10 @@ On identical inputs both paths returned the same 2,951 plan rows for 592 queries
 in ten batches. Five local pairs reduced the median case time from 3.740 to
 0.254 seconds. Invalid SQL, incorrect bindings and a real base-table scan still
 failed the case.
+
+The manual-holding history fixture prepares its five SQL statements once and
+binds them for each of 120 versions. Both paths executed 120 real D1
+transactions with the same 600 binding vectors and identical per-statement
+billing. Skipping the last version and corrupting its company mapping each
+failed the original and revised case. Its local median fell from 11.123 to 9.156
+seconds across five runs per version.

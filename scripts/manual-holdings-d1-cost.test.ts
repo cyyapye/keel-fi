@@ -119,50 +119,39 @@ it("bounds manual options and current identities with 120 items, tied history an
     expect(emptyBefore.options.containers).toEqual([]);
     expect(emptyBefore.view.connections).toEqual([]);
 
-    for (let version = 2; version <= 121; version++) {
-      await database.batch([
-        database
-          .prepare(
-            `INSERT INTO investment_connection_versions
+    const connectionVersion =
+      database.prepare(`INSERT INTO investment_connection_versions
           (id,household_id,connection_id,version,institution_key,institution_label,lifecycle_state,credential_reference,supersedes_version_id,recorded_by_user_id,recorded_at,immutable)
           SELECT connection_id||'_cost_v'||?,household_id,connection_id,version+1,institution_key,institution_label,lifecycle_state,credential_reference,id,recorded_by_user_id,?,1
-          FROM investment_connection_versions WHERE household_id='hh_demo' AND institution_key='manual' AND version=?`,
-          )
-          .bind(version, time, version - 1),
-        database
-          .prepare(
-            `INSERT INTO ownership_container_versions
+          FROM investment_connection_versions WHERE household_id='hh_demo' AND institution_key='manual' AND version=?`);
+    const containerVersion =
+      database.prepare(`INSERT INTO ownership_container_versions
           (id,household_id,container_id,version,display_label,container_kind,tax_treatment,supersedes_version_id,recorded_by_user_id,recorded_at,immutable)
           SELECT container_id||'_cost_v'||?,household_id,container_id,version+1,display_label,container_kind,tax_treatment,id,recorded_by_user_id,?,1
-          FROM ownership_container_versions WHERE household_id='hh_demo' AND container_id LIKE 'manual_container_%' AND version=?`,
-          )
-          .bind(version, time, version - 1),
-        database
-          .prepare(
-            `INSERT INTO source_documents
+          FROM ownership_container_versions WHERE household_id='hh_demo' AND container_id LIKE 'manual_container_%' AND version=?`);
+    const sourceDocument = database.prepare(`INSERT INTO source_documents
           (id,household_id,object_key,file_name,content_type,byte_size,sha256,effective_date,retrieved_at,source_label,review_status,created_at)
           SELECT 'cost_manual_doc_'||v.position_id||'_'||?,v.household_id,'synthetic-manual-history/'||v.position_id||'/'||?,
             'synthetic.json','application/json',2,printf('%064x',? * 1000 + ROW_NUMBER() OVER (ORDER BY v.position_id)),NULL,?,'Entered by you','accepted',?
-          FROM manual_holding_identity_heads h JOIN manual_holding_identity_versions v ON v.id=h.version_id WHERE h.household_id='hh_demo'`,
-          )
-          .bind(version, version, version, time, time),
-        database
-          .prepare(
-            `INSERT INTO manual_holding_identity_versions
+          FROM manual_holding_identity_heads h JOIN manual_holding_identity_versions v ON v.id=h.version_id WHERE h.household_id='hh_demo'`);
+    const identityVersion =
+      database.prepare(`INSERT INTO manual_holding_identity_versions
           (id,household_id,position_id,container_id,legal_vehicle_name,owner_label,position_kind,opened_on,classification,version,prior_id,source_document_id,prior_company_mapping_ids_json,recorded_by_user_id,recorded_at,immutable)
           SELECT v.position_id||'_cost_identity_'||?,v.household_id,v.position_id,v.container_id,v.legal_vehicle_name,v.owner_label,v.position_kind,v.opened_on,v.classification,v.version+1,v.id,
             'cost_manual_doc_'||v.position_id||'_'||?,(SELECT json_group_array(mapping_id) FROM holding_position_exposure_heads WHERE household_id=v.household_id AND position_id=v.position_id AND status='active'),v.recorded_by_user_id,v.recorded_at,1
-          FROM manual_holding_identity_heads h JOIN manual_holding_identity_versions v ON v.id=h.version_id WHERE h.household_id='hh_demo'`,
-          )
-          .bind(version, version),
-        database
-          .prepare(
-            `INSERT INTO holding_position_exposure_mappings
+          FROM manual_holding_identity_heads h JOIN manual_holding_identity_versions v ON v.id=h.version_id WHERE h.household_id='hh_demo'`);
+    const exposureMapping =
+      database.prepare(`INSERT INTO holding_position_exposure_mappings
           (id,household_id,position_id,exposure_id,relationship_kind,allocation_ppm,status,decision_source,decision_reference,evidence_sha256,effective_at,version,supersedes_mapping_id,accepted_by_user_id,accepted_at,immutable)
           SELECT m.position_id||'_cost_mapping_'||CAST(? AS INTEGER),m.household_id,m.position_id,m.exposure_id,m.relationship_kind,m.allocation_ppm,m.status,'review','Synthetic tied mapping correction',m.evidence_sha256,?,m.version+1,m.id,m.accepted_by_user_id,?,1
-          FROM holding_position_exposure_heads head JOIN holding_position_exposure_mappings m ON m.id=head.mapping_id WHERE head.household_id='hh_demo' AND head.status='active'`,
-          )
-          .bind(version, time, time),
+          FROM holding_position_exposure_heads head JOIN holding_position_exposure_mappings m ON m.id=head.mapping_id WHERE head.household_id='hh_demo' AND head.status='active'`);
+    for (let version = 2; version <= 121; version++) {
+      await database.batch([
+        connectionVersion.bind(version, time, version - 1),
+        containerVersion.bind(version, time, version - 1),
+        sourceDocument.bind(version, version, version, time, time),
+        identityVersion.bind(version, version),
+        exposureMapping.bind(version, time, time),
       ]);
     }
     expect(
