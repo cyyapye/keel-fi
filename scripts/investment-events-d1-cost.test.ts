@@ -96,9 +96,14 @@ it("bounds event detail and atomic conversion writes with 120 positions and grow
     expect(measured.cost.rowsRead).toBeLessThanOrEqual(800);
     expect(measured.cost.rowsWritten).toBe(0);
     const scopedCost = { ...measured.cost };
-    await fixture.execute(
-      "INSERT INTO users VALUES ('events-other-user','events-other-subject','events-other@example.invalid','Synthetic Other','2026-09-01'); INSERT INTO households VALUES ('events-other','events-other-user','Synthetic Other','USD','2026-09-01')",
-    );
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES ('events-other-user','events-other-subject','events-other@example.invalid','Synthetic Other','2026-09-01')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES ('events-other','events-other-user','Synthetic Other','USD','2026-09-01')",
+      ),
+    ]);
     await fixture.seed({
       count: 120,
       subject: "events-other-subject",

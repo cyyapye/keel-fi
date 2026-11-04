@@ -10,8 +10,14 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
   const fixture = await createPurchaseCostDatabase();
   try {
     await fixture.seed();
-    await fixture.execute(`INSERT INTO users VALUES('purchase-other-user','purchase-other-subject','purchase-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z');
-    INSERT INTO households VALUES('purchase-other-household','purchase-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z');`);
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES('purchase-other-user','purchase-other-subject','purchase-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES('purchase-other-household','purchase-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z')",
+      ),
+    ]);
     await fixture.seed("purchase-other-subject");
     const meter = measureD1(fixture.database);
     const reader = new D1InvestmentPositionViewRepository(meter.database);

@@ -140,9 +140,14 @@ it("bounds 120 reviewed rename aliases and projections across decision and repea
     expect(meter.cost.rowsWritten).toBe(0);
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(20_000);
     const projection = { ...meter.cost };
-    await fixture.execute(
-      "INSERT INTO users VALUES('rename-other-user','rename-other-subject','rename-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z'); INSERT INTO households VALUES('rename-other-household','rename-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z');",
-    );
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES('rename-other-user','rename-other-subject','rename-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES('rename-other-household','rename-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z')",
+      ),
+    ]);
     for (const revision of [12, 13]) {
       const response = await fixture.dispatchFetch(
         "https://synthetic-fixture.invalid/reviewed-renames",

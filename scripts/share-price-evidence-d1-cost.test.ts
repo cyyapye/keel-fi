@@ -53,8 +53,14 @@ it("bounds share-price evidence reads across 120 holdings, repeated history and 
       console.info(JSON.stringify({ revision, ...measured.cost }));
     }
     const baselineReads = measured.cost.rowsRead;
-    await fixture.execute(`INSERT INTO users VALUES ('price-other-user','price-other-subject','price-other@example.invalid','Synthetic Other','2026-09-01');
-      INSERT INTO households VALUES ('price-other','price-other-user','Synthetic Other','USD','2026-09-01')`);
+    await db.batch([
+      db.prepare(
+        "INSERT INTO users VALUES ('price-other-user','price-other-subject','price-other@example.invalid','Synthetic Other','2026-09-01')",
+      ),
+      db.prepare(
+        "INSERT INTO households VALUES ('price-other','price-other-user','Synthetic Other','USD','2026-09-01')",
+      ),
+    ]);
     await db
       .prepare(
         `INSERT INTO companies SELECT 'price-foreign-'||value,'price-other','Synthetic Foreign '||value,NULL,'active','2026-09-01','2026-09-01' FROM json_each(?)`,

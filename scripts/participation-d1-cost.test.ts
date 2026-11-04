@@ -88,9 +88,14 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     }
     const history = await read();
     expect(history.rowsRead).toBeLessThanOrEqual(before.rowsRead + 1_000);
-    await fixture.execute(
-      "INSERT INTO users VALUES ('participation-other-user','participation-other-subject','other@example.invalid','Synthetic Other','2026-09-01'); INSERT INTO households VALUES ('participation-other','participation-other-user','Synthetic Other','USD','2026-09-01')",
-    );
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES ('participation-other-user','participation-other-subject','other@example.invalid','Synthetic Other','2026-09-01')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES ('participation-other','participation-other-user','Synthetic Other','USD','2026-09-01')",
+      ),
+    ]);
     await fixture.seed({
       count: 120,
       subject: "participation-other-subject",
