@@ -348,3 +348,18 @@ The combined journey keeps the collapsed-news screenshot and selected evidence
 focus after reload. Hiding the legacy range or ambiguity label still fails. This
 leaves 443 registered browser cases, 413 required on Linux and 30 explicit
 exclusions.
+
+Twelve tests for investment evidence, price proxies and provider documents no
+longer open SQLite to check pure functions. Their assertions and inputs are
+unchanged. With database creation deliberately disabled, all twelve passed and
+the stateful control still failed. Both versions caught the same fourteen
+deliberately broken behaviors. Across three alternating local pairs the twelve
+test bodies took a median 17 ms, down from 374 ms.
+
+[Run 41783315583](https://github.com/cyyapye/keel-fi/actions/runs/41783315583)
+passed on its first attempt with 856.922 seconds of active verification. All
+eleven flows and all three receipt consumers passed. It covered 1,650 unit, 49
+Python and 417 browser tests, with 30 explicit browser exclusions and no retry
+passes. Browser verification finished last (856.922s), after the unit and cost
+flow (772.218s) and PDF isolation (745.285s). The run exceeded the 750-second
+performance target. It predates the Watch and pure-function reductions above.
