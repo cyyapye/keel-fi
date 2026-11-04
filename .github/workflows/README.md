@@ -23,27 +23,36 @@ run while the pause stays enabled. Do not assume the first day of a month is the
 account's reset date or that deletion immediately restores its accrued
 allowance.
 
-`ci.yml` runs before merge for pull requests and merge-queue candidates. Its
-native verification runs once through `native-verification.yml` on the exact
-event SHA after the secret scan succeeds. The named Quality, D1 migration and
-synthetic seed, and Critical browser flows jobs validate its complete
-same-attempt required receipt. Secret scan remains independent. All checks fail
-closed, including if native execution is cancelled. The standalone Tugling
-candidate workflow is manual-only, so ordinary PRs no longer run a second full
-verification suite. See
-[CI performance](../../docs/engineering/ci-performance.md).
+## Pull request checks
 
-Draft pull requests report the checks a selector would run for the complete PR
-diff. During the shadow trial, every draft still runs the full native gate. The
-selector can recognize a small set of contributor documents and test files whose
-dependencies have been reviewed. Unknown paths and changes to runtime, CI
-policy, migrations or the test registry select full verification. Ready pull
-requests, merge groups and post-merge verification use the full gate.
+Every PR and merge group runs the secret scan. On the full path,
+`native-verification.yml` runs once at the exact event SHA. Quality, D1
+migration and synthetic seed, and Critical browser flows each validate the
+complete receipt from that attempt. A failed or cancelled native run cannot
+supply that receipt. The separate Tugling candidate workflow runs on manual
+dispatch. See [CI performance](../../docs/engineering/ci-performance.md).
 
-The trial compares the proposed checks with recorded full results on the same
-source tree. A missing or interrupted full result cannot establish agreement.
-The partial test runner also has to detect missing, skipped, duplicated or
-retried cases and ordinary assertion failures before a profile can be enabled.
+A same-repository draft targeting `main` can take a shorter path when its only
+changes are edits to seven reviewed documents or four registered Vitest files,
+or a combination of those edits. The policy must already exist on the event
+base. Both the full PR diff and the merge tree GitHub will test must qualify.
+Missing history, a policy change or an unfamiliar path selects the full gate.
+
+Selected drafts run the repository public-data scan and formatting checks. A
+test-file edit also runs repository-wide lint and type checks, then executes
+every registered case in each edited test file with one worker. The job logs the
+merge SHA and the selected cases. Marking a PR ready, updating a ready PR, or
+entering a merge group runs the full gate. Preview deployment requires its own
+full receipt for the merged revision.
+
+The
+[hosted shadow trial](https://github.com/cyyapye/keel-fi/actions/runs/41874712167/job/126740723278)
+replayed the original merge trees for two PRs on the verification runner. The
+docs selection matched
+[PR #184's full result](https://github.com/cyyapye/keel-fi/actions/runs/33334943281).
+The SQLite selection passed all 28 registered cases. PR #334's first full
+attempt timed out. The identical tree passed its
+[first full post-merge attempt](https://github.com/cyyapye/keel-fi/actions/runs/41070788877).
 
 All GitHub artifact uploads use the repository's bounded upload action.
 Successful diagnostics expire after one day; failure/cancellation diagnostics

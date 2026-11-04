@@ -26,12 +26,15 @@ jobs:
   native:
     name: Complete native pilot gate
     needs: secret-scan
+    if: success() && needs.secret-scan.outputs.plan == ''
     uses: ./.github/workflows/native-verification.yml
 
   quality:
     name: Quality
-    needs: native
-    if: ${{ !cancelled() }}
+    needs: [secret-scan, native]
+    if: >-
+      !cancelled() && (needs.secret-scan.result != 'success' ||
+      needs.secret-scan.outputs.plan == '')
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -50,8 +53,10 @@ jobs:
 
   migrations:
     name: D1 migration and synthetic seed
-    needs: native
-    if: ${{ !cancelled() }}
+    needs: [secret-scan, native]
+    if: >-
+      !cancelled() && (needs.secret-scan.result != 'success' ||
+      needs.secret-scan.outputs.plan == '')
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -70,8 +75,10 @@ jobs:
 
   browser:
     name: Critical browser flows
-    needs: native
-    if: ${{ !cancelled() }}
+    needs: [secret-scan, native]
+    if: >-
+      !cancelled() && (needs.secret-scan.result != 'success' ||
+      needs.secret-scan.outputs.plan == '')
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -90,6 +97,10 @@ jobs:
 
   secret-scan:
     name: Secret scan
+    outputs:
+      plan: >-
+        ${{ steps.draft.outcome == 'success' && steps.draft.outputs.selected ==
+        'true' && steps.draft.outputs.plan || '' }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
@@ -101,71 +112,68 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
           HOME: ${{ runner.workspace }}
-      - name: Report proposed draft checks
-        if:
-          github.event_name == 'pull_request' && github.event.pull_request.draft
+      - name: Select checks for an eligible draft
+        id: draft
         continue-on-error: true
+        if: >-
+          github.event_name == 'pull_request' && github.event.pull_request.draft
+          && github.event.pull_request.base.ref == 'main' &&
+          github.event.pull_request.base.repo.full_name == github.repository &&
+          github.event.pull_request.head.repo.full_name == github.repository
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [[ "$(git rev-parse HEAD)" != "$GITHUB_SHA" || "$(git show -s --format=%P HEAD)" != "$BASE_SHA $HEAD_SHA" ]]; then
-            echo 'The PR merge parents could not be verified. Run full verification.' >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          plan=$(python3 -I scripts/ci-draft-plan.py --base "$BASE_SHA" --head "$HEAD_SHA")
-          printf 'Proposed draft checks (shadow only)\n\n```json\n%s\n```\n' "$plan" >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "$plan"
+          set -euo pipefail
+          full() { printf 'Draft verification will run in full (%s).\n' "$1" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          policy=$(mktemp -d "$RUNNER_TEMP/keel-draft.XXXXXXXX") || full "policy unavailable"
+          trap 'rm -rf -- "$policy"' EXIT
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || full "invalid event revisions"
+          for tool in ci-draft-plan.py ci-draft-checks.py; do
+            git --no-replace-objects cat-file blob "$BASE_SHA:scripts/$tool" > "$policy/$tool" 2>/dev/null || full "base policy unavailable"
+          done
+          raw=$(python3 -I "$policy/ci-draft-checks.py" --route "$BASE_SHA" "$HEAD_SHA" "$GITHUB_SHA" 2>/dev/null) || full "unsupported policy or unverified merge"
+          [[ ${#raw} -le 4096 ]] || full "invalid decision"
+          plan=$(jq -ces 'select(length == 1) | .[0] | select(.schema_version == 1 and (.reason | test("^[a-z-]{1,64}$")))' <<< "$raw") || full "invalid decision"
+          profile=$(jq -r '.profile' <<< "$plan")
+          if [[ "$profile" == full ]]; then full "$(jq -r '.reason' <<< "$plan")"; fi
+          [[ "$profile" == docs || "$profile" == test-files ]] || full "unknown profile"
+          jq -e --arg base "$BASE_SHA" --arg head "$HEAD_SHA" '
+            .base == $base and .head == $head and (.merge_base | test("^[a-f0-9]{40}$"))
+            and (.test_files | type == "array") and (.changed_count | type == "number" and . >= 1)
+          ' <<< "$plan" >/dev/null || full "invalid decision"
+          printf 'plan=%s\nselected=true\n' "$plan" >> "$GITHUB_OUTPUT"
+          printf 'Selected draft checks (%s) on merge `%s`.\n' "$profile" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
-  draft-history-shadow:
-    name: Historical draft selection shadow
-    needs: [secret-scan, quality, migrations, browser]
-    if: >-
-      !cancelled() && needs.secret-scan.result == 'success' && github.event_name
-      == 'pull_request' && github.event.pull_request.number == 340 &&
-      github.event.pull_request.draft &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.run_attempt == '1'
+  draft-checks:
+    name: Selected draft checks
+    needs: secret-scan
+    if: success() && needs.secret-scan.outputs.plan != ''
     runs-on: [self-hosted, Linux, X64, keel-ci]
     permissions:
       contents: read
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
-          path: reviewed-shadow
-          persist-credentials: false
-      - uses: actions/checkout@v5
-        with:
-          ref: 0239c79e26d883c1afd93e47d4dc16fa7b29aabc
-          path: historical-334
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/checkout@v5
-        with:
-          ref: 951c473d5605a204386e465512fcfddb010e570b
-          path: historical-184
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-          version: 11.9.0
-          package_json_file: historical-334/package.json
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22.13.0
-          package-manager-cache: false
-      - name: Replay the original PR 334 SQLite selection
-        working-directory: historical-334
+      - name: Confirm the selected merge and trusted policy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          node scripts/check-toolchain.mjs
-          pnpm install --frozen-lockfile
-          python3 -I ../reviewed-shadow/scripts/ci-draft-shadow.py 334
-      - name: Replay the original PR 184 prose selection
-        working-directory: historical-184
+          set -euo pipefail
+          test "$(git --no-replace-objects rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git --no-replace-objects show -s --format=%P HEAD)" = "$BASE_SHA $HEAD_SHA"
+          git --no-replace-objects diff --quiet --no-ext-diff "$BASE_SHA" HEAD -- scripts/ci-draft-plan.py scripts/ci-draft-checks.py
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Run the reviewed draft scope
+        env:
+          DRAFT_PLAN: ${{ needs.secret-scan.outputs.plan }}
         run: |
-          node scripts/check-toolchain.mjs
-          pnpm install --frozen-lockfile
-          python3 -I ../reviewed-shadow/scripts/ci-draft-shadow.py 184
+          set -euo pipefail
+          test "$(git --no-replace-objects rev-parse HEAD)" = "$GITHUB_SHA"
+          git --no-replace-objects diff --quiet --no-ext-diff HEAD --
+          printf '%s\n' "$DRAFT_PLAN" | python3 -I scripts/ci-draft-checks.py --plan-stdin

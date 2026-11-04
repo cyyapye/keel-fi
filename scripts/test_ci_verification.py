@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import runpy
 from pathlib import Path
 import subprocess
 import tempfile
@@ -55,6 +56,7 @@ class ReceiptTransportTests(unittest.TestCase):
 
 class DraftSelectionTests(unittest.TestCase):
     def test_requires_complete_git_history_and_reviewed_file_ownership(self):
+        checks = runpy.run_path(str(Path(__file__).with_name("ci-draft-checks.py")))
         selector_spec = importlib.util.spec_from_file_location(
             "ci_draft_plan", Path(__file__).with_name("ci-draft-plan.py"))
         selector = importlib.util.module_from_spec(selector_spec)
@@ -117,6 +119,19 @@ class DraftSelectionTests(unittest.TestCase):
                         _, files, reason = selector.reviewed_changes(diff)
                         self.assertEqual(files, {})
                         self.assertIsNotNone(reason)
+                # The PR's cumulative diff is eligible, including when main has advanced.
+                git("merge", "--no-ff", "--no-edit", test_head)
+                merge = git("rev-parse", "HEAD")
+                self.assertEqual(checks["select_merge"](vars(selector), base, test_head, merge), result)
+                with self.assertRaisesRegex(ValueError, "event SHA"):
+                    checks["select_merge"](vars(selector), base, test_head, test_head)
+                # A merge tree with the correct parents but extra runtime changes requires FULL.
+                change("runtime.ts", "unexpected effective change")
+                git("add", "runtime.ts")
+                invalid = git("commit-tree", git("write-tree"), "-p", base, "-p", test_head, "-m", "untrusted tree")
+                git("switch", "-q", "--detach", invalid)
+                effective = checks["select_merge"](vars(selector), base, test_head, invalid)
+                self.assertEqual((effective["profile"], effective["reason"]), ("full", "effective-merge-differs"))
             finally:
                 os.chdir(previous)
 

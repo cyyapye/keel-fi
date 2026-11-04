@@ -62,12 +62,34 @@ def checked_merge(plan):
     return commit
 
 
+def select_merge(selector, base, head, merge):
+    plan = selector["plan"](base, head)
+    if plan["profile"] == "full":
+        return plan
+    if (plan["profile"] not in ("docs", "test-files") or plan["schema_version"] != 1
+            or (plan["base"], plan["head"]) != (base, head)):
+        raise ValueError("unrecognized draft selection")
+    if checked_merge(plan) != merge:
+        raise ValueError("draft merge does not match the event SHA")
+    # A cumulative topic diff and the tree about to run must both be eligible.
+    effective = selector["plan"](base, merge)
+    if any(effective[key] != plan[key] for key in ("profile", "test_files", "changed_count")):
+        return {**plan, "profile": "full", "reason": "effective-merge-differs", "test_files": []}
+    return plan
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--plan-stdin", action="store_true", required=True)
-    parser.parse_args()
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--plan-stdin", action="store_true")
+    mode.add_argument("--route", nargs=3, metavar=("BASE", "HEAD", "MERGE"))
+    args = parser.parse_args()
     root = Path.cwd()
     selector = runpy.run_path(str(Path(__file__).with_name("ci-draft-plan.py")))
+    if args.route:
+        plan = select_merge(selector, *args.route)
+        print(json.dumps(plan, sort_keys=True, separators=(",", ":")))
+        return
     plan = checked_plan(sys.stdin.buffer, selector["plan"])
     revision = checked_merge(plan)
     targets = ["data-scan", "format-check"]
