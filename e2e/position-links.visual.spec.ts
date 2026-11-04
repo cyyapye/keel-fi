@@ -1,5 +1,5 @@
 import { positionLinkSuggestionFixture } from "../scripts/test-support/position-link-suggestion";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
   AcceptPositionLinkSchema,
@@ -11,6 +11,64 @@ import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 
 test.use({ timezoneId: "UTC" });
+
+async function captureInformationPopup(
+  page: Page,
+  popup: Locator,
+  anchor: Locator,
+  name: string,
+) {
+  await expect(popup.locator("..")).toHaveCSS("opacity", "1");
+  const anchorTop = (await anchor.boundingBox())!.y;
+  const geometry = await popup.evaluate((element, anchorTop) => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element.parentElement!);
+    return {
+      viewport: innerWidth,
+      pageWidth: document.documentElement.scrollWidth,
+      left: rect.left,
+      right: rect.right,
+      gap: anchorTop - rect.bottom,
+      width: rect.width,
+      position: [
+        "position",
+        "left",
+        "top",
+        "right",
+        "bottom",
+        "transform",
+        "width",
+        "height",
+      ]
+        .map((name) => `${name}: ${style.getPropertyValue(name)} !important;`)
+        .join(""),
+    };
+  }, anchorTop);
+  expect(geometry.viewport).toBe(page.viewportSize()!.width);
+  expect(geometry.pageWidth).toBe(geometry.viewport);
+  expect(geometry.left).toBeGreaterThanOrEqual(12);
+  expect(geometry.right).toBeLessThanOrEqual(geometry.viewport - 12);
+  expect(Math.abs(geometry.gap - 8)).toBeLessThan(1);
+  const frozenPosition = await page.addStyleTag({
+    content: `
+      [data-slot="info-tip-positioner"] { ${geometry.position} }
+      [data-slot="info-tip"] {
+        width: ${geometry.width}px !important;
+        max-width: ${geometry.width}px !important;
+      }
+    `,
+  });
+  try {
+    await expect(page).toHaveScreenshot(name, {
+      animations: "disabled",
+      fullPage: true,
+    });
+  } finally {
+    await frozenPosition.evaluate((element) => {
+      element.parentNode?.removeChild(element);
+    });
+  }
+}
 
 test("review duplicate sources and replacement history with no typing, saved reload and failed-draft retention", async ({
   page,
@@ -332,10 +390,12 @@ test("review duplicate sources and replacement history with no typing, saved rel
     content:
       ".sidebar, .topbar, .mobile-nav { visibility: hidden !important; }",
   });
-  await expect(page).toHaveScreenshot("position-unlink-info.png", {
-    animations: "disabled",
-    fullPage: true,
-  });
+  await captureInformationPopup(
+    page,
+    popup,
+    historicalInfo,
+    "position-unlink-info.png",
+  );
   // Keyboard access does not accept a decision; Escape returns focus to the icon.
   await page.keyboard.press("Escape");
   await expect(popup).toHaveCount(0);
@@ -384,10 +444,12 @@ test("review duplicate sources and replacement history with no typing, saved rel
     "This link will stop supplying reported value.",
   );
   await expect(sourcedPopup).toContainText("Records and history are kept.");
-  await expect(page).toHaveScreenshot("position-unlink-sourced-info.png", {
-    animations: "disabled",
-    fullPage: true,
-  });
+  await captureInformationPopup(
+    page,
+    sourcedPopup,
+    sourcedInfo,
+    "position-unlink-sourced-info.png",
+  );
   // An outside tap dismisses the supplementary explanation without a write.
   await section
     .getByRole("heading", { name: "Linked investment records", exact: true })

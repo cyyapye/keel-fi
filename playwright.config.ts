@@ -63,7 +63,7 @@ export default defineConfig({
     command:
       browserLane.lane === "all"
         ? "pnpm dev"
-        : "pnpm exec tsx scripts/browser-test-server.ts",
+        : "node --import tsx scripts/browser-test-server.ts",
     reuseExistingServer:
       !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,

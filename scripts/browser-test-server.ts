@@ -58,6 +58,7 @@ const environment = {
   ...(execution.server === "stateful"
     ? {
         KEEL_BROWSER_API_READINESS_PATH: "/api/holdings-page",
+        WRANGLER_REGISTRY_PATH: path.join(expectedPersistRoot, "registry"),
         WRANGLER_LOG_PATH: path.join(
           expectedPersistRoot,
           "logs",
@@ -68,12 +69,24 @@ const environment = {
 };
 const children = new Map<ChildProcess, string>();
 
-function start(name: string, args: readonly string[]): void {
-  const child = spawn("pnpm", args, {
-    cwd: rootDir,
-    env: environment,
-    stdio: "inherit",
-  });
+// Run each workspace's installed CLI directly. Long-lived pnpm exec parents
+// otherwise occupy memory for every Vite and Wrangler server in this gate.
+function start(
+  name: string,
+  workspace: string,
+  entry: string,
+  args: readonly string[],
+): void {
+  const cwd = path.join(rootDir, "apps", workspace);
+  const child = spawn(
+    process.execPath,
+    [path.join(cwd, "node_modules", entry), ...args],
+    {
+      cwd,
+      env: environment,
+      stdio: "inherit",
+    },
+  );
   children.set(child, name);
 }
 
@@ -93,11 +106,7 @@ function stopAll(signal: NodeJS.Signals): void {
 }
 
 if (execution.server === "stateful") {
-  start("API", [
-    "--filter",
-    "@keel/api",
-    "exec",
-    "wrangler",
+  start("API", "api", "wrangler/bin/wrangler.js", [
     "dev",
     "--env",
     "local",
@@ -110,11 +119,7 @@ if (execution.server === "stateful") {
   ]);
 }
 
-start("Web", [
-  "--filter",
-  "@keel/web",
-  "exec",
-  "vite",
+start("Web", "web", "vite/bin/vite.js", [
   ...(execution.frontend === "production" ? ["preview"] : []),
   "--host",
   DEV_HOST,
