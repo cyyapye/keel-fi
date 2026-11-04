@@ -4,6 +4,7 @@ import type { Holding } from "../packages/domain/src/index";
 import type { InvestmentHoldingsView } from "../packages/domain/src/investment-holdings-view";
 
 import {
+  alphaHoldingsFrom,
   emptyInvestmentHoldingsView,
   investmentHoldingsViewFor,
   multiInstitutionInvestmentHoldingsView,
@@ -47,80 +48,6 @@ const paginatedHoldings: Holding[] = Array.from({ length: 25 }, (_, index) => ({
 }));
 
 const paginatedHoldingsView = investmentHoldingsViewFor(paginatedHoldings);
-
-function alphaHoldingsFrom(view: InvestmentHoldingsView) {
-  const sourcePositionById = new Map(
-    view.positionView.connections.flatMap((connection) =>
-      connection.containers.flatMap((container) =>
-        container.positions.map((position) => [position.id, position] as const),
-      ),
-    ),
-  );
-  return view.exposureView.positions.map((position) => {
-    const sourcePosition = sourcePositionById.get(position.id);
-    if (sourcePosition === undefined) {
-      throw new Error(
-        "Synthetic exposure position is missing source evidence.",
-      );
-    }
-    return {
-      id: position.id,
-      companyId:
-        view.exposureView.exposures.find((group) =>
-          group.contributions.some(
-            (contribution) => contribution.positionId === position.id,
-          ),
-        )?.exposure.companyId ?? null,
-      positionName: position.legalVehicleName,
-      exposureName: position.reportedExposureName,
-      ownerLabel: position.containerLabel,
-      positionKind: position.positionKind,
-      administratorNavMinor: sourcePosition.snapshot.unrealizedValue.minor,
-      administratorNavState:
-        sourcePosition.snapshot.unrealizedValue.state === "not_reported"
-          ? ("not_set" as const)
-          : sourcePosition.snapshot.unrealizedValue.state,
-      externalMarkMinor: null,
-      underwritingValueMinor: null,
-      scenarioValueMinor: null,
-      usableLiquidityMinor: null,
-      sourceStatus: "verified" as const,
-      sourceLabel: position.sourceLabel,
-      effectiveDate: position.observedAt.slice(0, 10),
-      retrievedAt: position.observedAt,
-      confidencePpm: null,
-      ticker: position.ticker,
-      quantityMicros: null,
-      costBasisMinor: position.providerCostBasisMinor,
-      investedMinor: position.investedMinor,
-      committedMinor: position.committedMinor,
-      realizedValueMinor: position.realizedValueMinor,
-      instrumentType: position.instrumentType,
-      positionEconomicsContext:
-        position.positionKind !== "spv_interest" ||
-        position.committedMinor === null ||
-        position.investedMinor === null ||
-        position.committedMinor <= 0
-          ? undefined
-          : {
-              snapshotId: position.snapshotId,
-              currency: position.currency,
-              committedMinor: position.committedMinor,
-              fundedMinor: position.investedMinor,
-              acceptedTerms: position.acceptedEconomicsTerms ?? null,
-              reportedTerms: position.reportedEconomicsTerms ?? null,
-            },
-      positionValueContext: {
-        snapshotId: position.snapshotId,
-        currency: position.currency,
-        providerValueState: sourcePosition.snapshot.unrealizedValue.state,
-        providerValueMinor: sourcePosition.snapshot.unrealizedValue.minor,
-        acceptedAdjustment: sourcePosition.acceptedValueAdjustment ?? null,
-        projectedEstimate: position.privateValueEstimate,
-      },
-    };
-  });
-}
 
 const alphaFixture = {
   dashboard: {
@@ -1900,10 +1827,22 @@ test("keeps reviewed history in exposures without showing fake brokerage account
 
   await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
+  const [connectionResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/investment-connections" &&
+        response.ok(),
+    ),
+    navigateToScreen(page, mobile, /Holdings/),
+  ]);
+  expect(await connectionResponse.finished()).toBeNull();
   await openHoldingSources(page);
 
   const accounts = page.locator(".investment-institutions");
+  await expect(accounts).toBeVisible();
+  await expect(
+    accounts.getByText("Checking investment institutions…"),
+  ).toBeHidden();
   await expect(accounts.locator(".investment-institution")).toHaveCount(0);
   await expect(accounts).not.toContainText("AngelList reviewed history");
   await expect(accounts).not.toContainText("Original account details");
@@ -1955,68 +1894,6 @@ test("keeps reviewed history in exposures without showing fake brokerage account
   await expect(page.getByText(/Demo Pharmacy SPV 01 ·/)).toBeVisible();
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(firstPositionAction).toBeFocused();
-});
-
-test("keeps one reviewed-history legal position without a fake account", async ({
-  page,
-}, testInfo) => {
-  const reviewedHistoryView =
-    reconciledReviewedHistoryInvestmentHoldingsView(1);
-  await page.unroute("**/api/alpha");
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        holdings: alphaHoldingsFrom(reviewedHistoryView),
-      },
-    });
-  });
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: [],
-        errorCode: null,
-      },
-    });
-  });
-  await page.unroute("**/api/investment-holdings");
-  await page.route("**/api/investment-holdings", async (route) => {
-    await route.fulfill({ json: reviewedHistoryView });
-  });
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: alphaHoldingsFrom(reviewedHistoryView),
-    investmentHoldings: reviewedHistoryView,
-    acceptedCashAccounts,
-    pendingImports: [],
-  });
-
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
-
-  await openHoldingSources(page);
-  await expect(page.locator(".investment-institution")).toHaveCount(0);
-  await expect(page.locator(".investment-institutions")).not.toContainText(
-    "AngelList reviewed history",
-  );
-  await page
-    .getByRole("navigation", { name: "Holdings sections" })
-    .getByRole("link", { name: "Holdings", exact: true })
-    .click();
-  const exposure = page.locator(".exposure-group").filter({
-    has: page.getByText("Demo Pharmacy", { exact: true }),
-  });
-  await expect(exposure).toContainText("1 position");
-  await exposure.locator(".exposure-group__summary").click();
-  await expect(
-    exposure.getByRole("button", {
-      name: "View Demo Pharmacy SPV 01 holding details",
-    }),
-  ).toBeVisible();
 });
 
 test("keeps failed canonical holdings out of view and retries", async ({

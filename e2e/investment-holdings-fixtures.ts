@@ -587,6 +587,16 @@ export function reconciledReviewedHistoryInvestmentHoldingsView(
       },
     ],
   };
+  // One reviewed source has a single legal position; the other owns the rest.
+  // Neither group should appear as a brokerage when connections finish loading.
+  const source = positionView.connections[0]!;
+  if (source.containers.length > 1) {
+    const [first, ...remaining] = source.containers;
+    positionView.connections = [
+      { ...source, containers: remaining },
+      { ...source, id: `${source.id}:single-position`, containers: [first!] },
+    ];
+  }
   const exposure: CanonicalExposure = {
     id: "exposure_demo_pharmacy_synthetic",
     householdId,
@@ -624,5 +634,79 @@ export function reconciledReviewedHistoryInvestmentHoldingsView(
       [exposure],
       mappings,
     ),
+  });
+}
+
+export function alphaHoldingsFrom(view: InvestmentHoldingsView) {
+  const sourcePositionById = new Map(
+    view.positionView.connections.flatMap((connection) =>
+      connection.containers.flatMap((container) =>
+        container.positions.map((position) => [position.id, position] as const),
+      ),
+    ),
+  );
+  return view.exposureView.positions.map((position) => {
+    const sourcePosition = sourcePositionById.get(position.id);
+    if (sourcePosition === undefined) {
+      throw new Error(
+        "Synthetic exposure position is missing source evidence.",
+      );
+    }
+    return {
+      id: position.id,
+      companyId:
+        view.exposureView.exposures.find((group) =>
+          group.contributions.some(
+            (contribution) => contribution.positionId === position.id,
+          ),
+        )?.exposure.companyId ?? null,
+      positionName: position.legalVehicleName,
+      exposureName: position.reportedExposureName,
+      ownerLabel: position.containerLabel,
+      positionKind: position.positionKind,
+      administratorNavMinor: sourcePosition.snapshot.unrealizedValue.minor,
+      administratorNavState:
+        sourcePosition.snapshot.unrealizedValue.state === "not_reported"
+          ? ("not_set" as const)
+          : sourcePosition.snapshot.unrealizedValue.state,
+      externalMarkMinor: null,
+      underwritingValueMinor: null,
+      scenarioValueMinor: null,
+      usableLiquidityMinor: null,
+      sourceStatus: "verified" as const,
+      sourceLabel: position.sourceLabel,
+      effectiveDate: position.observedAt.slice(0, 10),
+      retrievedAt: position.observedAt,
+      confidencePpm: null,
+      ticker: position.ticker,
+      quantityMicros: null,
+      costBasisMinor: position.providerCostBasisMinor,
+      investedMinor: position.investedMinor,
+      committedMinor: position.committedMinor,
+      realizedValueMinor: position.realizedValueMinor,
+      instrumentType: position.instrumentType,
+      positionEconomicsContext:
+        position.positionKind !== "spv_interest" ||
+        position.committedMinor === null ||
+        position.investedMinor === null ||
+        position.committedMinor <= 0
+          ? undefined
+          : {
+              snapshotId: position.snapshotId,
+              currency: position.currency,
+              committedMinor: position.committedMinor,
+              fundedMinor: position.investedMinor,
+              acceptedTerms: position.acceptedEconomicsTerms ?? null,
+              reportedTerms: position.reportedEconomicsTerms ?? null,
+            },
+      positionValueContext: {
+        snapshotId: position.snapshotId,
+        currency: position.currency,
+        providerValueState: sourcePosition.snapshot.unrealizedValue.state,
+        providerValueMinor: sourcePosition.snapshot.unrealizedValue.minor,
+        acceptedAdjustment: sourcePosition.acceptedValueAdjustment ?? null,
+        projectedEstimate: position.privateValueEstimate,
+      },
+    };
   });
 }

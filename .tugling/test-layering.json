@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 36,
+  "retiredBrowserCaseCount": 40,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -286,6 +286,36 @@
         "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements"
       ],
       "assertions": "The required provider-document-runtime flow runs the identical real Chromium/tsx/scanner/reader child with unchanged 50-second and 128 KiB bounds, exact request/download counts, one capture/document and legal-name/page assertions. Only the unused application browser server is removed."
+    },
+    {
+      "id": "manual-fund-inventory-return",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: does not present source cash as basis or return in manual inventory rows",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: does not present source cash as basis or return in manual inventory rows"
+      ],
+      "unitCases": [
+        "apps/web/src/InvestmentHoldings.test.tsx :: renders a manual Fund estimate without treating contributed cash as basis or return"
+      ],
+      "browserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel"
+      ],
+      "assertions": "The component renders the selected estimate in the manual Fund row, while contributed cash supplies neither basis nor return. Both viewports display the same unallocated Fund row before opening its editor."
+    },
+    {
+      "id": "reviewed-history-inventory-row",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps one reviewed-history legal position without a fake account",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps one reviewed-history legal position without a fake account"
+      ],
+      "unitCases": [
+        "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps reviewed history in exposures without showing fake brokerage accounts",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts"
+      ],
+      "assertions": "The component renders the singular count and accessible legal-position action. Both viewports check the settled brokerage list with a singleton and a larger reviewed-history source, then expand the grouped exposure and follow the position into its detail and back."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
