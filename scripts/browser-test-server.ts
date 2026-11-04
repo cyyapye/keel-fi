@@ -52,7 +52,12 @@ const environment = {
   // Vite loads the shared config before applying CLI port overrides, so an
   // unused mocked API port must still satisfy the normal local-port parser.
   KEEL_API_PORT: String(execution.apiPort ?? 32_031),
-  KEEL_BROWSER_VITE_CACHE_DIR: path.join(expectedPersistRoot, "vite-cache"),
+  // Keep dependencies private to this lane and outside React's source transforms.
+  KEEL_BROWSER_VITE_CACHE_DIR: path.join(
+    expectedPersistRoot,
+    "node_modules",
+    ".vite",
+  ),
   KEEL_BROWSER_VITE_READINESS: execution.frontend === "development" ? "1" : "0",
   KEEL_WEB_PORT: String(execution.webPort),
   ...(execution.server === "stateful"

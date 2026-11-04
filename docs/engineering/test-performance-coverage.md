@@ -398,3 +398,17 @@ before checking the loading state. The original screenshots could pass even when
 the test held the wrong route. All six normal browser cases passed; substituting
 the wrong Alpha or application path now fails on both projects. The request
 guard does not wait for upstream response time.
+
+[Run 41787486410](https://github.com/cyyapye/keel-fi/actions/runs/41787486410)
+passed all eleven commands on the first attempt in 887.371 active seconds. All
+1,650 unit cases, 49 Python cases and 413 required browser cases passed.
+Browsers started at 294.910 seconds and finished last. This run still exceeds
+the 750-second target.
+
+The development browser lane now puts Vite's optimized dependencies under its
+own `node_modules/.vite`. Its former cache path made React's plugin treat React
+DOM as application source and instrument it for Fast Refresh. In three local
+cold starts per version, the React DOM transfer fell from 3.16 MB to 1.01 MB.
+The 116 application modules still matched after normalizing the temporary cache
+URLs, including the application's refresh hooks. A broken import still failed
+readiness. This comparison measures the development server, not full CI.
