@@ -668,3 +668,18 @@ recorded 267 passes when it was interrupted.
   link case also runs independently from a cold start. A local one-worker
   comparison measured 287 ms in the separate file and 47 ms in the combined
   file. The preflight owns 98 Vitest cases and the main partition owns 1,551.
+
+At `6e07416b`, all 1,649 Vitest and 49 Python cases passed on Linux. The viewer
+expiry case took 43 ms, the ZIP integrity case 287 ms and the position-link case
+314 ms. The 900-second gate expired with 98 of the 408 required browser cases
+still lacking a pass and the PDF isolation command unfinished. One mobile
+legal-entity case passed only on retry.
+[Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41856448645)
+
+Delaying the legal-entity write reproduced the race in two browser cases. The
+existing-entity link case now waits for the review POST, checks its 201 response
+and payload, reloads the saved classification and checks the total write count.
+The legacy correction case waits for the saved editor to appear before reading
+the submitted correction. Both viewport projects retain their original deadlines
+and reference images. Injecting a missing write, a duplicate, a rejection or a
+successful response that drops the saved classification fails the link case.

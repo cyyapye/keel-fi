@@ -716,12 +716,26 @@ test("links a reviewed structure to an exact existing non-Other entity", async (
   await page
     .getByRole("option", { name: "Link existing: Demo Series VII" })
     .click();
-  await resolver
-    .getByRole("button", { name: "Link entity", exact: true })
-    .click();
-  expect(writes).toHaveLength(1);
-  expect(writes[0]).toMatchObject({
+  const reviewUrl = new URL("/api/legal-entity-sources/review", page.url())
+    .href;
+  const [review] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.url() === reviewUrl && response.request().method() === "POST",
+    ),
+    resolver.getByRole("button", { name: "Link entity", exact: true }).click(),
+  ]);
+  expect(review.status()).toBe(201);
+  const submitted = review.request().postDataJSON();
+  expect(submitted).toMatchObject({
+    source: source.source,
+    expectedDecisionId: null,
     decision: { kind: "linked", legalEntityId: existing.id },
+    nameResolution: {
+      kind: "document_structure",
+      legalName: "Demo Series VII",
+      page: 1,
+    },
   });
   if (
     await page
@@ -735,6 +749,7 @@ test("links a reviewed structure to an exact existing non-Other entity", async (
   await expect(
     page.getByText(/Type at review: LLC \(your classification\)/),
   ).toBeVisible();
+  expect(writes).toEqual([submitted]);
   await noOverflow(page);
 });
 
@@ -937,6 +952,9 @@ test("supports a document-backed correction for a legacy conflict with no saved 
     .locator(".legal-entity-editor")
     .getByRole("button", { name: "Add entity", exact: true })
     .click();
+  await expect(
+    page.getByRole("button", { name: "Edit legal entity", exact: true }),
+  ).toBeVisible();
   expect(
     (writes[0] as CreateLegalEntityInput).source?.nameResolution,
   ).toMatchObject({
@@ -944,9 +962,6 @@ test("supports a document-backed correction for a legacy conflict with no saved 
     legalName: "Demo Climate Series I LLC",
     reason: "The executed subscription names the invested series.",
   });
-  await expect(
-    page.getByRole("button", { name: "Edit legal entity", exact: true }),
-  ).toBeVisible();
   await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
   await page
     .getByRole("button", { name: "Back to legal entities", exact: true })
