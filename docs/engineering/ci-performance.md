@@ -72,9 +72,9 @@ servers, ports and cleanup; each partition remains serial internally.
 ## Bounded execution plan
 
 The verification map admits an exclusive preflight before any heavy flow. The
-existing integrity flow first executes six in-process workload files with one
-Vitest worker, then runs native Python accounting. The main unit flow executes
-the complementary cases. Both reports must account for the entire reviewed
+existing integrity flow first executes the strict workload and migration files
+with one Vitest worker, then runs native Python accounting. The main unit flow
+executes the complementary cases. Both reports must account for the entire reviewed
 Vitest inventory exactly once. Missing, stale, substituted or overlapping
 preflight evidence fails verification.
 

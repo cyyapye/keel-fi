@@ -79,13 +79,15 @@
         "apps/api/src/position-purchases.test.ts",
         "scripts/provider-agent-usage.test.ts",
         "packages/database/src/exposures.test.ts",
+        "packages/database/src/manual-holdings-migration.test.ts",
+        "packages/database/migrations/0089_manual_holdings.sql",
         "scripts/test-support/sqlite-fixture.ts",
         "scripts/test-support/legal-documents.ts",
         "scripts/test-support/cost-fixtures.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "A one-worker Vitest preflight executes six in-process graph/day, cash, route and exposure files before the 49 Python ownership and accounting cases. Every other native flow waits for this gate. A same-source, same-attempt, same-coordinator proof binds its complete report for one main-phase consumer.",
+        "launch": "A one-worker Vitest preflight executes seven in-process workload and migration files before the 49 Python ownership and accounting cases. Every other native flow waits for this gate. A same-source, same-attempt, same-coordinator proof binds its complete report for one main-phase consumer.",
         "health": "Preflight and main Vitest partitions must form the complete reviewed unit inventory exactly once. Existing five-second deadlines, all 1,440 minute attempts, real hashes, JSON CAS accounting and Python failure controls remain.",
         "cleanup": "Owned leases prevent report replacement. Main claims the preflight proof once; missing, stale, mismatched or overlapping results fail. Existing temporary checkout and process cleanup remains mandatory."
       },

@@ -307,3 +307,14 @@ reads the 512-stream clean PDF and checks the raw and embedded antivirus
 markers, expanded-file and item-count limits, kernel restrictions and orphan
 cleanup. Container starts removed are counted work, not a Linux wall-time
 estimate.
+
+[Run 41779573833](https://github.com/cyyapye/keel-fi/actions/runs/41779573833)
+stopped after 816.304 seconds. The manual-holdings migration preservation case
+took 5.634 seconds against its five-second limit. The coordinator then stopped
+the browser suite with 342 passes. The migration test now reads the SQLite
+catalogue once after migration and compares all 667 prior objects by type and
+name. The eleven populated table comparisons, two required guard rewrites,
+foreign-key check and immutability probes remain. Both versions rejected a
+missing purchase guard and incorrect link-guard SQL. The complete three-case
+file joins the existing one-worker preflight: 87 strict and 1,563 main cases
+still account for all 1,650 unit cases, with the original deadlines.
