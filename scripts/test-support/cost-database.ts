@@ -77,7 +77,7 @@ const setupResultSchema = z.discriminatedUnion("operation", [
 
   z
     .object({
-      operation: z.literal("watch-targets"),
+      operation: z.enum(["watch-targets", "forecast-history"]),
       completed: z.literal(true),
     })
     .strict(),

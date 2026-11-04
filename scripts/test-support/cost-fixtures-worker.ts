@@ -52,6 +52,7 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
     })
     .strict(),
   z.object({ operation: z.literal("read-budgets") }).strict(),
+  z.object({ operation: z.literal("forecast-history") }).strict(),
   z.object({ operation: z.literal("provider-reconnect") }).strict(),
   z.object({ operation: z.literal("portfolio-watch-day") }).strict(),
   z
@@ -73,6 +74,63 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("watch-targets") }).strict(),
 ]);
 export type CostFixtureSetupOperation = z.input<typeof setupOperationSchema>;
+
+async function seedForecastHistory(database: D1Database) {
+  const snapshot = await database
+    .prepare(
+      "SELECT * FROM forecast_snapshots WHERE household_id = 'hh_demo' ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .first<Record<string, string | number | null>>();
+  if (!snapshot) throw new Error("Synthetic forecast missing");
+  const children = await Promise.all(
+    ["company_forecasts", "liquidity_curves", "forecast_outputs"].map(
+      async (table) => ({
+        table,
+        rows: (
+          await database
+            .prepare(`SELECT * FROM ${table} WHERE forecast_snapshot_id = ?`)
+            .bind(snapshot.id)
+            .all<Record<string, string | number | null>>()
+        ).results,
+      }),
+    ),
+  );
+  const writes: D1PreparedStatement[] = [];
+  const insert = (
+    table: string,
+    row: Record<string, string | number | null>,
+  ) => {
+    writes.push(
+      database
+        .prepare(
+          `INSERT INTO ${table} (${Object.keys(row).join(", ")}) VALUES (${Object.keys(
+            row,
+          )
+            .map(() => "?")
+            .join(", ")})`,
+        )
+        .bind(...Object.values(row)),
+    );
+  };
+  for (let index = 0; index < 120; index++) {
+    const id = `synthetic-cost-history-${index}`;
+    insert("forecast_snapshots", {
+      ...snapshot,
+      id,
+      version: Number(snapshot.version) + index + 1,
+      input_hash: syntheticDigest(50_000 + index),
+    });
+    for (const child of children)
+      for (const row of child.rows) {
+        insert(child.table, {
+          ...row,
+          id: `${row.id}-cost-${index}`,
+          forecast_snapshot_id: id,
+        });
+      }
+  }
+  await database.batch(writes);
+}
 
 // Synthetic fixture setup runs beside D1 to avoid repeated Node-to-D1 RPC
 // overhead. Read-budget captures remain explicitly metered and return their
@@ -211,6 +269,9 @@ export default {
         operation: operation.operation,
         statementCount: applied.length,
       };
+    } else if (operation.operation === "forecast-history") {
+      await seedForecastHistory(bindings.DB);
+      result = { operation: operation.operation, completed: true };
     } else if (operation.operation === "watch-targets") {
       await seedCostWatchTargets(bindings.DB);
       result = { operation: operation.operation, completed: true };
