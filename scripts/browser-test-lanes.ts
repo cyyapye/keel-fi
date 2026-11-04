@@ -27,9 +27,12 @@ export const BROWSER_TEST_LANES = {
   "mocked-development": ["investment-holdings.visual.spec.ts"],
   "stateful-development": [
     "app-recovery.visual.spec.ts",
-    "legal-entities.visual.spec.ts",
     "navigation.visual.spec.ts",
     "portfolio-watch.visual.spec.ts",
+    "provider-portfolio-mac-agent.spec.ts",
+    "provider-reconnect-access.spec.ts",
+    "provider-session.spec.ts",
+    "sydecar-session-renewal.spec.ts",
   ],
   "stateful-a": [
     "cash-accounts.visual.spec.ts",
@@ -43,6 +46,7 @@ export const BROWSER_TEST_LANES = {
     "provider-legal-documents.spec.ts",
   ],
   "stateful-b": [
+    "legal-entities.visual.spec.ts",
     "manual-holdings.spec.ts",
     "obligations.visual.spec.ts",
     "overview-links.visual.spec.ts",
@@ -51,16 +55,11 @@ export const BROWSER_TEST_LANES = {
     "portfolio-dashboard.visual.spec.ts",
     "position-links.visual.spec.ts",
     "private-alpha.spec.ts",
-    "provider-portfolio-mac-agent.spec.ts",
-    "provider-reconnect-access.spec.ts",
-    "provider-session.spec.ts",
-    "sydecar-session-renewal.spec.ts",
   ],
 } as const satisfies Record<string, readonly string[]>;
 
 const DEVELOPMENT_ONLY_STATEFUL_SPECS = [
   "app-recovery.visual.spec.ts",
-  "legal-entities.visual.spec.ts",
   "navigation.visual.spec.ts",
   // The Watch screenshots intentionally assert Vite's development-mode demo
   // source disclosure; the production build truthfully renders production copy.

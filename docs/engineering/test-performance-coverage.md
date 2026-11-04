@@ -318,3 +318,24 @@ foreign-key check and immutability probes remain. Both versions rejected a
 missing purchase guard and incorrect link-guard SQL. The complete three-case
 file joins the existing one-worker preflight: 87 strict and 1,563 main cases
 still account for all 1,650 unit cases, with the original deadlines.
+
+Thirty legal-entity browser cases now run against the built app. They still
+navigate the real UI, compare the same images and measure the production search
+code in Chromium against the same 50 ms limit. Two local pairs each made 44
+document navigations. Finished asset transfers fell from 573–574 MB to 18 MB. A
+deliberately slow search still failed at 55.1 ms. Four provider specs use the
+existing development lane; they do not load the app bundle and the reconnect
+check still uses the actual local API.
+
+The dashboard drilldown keeps its initial full load and uses browser Back
+between chart choices. A missing final focus target still failed. The
+multiple-company rename now retains its rejected-save response and draft in both
+viewports. Sydecar's HTTP and DNS classifications still consume real Chromium
+events and stored credentials. Those two cases use one browser each; the
+separate cold-start and 24-hour persistence checks keep their restarts.
+
+The six provider-day cost cases keep their real request, authentication, SQL and
+billing paths. Each intercept constructs the outgoing request once. The same API
+bindings serve the whole synthetic day. Unexpected harness errors now escape the
+production poller's recovery path: injected request and browser budget
+violations fail even in scenarios that expect provider errors.

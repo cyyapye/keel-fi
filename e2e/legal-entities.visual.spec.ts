@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { routeCollectionSearchModule } from "./collection-search-module";
 import type * as CollectionSearch from "../apps/web/src/collection-search";
 import type {
   LegalEntityExportInput,
@@ -992,41 +993,43 @@ test("searches the full legal inventory, reveals historical matches and refreshe
   ).toBeVisible();
   expect(writes).toBe(1);
   expect(reads).toBe(2);
-  const timings = await page.evaluate(async (data) => {
-    const moduleUrl = "/src/collection-search.ts";
-    const { buildLegalEntitySearchIndex, searchLegalEntities } = (await import(
-      moduleUrl
-    )) as typeof CollectionSearch;
-    return [120, 1_000].map((size) => {
-      const scaled = {
-        ...data,
-        entities: Array.from({ length: size }, (_, index) => ({
-          ...data.entities[0]!,
-          id: `benchmark_${index}`,
-          legalName: `Demo Benchmark ${index} LLC`,
-        })),
-      };
-      const buildStart = performance.now();
-      const index = buildLegalEntitySearchIndex(scaled);
-      const buildMs = performance.now() - buildStart;
-      const durations: number[] = [];
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        const started = performance.now();
-        searchLegalEntities(
-          index,
-          ["benchmark 119", "demo", "no matching record"][attempt % 3]!,
-        );
-        durations.push(performance.now() - started);
-      }
-      durations.sort((left, right) => left - right);
-      return {
-        size,
-        buildMs,
-        p95SearchMs: durations[56],
-        maxSearchMs: durations.at(-1),
-      };
-    });
-  }, inventory);
+  const moduleUrl = await routeCollectionSearchModule(page);
+  const timings = await page.evaluate(
+    async ({ data, moduleUrl }) => {
+      const { buildLegalEntitySearchIndex, searchLegalEntities } =
+        (await import(moduleUrl)) as typeof CollectionSearch;
+      return [120, 1_000].map((size) => {
+        const scaled = {
+          ...data,
+          entities: Array.from({ length: size }, (_, index) => ({
+            ...data.entities[0]!,
+            id: `benchmark_${index}`,
+            legalName: `Demo Benchmark ${index} LLC`,
+          })),
+        };
+        const buildStart = performance.now();
+        const index = buildLegalEntitySearchIndex(scaled);
+        const buildMs = performance.now() - buildStart;
+        const durations: number[] = [];
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const started = performance.now();
+          searchLegalEntities(
+            index,
+            ["benchmark 119", "demo", "no matching record"][attempt % 3]!,
+          );
+          durations.push(performance.now() - started);
+        }
+        durations.sort((left, right) => left - right);
+        return {
+          size,
+          buildMs,
+          p95SearchMs: durations[56],
+          maxSearchMs: durations.at(-1),
+        };
+      });
+    },
+    { data: inventory, moduleUrl },
+  );
   await testInfo.attach("legal-entity-search-timings.json", {
     body: JSON.stringify(timings),
     contentType: "application/json",

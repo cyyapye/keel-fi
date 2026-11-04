@@ -74,9 +74,9 @@ servers, ports and cleanup; each partition remains serial internally.
 The verification map admits an exclusive preflight before any heavy flow. The
 existing integrity flow first executes the strict workload and migration files
 with one Vitest worker, then runs native Python accounting. The main unit flow
-executes the complementary cases. Both reports must account for the entire reviewed
-Vitest inventory exactly once. Missing, stale, substituted or overlapping
-preflight evidence fails verification.
+executes the complementary cases. Both reports must account for the entire
+reviewed Vitest inventory exactly once. Missing, stale, substituted or
+overlapping preflight evidence fails verification.
 
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
@@ -321,25 +321,27 @@ Browser verification produces five reports while admitting at most four workers.
 The initial four lanes each use one worker. After they validate and close, the
 holdings lane uses four workers and production serving. Its historical
 `mocked-development` identifier remains; its declared frontend is production.
-The development stateful lane has 72 executions, production stateful-a has 114,
-production stateful-b has 126, the production mocked lane has 110 and the
-holdings tail has 36. These total 458 identities with 32 existing Linux
+The development stateful lane registers 104 cases, production stateful-a 111,
+production stateful-b 88, the production mocked lane 110 and the holdings
+tail 34. Of the 447 registered cases, 417 run on Linux and 30 have reviewed
 exclusions. The geometry consolidation and retained failure proof are recorded
 in [test performance coverage](test-performance-coverage.md).
 
-The 32 manual-holding visual executions use the fail-closed API-mocked fixture
+The 30 manual-holding visual executions use the fail-closed API-mocked fixture
 inside production stateful-a. API mocking belongs to each test's fixture,
 independently of its lane's server. The fixture blocks service workers and
 rejects unhandled API reads and writes. Each stateful partition receives a
 separate copy of the verified, closed synthetic seed and owns distinct API/web
-ports. Neither mocked lane starts an API server. Production serving reduces
-module transforms and requests; the development stateful lane retains direct
-source-module checks and intentional demo-source disclosure. Missing production
-JS or CSS fails startup. Snapshot identities and baselines remain unchanged.
-Each lane owns its dependency cache and output. Development readiness validates
-the initial module graph; stateful readiness also checks the actual holdings
-projection through the web proxy. A simpler health endpoint cannot hide a cold
-first read.
+ports. Neither mocked lane starts an API server. The legal-entity suite uses the
+built frontend and bundles the actual collection search module for its browser
+timing check. The development stateful lane owns the recovery, navigation and
+Watch development behavior. Its provider cases use controlled browser profiles
+or provider pages, and the reconnect interstitial still reaches the local API.
+Missing production JS or CSS fails startup. Snapshot identities and baselines
+remain unchanged. Each lane owns its dependency cache and output. Development
+readiness validates the initial module graph; stateful readiness also checks the
+actual holdings projection through the web proxy. A simpler health endpoint
+cannot hide a cold first read.
 
 The migration flow runs every migration and the base synthetic seed, then copies
 its closed D1 tree into a dedicated allowlisted browser path before applying
