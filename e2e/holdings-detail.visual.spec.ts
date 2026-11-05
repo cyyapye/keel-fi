@@ -999,6 +999,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     ).toHaveAttribute("title", "Reviewed mark as of Aug 18, 2026");
     await expect(adjustedBeaconPosition).toContainText("Reviewed mark");
   }
+  if (mobile) return;
   await latticeExposure.locator(".exposure-group__summary").click();
   await page
     .getByRole("button", {

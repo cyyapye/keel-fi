@@ -1001,3 +1001,29 @@ historical entity check waits for the saved historical state before checking
 that its owner row has gone. Mobile navigation checks the loaded menu button
 before checking the two closed navigation regions. A delayed response with a
 stale element passed the old assertions and failed all three revised checks.
+
+The
+[312-case ordinary Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41976799664)
+passed all eleven flows at the first attempt. The full gate took 770.511
+seconds, including a 468.451-second browser phase. The
+[isolated browser run](https://github.com/cyyapye/keel-fi/actions/runs/41976901949)
+took 313.577 seconds and its
+[identical repeat](https://github.com/cyyapye/keel-fi/actions/runs/41980100466)
+took 324.023 seconds. All three used the original runner and four-worker cap.
+
+The subsequent agreement and Holdings review leaves 302 required browser cases
+and 361 Linux references. Ownership percentages, dates and document references
+now run on the actual ownership component. The existing K-1 journey also loads
+the ordinary documented ownership and checks the original image at both widths.
+The agreement component tests the controls and explanations for blocked
+documents. Real malware, download prevention and successful recheck still run in
+the browser. The scan-limit and encryption variants lose their separate
+warning-wrap comparisons.
+
+Both widths retain the principal Holdings and detail screens, the full
+1,000-position search bounds, selection, focus and true reload. The six retired
+alternate views per platform include secondary recovery, a locked position
+subtotal and narrow brokerage detail. The domain checks that public and SPV
+contributions group together and suppress an unsupported total when one position
+is locked. Waiting for recovered exposures before checking for a missing alert
+also catches a stale error that the old reload test allowed.

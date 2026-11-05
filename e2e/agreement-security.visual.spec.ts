@@ -8,7 +8,7 @@ import {
   PortfolioBaselineStateSchema,
   PrivateExposureReviewStateSchema,
 } from "../packages/domain/src";
-import type { LegalDocumentScan } from "../packages/domain/src/provider-legal-documents";
+import { blockedAgreementSource } from "./agreement-security-fixtures";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { routeInvestmentReview } from "./investment-review-fixtures";
@@ -73,67 +73,6 @@ const emptyPrivateExposureReviews = PrivateExposureReviewStateSchema.parse({
     excludedPositionCount: 0,
   },
 });
-
-function candidate(
-  index: number,
-  name: string,
-  finding?: {
-    reason: "encrypted" | "scan_limit" | "malware_signature";
-    signature: string;
-  },
-  incomplete = false,
-): LegalEntitySourceSummary {
-  const sha256 = index.toString(16).repeat(64);
-  const scan: LegalDocumentScan = {
-    version: 1,
-    outcome: "blocked",
-    sha256,
-    engineVersion: "1.5.3",
-    databaseVersion: 28000,
-    databaseUpdatedAt: "2026-09-01T12:00:00.000Z",
-    scannedAt: "2026-09-01T12:00:00.000Z",
-  };
-  return {
-    source: {
-      kind: "holding_position",
-      id: `position_demo_security_${index.toString()}`,
-    },
-    sourceDisplayName: name,
-    sourceLabel: "Sydecar agreement",
-    sourceAsOf: "2026-09-01",
-    currentOwner: null,
-    currentDecisionId: null,
-    suggestedEntityType: null,
-    relationship: "investment_vehicle",
-    interestStatus: "current",
-    financials: null,
-    openedOn: null,
-    legalEntityNameEvidence: {
-      state: "unavailable",
-      legalName: null,
-      sourceField: null,
-      problem: incomplete ? "scanner_unavailable" : "security_blocked",
-      documents: [
-        {
-          id: `${index.toString().repeat(8)}-1111-4111-8111-111111111111`,
-          fileName: `demo-${index.toString()}-agreement.pdf`,
-          sha256,
-          page: null,
-          quote: null,
-          provider: "sydecar",
-          ...(incomplete
-            ? {}
-            : {
-                scan:
-                  finding === undefined
-                    ? scan
-                    : { ...scan, version: 2, findings: [finding] },
-              }),
-        },
-      ],
-    },
-  };
-}
 
 async function setup(page: Page, candidates: LegalEntitySourceSummary[]) {
   const inventory: LegalEntityInventory = {
@@ -224,67 +163,16 @@ async function noOverflow(page: Page) {
   );
 }
 
-test("explains scan limits, encrypted content and threat matches without offering blocked downloads", async ({
-  page,
-}) => {
-  const { workspace, open, downloads } = await setup(page, [
-    candidate(1, "Demo Climate", {
-      reason: "scan_limit",
-      signature: "Heuristics.Limits.Exceeded.MaxFileSize",
-    }),
-    candidate(2, "Demo Robotics", {
-      reason: "encrypted",
-      signature: "Heuristics.Encrypted.PDF",
-    }),
-    candidate(3, "Demo Energy", {
-      reason: "malware_signature",
-      signature: "Win.Test.EICAR_HDB-1",
-    }),
-  ]);
-  for (const [name, explanation, screenshot] of [
-    [
-      "Demo Climate",
-      "This does not establish malware",
-      "agreement-security-reasons.png",
-    ],
-    [
-      "Demo Robotics",
-      "Request an unencrypted copy",
-      "agreement-security-encrypted.png",
-    ],
-    [
-      "Demo Energy",
-      "Keep this agreement blocked",
-      "agreement-security-threat.png",
-    ],
-  ] as const) {
-    await open(name);
-    await expect(workspace).toContainText(explanation);
-    await expect(
-      workspace.getByRole("button", { name: /demo-\d-agreement\.pdf/u }),
-    ).toHaveCount(0);
-    await expect(
-      workspace.getByRole("button", { name: "Recheck agreement" }),
-    ).toHaveCount(1);
-    await expect(
-      workspace.getByRole("button", { name: "Review details" }),
-    ).toHaveCount(0);
-    await page.mouse.move(0, 0);
-    await expect(workspace).toHaveScreenshot(screenshot, {
-      animations: "disabled",
-      caret: "hide",
-    });
-    await noOverflow(page);
-  }
-  expect(downloads).toEqual([]);
-});
-
 test("offers a targeted retry for legacy and incomplete checks, and explains a busy source", async ({
   page,
 }) => {
   const { workspace, open, downloads } = await setup(page, [
-    candidate(4, "Demo Legacy"),
-    candidate(5, "Demo Scanner Setup", undefined, true),
+    blockedAgreementSource(4, "Demo Legacy"),
+    blockedAgreementSource(5, "Demo Scanner Setup", undefined, true),
+    blockedAgreementSource(3, "Demo Energy", {
+      reason: "malware_signature",
+      signature: "Win.Test.EICAR_HDB-1",
+    }),
   ]);
   const requests: unknown[] = [];
   let busy = true;
@@ -313,6 +201,23 @@ test("offers a targeted retry for legacy and incomplete checks, and explains a b
           },
     );
   });
+  await open("Demo Energy");
+  await expect(workspace).toContainText("Keep this agreement blocked");
+  await expect(
+    workspace.getByRole("button", { name: "demo-3-agreement.pdf" }),
+  ).toHaveCount(0);
+  await expect(
+    workspace.getByRole("button", { name: "Recheck agreement" }),
+  ).toBeEnabled();
+  await expect(
+    workspace.getByRole("button", { name: "Review details" }),
+  ).toHaveCount(0);
+  await page.mouse.move(0, 0);
+  await expect(workspace).toHaveScreenshot("agreement-security-threat.png", {
+    animations: "disabled",
+    caret: "hide",
+  });
+  await noOverflow(page);
   await open("Demo Scanner Setup");
   await expect(workspace).toContainText("Security check incomplete");
   await expect(

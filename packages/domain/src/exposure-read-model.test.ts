@@ -142,6 +142,7 @@ describe("investment exposure read model", () => {
     const publicPositions = Array.from({ length: 120 }, (_, index) =>
       position(`public_${String(index).padStart(3, "0")}`, 1_000),
     );
+    publicPositions.push(position("public_locked", null, "locked"));
     const spv = position("spv_1", 25_000);
     spv.kind = "spv_interest";
     spv.snapshot.quantityMicros = null;
@@ -172,13 +173,13 @@ describe("investment exposure read model", () => {
     expect(canonical.exposures).toHaveLength(2);
     expect(grouped).toHaveLength(1);
     expect(grouped[0]?.exposure.id).toBe(privateCompany.id);
-    expect(grouped[0]?.contributions).toHaveLength(121);
+    expect(grouped[0]?.contributions).toHaveLength(122);
     expect(grouped[0]?.totals).toEqual([
       {
         currency: "USD",
         allocatedValueMinor: 145_000,
         knownValuePositionCount: 121,
-        unknownValuePositionCount: 0,
+        unknownValuePositionCount: 1,
       },
     ]);
     expect(

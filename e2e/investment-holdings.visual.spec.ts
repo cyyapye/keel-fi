@@ -14,8 +14,10 @@ import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 import { routeCollectionSearchModule } from "./collection-search-module";
 
+const captureDesignVariants = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
+
 async function captureDesignReview(page: Page, filename: string) {
-  if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
+  if (captureDesignVariants) {
     await page.screenshot({
       path: test.info().outputPath(filename),
       fullPage: true,
@@ -437,6 +439,7 @@ test.beforeEach(async ({ page }) => {
 
 test("groups reviewed public stock with separate SPVs and keeps their value bases", async ({
   page,
+  isMobile,
 }) => {
   const syntheticHolding = (
     id: string,
@@ -522,6 +525,7 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
     animations: "disabled",
     caret: "hide",
   });
+  if (!isMobile) return;
   const incompleteHoldings = holdings.map((holding) =>
     holding.id === "position_nstr_spv_b"
       ? { ...holding, administratorNavState: "locked" as const }
@@ -571,77 +575,81 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
   );
 });
 
-test("shows the Holdings shell while one read-only projection loads", async ({
-  page,
-}) => {
-  let releaseHoldingsPage: () => void = () => undefined;
-  const holdingsPageGate = new Promise<void>((resolve) => {
-    releaseHoldingsPage = resolve;
-  });
-  const apiRequests: Array<{ method: string; pathname: string }> = [];
-  page.on("request", (request) => {
-    const url = new URL(request.url());
-    if (url.pathname.startsWith("/api/")) {
-      apiRequests.push({ method: request.method(), pathname: url.pathname });
-    }
-  });
-
-  await page.unroute("**/api/holdings-page");
-  await page.route("**/api/holdings-page", async (route) => {
-    await holdingsPageGate;
-    await route.fulfill({
-      json: {
-        version: 1,
-        shell: {
-          householdName: alphaFixture.dashboard.householdName,
-          pendingEvidenceCount: 0,
-        },
-        holdings: alphaFixture.holdings,
-        investmentHoldings: holdingsView,
-        acceptedCashAccounts,
-        pendingImports: [],
-      },
+test(
+  "shows the Holdings shell while one read-only projection loads",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    let releaseHoldingsPage: () => void = () => undefined;
+    const holdingsPageGate = new Promise<void>((resolve) => {
+      releaseHoldingsPage = resolve;
     });
-  });
+    const apiRequests: Array<{ method: string; pathname: string }> = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname.startsWith("/api/")) {
+        apiRequests.push({ method: request.method(), pathname: url.pathname });
+      }
+    });
 
-  await page.goto("/holdings");
-  await expect(page.getByRole("heading", { name: "Holdings" })).toBeVisible();
-  await expect(
-    page.getByRole("status", { name: "" }).filter({
-      hasText: "Loading reviewed exposures…",
-    }),
-  ).toBeVisible();
-  await expect.poll(() => apiRequests.length).toBe(1);
-  expect(apiRequests).toEqual([
-    { method: "GET", pathname: "/api/holdings-page" },
-  ]);
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".holdings-screen")).toHaveScreenshot(
-    "holdings-fast-path-loading.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+    await page.unroute("**/api/holdings-page");
+    await page.route("**/api/holdings-page", async (route) => {
+      await holdingsPageGate;
+      await route.fulfill({
+        json: {
+          version: 1,
+          shell: {
+            householdName: alphaFixture.dashboard.householdName,
+            pendingEvidenceCount: 0,
+          },
+          holdings: alphaFixture.holdings,
+          investmentHoldings: holdingsView,
+          acceptedCashAccounts,
+          pendingImports: [],
+        },
+      });
+    });
 
-  releaseHoldingsPage();
-  await expect(
-    page.locator(".exposure-group").filter({ hasText: "NVDA" }).first(),
-  ).toBeVisible();
-  await expect
-    .poll(
-      () =>
-        apiRequests.filter(
-          (request) =>
-            request.method === "GET" &&
-            request.pathname === "/api/investment-connections",
-        ).length,
-    )
-    .toBe(1);
-  expect(apiRequests.filter((request) => request.method !== "GET")).toEqual([]);
-});
+    await page.goto("/holdings");
+    await expect(page.getByRole("heading", { name: "Holdings" })).toBeVisible();
+    await expect(
+      page.getByRole("status", { name: "" }).filter({
+        hasText: "Loading reviewed exposures…",
+      }),
+    ).toBeVisible();
+    await expect.poll(() => apiRequests.length).toBe(1);
+    expect(apiRequests).toEqual([
+      { method: "GET", pathname: "/api/holdings-page" },
+    ]);
+    await expectNoHorizontalOverflow(page);
+    await expect(page.locator(".holdings-screen")).toHaveScreenshot(
+      "holdings-fast-path-loading.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
+
+    releaseHoldingsPage();
+    await expect(
+      page.locator(".exposure-group").filter({ hasText: "NVDA" }).first(),
+    ).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          apiRequests.filter(
+            (request) =>
+              request.method === "GET" &&
+              request.pathname === "/api/investment-connections",
+          ).length,
+      )
+      .toBe(1);
+    expect(apiRequests.filter((request) => request.method !== "GET")).toEqual(
+      [],
+    );
+  },
+);
 
 test("shows compact empty exposure and account states", async ({ page }) => {
   const emptyAlphaFixture = { ...alphaFixture, holdings: [] };
@@ -1404,85 +1412,102 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "public-position-company-grouping.png",
     { animations: "disabled", caret: "hide" },
   );
-  await page.route("**/api/companies/public-links", (route) =>
-    route.fulfill({
-      json: {
-        securities: [
-          {
-            exposureId: publicExposureId,
-            name: "NVIDIA common stock",
-            companyId: null,
-            reviewId: null,
-            positionCount: 3,
-          },
-        ],
-        companies: [],
-      },
-    }),
-  );
-  await page.route(
-    `**/api/companies/public-links/${encodeURIComponent(publicExposureId)}/recommendation`,
-    (route) =>
+  if (!mobile) {
+    await page.route("**/api/companies/public-links", (route) =>
       route.fulfill({
         json: {
-          id: "synthetic_no_match",
-          exposureId: publicExposureId,
-          status: "no_match",
-          companyId: null,
-          companyName: null,
-          reason: "Choose a company using synthetic issuer evidence.",
-          sourceUrl: null,
-          sourceTitle: null,
+          securities: [
+            {
+              exposureId: publicExposureId,
+              name: "NVIDIA common stock",
+              companyId: null,
+              reviewId: null,
+              positionCount: 3,
+            },
+          ],
+          companies: [],
         },
       }),
-  );
-  await groupingLink.click();
-  await expect(
-    page.getByRole("heading", { name: "Company grouping", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("No confident match yet", { exact: true }),
-  ).toBeVisible();
-  const backToPosition = page.getByRole("link", {
-    name: "Back to position",
-    exact: true,
-  });
-  await expect(backToPosition).toHaveAttribute(
-    "href",
-    `/holdings?position=${encodeURIComponent(selectedPositionId)}`,
-  );
-  await backToPosition.click();
-  await expect(
-    page.getByRole("heading", { level: 2, name: "NVIDIA common stock" }),
-  ).toBeFocused();
-  await expect(page).toHaveURL(
-    new RegExp(`position=${selectedPositionId}$`, "u"),
-  );
+    );
+    await page.route(
+      `**/api/companies/public-links/${encodeURIComponent(publicExposureId)}/recommendation`,
+      (route) =>
+        route.fulfill({
+          json: {
+            id: "synthetic_no_match",
+            exposureId: publicExposureId,
+            status: "no_match",
+            companyId: null,
+            companyName: null,
+            reason: "Choose a company using synthetic issuer evidence.",
+            sourceUrl: null,
+            sourceTitle: null,
+          },
+        }),
+    );
+    await groupingLink.click();
+    await expect(
+      page.getByRole("heading", { name: "Company grouping", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("No confident match yet", { exact: true }),
+    ).toBeVisible();
+    const backToPosition = page.getByRole("link", {
+      name: "Back to position",
+      exact: true,
+    });
+    await expect(backToPosition).toHaveAttribute(
+      "href",
+      `/holdings?position=${encodeURIComponent(selectedPositionId)}`,
+    );
+    await backToPosition.click();
+    await expect(
+      page.getByRole("heading", { level: 2, name: "NVIDIA common stock" }),
+    ).toBeFocused();
+    await expect(page).toHaveURL(
+      new RegExp(`position=${selectedPositionId}$`, "u"),
+    );
+  }
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(nvdaDetailAction).toBeFocused();
 
-  const cashDetailAction = cash
-    .getByRole("button", {
-      name: "View U S Dollar holding details",
-    })
-    .first();
-  await cashDetailAction.focus();
-  await cashDetailAction.press("Enter");
-  await expect(
-    page.getByRole("heading", { level: 2, name: "US Dollar" }),
-  ).toBeFocused();
-  await expect(
-    page.getByRole("group", { name: "Company grouping", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Add value evidence" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("button", { name: "Return details", exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "Back to holdings" }).click();
-  await expect(cashDetailAction).toBeFocused();
-
+  if (!mobile) {
+    const cashDetailAction = cash
+      .getByRole("button", {
+        name: "View U S Dollar holding details",
+      })
+      .first();
+    await cashDetailAction.focus();
+    await cashDetailAction.press("Enter");
+    await expect(
+      page.getByRole("heading", { level: 2, name: "US Dollar" }),
+    ).toBeFocused();
+    await expect(
+      page.getByRole("group", { name: "Company grouping", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Add value evidence" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Return details", exact: true }),
+    ).toHaveCount(0);
+    await page.getByRole("button", { name: "Back to holdings" }).click();
+    await expect(cashDetailAction).toBeFocused();
+    await openHoldingSources(page);
+    await robinhoodCard.getByRole("button", { name: "Disconnect" }).click();
+    await expect(
+      robinhoodCard.getByText(
+        "Provider access will be removed. Reviewed history stays in Keel.",
+      ),
+    ).toBeVisible();
+    await robinhoodCard.getByRole("button", { name: "Keep connected" }).click();
+    await expect(
+      robinhoodCard.getByText(
+        "Provider access will be removed. Reviewed history stays in Keel.",
+      ),
+    ).toHaveCount(0);
+    return;
+  }
   if (
     (await beacon
       .locator(".exposure-group__summary")
@@ -1535,20 +1560,6 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(privateEstimateDetailAction).toBeFocused();
-
-  await openHoldingSources(page);
-  await robinhoodCard.getByRole("button", { name: "Disconnect" }).click();
-  await expect(
-    robinhoodCard.getByText(
-      "Provider access will be removed. Reviewed history stays in Keel.",
-    ),
-  ).toBeVisible();
-  await robinhoodCard.getByRole("button", { name: "Keep connected" }).click();
-  await expect(
-    robinhoodCard.getByText(
-      "Provider access will be removed. Reviewed history stays in Keel.",
-    ),
-  ).toHaveCount(0);
 });
 
 test(
@@ -1615,55 +1626,61 @@ test(
   },
 );
 
-test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
-  const robinhood = statuses[0]!;
-  const interrupted = {
-    ...robinhood,
-    status: "needs_attention" as const,
-    lastSyncedAt: new Date().toISOString(),
-    latestRunStatus: "failed" as const,
-    errorCode: "unexpected_failure" as const,
-  };
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: [interrupted],
-        errorCode: null,
-      },
+test(
+  "lets a failed brokerage check be retried",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const robinhood = statuses[0]!;
+    const interrupted = {
+      ...robinhood,
+      status: "needs_attention" as const,
+      lastSyncedAt: new Date().toISOString(),
+      latestRunStatus: "failed" as const,
+      errorCode: "unexpected_failure" as const,
+    };
+    await page.unroute("**/api/investment-connections");
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          connections: [interrupted],
+          errorCode: null,
+        },
+      });
     });
-  });
-  await page.route(
-    `**/api/investment-connections/${robinhood.connectionId}/sync`,
-    async (route) => {
-      expect(route.request().method()).toBe("POST");
-      await route.fulfill({ json: robinhood });
-    },
-  );
+    let manualSyncs = 0;
+    await page.route(
+      `**/api/investment-connections/${robinhood.connectionId}/sync`,
+      async (route) => {
+        expect(route.request().method()).toBe("POST");
+        manualSyncs += 1;
+        await route.fulfill({ json: robinhood });
+      },
+    );
 
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
-  await openHoldingSources(page);
-  const robinhoodCard = page
-    .locator(".investment-institution")
-    .filter({ hasText: "Robinhood" });
-  const failedStatus = robinhoodCard.getByText("Check failed", { exact: true });
-  await expect(failedStatus).toBeVisible();
-  await expect(failedStatus).toHaveCSS("text-decoration-line", "none");
-  await expect(
-    robinhoodCard.getByText("We’ll try again later.", { exact: true }),
-  ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  const retry = robinhoodCard.getByRole("button", { name: "Try now" });
-  await expect(retry).toBeEnabled();
-  await retry.click();
-  await expect(
-    robinhoodCard.getByText("Up to date", { exact: true }),
-  ).toBeVisible();
-});
+    await page.goto("/holdings/sources");
+    const robinhoodCard = page
+      .locator(".investment-institution")
+      .filter({ hasText: "Robinhood" });
+    const failedStatus = robinhoodCard.getByText("Check failed", {
+      exact: true,
+    });
+    await expect(failedStatus).toBeVisible();
+    await expect(failedStatus).toHaveCSS("text-decoration-line", "none");
+    await expect(
+      robinhoodCard.getByText("We’ll try again later.", { exact: true }),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    const retry = robinhoodCard.getByRole("button", { name: "Try now" });
+    await expect(retry).toBeEnabled();
+    await retry.click();
+    await expect(
+      robinhoodCard.getByText("Up to date", { exact: true }),
+    ).toBeVisible();
+    expect(manualSyncs).toBe(1);
+  },
+);
 
 test(
   "automatically retries an old interrupted brokerage check once",
@@ -1808,190 +1825,192 @@ test(
   },
 );
 
-test("keeps reviewed history in exposures without showing fake brokerage accounts", async ({
-  page,
-}, testInfo) => {
-  const reviewedHistoryView = reconciledReviewedHistoryInvestmentHoldingsView();
-  const reviewedAlphaHoldings = alphaHoldingsFrom(reviewedHistoryView);
-  const retainedPredecessor = {
-    ...reviewedAlphaHoldings[0]!,
-    id: "position_reviewed_history_retained_predecessor",
-    positionName: "Demo Pharmacy retired predecessor",
-    administratorNavMinor: 123_456,
-  };
-  await page.unroute("**/api/alpha");
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        holdings: [...reviewedAlphaHoldings, retainedPredecessor],
-      },
-    });
-  });
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: [],
-        errorCode: null,
-      },
-    });
-  });
-  await page.unroute("**/api/investment-holdings");
-  await page.route("**/api/investment-holdings", async (route) => {
-    await route.fulfill({ json: reviewedHistoryView });
-  });
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: reviewedAlphaHoldings,
-    investmentHoldings: reviewedHistoryView,
-    acceptedCashAccounts,
-    pendingImports: [],
-  });
-
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  const [connectionResponse] = await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === "/api/investment-connections" &&
-        response.ok(),
-    ),
-    navigateToScreen(page, mobile, /Holdings/),
-  ]);
-  expect(await connectionResponse.finished()).toBeNull();
-  await openHoldingSources(page);
-
-  const accounts = page.locator(".investment-institutions");
-  await expect(accounts).toBeVisible();
-  await expect(
-    accounts.getByText("Checking investment institutions…"),
-  ).toBeHidden();
-  await expect(accounts.locator(".investment-institution")).toHaveCount(0);
-  await expect(accounts).not.toContainText("AngelList reviewed history");
-  await expect(accounts).not.toContainText("Original account details");
-  await expectNoHorizontalOverflow(page);
-  await page
-    .getByRole("navigation", { name: "Holdings sections" })
-    .getByRole("link", { name: "Holdings", exact: true })
-    .click();
-
-  const exposureView = page.locator(".investment-views");
-  await expect(exposureView.getByRole("tab")).toHaveCount(0);
-  await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "1 exposure",
-  );
-  await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "14 legal positions",
-  );
-  const exposure = page.locator(".exposure-group").filter({
-    has: page.getByText("Demo Pharmacy", { exact: true }),
-  });
-  await expect(page.locator(".exposure-group")).toHaveCount(1);
-  await expect(exposure).toContainText("14 positions");
-  await exposure.locator(".exposure-group__summary").click();
-  await expect(
-    exposure.locator(".exposure-group__positions article"),
-  ).toHaveCount(14);
-  await expect(exposure).toContainText("Demo Pharmacy SPV 01");
-  await expect(exposure).toContainText("Demo Pharmacy SPV 14");
-  await expect(exposureView).not.toContainText(
-    "Demo Pharmacy retired predecessor",
-  );
-  await expect(exposure).not.toContainText("Demo Family holding");
-  await expect(exposure).not.toContainText("AngelList reviewed history");
-  const positionActions = exposure.getByRole("button", {
-    name: /View Demo Pharmacy SPV \d+ holding details/,
-  });
-  await expect(positionActions).toHaveCount(14);
-  await expectNoHorizontalOverflow(page);
-
-  const firstPositionAction = positionActions.first();
-  await firstPositionAction.click();
-  await expect(
-    page.getByRole("heading", {
-      level: 2,
-      name: "Demo Pharmacy",
-      exact: true,
-    }),
-  ).toBeFocused();
-  await expect(page.getByText(/Demo Pharmacy SPV 01 ·/)).toBeVisible();
-  await page.getByRole("button", { name: "Back to holdings" }).click();
-  await expect(firstPositionAction).toBeFocused();
-});
-
-test("keeps failed canonical holdings out of view and retries", async ({
-  page,
-}) => {
-  let holdingsRequestCount = 0;
-  await page.unroute("**/api/holdings-page");
-  await page.route("**/api/holdings-page", async (route) => {
-    holdingsRequestCount += 1;
-    if (holdingsRequestCount === 1) {
+test(
+  "keeps reviewed history in exposures without showing fake brokerage accounts",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const reviewedHistoryView =
+      reconciledReviewedHistoryInvestmentHoldingsView();
+    const reviewedAlphaHoldings = alphaHoldingsFrom(reviewedHistoryView);
+    const retainedPredecessor = {
+      ...reviewedAlphaHoldings[0]!,
+      id: "position_reviewed_history_retained_predecessor",
+      positionName: "Demo Pharmacy retired predecessor",
+      administratorNavMinor: 123_456,
+    };
+    await page.unroute("**/api/alpha");
+    await page.route("**/api/alpha", async (route) => {
       await route.fulfill({
-        status: 503,
-        json: { error: "Reviewed holdings are temporarily unavailable." },
-      });
-      return;
-    }
-    await route.fulfill({
-      json: {
-        version: 1,
-        shell: {
-          householdName: alphaFixture.dashboard.householdName,
-          pendingEvidenceCount: 0,
+        json: {
+          ...alphaFixture,
+          holdings: [...reviewedAlphaHoldings, retainedPredecessor],
         },
-        holdings: alphaFixture.holdings,
-        investmentHoldings: holdingsView,
-        acceptedCashAccounts,
-        pendingImports: [],
-      },
+      });
     });
-  });
-  await page.goto("/holdings");
-  await expect.poll(() => holdingsRequestCount).toBe(1);
+    await page.unroute("**/api/investment-connections");
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          connections: [],
+          errorCode: null,
+        },
+      });
+    });
+    await page.unroute("**/api/investment-holdings");
+    await page.route("**/api/investment-holdings", async (route) => {
+      await route.fulfill({ json: reviewedHistoryView });
+    });
+    await routeHoldingsPage(page, {
+      householdName: alphaFixture.dashboard.householdName,
+      holdings: reviewedAlphaHoldings,
+      investmentHoldings: reviewedHistoryView,
+      acceptedCashAccounts,
+      pendingImports: [],
+    });
 
-  const errorState = page.locator(".investment-views");
-  await expect(errorState.getByRole("alert")).toContainText(
-    "Reviewed holdings are temporarily unavailable.",
-  );
-  await expect(errorState.locator(".investment-views__total")).toHaveCount(0);
-  await expect(errorState.locator(".exposure-groups")).toHaveCount(0);
-  await expect(errorState.locator(".unallocated-positions")).toHaveCount(0);
-  await expect(
-    errorState.getByText("Exposure unresolved", { exact: true }),
-  ).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await captureDesignReview(page, "review-unavailable-holdings.png");
-  await expect(errorState).toHaveScreenshot(
-    "investment-holdings-retry-error.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+    const [connectionResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/investment-connections" &&
+          response.ok(),
+      ),
+      page.goto("/holdings"),
+    ]);
+    expect(await connectionResponse.finished()).toBeNull();
+    await openHoldingSources(page);
 
-  await errorState.getByRole("button", { name: "Try again" }).click();
-  await expect.poll(() => holdingsRequestCount).toBe(2);
-  await expect(errorState.getByRole("alert")).toHaveCount(0);
-  const nvda = errorState.locator(".exposure-group").filter({
-    has: page.locator(
-      '.exposure-group__summary strong[title="NVIDIA common stock"]',
-    ),
-  });
-  await expect(nvda).toContainText("3 positions");
-  await expect(errorState.locator(".unallocated-positions")).not.toContainText(
-    "NVDA",
-  );
-});
+    const accounts = page.locator(".investment-institutions");
+    await expect(accounts).toBeVisible();
+    await expect(
+      accounts.getByText("Checking investment institutions…"),
+    ).toBeHidden();
+    await expect(accounts.locator(".investment-institution")).toHaveCount(0);
+    await expect(accounts).not.toContainText("AngelList reviewed history");
+    await expect(accounts).not.toContainText("Original account details");
+    await expectNoHorizontalOverflow(page);
+    await page
+      .getByRole("navigation", { name: "Holdings sections" })
+      .getByRole("link", { name: "Holdings", exact: true })
+      .click();
 
-test("progressively renders long exposure lists", async ({
-  page,
-}, testInfo) => {
+    const exposureView = page.locator(".investment-views");
+    await expect(exposureView.getByRole("tab")).toHaveCount(0);
+    await expect(
+      exposureView.locator(".investment-views__total"),
+    ).toContainText("1 exposure");
+    await expect(
+      exposureView.locator(".investment-views__total"),
+    ).toContainText("14 legal positions");
+    const exposure = page.locator(".exposure-group").filter({
+      has: page.getByText("Demo Pharmacy", { exact: true }),
+    });
+    await expect(page.locator(".exposure-group")).toHaveCount(1);
+    await expect(exposure).toContainText("14 positions");
+    await exposure.locator(".exposure-group__summary").click();
+    await expect(
+      exposure.locator(".exposure-group__positions article"),
+    ).toHaveCount(14);
+    await expect(exposure).toContainText("Demo Pharmacy SPV 01");
+    await expect(exposure).toContainText("Demo Pharmacy SPV 14");
+    await expect(exposureView).not.toContainText(
+      "Demo Pharmacy retired predecessor",
+    );
+    await expect(exposure).not.toContainText("Demo Family holding");
+    await expect(exposure).not.toContainText("AngelList reviewed history");
+    const positionActions = exposure.getByRole("button", {
+      name: /View Demo Pharmacy SPV \d+ holding details/,
+    });
+    await expect(positionActions).toHaveCount(14);
+    await expectNoHorizontalOverflow(page);
+
+    const firstPositionAction = positionActions.first();
+    await firstPositionAction.click();
+    await expect(
+      page.getByRole("heading", {
+        level: 2,
+        name: "Demo Pharmacy",
+        exact: true,
+      }),
+    ).toBeFocused();
+    await expect(page.getByText(/Demo Pharmacy SPV 01 ·/)).toBeVisible();
+    await page.getByRole("button", { name: "Back to holdings" }).click();
+    await expect(firstPositionAction).toBeFocused();
+  },
+);
+
+test(
+  "keeps failed canonical holdings out of view and retries",
+  { tag: captureDesignVariants ? [] : "@desktop-only" },
+  async ({ page, isMobile }) => {
+    let holdingsRequestCount = 0;
+    await page.unroute("**/api/holdings-page");
+    await page.route("**/api/holdings-page", async (route) => {
+      holdingsRequestCount += 1;
+      if (holdingsRequestCount === 1) {
+        await route.fulfill({
+          status: 503,
+          json: { error: "Reviewed holdings are temporarily unavailable." },
+        });
+        return;
+      }
+      await route.fulfill({
+        json: {
+          version: 1,
+          shell: {
+            householdName: alphaFixture.dashboard.householdName,
+            pendingEvidenceCount: 0,
+          },
+          holdings: alphaFixture.holdings,
+          investmentHoldings: holdingsView,
+          acceptedCashAccounts,
+          pendingImports: [],
+        },
+      });
+    });
+    await page.goto("/holdings");
+    await expect.poll(() => holdingsRequestCount).toBe(1);
+
+    const errorState = page.locator(".investment-views");
+    await expect(errorState.getByRole("alert")).toContainText(
+      "Reviewed holdings are temporarily unavailable.",
+    );
+    await expect(errorState.locator(".investment-views__total")).toHaveCount(0);
+    await expect(errorState.locator(".exposure-groups")).toHaveCount(0);
+    await expect(errorState.locator(".unallocated-positions")).toHaveCount(0);
+    await expect(
+      errorState.getByText("Exposure unresolved", { exact: true }),
+    ).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await captureDesignReview(page, "review-unavailable-holdings.png");
+    if (!isMobile)
+      await expect(errorState).toHaveScreenshot(
+        "investment-holdings-retry-error.png",
+        {
+          animations: "disabled",
+          caret: "hide",
+          maxDiffPixelRatio: 0.025,
+          threshold: 0.25,
+        },
+      );
+
+    await errorState.getByRole("button", { name: "Try again" }).click();
+    await expect.poll(() => holdingsRequestCount).toBe(2);
+    const nvda = errorState.locator(".exposure-group").filter({
+      has: page.locator(
+        '.exposure-group__summary strong[title="NVIDIA common stock"]',
+      ),
+    });
+    await expect(nvda).toContainText("3 positions");
+    await expect(errorState.getByRole("alert")).toHaveCount(0);
+    await expect(
+      errorState.locator(".unallocated-positions"),
+    ).not.toContainText("NVDA");
+  },
+);
+
+test("progressively renders long exposure lists", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, "IntersectionObserver", {
       configurable: true,
@@ -2019,9 +2038,7 @@ test("progressively renders long exposure lists", async ({
     pendingImports: [],
   });
 
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
+  await page.goto("/holdings");
 
   const exposureView = page.locator(".investment-views");
   await expect(exposureView.locator(".exposure-group")).toHaveCount(12);
@@ -2033,10 +2050,9 @@ test("progressively renders long exposure lists", async ({
     .getByText("DMO1", { exact: true });
   await expect(lowestExposureName).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
-  await page.addStyleTag({
+  const captureStyle = await page.addStyleTag({
     content: ".topbar, .mobile-nav { display: none !important; }",
   });
-  await expect(page.locator(".topbar")).toHaveCSS("display", "none");
   await expect(exposureView).toHaveScreenshot(
     "investment-holdings-paginated-exposures.png",
     {
@@ -2047,6 +2063,9 @@ test("progressively renders long exposure lists", async ({
     },
   );
 
+  await captureStyle.evaluate((style) => {
+    style.parentNode?.removeChild(style);
+  });
   await exposureView
     .getByRole("button", { name: "Load more exposures" })
     .click();
@@ -2284,55 +2303,59 @@ for (const size of [1_000]) {
   });
 }
 
-test("search bounds positions within a single large exposure and preserves the loaded batch on return", async ({
-  page,
-}) => {
-  await page.addInitScript(() =>
-    Object.defineProperty(window, "IntersectionObserver", {
-      configurable: true,
-      value: undefined,
-    }),
-  );
-  const positions = Array.from({ length: 120 }, (_, index) => ({
-    ...paginatedHoldings[0]!,
-    id: `position_search_group_${index}`,
-    companyId: "company_search_nebula",
-    positionName: `Demo Nebula SPV ${String(index).padStart(3, "0")}`,
-    exposureName: "Demo Nebula",
-    ticker: null,
-    sourceLabel: "Synthetic venture export",
-  }));
-  const view = investmentHoldingsViewFor(positions);
-  await routeHoldingsPage(page, {
-    householdName: "Demo Household",
-    holdings: positions,
-    investmentHoldings: view,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.goto("/holdings");
-  await page.getByRole("searchbox", { name: "Search holdings" }).fill("nebula");
-  await expect(page.locator(".exposure-group__positions article")).toHaveCount(
-    25,
-  );
-  await page
-    .getByRole("button", { name: "Load more Demo Nebula positions" })
-    .click();
-  await expect(page.locator(".exposure-group__positions article")).toHaveCount(
-    50,
-  );
-  const target = page.getByRole("button", {
-    name: "View Demo Nebula SPV 049 holding details",
-  });
-  await target.click();
-  await page
-    .getByRole("button", { name: "Back to holdings", exact: true })
-    .click();
-  await expect(page.locator(".exposure-group__positions article")).toHaveCount(
-    50,
-  );
-  await expect(target).toBeFocused();
-});
+test(
+  "search bounds positions within a single large exposure and preserves the loaded batch on return",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await page.addInitScript(() =>
+      Object.defineProperty(window, "IntersectionObserver", {
+        configurable: true,
+        value: undefined,
+      }),
+    );
+    const positions = Array.from({ length: 120 }, (_, index) => ({
+      ...paginatedHoldings[0]!,
+      id: `position_search_group_${index}`,
+      companyId: "company_search_nebula",
+      positionName: `Demo Nebula SPV ${String(index).padStart(3, "0")}`,
+      exposureName: "Demo Nebula",
+      ticker: null,
+      sourceLabel: "Synthetic venture export",
+    }));
+    const view = investmentHoldingsViewFor(positions);
+    await routeHoldingsPage(page, {
+      householdName: "Demo Household",
+      holdings: positions,
+      investmentHoldings: view,
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    });
+    await page.goto("/holdings");
+    await page
+      .getByRole("searchbox", { name: "Search holdings" })
+      .fill("nebula");
+    await expect(
+      page.locator(".exposure-group__positions article"),
+    ).toHaveCount(25);
+    await page
+      .getByRole("button", { name: "Load more Demo Nebula positions" })
+      .click();
+    await expect(
+      page.locator(".exposure-group__positions article"),
+    ).toHaveCount(50);
+    const target = page.getByRole("button", {
+      name: "View Demo Nebula SPV 049 holding details",
+    });
+    await target.click();
+    await page
+      .getByRole("button", { name: "Back to holdings", exact: true })
+      .click();
+    await expect(
+      page.locator(".exposure-group__positions article"),
+    ).toHaveCount(50);
+    await expect(target).toBeFocused();
+  },
+);
 
 test(
   "keeps the exposure summary below the heading with compact sorting",
@@ -2358,28 +2381,30 @@ test(
   },
 );
 
-test("explains connection recovery for Holdings and recovers on reload", async ({
-  page,
-}) => {
-  let offline = true;
-  await page.route("**/api/holdings-page", (route) =>
-    offline ? route.abort("failed") : route.fallback(),
-  );
-  await page.goto("/holdings");
-  const errorState = page.locator(".investment-views");
-  await expect(errorState.getByRole("alert")).toContainText(
-    "Keel could not be reached.",
-  );
-  await expect(errorState.getByRole("alert")).toContainText(
-    "reload the page to refresh your session",
-  );
-  await expectNoHorizontalOverflow(page);
-  await expect(errorState).toHaveScreenshot(
-    "investment-holdings-connection-error.png",
-    { animations: "disabled" },
-  );
-  offline = false;
-  await page.reload();
-  await expect(errorState.getByRole("alert")).toHaveCount(0);
-  await expect(errorState.locator(".exposure-group").first()).toBeVisible();
-});
+test(
+  "explains connection recovery for Holdings and recovers on reload",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    let offline = true;
+    await page.route("**/api/holdings-page", (route) =>
+      offline ? route.abort("failed") : route.fallback(),
+    );
+    await page.goto("/holdings");
+    const errorState = page.locator(".investment-views");
+    await expect(errorState.getByRole("alert")).toContainText(
+      "Keel could not be reached.",
+    );
+    await expect(errorState.getByRole("alert")).toContainText(
+      "reload the page to refresh your session",
+    );
+    await expectNoHorizontalOverflow(page);
+    await expect(errorState).toHaveScreenshot(
+      "investment-holdings-connection-error.png",
+      { animations: "disabled" },
+    );
+    offline = false;
+    await page.reload();
+    await expect(errorState.locator(".exposure-group").first()).toBeVisible();
+    await expect(errorState.getByRole("alert")).toHaveCount(0);
+  },
+);

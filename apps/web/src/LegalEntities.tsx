@@ -272,7 +272,7 @@ function sourceSummary(source: LegalEntitySourceSummary): string {
   return `${sourceRecord}${source.sourceLabel} · ${formatDate(source.sourceAsOf)}`;
 }
 
-function AgreementEvidence({
+export function AgreementEvidence({
   sources,
   assignment,
   documents: providedDocuments,

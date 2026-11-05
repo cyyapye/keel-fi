@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 160,
+  "retiredBrowserCaseCount": 170,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -324,10 +324,9 @@
         "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment"
       ],
       "browserCases": [
-        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps reviewed history in exposures without showing fake brokerage accounts",
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts"
       ],
-      "assertions": "The component renders the singular count and accessible legal-position action. Both viewports check the settled brokerage list with a singleton and a larger reviewed-history source, then expand the grouped exposure and follow the position into its detail and back."
+      "assertions": "The real exposure component prints the singular position count and its legal holding action, without forcing multiple positions into the same identity. Mobile exercises 14 reviewed history positions, loaded source/account readback without fake institutions, the retained source boundary and focus after Back."
     },
     {
       "id": "sydecar-desktop-profile-lifecycle",
@@ -1366,6 +1365,135 @@
         "apps/api/src/app-cash-accounts.test.ts :: cash account API > blocks disconnect before Plaid while a cash-flow review is waiting"
       ],
       "assertions": "Mobile opens the shared-bank disconnect warning, verifies the destructive confirmation action and no horizontal overflow, and fails on any DELETE triggered by disclosure alone. The API independently blocks deletion before Plaid during a pending review. Wide observed-cash review stays in the suite; the exact wide warning and adjacent confirmation buttons are retired."
+    },
+    {
+      "id": "agreement-ownership-rendered-evidence",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: presents ownership values with source and date rather than a bullet list",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: presents ownership values with source and date rather than a bullet list"
+      ],
+      "unitCases": [
+        "apps/web/src/OwnershipReview.test.tsx :: renders a dated ownership observation with its exact document and one percentage"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft"
+      ],
+      "assertions": "Production OwnershipReview renders a recorded percentage, its effective date, the correct agreement and its cited page once. The real investment review loads the persisted agreement context and retains independent frozen agreement and K-1 screenshots and document-overflow checks on both widths."
+    },
+    {
+      "id": "blocked-agreement-reason-component",
+      "retiredBrowserCases": [
+        "e2e/agreement-security.visual.spec.ts :: chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads",
+        "e2e/agreement-security.visual.spec.ts :: mobile-chromium :: explains scan limits, encrypted content and threat matches without offering blocked downloads"
+      ],
+      "unitCases": [
+        "apps/web/src/AgreementEvidence.test.tsx :: explains each blocked agreement without exposing a download or an assignment"
+      ],
+      "browserCases": [
+        "e2e/agreement-security.visual.spec.ts :: chromium :: offers a targeted retry for legacy and incomplete checks, and explains a busy source",
+        "e2e/agreement-security.visual.spec.ts :: mobile-chromium :: offers a targeted retry for legacy and incomplete checks, and explains a busy source"
+      ],
+      "assertions": "Production AgreementEvidence distinguishes limits, encryption and malware, offers recheck, and withholds download and assignment. Real malware and retry journeys preserve the source-to-evidence wiring, unavailable and busy retry handling, zero downloads, threat/recheck reference pictures, and overflow checks on both widths."
+    },
+    {
+      "id": "holdings-mounted-projection-mobile",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: shows the Holdings shell while one read-only projection loads"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: shows the Holdings shell while one read-only projection loads"
+      ],
+      "assertions": "Mobile holds the projection, checks the actual single initial GET and no writes, releases it and observes the loaded position and exactly one background read. Desktop still compares the earlier Holdings route shell and the same shared HoldingsRouteShell is an exact crop. Desktop loses the independent hydrated projection-loading combination."
+    },
+    {
+      "id": "brokerage-manual-retry-desktop",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: lets a failed brokerage check be retried"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: lets a failed brokerage check be retried"
+      ],
+      "assertions": "Desktop enters Sources, clicks Try now, counts one manual POST, observes the recovered account and checks overflow. Mobile separately covers automatic and reconnect outcomes. Mobile loses the independent manual failure-to-success replay."
+    },
+    {
+      "id": "reviewed-history-account-mobile",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps reviewed history in exposures without showing fake brokerage accounts"
+      ],
+      "unitCases": [
+        "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts"
+      ],
+      "assertions": "Mobile waits for actual investment-connections read completion before ruling out invented accounts, expands all 14 legal positions, rejects the retired predecessor, and verifies selection and restored focus. The real rendering unit retains the singular legal position label."
+    },
+    {
+      "id": "holdings-server-retry-desktop",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps failed canonical holdings out of view and retries"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps failed canonical holdings out of view and retries"
+      ],
+      "assertions": "Desktop checks the actual 503 message, no fabricated groups or totals and exactly two attempts after manual retry. Mobile retains the longer network-error message and full-width retry layout. The mobile short-503 error crop is retired."
+    },
+    {
+      "id": "large-group-search-return-mobile",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: search bounds positions within a single large exposure and preserves the loaded batch on return"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: search bounds positions within a single large exposure and preserves the loaded batch on return"
+      ],
+      "assertions": "Mobile loads the 25th through 50th matched position of a single large exposure and returns to its selected control with the loaded batch intact. Both widths keep separate 1,000-item search and read budgets. This drops the identical desktop large-group focus combination."
+    },
+    {
+      "id": "holdings-offline-reload-mobile",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: explains connection recovery for Holdings and recovers on reload"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: explains connection recovery for Holdings and recovers on reload"
+      ],
+      "assertions": "Mobile tests a connection abort, its wrapped recovery message and reload to real exposures before asserting the alert disappeared. Desktop retains the server-error card and a real reload elsewhere. Desktop loses the exact offline error layout."
+    },
+    {
+      "id": "linked-known-subtotal-mobile",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/domain/src/exposure-read-model.test.ts :: investment exposure read model > rolls reviewed public and SPV positions into one company without changing their values"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: groups reviewed public stock with separate SPVs and keeps their value bases"
+      ],
+      "assertions": "Both widths still compare the ordinary linked public/SPV group. Mobile checks the $36k known subtotal, an unavailable position, and the exact selected brokerage security grouping link. The 122-position domain fixture preserves known arithmetic and the separate locked contribution. Desktop no longer compares this locked-variant layout."
+    },
+    {
+      "id": "mixed-holdings-detail-widths",
+      "retiredBrowserCases": [],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view"
+      ],
+      "assertions": "Both widths cover the mixed Holdings and NVDA positions. Desktop follows the grouping return URL, cash keyboard detail, focus restoration and canceling a disconnect. Mobile opens Portfolio Watch detail, its $60k editable estimate and source choice, and restores focus. The wide Watch detail and these cross-width interaction variants are retired."
+    },
+    {
+      "id": "brokerage-locked-detail-desktop",
+      "retiredBrowserCases": [],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/holdings-detail.visual.spec.ts :: chromium :: leads with the investment and opens a truthful holding detail",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view"
+      ],
+      "assertions": "Both widths accept and read back a position valuation. Desktop continues to a genuinely locked SPV and a public brokerage position and checks absent fabricated performance, the optional source, and the reported share count. The narrow expanded brokerage source and locked-position tail are retired. Narrow NVDA detail and the Portfolio Watch source boundary remain."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

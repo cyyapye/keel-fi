@@ -1,13 +1,13 @@
+import {
+  documentedOwnershipReview,
+  reviewAgreementSource,
+} from "./investment-review-context";
 import { expect, test, type Page } from "./api-mocked-test";
 import {
   CreateLegalEntityInputSchema,
   type LegalEntityInventory,
-  type LegalEntitySourceSummary,
 } from "../packages/domain/src/legal-entities";
-import {
-  CreateDocumentInvestmentInputSchema,
-  InvestmentOwnershipObservationSchema,
-} from "../packages/domain/src/investment-review";
+import { CreateDocumentInvestmentInputSchema } from "../packages/domain/src/investment-review";
 import { PositionEconomicsTermsSchema } from "../packages/domain/src/position-economics";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
@@ -34,80 +34,7 @@ async function setup(
     entry?: "inventory" | "review";
   } = {},
 ) {
-  const doc = {
-    id: "11111111-1111-4111-8111-111111111111",
-    fileName: "demo-growth-subscription.pdf",
-    sha256: "a".repeat(64),
-    page: 1,
-    quote: "Fund: Demo Growth IV LLC",
-    citations: [
-      {
-        legalName: "Demo Growth IV LLC",
-        page: 1,
-        quote: "Fund: Demo Growth IV LLC",
-        role: "fund" as const,
-      },
-    ],
-    companyCitations: [
-      {
-        companyName: "Demo Robotics Inc.",
-        page: 2,
-        quote: "Underlying Company: Demo Robotics Inc.",
-        role: "underlying_company" as const,
-      },
-    ],
-    scan: {
-      version: 1 as const,
-      engineVersion: "1.5.3",
-      databaseVersion: 28000,
-      databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
-      scannedAt: "2026-09-01T11:00:00.000Z",
-      sha256: "a".repeat(64),
-      outcome: "clean" as const,
-    },
-  };
-  const source: LegalEntitySourceSummary = {
-    source: { kind: "holding_position", id: "position_demo_growth_iv" },
-    sourceDisplayName: "Demo Growth IV",
-    sourceLabel: netImported ? "Tokenfolio template" : "Sydecar agreement",
-    sourceAsOf: "2026-09-01",
-    currentOwner: "Demo Family LLC",
-    currentDecisionId: null,
-    suggestedEntityType: conflict ? null : "llc",
-    relationship: "investment_vehicle",
-    interestStatus: "current",
-    financials: null,
-    openedOn: null,
-    legalEntityNameEvidence: {
-      state: "document_reported",
-      legalName: "Demo Growth IV LLC",
-      sourceField: "Agreement",
-      documents: [doc],
-    },
-  };
-  if (conflict)
-    source.legalEntityNameEvidence = {
-      state: "unavailable",
-      legalName: null,
-      sourceField: null,
-      problem: "conflicting",
-      documents: [
-        doc,
-        {
-          ...doc,
-          id: "22222222-2222-4222-8222-222222222222",
-          fileName: "demo-cancelled-subscription.pdf",
-          citations: [
-            {
-              legalName: "Demo Cancelled LLC",
-              page: 1,
-              quote: "Fund: Demo Cancelled LLC",
-              role: "fund",
-            },
-          ],
-        },
-      ],
-    };
+  const { doc, source } = reviewAgreementSource({ conflict, netImported });
   const inventory: LegalEntityInventory = {
     version: 3,
     asOf: "2026-09-01T12:00:00.000Z",
@@ -916,7 +843,7 @@ test("reviews company evidence and keeps ownership drafts across independent sav
 test("keeps K-1 shares optional, validates them separately, and retains a rejected draft", async ({
   page,
 }) => {
-  const { review, writes, rejectWrites } = await setup(page);
+  const { context, review, writes, rejectWrites } = await setup(page);
   await selectReviewSection(page, "Ownership");
   await expect(
     review.getByRole("textbox", { name: "Ownership interest %", exact: true }),
@@ -984,6 +911,29 @@ test("keeps K-1 shares optional, validates them separately, and retains a reject
   await expect(review).toHaveScreenshot(
     "investment-ownership-k1-recorded.png",
     { animations: "disabled", caret: "hide" },
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
+  context.review = documentedOwnershipReview(
+    context.positionId,
+    context.documents[0]!,
+  );
+  await page.reload();
+  await selectReviewSection(page, "Ownership");
+  await expect(
+    review
+      .locator(".ownership-evidence")
+      .getByText(context.documents[0]!.fileName, { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".investment-review")).toHaveScreenshot(
+    "investment-ownership-recorded.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+    },
   );
   expect(
     await page.evaluate(
@@ -1281,62 +1231,6 @@ test("shows saved document destinations after reload, preserves earlier assignme
     review.getByRole("combobox", { name: "These agreements belong to" }),
   ).toContainText("General or parent agreement");
   await expect(save).toBeDisabled();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
-});
-
-test("presents ownership values with source and date rather than a bullet list", async ({
-  page,
-}) => {
-  const { context } = await setup(page);
-  const doc = context.documents[0]!;
-  context.review = {
-    id: "33333333-3333-4333-8333-333333333333",
-    positionId: context.positionId,
-    version: 1,
-    participationStatus: "current",
-    documentAssignments: [],
-    recordedAt: "2026-09-01T12:00:00.000Z",
-    ownershipObservations: [
-      InvestmentOwnershipObservationSchema.parse({
-        id: "44444444-4444-4444-8444-444444444444",
-        recordedAt: "2026-09-01T12:00:00.000Z",
-        sourceKind: "agreement",
-        sourceLabel: doc.fileName,
-        effectiveDate: "2026-08-15",
-        taxYear: null,
-        ownershipPpm: 125_000,
-        profitBeginningPpm: null,
-        profitEndingPpm: null,
-        lossBeginningPpm: null,
-        lossEndingPpm: null,
-        capitalBeginningPpm: null,
-        capitalEndingPpm: null,
-        documentId: doc.id,
-        documentSha256: doc.sha256,
-        page: 2,
-        quote: null,
-        evidenceBasis: "document_review",
-        supersedesObservationId: null,
-      }),
-    ],
-  };
-  await page.reload();
-  await selectReviewSection(page, "Ownership");
-  const entries = page.locator(".ownership-evidence");
-  await expect(entries.locator("article")).toHaveCount(1);
-  await expect(entries.locator("ul, li")).toHaveCount(0);
-  await expect(entries).toContainText("12.5%");
-  await expect(entries).toContainText("As of Aug 15, 2026");
-  await expect(entries).toContainText("Document reviewed · page 2");
-  await expect(entries.getByText(doc.fileName, { exact: true })).toHaveCount(1);
-  await expect(page.locator(".investment-review")).toHaveScreenshot(
-    "investment-ownership-recorded.png",
-    { animations: "disabled", caret: "hide" },
-  );
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
