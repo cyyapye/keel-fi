@@ -242,5 +242,53 @@
     "replacementRejected": true,
     "originalBrowserRejected": false,
     "explanation": "The original browser fixture fell back to the sign-in error. The new integration test independently requires HTTP status classification."
+  },
+  "necessityReview": {
+    "baselineRevision": "aad35f49f3c2ffe6a94b66023927a9f8c9a69e6e",
+    "scope": "Local Darwin fault controls and full affected browser replay. This is not a required Linux receipt or a measured full-CI speedup.",
+    "productionRestored": true,
+    "controls": [
+      {
+        "change": "scanner-item-limit-vendor-probe",
+        "retainedProof": "production scanner entrypoint plus capture and API rejection owners",
+        "rejectedFaults": [
+          "wrong item budget",
+          "missing limit alert",
+          "truncated binary input",
+          "limit classified clean",
+          "extraction before rejection"
+        ],
+        "retiredObservation": "Real ClamAV exact 10001-entry vendor threshold"
+      },
+      {
+        "change": "manual-cash-duplicate",
+        "retainedProof": "real API/D1 browser save and reload, both projects",
+        "rejectedByOriginalAndRetained": [
+          "stale initial cash",
+          "duplicate purchases POSTs"
+        ],
+        "transferredAssertion": "Exactly two purchases POSTs"
+      },
+      {
+        "change": "browser-fixture-navigation",
+        "retainedProof": "34 investment-review and 18 Watch cases passed, both projects; reference images unchanged",
+        "rejectedFaults": [
+          "inventory detail prefetch: expected 0 reads, observed 1",
+          "wrong candidate target",
+          "discarded review deep link",
+          "Watch navigation no-op",
+          "discarded Watch cold route"
+        ]
+      },
+      {
+        "change": "backup-timestamp-duplicate",
+        "retainedProof": "Existing real native GPG verification/tamper case; seven-case file passed",
+        "rejectedFaults": [
+          "ignored authentication failure",
+          "omitted authentication wait"
+        ],
+        "rejectedAlternative": "A new controlled executable fixture added about 200 lines without measurable speed improvement; existing proof made it unnecessary."
+      }
+    ]
   }
 }

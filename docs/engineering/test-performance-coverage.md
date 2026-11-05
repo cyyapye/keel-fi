@@ -656,10 +656,12 @@ recorded 267 passes when it was interrupted.
   millisecond before expiry, then advances that millisecond and waits for the
   actual socket to close.
 - The scanner archive integrity test took 5.400 seconds against its five-second
-  deadline. It now uses Node's strict equality assertion inside the ZIP record
-  loop. All 10,001 local and central records are checked, including the final
-  payload and each CRC. In five paired local runs, the median fell from 201 ms
-  to 17 ms. Both implementations rejected six deliberately corrupted archives.
+  deadline. That revision used Node's strict equality assertion inside the ZIP
+  record loop. All 10,001 local and central records are checked, including the
+  final payload and each CRC. In five paired local runs, the median fell from
+  201 ms to 17 ms. Both implementations rejected six deliberately corrupted
+  archives. The later necessity review below retires this vendor probe and its
+  fixture.
 - The authenticated position-link route test took 5.023 seconds against five
   seconds. It now runs in `apps/api/src/position-routes.test.ts` after the
   purchase route test. Each opens its own mutable SQLite database. The second
@@ -728,3 +730,110 @@ time fell from 31.985 to 30.085 seconds and child CPU time fell from 87.803 to
 write fell from 305 to 73 ms. An independent 158-case group that did not use the
 image paid about 0.32 seconds for its creation. These measurements cover the
 selected files on macOS.
+
+## Whole-suite necessity review after `aad35f49`
+
+The successful Linux run at `aad35f49` accounted for 1,649 Vitest cases, 51
+Python cases and 408 browser executions, with 30 reviewed browser exclusions.
+The inventory groups them into 192 Vitest files, five Python files and 33
+browser specs. The browser audit inspected all 33 specs and examined the largest
+groups and proposed reductions in depth. Cheap units received a file-level
+triage; that is not a claim that every assertion was independently audited.
+
+| File or group                  | Sum of completed case seconds |
+| ------------------------------ | ----------------------------: |
+| Investment review browser spec |                       221.106 |
+| Provider-agent D1 cost         |                       175.167 |
+| Manual holdings visual spec    |                       159.528 |
+| Portfolio Watch browser spec   |                       142.761 |
+| Legal entities browser spec    |                       132.820 |
+| Populated migration D1 cost    |                       121.527 |
+| Lint/typecheck wrapper         |                        71.057 |
+| Portfolio Watch activity/D1    |                        68.622 |
+
+These are overlapping case durations, not elapsed CI savings. The baseline full
+native gate took 832.352 seconds; its browser flow took 549.678 seconds and
+finished last. PDF isolation took 261.168 seconds and finished at 794.383
+seconds. Removing work from PDF isolation alone therefore cannot be subtracted
+from the full gate's elapsed time.
+
+The review applies ownership before cost: keep the unique failure, choose its
+cheapest sufficient proof, and demonstrate that proof rejects broken behavior
+before removing the old case. It retains real D1 billing, populated OLD-schema
+preservation, history growth, isolation, process ownership, browser focus,
+responsive rendering and save/reload boundaries. All 435 reviewed Linux image
+references remain, with only the two previously approved desktop crops.
+
+### Scanner dependency boundary
+
+The real 10,001-entry ZIP probe and its unused ZIP generator are retired. Keel
+still passes the unchanged 10,000-item limit and fail-closed flags to ClamAV.
+The production scanner entrypoint now runs with a controlled process boundary
+that observes exact binary stdin, arguments, deadlines, environment, result
+mapping and the absence of a relaxed retry. The existing decoder matrix retains
+all rejection reasons. Capture tests additionally prove that unavailable and
+blocked results never reach extraction; a clean control proves the observation
+can see extraction. Retained API tests verify quarantine bytes, forbidden
+retrieval and denial auditing.
+
+Five temporary production faults were rejected: a wrong item limit, an omitted
+limit-alert flag, truncated stdin, a limit result classified clean, and
+extraction before rejection. Production source was restored byte for byte. Only
+the observation of ClamAV's exact vendor threshold is lost: the replacement
+cannot catch a ClamAV regression that ignores a correctly supplied `--max-files`
+flag. The real clean and 512-stream scans, exact issuer extraction, raw and late
+antivirus markers, expanded-size rejection and sandbox isolation still run.
+
+### Duplicate manual cash journey
+
+The mocked contribution-edit case repeated the real API/D1 case
+`uses the latest saved partial contribution cash through edits and clearing`.
+Its two project executions contributed 8.934 summed seconds in the baseline. The
+retained case now also counts exactly two purchases POSTs, preserving the
+duplicate's sole additional assertion. It keeps initial cash, edited minor
+units, null after clearing, no stale or invented zero cash, partial-position
+semantics and real reload/readback. Valuation, capital, fee and return
+assertions remain.
+
+Both original and retained cases failed when production displayed immutable
+initial cash and when it issued duplicate saves. The retained count observed
+four requests instead of two. The original case had no screenshot; neither image
+coverage nor any browser deadline changes. The case-ownership manifest allows
+this consolidation into a stronger browser owner without requiring an
+unnecessary new unit case.
+
+### Fixture entry paths
+
+Fourteen investment-review workflows now enter the supported review deep link.
+Their three navigation owners retain the complete inventory entry, including
+zero detail reads before opening, ordinary and conflict candidate actions,
+wrapping/history and the expanded 25-row agreement-move queue. This removes 56
+repeated disclosure/candidate clicks across both projects. Every subsequent
+loaded-state, save, focus, reload and screenshot assertion remains.
+
+Three Watch workflows omit redundant navigation used only to prepare their
+state. Two start at `/watch`; three reloads stay on that route; a fourth entry
+already starts there. The unchanged primary-navigation and Watch/Evidence owners
+still exercise those journeys on both devices. This removes 12 navigation helper
+calls, totaling 18 desktop/mobile clicks. All status distinctions, 120-company
+and full-history cases, stale-response race, reloads and images remain. These
+action counts establish less repeated work, not a measured Linux speedup. Native
+verification and matched timing trials remain required.
+
+### Duplicate backup dependency probe
+
+One real GPG encryption/decryption/tamper smoke remains, including independent
+confirmation that damaged ciphertext emits valid plaintext but fails
+authentication. The second fixed timestamp repeated the identical body and
+assertions solely to challenge the test's GPG packet-layout helper. Keel
+delegates that packet parsing to GPG; no unique Keel assertion is removed with
+the second timestamp. The 120-document restore and Unicode, corruption,
+duplicate, truncation, passphrase and size checks remain.
+
+A controlled-executable replacement was tried and rejected: it added about 200
+lines, expanded the contract under test and produced essentially unchanged local
+runtime. The existing real smoke already owns every removed assertion, so no new
+test or helper is required. Its authentication-failure and no-premature- success
+assertions are checked against deliberate production faults before the simpler
+removal is accepted. This is a duplicate reduction, not a claim of production
+backup or restore evidence.
