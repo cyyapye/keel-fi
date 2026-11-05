@@ -32,6 +32,13 @@ complete receipt from that attempt. A failed or cancelled native run cannot
 supply that receipt. The separate Tugling candidate workflow runs on manual
 dispatch. See [CI performance](../../docs/engineering/ci-performance.md).
 
+For browser timing, dispatch the Tugling candidate workflow with
+`isolated_browser` enabled. It prepares the same build and synthetic seed and
+times the complete browser process on `keel-ci` while the other native flows are
+idle. Compare its elapsed time and case counts with a complete PR run on the
+same Git tree and runner. The ordinary PR workflow supplies the required
+verification receipt.
+
 A same-repository draft targeting `main` can take a shorter path when its only
 changes are edits to seven reviewed documents, four registered Vitest files,
 three web stylesheets and their reviewed visual checks, or a combination of

@@ -3,6 +3,11 @@ name: Tugling candidate pilot
 on:
   workflow_dispatch:
     inputs:
+      isolated_browser:
+        description:
+          Time the complete browser suite on its own for a CI comparison
+        type: boolean
+        default: false
       regression_probe:
         description:
           Run the polling regression rejection probe instead of the complete
@@ -21,10 +26,12 @@ concurrency:
 jobs:
   required:
     name:
-      ${{ inputs.regression_probe && 'Polling regression rejection probe' ||
+      ${{ inputs.isolated_browser && 'Isolated browser timing diagnostic' ||
+      inputs.regression_probe && 'Polling regression rejection probe' ||
       'Complete native pilot gate' }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
-    timeout-minutes: ${{ inputs.regression_probe && 30 || 120 }}
+    timeout-minutes:
+      ${{ (inputs.regression_probe || inputs.isolated_browser) && 30 || 120 }}
     defaults:
       run:
         working-directory: keel
@@ -32,6 +39,10 @@ jobs:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
     steps:
+      - name: Reject conflicting diagnostic modes
+        if: ${{ inputs.isolated_browser && inputs.regression_probe }}
+        working-directory: ${{ github.workspace }}
+        run: exit 1
       - name: Check out exact PR head or merge-queue candidate
         uses: actions/checkout@v5
         with:
@@ -60,21 +71,38 @@ jobs:
       - name: Prepare locked dependencies and synthetic runtime
         run: make bootstrap
       - name: Execute complete required gate on this revision
-        if: ${{ !inputs.regression_probe }}
+        if: ${{ !inputs.regression_probe && !inputs.isolated_browser }}
         run: |
           mkdir -p .tugling/local
           make pilot-verify > .tugling/local/pilot-required.json
       - name: Inspect current required receipt
-        if: ${{ !inputs.regression_probe }}
+        if: ${{ !inputs.regression_probe && !inputs.isolated_browser }}
         run: |
           receipt=$(python3 -I -c 'import json; print(json.load(open(".tugling/local/pilot-required.json"))["flow_verification"]["path"])')
           python3 -I scripts/tugling-pilot.py evidence "$receipt"
       - name: Prove the required gate rejects increased idle polling
         if: ${{ inputs.regression_probe }}
         run: python3 -I scripts/pilot_regression_probe.py
+      - name: Prepare the canonical browser build and synthetic seed
+        if: ${{ inputs.isolated_browser }}
+        run: |
+          make build
+          python3 -I scripts/pilot_native.py migration-seed
+          python3 -I scripts/pilot_native.py browser-fixture
+      - name: Time the complete browser process
+        if: ${{ inputs.isolated_browser }}
+        run: |
+          python3 -I - <<'PY'
+          import os, subprocess, sys, time
+          start = time.monotonic()
+          result = subprocess.run([sys.executable, '-I', 'scripts/pilot_native.py', 'playwright-prepared'])
+          elapsed = time.monotonic() - start
+          print(f"Isolated browser phase at {os.environ['GITHUB_SHA']}: {elapsed:.3f}s, exit {result.returncode}", flush=True)
+          sys.exit(result.returncode)
+          PY
       - name: Package bounded pilot diagnostics
         id: diagnostics
-        if: always()
+        if: ${{ always() && !inputs.isolated_browser }}
         env:
           DIAGNOSTIC_STATUS: ${{ job.status }}
         run: python3 -I scripts/ci-diagnostics.py --status "$DIAGNOSTIC_STATUS"
