@@ -1,3 +1,4 @@
+import { Button } from "@keel/ui";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import { blockedAgreementSource } from "../../../e2e/agreement-security-fixtures";
@@ -39,7 +40,7 @@ test("explains each blocked agreement without exposing a download or an assignme
         <AgreementEvidence
           sources={[source]}
           documents={[current]}
-          assignment={() => <button>Review details</button>}
+          assignment={() => <Button>Review details</Button>}
         />,
       );
     const blocked = render(document);

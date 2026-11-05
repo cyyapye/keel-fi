@@ -162,10 +162,19 @@ async function registerManualHoldingRoutes(
 
 async function setup(page: Page, currentHolding = holding) {
   const fixture = await registerManualHoldingRoutes(page, currentHolding);
-  await page.goto("/holdings/new");
+  const [optionsResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/manual-holdings/options",
+    ),
+    page.goto("/holdings/new"),
+  ]);
+  expect(optionsResponse.status()).toBe(200);
   await expect(
     page.getByRole("heading", { name: "Add holding", exact: true }),
   ).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Held by" })).toBeEnabled();
   await expect(
     page.getByText("Loading owner and company choices…", { exact: true }),
   ).toHaveCount(0);

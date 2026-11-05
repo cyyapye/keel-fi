@@ -1859,7 +1859,7 @@ test(
   "starts a provider-scoped browser reconnect without terminal handoff",
   { tag: "@desktop-only" },
   async ({ page }) => {
-    await page.clock.install({ time: new Date("2026-08-26T12:00:00.000Z") });
+    await page.clock.install({ time: new Date("2026-08-26T11:00:00.000Z") });
     let reconnectChecks = 0;
     let alphaChecks = 0;
     const sessionId = "22222222-2222-4222-8222-222222222222";
@@ -1926,6 +1926,8 @@ test(
       "**/api/automation/provider-browser/angellist/reconnect",
       async (route) => {
         expect(route.request().method()).toBe("POST");
+        // Start the session clock only after its initiating request reaches Keel.
+        await page.clock.pauseAt(new Date("2026-08-26T12:00:00.000Z"));
         await route.fulfill({
           status: 202,
           json: {
@@ -1978,8 +1980,6 @@ test(
     await expect(page.locator("body")).not.toContainText("VNC");
     await expect(page.locator("body")).not.toContainText("Paste in Terminal");
 
-    await page.clock.pauseAt(new Date("2026-08-26T12:00:20.000Z"));
-    await page.waitForLoadState("networkidle");
     const firstAttempts = await page.evaluate(
       () =>
         (Reflect.get(window, "__syntheticReconnectAttempts") as number[])
