@@ -5,17 +5,17 @@ import {
   emptyInvestmentConnections,
   emptyPrivateExposureReviews,
 } from "./holdings-detail-fixtures";
-import { HoldingSchema } from "../packages/domain/src/index";
 import {
   PurchaseReceiptSchema,
   AcceptPurchasesSchema,
-  reviewedInvestmentFromReceipt,
   valuationSharesKey,
   type PurchaseReceipt,
 } from "../packages/domain/src/position-purchases";
 import { AcceptValuationSchema } from "../packages/domain/src/valuation-record";
-import { unknownInvestmentTerms } from "../packages/domain/src/investment-details";
-import { investmentHoldingsViewFor } from "./investment-holdings-fixtures";
+import {
+  purchaseDetailProjection,
+  purchaseDetailReceipt,
+} from "./purchase-detail-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 
 test.use({ timezoneId: "UTC" });
@@ -36,97 +36,6 @@ async function screenshot(page: Page, name: string) {
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-}
-function initialReceipt() {
-  return PurchaseReceiptSchema.parse({
-    id: "receipt-1",
-    positionId: "synthetic-holding",
-    snapshotId: "snapshot",
-    currency: "USD",
-    acceptedAt: "2026-10-01T12:00:00.000Z",
-    details: {
-      cashCoversPosition: true,
-      coversPosition: true,
-      investmentTerms: {
-        ...unknownInvestmentTerms(),
-        carryPpm: 150000,
-        carryBasis: "gross_cash",
-      },
-      lots: [
-        {
-          id: "acquisition",
-          purchasedOn: "2025-06-10",
-          shareClass: "Preferred",
-          priceMicros: 100_000_000,
-          referencePriceMicros: null,
-          grossCashMinor: 1_000_000,
-          netCapitalMinor: 844_000,
-          upfrontDeductionsMinor: 56_000,
-          feePpm: null,
-          feeBasis: null,
-          feeLabel: null,
-          remainingSharesMicros: 84_400_000,
-          sharesAsOf: "2026-01-01",
-          sourceLabel: "Synthetic subscription",
-          sourceUrl: null,
-          mark: null,
-          feesComplete: true,
-          fees: [
-            {
-              id: "setup",
-              kind: "one_time",
-              label: "One-time fee",
-              method: "paid",
-              paidMinor: 20_000,
-              ratePpm: 20_000,
-              basis: "cash",
-              basisMinor: null,
-              prepaidMonths: null,
-            },
-            {
-              id: "management",
-              kind: "management",
-              label: "Management fee",
-              method: "paid",
-              paidMinor: 36_000,
-              ratePpm: 20_000,
-              basis: "retained",
-              basisMinor: null,
-              prepaidMonths: 24,
-            },
-          ],
-          capitalReturn: {
-            amountMinor: 100_000,
-            status: "received",
-            effectiveDate: null,
-            reportedDistributions: "excluded",
-          },
-        },
-      ],
-      valuation: {
-        snapshotId: "snapshot",
-        records: [
-          {
-            id: "gp",
-            origin: "gp",
-            totalMinor: 1_688_000,
-            priceMicros: 200_000_000,
-            effectiveDate: "2026-09-30",
-            priceDate: "2026-09-30",
-            shareClass: "Preferred",
-            carryStatus: "before_carry",
-            sourceLabel: "Synthetic GP",
-            sourceUrl: null,
-            sourceEvidenceId: null,
-            sourcePositionId: null,
-            sourceCapturedAt: null,
-            watchEvidenceId: null,
-          },
-        ],
-        selected: { recordId: "gp", method: "total", sharesKey: null },
-      },
-    },
-  });
 }
 async function setup(
   page: Page,
@@ -164,102 +73,18 @@ async function setup(
       : route.fulfill({ json: alphaFixture }),
   );
   await page.clock.setFixedTime(new Date("2026-10-08T12:00:00.000Z"));
-  let receipt = initialReceipt();
+  let receipt = purchaseDetailReceipt();
   configure?.(receipt);
   let reject = false,
     revision = 1;
   const history = [receipt];
   let pendingSave: Promise<void> | null = null;
   let releaseSave: (() => void) | undefined;
-  const holding = () =>
-    HoldingSchema.parse({
-      id: "synthetic-holding",
-      companyId: "synthetic-company",
-      positionName: "Demo Cedar SPV",
-      exposureName: "Demo Cedar AI",
-      ownerLabel: "Demo Family LLC",
-      positionKind: "spv_interest",
-      administratorNavMinor: 1_688_000,
-      administratorNavState: "reported",
-      externalMarkMinor: null,
-      underwritingValueMinor: null,
-      scenarioValueMinor: null,
-      usableLiquidityMinor: null,
-      sourceStatus: "verified",
-      sourceLabel: "Synthetic GP",
-      effectiveDate: "2026-09-30",
-      retrievedAt: "2026-10-01T12:00:00.000Z",
-      confidencePpm: null,
-      investedMinor: 1_000_000,
-      committedMinor: 1_000_000,
-      realizedValueMinor: 0,
-      instrumentType: "SPV interest",
-      purchaseContext: {
-        ...(proxyOptions.stale &&
-        receipt.details.valuation?.selected?.recordId.startsWith("proxy:")
-          ? {
-              priceProxyStatus: {
-                stale: true,
-                lastObservationAt: "2026-10-02T12:00:00.000Z",
-                lastSuccessfulSyncAt: "2026-10-01T12:00:00.000Z",
-              },
-            }
-          : {}),
-        snapshotId: "snapshot",
-        reportedValueMinor: 1_688_000,
-        reportedSourceLabel: "Synthetic GP",
-        sourceObservedOn: "2026-09-30",
-        currency: "USD",
-        openedOn: "2025-06-10",
-        receipt,
-      },
-      positionValueContext: {
-        snapshotId: "snapshot",
-        currency: "USD",
-        providerValueState: "reported",
-        providerValueMinor: 1_688_000,
-        acceptedAdjustment: null,
-      },
-      positionEconomicsContext: {
-        snapshotId: "snapshot",
-        currency: "USD",
-        committedMinor: 1_000_000,
-        fundedMinor: 1_000_000,
-        acceptedTerms: null,
-        reportedTerms: null,
-        reviewedInvestment: reviewedInvestmentFromReceipt(receipt),
-      },
-    });
-  const holdings = () => [
-    holding(),
-    ...relatedNames.map((positionName, index) => ({
-      ...holding(),
-      id: `synthetic-related-${index}`,
-      positionName,
-      purchaseContext: null,
-      positionEconomicsContext: null,
-      positionValueContext: null,
-    })),
-  ];
-  const investmentHoldings = () => {
-    const view = investmentHoldingsViewFor(holdings());
-    for (const connection of view.positionView.connections)
-      for (const container of connection.containers)
-        for (const position of container.positions)
-          if (position.id === receipt.positionId)
-            position.snapshot.id = receipt.snapshotId;
-    for (const position of view.exposureView.positions) {
-      if (position.id === receipt.positionId) {
-        position.snapshotId = receipt.snapshotId;
-        position.reviewedInvestment = reviewedInvestmentFromReceipt(receipt);
-      }
-    }
-    return view;
-  };
+  const projection = () =>
+    purchaseDetailProjection(receipt, relatedNames, proxyOptions.stale);
   await routeHoldingsPage(page, () => ({
     householdName: "Demo Household",
-    holdings: holdings(),
-    investmentHoldings: investmentHoldings(),
+    ...projection(),
     acceptedCashAccounts: [],
     pendingImports: [],
   }));
@@ -407,7 +232,7 @@ async function setup(
       pendingSave = null;
     },
     positions: () =>
-      investmentHoldings().positionView.connections.flatMap((c) =>
+      projection().investmentHoldings.positionView.connections.flatMap((c) =>
         c.containers.flatMap((c) => c.positions),
       ),
     reject: (value: boolean) => {
@@ -591,19 +416,6 @@ test("returns use complete fee estimates without treating unknown fees as zero",
     page.getByRole("group", { name: "Invested capital" }),
   ).toContainText("Cash retained · includes fees$9,000.00");
   await screenshot(page, "investment-retained-cash.png");
-});
-
-test("unknown refund inclusion withholds returns in the holding and exposure summaries", async ({
-  page,
-}) => {
-  await setup(page, (r) => {
-    r.details.lots[0]!.capitalReturn!.reportedDistributions = "unknown";
-  });
-  await expect(page.locator(".holding-value-return")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Back to holdings", exact: true })
-    .click();
-  await expect(page.locator(".exposure-group")).not.toContainText("%");
 });
 
 test("new acquisitions can be removed without discarding other investment edits", async ({

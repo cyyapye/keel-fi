@@ -7,7 +7,12 @@ import {
   reconciledReviewedHistoryInvestmentHoldingsView,
 } from "../../../e2e/investment-holdings-fixtures";
 import { manualFundWithEstimate } from "../../../e2e/manual-holding-fixtures";
+import {
+  purchaseDetailProjection,
+  purchaseDetailReceipt,
+} from "../../../e2e/purchase-detail-fixtures";
 import { InvestmentHoldings } from "./InvestmentHoldings";
+import { SpvHoldingDetail } from "./SpvHoldingDetail";
 
 function renderExposures(data: InvestmentHoldingsView, holdings: Holding[]) {
   return renderToStaticMarkup(
@@ -55,4 +60,37 @@ test("renders the singular position count and legal holding action for one revie
   expect(markup).toContain(
     'aria-label="View Demo Pharmacy SPV 01 holding details"',
   );
+});
+
+test("withholds returns from holding and exposure summaries when refund inclusion is unknown", () => {
+  function summaries(inclusion: "excluded" | "unknown") {
+    const receipt = purchaseDetailReceipt();
+    receipt.details.lots[0]!.capitalReturn!.reportedDistributions = inclusion;
+    const { holdings, investmentHoldings } = purchaseDetailProjection(receipt);
+    const detail = renderToStaticMarkup(
+      <SpvHoldingDetail
+        holding={holdings[0]!}
+        onAccepted={() => Promise.resolve()}
+      />,
+    );
+    const positionSummary = detail.match(
+      /<section\b[^>]*aria-label="Position summary"[^>]*>([\s\S]*?)<\/section>/u,
+    )?.[1];
+    expect(positionSummary).toContain("$16,880.00");
+    const exposure = renderExposures(investmentHoldings, holdings);
+    expect(exposure).toContain("Demo Cedar AI");
+    return {
+      detail: positionSummary!.replace(/<[^>]+>/gu, ""),
+      exposure: exposure.replace(/<[^>]+>/gu, ""),
+    };
+  }
+
+  const known = summaries("excluded");
+  expect(known.detail).toContain("+100.00%");
+  expect(known.detail).toContain("+85.99%");
+  expect(known.exposure).toContain("+100%");
+
+  const unknown = summaries("unknown");
+  expect(unknown.detail).not.toContain("%");
+  expect(unknown.exposure).not.toContain("%");
 });

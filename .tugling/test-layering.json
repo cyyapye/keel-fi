@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 54,
+  "retiredBrowserCaseCount": 56,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -390,6 +390,21 @@
         "e2e/manual-holdings.spec.ts :: mobile-chromium :: uses the latest saved partial contribution cash through edits and clearing"
       ],
       "assertions": "The retained real API/D1 case covers initial cash, edited minor units, null after clearing, no stale or invented zero cash, cashCoversPosition=false, and reload/readback. It now observes exactly two purchases POSTs. Valuation and null capital/fees/returns checks remain. Both original and retained cases reject stale initial cash and duplicate save dispatch; no screenshot is retired."
+    },
+    {
+      "id": "unknown-refund-rendered-returns",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: unknown refund inclusion withholds returns in the holding and exposure summaries",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: unknown refund inclusion withholds returns in the holding and exposure summaries"
+      ],
+      "unitCases": [
+        "apps/web/src/InvestmentHoldings.test.tsx :: withholds returns from holding and exposure summaries when refund inclusion is unknown"
+      ],
+      "browserCases": [
+        "e2e/holdings-detail.visual.spec.ts :: chromium :: leads with the investment and opens a truthful holding detail",
+        "e2e/holdings-detail.visual.spec.ts :: mobile-chromium :: leads with the investment and opens a truthful holding detail"
+      ],
+      "assertions": "Both loaded production summaries show supported returns for known refund treatment and withhold them while inclusion is unknown. The holding-detail journeys exercise Back and focus restoration."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
