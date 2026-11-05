@@ -485,6 +485,11 @@ describe("shared D1 capacity owner", () => {
       writes: completed * 10,
     });
     expect(store.value?.entries).toHaveLength(45);
+    const cpu = process.cpuUsage(initialCpu);
+    expect(
+      cpu.user + cpu.system,
+      "Full virtual day CPU time (microseconds)",
+    ).toBeLessThanOrEqual(5_000_000);
     console.info(
       JSON.stringify({
         event: "capacity_virtual_day",
@@ -497,7 +502,7 @@ describe("shared D1 capacity owner", () => {
         storage: "simulated-CAS",
       }),
     );
-  });
+  }, 8_000);
 
   it("compacts expired completed entries atomically without refunds or executable old requests", async () => {
     const store = new MemoryStore();

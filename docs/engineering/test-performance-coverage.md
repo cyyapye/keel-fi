@@ -110,13 +110,14 @@ preparation, migration and restoration separately. Neither an empty migration
 replay nor post-migration query tests substitute for this proof.
 
 The capacity virtual day still executes all 1,440 attempts through the original
-JSON CAS store and real WebCrypto. Every charge, read, write, compaction and
-byte assertion retains its five-second deadline. Priority alone failed in normal
-CI before browser startup, so the native integrity gate runs the 84 in-process
-strict cases with one worker before admitting heavy flows. Its 49 Python cases
-remain. The main phase runs the other 1,564 Vitest cases, and combined
-accounting requires all 1,648 exactly once. Missing, stale, substituted, omitted
-or duplicated proof fails. Standalone Vitest still runs the full inventory.
+JSON CAS store and real WebCrypto. In the initial comparison, every charge,
+read, write, compaction and byte assertion ran under a five-second elapsed
+deadline. Priority alone failed in normal CI before browser startup, so the
+native integrity gate runs the 84 in-process strict cases with one worker before
+admitting heavy flows. Its 49 Python cases remain. The main phase runs the other
+1,564 Vitest cases, and combined accounting requires all 1,648 exactly once.
+Missing, stale, substituted, omitted or duplicated proof fails. Standalone
+Vitest still runs the full inventory.
 
 The exposure file joins this partition after its cold continuity-migration case
 exceeds the unchanged five-second deadline during normal CI. Its complete
@@ -1084,6 +1085,14 @@ The
 stopped during the exclusive preflight. The capacity day hit its five-second
 deadline and the other 113 preflight tests passed. The
 [same-tree isolated browser run](https://github.com/cyyapye/keel-fi/actions/runs/41994250300)
-passed all 297 first attempts in 321.226 seconds. The capacity test now logs
-process CPU and elapsed time every 360 simulated minutes while exercising all
-1,440 production operations at the existing deadline.
+passed all 297 first attempts in 321.226 seconds. The
+[diagnostic run](https://github.com/cyyapye/keel-fi/actions/runs/41996805489)
+logged process CPU and elapsed time every 360 simulated minutes. It completed
+all 1,440 operations in 3.872 elapsed seconds using 4.014 process CPU seconds.
+
+The approved trial limits this one test to five seconds of process CPU and eight
+seconds of elapsed time. The CPU measurement includes user and system time in
+the Vitest worker. The elapsed deadline also bounds waiting and stalled work.
+The test requires exactly 2,880 reads, 2,880 writes, the expected charges, 45
+retained entries and a ledger within the byte limit. The exclusive preflight and
+complete native gate retain their 120- and 900-second limits.
