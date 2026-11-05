@@ -117,7 +117,20 @@ test("reviews generic duplicate names, preserves a rejected draft and finds save
   await page
     .getByLabel("Why these names belong together")
     .fill("The reviewed subscription names the same operating company.");
-  await page.getByText("Affected investments", { exact: true }).click();
+  await page.getByRole("button", { name: "Affected investments" }).click();
+  const affected = page.locator(
+    '.company-names__confirmation [data-slot="collapsible-content"]',
+  );
+  const investments = affected.getByRole("list");
+  await expect(investments.getByRole("listitem")).toHaveText([
+    "Demo Growth I LLC",
+    "Demo Growth II LP",
+  ]);
+  // Capture after the disclosure settles around the list at its natural height.
+  await expect(affected).toHaveJSProperty(
+    "clientHeight",
+    await investments.evaluate((list) => list.clientHeight),
+  );
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(page).toHaveScreenshot("company-name-review.png", {
     animations: "disabled",
