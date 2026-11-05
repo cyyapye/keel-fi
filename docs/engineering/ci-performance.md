@@ -324,20 +324,19 @@ decisions and link records. The test still meters every positive, history, empty
 and unrelated-household read against real D1, with the same 120-position scale,
 row budgets and query-plan assertions.
 
-Browser verification produces five reports while admitting at most four workers.
-The initial four lanes each use one worker. After they validate and close, four
-workers run the holdings and agreement-security tests against the built frontend
-in `mocked-development`. The development stateful lane registers 97 cases,
-production stateful-a 111, production stateful-b 88, the initial production
-mocked lane 106 and the final mocked lane 38. Of the 440 registered cases, 410
-run on Linux and 30 have reviewed exclusions. The geometry consolidation and
-retained failure proof are recorded in
+Browser verification produces five reports with at most four active workers.
+Three stateful partitions and one mocked partition start together. When the
+first mocked partition validates its report and releases its server, its worker
+slot runs the remaining mocked holdings and agreement-security checks. The other
+partitions can finish independently. The current inventory has 153 required
+Linux cases and 15 explicit exclusions. Each retired case and its remaining
+coverage are recorded in
 [test performance coverage](test-performance-coverage.md).
 
-The 30 manual-holding visual executions use the fail-closed API-mocked fixture
-inside production stateful-a. API mocking belongs to each test's fixture,
-independently of its lane's server. The fixture blocks service workers and
-rejects unhandled API reads and writes. Each stateful partition receives a
+The manual-holding visual tests and UI catalogue use the fail-closed API-mocked
+fixture inside production stateful-a. API mocking belongs to each test's
+fixture, independently of its lane's server. The fixture blocks service workers
+and rejects unhandled API reads and writes. Each stateful partition receives a
 separate copy of the verified, closed synthetic seed and owns distinct API/web
 ports. Neither mocked lane starts an API server. The legal-entity suite uses the
 built frontend and bundles the actual collection search module for its browser
@@ -455,9 +454,8 @@ inventory; one green lane cannot substitute for the suite. Merged elapsed time
 is the span of the concurrent lanes, not their summed work. Per-suite leases
 reject duplicate writers, and cancellation cleans owned process groups before
 removing the isolated database profiles. The reviewed dependency map is exact:
-only the development mocked lane waits, and it cannot start until all four
-initial lanes have validated their reports and released their process groups and
-ports.
+the second mocked lane waits for its predecessor to validate its report and
+release its process group and port. All five lanes run within the timed phase.
 
 The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
 9.3 GiB available memory and low CPU/I/O pressure. This is a starting snapshot,

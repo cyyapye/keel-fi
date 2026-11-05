@@ -13,7 +13,8 @@ export default defineConfig({
     // Real workerd fixtures spawn native processes beyond these three workers.
     maxWorkers: 3,
     sequence: { sequencer: CiTestSequencer },
-    exclude: ["e2e/**", "**/node_modules/**", "**/dist/**"],
+    // Private timing experiments can contain copies of tracked test suites.
+    exclude: ["e2e/**", ".keel-local/**", "**/node_modules/**", "**/dist/**"],
     include: ["**/*.test.ts", "**/*.test.tsx"],
   },
 });
