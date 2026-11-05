@@ -837,3 +837,21 @@ test or helper is required. Its authentication-failure and no-premature- success
 assertions are checked against deliberate production faults before the simpler
 removal is accepted. This is a duplicate reduction, not a claim of production
 backup or restore evidence.
+
+### Duplicate compiler fixture requests
+
+The lint/typecheck wrapper retains the real CLI's `main.ts` TS2322 rejection and
+the ignored-root `hidden.ts` clean/invalid/clean sequence with unchanged mtime.
+Both now require the expected diagnostic file and code. Those owners make two
+fresh-project TS2322 requests redundant; removing them reduces the first case
+from 18 fixture requests to 16. Warning-only, JavaScript-error-only,
+side-effect-import-only, parser, configuration and process-lifecycle checks stay
+independent. All three native case identities and their deadlines remain.
+
+Dropping all compiler diagnostics or only the ignored file's diagnostics failed
+the intended retained assertion. Production source was restored. Five
+alternating local baseline/candidate pairs all passed the same three cases
+without skips. Whole-file wall-time median was 8.022 seconds (8.001–8.052)
+before and 7.901 seconds (7.836–7.978) after. This small Darwin improvement is
+not a Linux CI speed claim. The change adds four lines and removes eleven, with
+no new fixture, helper, production seam or compiler policy.

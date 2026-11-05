@@ -204,14 +204,13 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
     (cwd) => {
       const bad = cli(cwd);
       expect(bad.status, bad.output).toBe(1);
-      expect(bad.output).toContain("TS2322");
+      expect(bad.output).toMatch(/(?:^|\n)main\.ts\(\d+,\d+\): error TS2322:/u);
     },
   );
   const clean = await run();
   expect(clean.status, clean.output).toBe(0);
   expect(clean.output).toContain('"contexts":2');
   for (const [fixture, failure] of [
-    [{ source: "export const value: string = 1;\n" }, "TS2322"],
     [
       {
         source: "export const value: string = 1;\n",
@@ -235,14 +234,6 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
         options: { noUncheckedSideEffectImports: true },
       },
       "TS2307",
-    ],
-    [
-      {
-        rootFiles: ["main.ts", "hidden.ts"],
-        files: { "hidden.ts": "export const hidden: string = 1;\n" },
-        ignores: ["hidden.ts"],
-      },
-      "TS2322",
     ],
     [{ files: { "failure.js": "syntheticMissing();\n" } }, "no-undef"],
     [
@@ -284,7 +275,9 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
       utimesSync(hidden, before.atime, before.mtime);
       const changed = await owned.request(cwd);
       expect(changed.status, changed.stdout + changed.stderr).toBe(1);
-      expect(changed.stdout + changed.stderr).toContain("TS2322");
+      expect(changed.stdout + changed.stderr).toMatch(
+        /(?:^|\n)hidden\.ts\(\d+,\d+\): error TS2322:/u,
+      );
       writeFileSync(hidden, 'export const hidden: string = "synthetic";\n');
       utimesSync(hidden, before.atime, before.mtime);
       expect((await owned.request(cwd)).status).toBe(0);

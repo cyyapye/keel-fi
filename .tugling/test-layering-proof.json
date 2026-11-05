@@ -288,6 +288,31 @@
           "omitted authentication wait"
         ],
         "rejectedAlternative": "A new controlled executable fixture added about 200 lines without measurable speed improvement; existing proof made it unnecessary."
+      },
+      {
+        "change": "duplicate-compiler-fixture-requests",
+        "retainedProof": "Existing CLI main.ts TS2322 and ignored-root hidden.ts clean/invalid/clean checks; independent warning, JS and TS2307 outcomes unchanged",
+        "rejectedFaults": [
+          "lost all compiler diagnostics",
+          "lost ignored-file diagnostics"
+        ],
+        "measurement": {
+          "platform": "Darwin",
+          "alternatingPairs": 5,
+          "casesPerRun": 3,
+          "failedOrSkippedCases": 0,
+          "baselineWallSeconds": {
+            "median": 8.022,
+            "min": 8.001,
+            "max": 8.052
+          },
+          "candidateWallSeconds": {
+            "median": 7.901,
+            "min": 7.836,
+            "max": 7.978
+          }
+        },
+        "removedWork": "Two fresh-project check requests; no test identities removed"
       }
     ]
   }
