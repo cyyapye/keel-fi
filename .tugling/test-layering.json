@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 120,
+  "retiredBrowserCaseCount": 129,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -477,7 +477,7 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures explicit Tokenfolio quote dates and split basis without substituting the import date"
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures and reconciles the supported Tokenfolio page contract"
       ],
       "assertions": "The capture runs at the worker\u2019s desktop viewport. The retained case checks both quote-date and split-basis variants through the actual provider page parser. Separate narrow-screen authentication and readiness owners execute on both projects."
     },
@@ -970,6 +970,55 @@
         "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps the exposure summary below the heading with compact sorting"
       ],
       "assertions": "The mobile mixed-holdings journey checks the same five-exposure summary, sort accessible name, size, row geometry, focus, totals and ordering. The 1053px breakpoint retains its dedicated screenshot. The full mobile exposure screenshot contains the former compact crop on both platforms, with lower sensitivity to isolated pixel changes."
+    },
+    {
+      "id": "tokenfolio-delayed-fields",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: waits for asynchronously rendered Tokenfolio drawer details",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: waits for the Tokenfolio active count after navigation",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for asynchronously rendered Tokenfolio drawer details",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for the Tokenfolio active count after navigation"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures and reconciles the supported Tokenfolio page contract"
+      ],
+      "assertions": "The two native two-row cash and unknown-value captures now also wait for delayed drawer data and delayed tab counts on separate passes. Both statuses still reconcile, with independent desktop fail-closed tests for mismatched count and unsupported status."
+    },
+    {
+      "id": "tokenfolio-interrupted-drawer",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: recovers from a Tokenfolio drawer left open by an interrupted run",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: recovers from a Tokenfolio drawer left open by an interrupted run"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements"
+      ],
+      "assertions": "The retained interrupted capture starts with both an open drawer and a stale investment URL, checks both captured companies and their associated IDs, restores the list across document return and verifies the stale investment ID clears."
+    },
+    {
+      "id": "sydecar-central-and-financial-capture",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures the visible funded Sydecar position and leaves value unreported"
+      ],
+      "assertions": "One live synthetic funded and one unfunded row exercise delayed financial details, stage completion, unknown current value, fee, carry, exact investment date and held-through owner. The same capture requires one central batch with the reconciled detail URL and no per-row collection. The equal-funded case preserves undated investment date and both destinations without a collector."
+    },
+    {
+      "id": "tokenfolio-reported-and-unknown-quotes",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures explicit Tokenfolio quote dates and split basis without substituting the import date"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures and reconciles the supported Tokenfolio page contract"
+      ],
+      "assertions": "The same two real captures compare known and missing provider quote data on adjacent rows. Before-split and after-split inputs retain conversion factors 1 and 10, the explicit provider date differs from the capture date, and missing values stay null. The known-value row also exercises both missing and reported quote data."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

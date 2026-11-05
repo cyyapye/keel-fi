@@ -225,15 +225,25 @@ test(
   },
 );
 
-function tokenfolioPage(
+function tokenfolioPage({
   activeCount = 2,
-  statuses: readonly [string, string] = ["Funds Received", "Completed"],
+  statuses = ["Funds Received", "Completed"],
   drawerInitiallyOpen = false,
   detailDelayMs = 0,
   tabCountDelayMs = 0,
   drawerUrlDelayMs = 0,
   rowRenderDelayMs = 0,
-): string {
+  shareBases = [null, null],
+}: {
+  activeCount?: number;
+  statuses?: readonly [string, string];
+  drawerInitiallyOpen?: boolean;
+  detailDelayMs?: number;
+  tabCountDelayMs?: number;
+  drawerUrlDelayMs?: number;
+  rowRenderDelayMs?: number;
+  shareBases?: readonly [string | null, string | null];
+} = {}): string {
   const rows = [
     {
       company: "Synthetic Atlas",
@@ -259,6 +269,7 @@ function tokenfolioPage(
       (row, index) => `
         <div role="button" class="relative cursor-pointer" tabindex="0"
           data-investment-id="${index === 0 ? "11111111-1111-4111-8111-111111111111" : "22222222-2222-4222-8222-222222222222"}"
+          data-quote-basis="${shareBases[index] ?? ""}"
           data-company="${row.company}" data-committed="${row.committed}"
           data-current="${row.current}" data-entity="${row.entity}"
           data-date="${row.date}">
@@ -297,6 +308,7 @@ function tokenfolioPage(
           <div><dt>Entry Price</dt><dd>$10.00</dd></div>
           <div><dt>Committed On</dt><dd data-detail="date"></dd></div>
         </dl>
+        <dl data-reported-quote></dl>
         <button aria-label="Close drawer">Close</button>
       </div>
       <script>
@@ -318,6 +330,9 @@ function tokenfolioPage(
               dialog.querySelector('[data-summary="current"]').textContent = row.dataset.current;
               dialog.querySelector('[data-detail="entity"]').textContent = row.dataset.entity;
               dialog.querySelector('[data-detail="date"]').textContent = row.dataset.date;
+              dialog.querySelector('[data-reported-quote]').innerHTML = row.dataset.quoteBasis
+                ? '<dt>Mark date</dt><dd>Aug 18, 2026</dd><dt>Share class</dt><dd>Common</dd><dt>Share basis</dt><dd>' + row.dataset.quoteBasis + '</dd>'
+                : '';
             }, ${detailDelayMs.toString()});
           });
         });
@@ -434,7 +449,15 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
   let firstStatus = "Funds Received";
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(2, [firstStatus, "Completed"]),
+      body: tokenfolioPage({
+        statuses: [firstStatus, "Completed"],
+        detailDelayMs: firstStatus === "Funds Received" ? 250 : 0,
+        tabCountDelayMs: firstStatus === "Partially Exited" ? 250 : 0,
+        shareBases:
+          firstStatus === "Funds Received"
+            ? [null, "Before split"]
+            : ["After 10-for-1 split", null],
+      }),
       contentType: "text/html",
     });
   });
@@ -453,8 +476,6 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
           sharePrices: {
             costMicros: 10000000,
             markMicros: 15000000,
-            markDate: null,
-            shareClass: null,
           },
         },
         investedMinor: 1_250_000,
@@ -473,40 +494,25 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
         investDate: "2026-01-03",
       },
     ]);
+    const partialExit = firstStatus === "Partially Exited";
+    const reported =
+      parsed.rows[partialExit ? 0 : 1]!.dealMetadata?.sharePrices;
+    const unknown = parsed.rows[partialExit ? 1 : 0]!.dealMetadata?.sharePrices;
+    expect(reported).toMatchObject({
+      markDate: "2026-08-18",
+      shareClass: "Common",
+      shareBasis: {
+        key: "issuer-original",
+        unitsPerOriginal: partialExit ? 10 : 1,
+      },
+    });
+    expect(unknown).toMatchObject({
+      markDate: null,
+      shareClass: null,
+      shareBasis: null,
+    });
   }
 });
-
-test(
-  "captures explicit Tokenfolio quote dates and split basis without substituting the import date",
-  { tag: "@desktop-only" },
-  async ({ page }) => {
-    for (const [basis, units] of [
-      ["Before split", 1],
-      ["After 10-for-1 split", 10],
-    ] as const) {
-      await page.route("https://app.tokenfolio.co/**", (route) =>
-        route.fulfill({
-          contentType: "text/html",
-          body: tokenfolioPage().replace(
-            "<div><dt>Entry Price</dt>",
-            `<div><dt>Mark date</dt><dd>Aug 18, 2026</dd></div><div><dt>Share class</dt><dd>Common</dd></div><div><dt>Share basis</dt><dd>${basis}</dd></div><div><dt>Entry Price</dt>`,
-          ),
-        }),
-      );
-      await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-      const parsed = await parseProviderHoldingsTemplateCsv(
-        "tokenfolio",
-        await captureTokenfolio(page, "2026-08-21"),
-      );
-      expect(parsed.rows[0]!.dealMetadata?.sharePrices).toMatchObject({
-        markDate: "2026-08-18",
-        shareClass: "Common",
-        shareBasis: { key: "issuer-original", unitsPerOriginal: units },
-      });
-      await page.unrouteAll();
-    }
-  },
-);
 
 test("Tokenfolio waits for each drawer URL to open and clear before associating agreements", async ({
   isMobile,
@@ -515,14 +521,10 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
   let firstLoad = true;
   await page.route("https://app.tokenfolio.co/**", (route) => {
-    const body = tokenfolioPage(
-      2,
-      ["Funds Received", "Completed"],
-      firstLoad,
-      0,
-      0,
-      300,
-    );
+    const body = tokenfolioPage({
+      drawerInitiallyOpen: firstLoad,
+      drawerUrlDelayMs: 300,
+    });
     firstLoad = false;
     return route.fulfill({
       contentType: "text/html",
@@ -544,7 +546,17 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
       Promise.reject(new Error("Unexpected provider")),
     flush: () => Promise.resolve(),
   };
-  await captureTokenfolio(page, "2026-08-21", () => undefined, agreements);
+  const bytes = await captureTokenfolio(
+    page,
+    "2026-08-21",
+    () => undefined,
+    agreements,
+  );
+  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
+  expect(parsed.rows.map((row) => row.companyOrFund)).toEqual([
+    "Synthetic Atlas",
+    "Synthetic Beacon",
+  ]);
   expect(ids).toEqual([
     "11111111-1111-4111-8111-111111111111",
     "22222222-2222-4222-8222-222222222222",
@@ -561,15 +573,7 @@ test("Tokenfolio waits for all holdings after document return before continuing 
   await page.route("https://app.tokenfolio.co/**", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: tokenfolioPage(
-        2,
-        ["Funds Received", "Completed"],
-        false,
-        0,
-        0,
-        0,
-        loads++ === 0 ? 0 : 500,
-      ),
+      body: tokenfolioPage({ rowRenderDelayMs: loads++ === 0 ? 0 : 500 }),
     }),
   );
   await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
@@ -614,7 +618,7 @@ test("fails closed when the Tokenfolio visible count does not reconcile", async 
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(3),
+      body: tokenfolioPage({ activeCount: 3 }),
       contentType: "text/html",
     });
   });
@@ -625,60 +629,6 @@ test("fails closed when the Tokenfolio visible count does not reconcile", async 
   );
 });
 
-test("recovers from a Tokenfolio drawer left open by an interrupted run", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", async (route) => {
-    await route.fulfill({
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], true),
-      contentType: "text/html",
-    });
-  });
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-
-  const bytes = await captureTokenfolio(page, "2026-08-21");
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
-});
-
-test("waits for asynchronously rendered Tokenfolio drawer details", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", async (route) => {
-    await route.fulfill({
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], false, 250),
-      contentType: "text/html",
-    });
-  });
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-
-  const bytes = await captureTokenfolio(page, "2026-08-21");
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
-});
-
-test("waits for the Tokenfolio active count after navigation", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", async (route) => {
-    await route.fulfill({
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], false, 0, 250),
-      contentType: "text/html",
-    });
-  });
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-
-  const bytes = await captureTokenfolio(page, "2026-08-21");
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
-});
-
 test("fails closed for an unknown Tokenfolio active-row status", async ({
   isMobile,
   page,
@@ -686,7 +636,7 @@ test("fails closed for an unknown Tokenfolio active-row status", async ({
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(2, ["Exited", "Completed"]),
+      body: tokenfolioPage({ statuses: ["Exited", "Completed"] }),
       contentType: "text/html",
     });
   });
@@ -709,54 +659,13 @@ test("captures the visible funded Sydecar position and leaves value unreported",
     "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
     async (route) => {
       await route.fulfill({
-        body: sydecarDetailPage(250),
+        body: `${sydecarDetailPage(250)}<h2 data-testid="investment-docs-heading">Investment Docs</h2>`,
         contentType: "text/html",
       });
     },
   );
   await page.goto("https://app.sydecar.io/investments");
 
-  const stages: string[] = [];
-  const bytes = await captureSydecar(page, "2026-08-21", (stage) => {
-    stages.push(stage);
-  });
-  expect(stages.at(-1)).toBe("csv");
-  expect(stages).toContain("detail");
-  const parsed = await parseProviderHoldingsTemplateCsv("sydecar", bytes);
-  expect(parsed.rows).toMatchObject([
-    {
-      companyOrFund: "Synthetic Climate Labs",
-      investedMinor: 1_250_000,
-      dealMetadata: {
-        allocationMinor: 1_500_000,
-        managementFeePpm: 20_000,
-        carryPpm: 200_000,
-      },
-      unrealizedValueMinor: null,
-      unrealizedValueState: "not_reported",
-      investmentEntity: "Synthetic Investor LLC",
-      investDate: "2025-04-14",
-    },
-  ]);
-});
-
-test("defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.sydecar.io/investments", (route) =>
-    route.fulfill({ body: sydecarListPage(), contentType: "text/html" }),
-  );
-  await page.route(
-    "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
-    (route) =>
-      route.fulfill({
-        body: `${sydecarDetailPage()}<h2 data-testid="investment-docs-heading">Investment Docs</h2>`,
-        contentType: "text/html",
-      }),
-  );
-  await page.goto("https://app.sydecar.io/investments");
   let inlineCollections = 0;
   const centralBatches: Array<{
     count: number;
@@ -779,8 +688,33 @@ test("defers Sydecar agreement capture to one central Documents pass after snaps
     flush: () => Promise.resolve(),
   };
 
-  await captureSydecar(page, "2026-08-21", () => undefined, agreements);
-
+  const stages: string[] = [];
+  const bytes = await captureSydecar(
+    page,
+    "2026-08-21",
+    (stage) => {
+      stages.push(stage);
+    },
+    agreements,
+  );
+  expect(stages.at(-1)).toBe("csv");
+  expect(stages).toContain("detail");
+  const parsed = await parseProviderHoldingsTemplateCsv("sydecar", bytes);
+  expect(parsed.rows).toMatchObject([
+    {
+      companyOrFund: "Synthetic Climate Labs",
+      investedMinor: 1_250_000,
+      dealMetadata: {
+        allocationMinor: 1_500_000,
+        managementFeePpm: 20_000,
+        carryPpm: 200_000,
+      },
+      unrealizedValueMinor: null,
+      unrealizedValueState: "not_reported",
+      investmentEntity: "Synthetic Investor LLC",
+      investDate: "2025-04-14",
+    },
+  ]);
   expect(inlineCollections).toBe(0);
   expect(centralBatches).toEqual([
     {

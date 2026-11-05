@@ -1930,33 +1930,24 @@
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio waits for all holdings after document return before continuing and reconciling",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures and reconciles the supported Tokenfolio page contract",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures explicit Tokenfolio quote dates and split basis without substituting the import date",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures the visible funded Sydecar position and leaves value unreported",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: fails closed for an unknown Tokenfolio active-row status",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: fails closed when the Tokenfolio visible count does not reconcile",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: keeps equal-amount Sydecar rows distinct by row and destination",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: recovers from a Tokenfolio drawer left open by an interrupted run",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar distinguishes sign-in from missing, responsive, or delayed portfolio controls",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar recognizes a dedicated sign-in page before its form loads",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio distinguishes sign-in from missing, responsive, or delayed portfolio controls",
     "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio recognizes a dedicated sign-in page before its form loads",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: waits for asynchronously rendered Tokenfolio drawer details",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: waits for the Tokenfolio active count after navigation",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for all holdings after document return before continuing and reconciling",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures and reconciles the supported Tokenfolio page contract",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures the visible funded Sydecar position and leaves value unreported",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: fails closed for an unknown Tokenfolio active-row status",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: fails closed when the Tokenfolio visible count does not reconcile",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: keeps equal-amount Sydecar rows distinct by row and destination",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: recovers from a Tokenfolio drawer left open by an interrupted run",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: sydecar distinguishes sign-in from missing, responsive, or delayed portfolio controls",
     "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: tokenfolio distinguishes sign-in from missing, responsive, or delayed portfolio controls",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for asynchronously rendered Tokenfolio drawer details",
-    "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for the Tokenfolio active count after navigation",
     "e2e/provider-reconnect-access.spec.ts :: chromium :: a passive reconnect GET does not consume a link when scripts are disabled",
     "e2e/provider-reconnect-access.spec.ts :: chromium :: connects and paints the generated viewer through the authenticated gateway",
     "e2e/provider-reconnect-access.spec.ts :: chromium :: opens the reconnect interstitial through one explicit same-origin POST",
@@ -2171,24 +2162,6 @@
     },
     {
       "runner": "playwright",
-      "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: recovers from a Tokenfolio drawer left open by an interrupted run",
-      "platforms": ["darwin", "linux"],
-      "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
-    },
-    {
-      "runner": "playwright",
-      "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for asynchronously rendered Tokenfolio drawer details",
-      "platforms": ["darwin", "linux"],
-      "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
-    },
-    {
-      "runner": "playwright",
-      "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: waits for the Tokenfolio active count after navigation",
-      "platforms": ["darwin", "linux"],
-      "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
-    },
-    {
-      "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: fails closed for an unknown Tokenfolio active-row status",
       "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
@@ -2196,12 +2169,6 @@
     {
       "runner": "playwright",
       "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures the visible funded Sydecar position and leaves value unreported",
-      "platforms": ["darwin", "linux"],
-      "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
-    },
-    {
-      "runner": "playwright",
-      "id": "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation",
       "platforms": ["darwin", "linux"],
       "reason": "Existing desktop-only provider capture/session contract; chromium counterpart is required."
     },
