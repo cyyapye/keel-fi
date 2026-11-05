@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 107,
+  "retiredBrowserCaseCount": 110,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -780,6 +780,65 @@
         "e2e/investment-review.visual.spec.ts :: mobile-chromium :: records a continuing SPV conversion, retains rejected evidence and amends conditional rights"
       ],
       "assertions": "Both devices review the extracted conversion terms. Mobile rejects, saves, reloads and amends the event with its predecessor while preserving the SPV interest. The repository verifies the append-only conversion record, status and conditional units while retaining contribution, cash and valuation."
+    },
+    {
+      "id": "import-template-provider-device-sampling",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/connectors/src/provider-holdings-template-csv.test.ts :: provider holdings template CSV > parses Tokenfolio template rows without floating-point money",
+        "packages/connectors/src/provider-holdings-template-csv.test.ts :: provider holdings template CSV > keeps unavailable Sydecar current values explicit",
+        "packages/connectors/src/provider-holdings-template-csv.test.ts :: parses a manually completed Wefunder template with unknown value and date",
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > accepts clear sydecar rows from partial coverage without inventing omissions",
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > accepts clear tokenfolio rows from partial coverage without inventing omissions",
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > accepts clear wefunder rows from partial coverage without inventing omissions"
+      ],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: imports provider templates without asking to approve clear positions",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: imports provider templates without asking to approve clear positions"
+      ],
+      "assertions": "All three providers retain actual template URLs, file uploads, automatic completion and exception-free notices. Tokenfolio uses desktop, and Sydecar and Wefunder use mobile with the 44px file-input target. Real parser and D1 tests cover unavailable values, provider identity and deterministic acceptance."
+    },
+    {
+      "id": "incomplete-portfolio-return-device",
+      "retiredBrowserCases": [
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: preserves supported DPI when current private values cannot support TVPI"
+      ],
+      "unitCases": [
+        "packages/domain/src/portfolio-dashboard.test.ts :: current-holdings portfolio performance > withholds TVPI for missing carry evidence while preserving supported DPI"
+      ],
+      "browserCases": [
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: shows a two-color portfolio snapshot on Overview",
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: shows a two-color portfolio snapshot on Overview",
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: preserves supported DPI when current private values cannot support TVPI"
+      ],
+      "assertions": "The incomplete summary preserves eligible return and supported DPI when TVPI lacks reviewed after-carry value. The mobile basis explains the differing coverage; the normal dashboard and its basis remain on both widths."
+    },
+    {
+      "id": "no-prior-portfolio-movers",
+      "retiredBrowserCases": [
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: shows compact empty states when no portfolio changes are comparable",
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: shows compact empty states when no portfolio changes are comparable"
+      ],
+      "unitCases": [
+        "packages/domain/src/portfolio-dashboard.test.ts :: createPortfolioDashboardSnapshot > keeps exposure, access, mover, and unknown-value math explicit"
+      ],
+      "browserCases": [
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: keeps empty performance unavailable and recovers from a snapshot failure",
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: keeps empty performance unavailable and recovers from a snapshot failure"
+      ],
+      "assertions": "A recovered valued portfolio without historical comparisons shows two compact empty movers and no invented changes. Its read count, overflow and hierarchy remain in both projects. The full empty-performance images include every pixel of the former mover crops."
+    },
+    {
+      "id": "portfolio-noncash-drilldown-device",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/domain/src/portfolio-dashboard.test.ts :: createPortfolioDashboardSnapshot > keeps exposure, access, mover, and unknown-value math explicit"
+      ],
+      "browserCases": [
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: drills each portfolio chart into its corresponding Holdings detail without arrows",
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: drills each portfolio chart into its corresponding Holdings detail without arrows"
+      ],
+      "assertions": "Cash opens by keyboard on both widths. Public market opens on desktop. Private paper and other liquid open on mobile. Every key, focused heading and selected row still has an actual navigation owner."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

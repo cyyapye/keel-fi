@@ -483,27 +483,33 @@ const robinhoodImportPreview = {
 };
 
 test("imports provider templates without asking to approve clear positions", async ({
+  isMobile,
   page,
 }) => {
   await page.route("**/api/alpha", (route) =>
     route.fulfill({ json: alphaFixture }),
   );
-  for (const [provider, fixture] of [
-    ["tokenfolio", tokenfolioImportPreview],
-    ["sydecar", sydecarImportPreview],
-    [
-      "wefunder",
-      {
-        ...tokenfolioImportPreview,
-        id: "holding_import_synthetic_wefunder",
-        provider: "wefunder",
-      },
-    ],
-  ] as const) {
+  const previews = {
+    tokenfolio: tokenfolioImportPreview,
+    sydecar: sydecarImportPreview,
+    wefunder: {
+      ...tokenfolioImportPreview,
+      id: "holding_import_synthetic_wefunder",
+      provider: "wefunder",
+    },
+  };
+  const providers = isMobile
+    ? (["sydecar", "wefunder"] as const)
+    : (["tokenfolio"] as const);
+  for (const provider of providers) {
+    const fixture = previews[provider];
     let uploads = 0;
     await page.route(`**/api/holding-imports/${provider}`, (route) => {
       uploads += 1;
       expect(route.request().method()).toBe("POST");
+      const body = route.request().postData();
+      expect(body).toContain(`filename="${provider}-holdings.csv"`);
+      expect(body).toContain("synthetic template");
       return route.fulfill({
         status: 201,
         json: {
@@ -544,7 +550,7 @@ test("imports provider templates without asking to approve clear positions", asy
     expect(uploads).toBe(0);
     const fileTarget = await page.locator('input[type="file"]').boundingBox();
     expect(fileTarget).not.toBeNull();
-    if (test.info().project.name === "mobile-chromium") {
+    if (isMobile) {
       expect(fileTarget!.height).toBeGreaterThanOrEqual(44);
     }
     await expectNoHorizontalOverflow(page);
@@ -562,6 +568,7 @@ test("imports provider templates without asking to approve clear positions", asy
     await expect(
       page.getByRole("heading", { name: "Update complete" }),
     ).toBeVisible();
+    expect(uploads).toBe(1);
     await expect(page.getByRole("checkbox")).toHaveCount(0);
     await expect(page.getByText("No further review is needed.")).toBeVisible();
     await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(

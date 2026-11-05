@@ -129,8 +129,8 @@ const priorValuesByPosition = {
 const holdingsView = investmentHoldingsViewFor(holdings, priorValuesByPosition);
 const unchangedHoldingsView = investmentHoldingsViewFor(holdings);
 
-function performanceHoldingsView() {
-  const view = structuredClone(holdingsView);
+function performanceHoldingsView(source = holdingsView) {
+  const view = structuredClone(source);
   for (const position of view.exposureView.positions) {
     if (position.valueMinor === null) continue;
     const value = BigInt(position.valueMinor);
@@ -386,47 +386,52 @@ test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
   );
 });
 
-test("preserves supported DPI when current private values cannot support TVPI", async ({
-  page,
-}) => {
-  const view = performanceHoldingsView();
-  for (const position of view.exposureView.positions) {
-    if (position.reviewedInvestment?.terms.reportedValueReview) {
-      position.reviewedInvestment.terms.reportedValueReview.carryStatus =
-        "unknown";
+test(
+  "preserves supported DPI when current private values cannot support TVPI",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const view = performanceHoldingsView();
+    for (const position of view.exposureView.positions) {
+      if (position.reviewedInvestment?.terms.reportedValueReview) {
+        position.reviewedInvestment.terms.reportedValueReview.carryStatus =
+          "unknown";
+      }
     }
-  }
-  await page.route("**/api/investment-holdings", (route) =>
-    route.fulfill({ json: view }),
-  );
-  await page.goto("/");
-  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-  const metrics = snapshot.locator(".portfolio-snapshot__metrics");
-  await expect(metrics).toContainText("+25.0%");
-  await expect(metrics).toContainText("5 of 12 holdings");
-  await expect(
-    metrics
-      .locator("[data-slot='data-item']")
-      .filter({ hasText: "Private TVPI" }),
-  ).toContainText("—");
-  await expect(metrics).toContainText("0.20×");
-  await expect(metrics).not.toContainText("0.00×");
-  await expectNoHorizontalOverflow(page);
-  await page.addStyleTag({
-    content: ".topbar { visibility: hidden !important; }",
-  });
-  await expect(snapshot).toHaveScreenshot(
-    "portfolio-performance-incomplete.png",
-    { animations: "disabled" },
-  );
-  await snapshot.getByRole("button", { name: "Performance basis" }).click();
-  await expect(snapshot).toContainText("TVPI and DPI cover different holdings");
-  await expectNoHorizontalOverflow(page);
-  await expect(snapshot.locator(".portfolio-snapshot__basis")).toHaveScreenshot(
-    "portfolio-performance-basis-incomplete.png",
-    { animations: "disabled" },
-  );
-});
+    await page.route("**/api/investment-holdings", (route) =>
+      route.fulfill({ json: view }),
+    );
+    await page.goto("/");
+    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+    const metrics = snapshot.locator(".portfolio-snapshot__metrics");
+    await expect(metrics).toContainText("+25.0%");
+    await expect(metrics).toContainText("5 of 12 holdings");
+    await expect(
+      metrics
+        .locator("[data-slot='data-item']")
+        .filter({ hasText: "Private TVPI" }),
+    ).toContainText("—");
+    await expect(metrics).toContainText("0.20×");
+    await expect(metrics).not.toContainText("0.00×");
+    await expectNoHorizontalOverflow(page);
+    await page.addStyleTag({
+      content: ".topbar { visibility: hidden !important; }",
+    });
+    await expect(snapshot).toHaveScreenshot(
+      "portfolio-performance-incomplete.png",
+      { animations: "disabled" },
+    );
+    await snapshot.getByRole("button", { name: "Performance basis" }).click();
+    await expect(snapshot).toContainText(
+      "TVPI and DPI cover different holdings",
+    );
+    await expectNoHorizontalOverflow(page);
+    await expect(
+      snapshot.locator(".portfolio-snapshot__basis"),
+    ).toHaveScreenshot("portfolio-performance-basis-incomplete.png", {
+      animations: "disabled",
+    });
+  },
+);
 
 test("keeps empty performance unavailable and recovers from a snapshot failure", async ({
   page,
@@ -437,7 +442,7 @@ test("keeps empty performance unavailable and recovers from a snapshot failure",
     await route.fulfill(
       fail
         ? { status: 503, json: { error: "unavailable" } }
-        : { json: performanceHoldingsView() },
+        : { json: performanceHoldingsView(unchangedHoldingsView) },
     );
   });
   await page.goto("/");
@@ -452,6 +457,15 @@ test("keeps empty performance unavailable and recovers from a snapshot failure",
   await expect(snapshot).toContainText("+76.8%");
   expect(holdingsRequestCount).toBe(2);
   expect(baselineRequestCount).toBe(2);
+  const movers = snapshot.locator(".portfolio-movers");
+  await expect(
+    movers.getByRole("heading", { level: 4, name: "No comparable changes." }),
+  ).toHaveCount(2);
+  await expect(movers.locator('[data-slot="empty-state"] > span')).toHaveCount(
+    0,
+  );
+  await expectNoHorizontalOverflow(page);
+
   const empty = InvestmentHoldingsViewSchema.parse({
     version: 1,
     authorizationStatus: "available",
@@ -488,37 +502,8 @@ test("keeps empty performance unavailable and recovers from a snapshot failure",
   });
 });
 
-test("shows compact empty states when no portfolio changes are comparable", async ({
-  page,
-}) => {
-  await page.unroute("**/api/investment-holdings");
-  await page.route("**/api/investment-holdings", async (route) => {
-    holdingsRequestCount += 1;
-    await route.fulfill({ json: unchangedHoldingsView });
-  });
-
-  await page.goto("/");
-  const movers = page.locator(".portfolio-movers");
-  await expect(
-    movers.getByRole("heading", {
-      level: 4,
-      name: "No comparable changes.",
-    }),
-  ).toHaveCount(2);
-  await expect(movers.locator('[data-slot="empty-state"] > span')).toHaveCount(
-    0,
-  );
-  expect(holdingsRequestCount).toBe(1);
-  await expectNoHorizontalOverflow(page);
-  await expect(movers).toHaveScreenshot("portfolio-empty-movers.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-});
-
 test("drills each portfolio chart into its corresponding Holdings detail without arrows", async ({
+  isMobile,
   page,
 }) => {
   const exposureIdFor = (name: string) => {
@@ -578,14 +563,23 @@ test("drills each portfolio chart into its corresponding Holdings detail without
 
   const accessCases = [
     { key: "cash", label: "Cash", row: "Reserve savings" },
-    { key: "public_market", label: "Public market", row: "Orion Compute" },
-    { key: "private_paper", label: "Private paper", row: "Meridian Bio" },
-    {
-      key: "other_liquid",
-      label: "Other liquid",
-      row: "Assets held elsewhere",
-    },
-  ] as const;
+    ...(isMobile
+      ? [
+          { key: "private_paper", label: "Private paper", row: "Meridian Bio" },
+          {
+            key: "other_liquid",
+            label: "Other liquid",
+            row: "Assets held elsewhere",
+          },
+        ]
+      : [
+          {
+            key: "public_market",
+            label: "Public market",
+            row: "Orion Compute",
+          },
+        ]),
+  ];
   for (const [index, access] of accessCases.entries()) {
     await page.goBack();
     await expectSnapshot();
