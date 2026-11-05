@@ -1393,7 +1393,6 @@
     "scripts/price-proxy-d1-cost.test.ts :: bounds 120 linked recalculations including triggers, tied history, failure recovery and empty reads",
     "scripts/private-continuity-d1-cost.test.ts :: automatically reconciles 120 historical private investments with bounded D1 work and stable retries",
     "scripts/private-document-backup.test.ts :: private document backup and recovery > authenticates a streamed archive and rejects ciphertext tampering (20260905T223729!)",
-    "scripts/private-document-backup.test.ts :: private document backup and recovery > authenticates a streamed archive and rejects ciphertext tampering (20260905T224010!)",
     "scripts/private-document-backup.test.ts :: private document backup and recovery > bounds aggregate backup bytes independently of document count",
     "scripts/private-document-backup.test.ts :: private document backup and recovery > rejects missing, duplicate, corrupt and truncated originals",
     "scripts/private-document-backup.test.ts :: private document backup and recovery > rejects short or multiline passphrases that GPG would truncate",

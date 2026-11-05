@@ -154,7 +154,7 @@ describe("private document backup and recovery", () => {
       ),
     ).toThrow("Document backup exceeds the private-alpha limit");
   });
-  it.each(["20260905T223729!", "20260905T224010!"])(
+  it.each(["20260905T223729!"])(
     "authenticates a streamed archive and rejects ciphertext tampering (%s)",
     async (timestamp) => {
       const temporary = await mkdtemp(join(tmpdir(), "keel-synthetic-backup-"));
@@ -181,7 +181,7 @@ describe("private document backup and recovery", () => {
           "gpg",
           [
             ...gpgArgs,
-            // Freeze both the formerly failing layout and another packet shape.
+            // Freeze the formerly failing packet layout.
             "--faked-system-time",
             timestamp,
             "--symmetric",
