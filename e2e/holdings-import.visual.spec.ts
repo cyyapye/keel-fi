@@ -352,46 +352,6 @@ const tokenfolioImportPreview = {
   ],
 };
 
-const sydecarImportPreview = {
-  id: "holding_import_synthetic_sydecar",
-  provider: "sydecar",
-  status: "pending_review",
-  observedAt: "2026-08-20T00:00:00.000Z",
-  summary: {
-    rowCount: 1,
-    administratorValueCount: 0,
-    lockedValueCount: 0,
-    createCount: 0,
-    updateCount: 0,
-    unchangedCount: 1,
-    needsAttentionCount: 0,
-    autoAppliedCount: 0,
-    quarantinedCount: 0,
-    preservedPositionCount: 0,
-  },
-  rows: [
-    {
-      id: "sydecar_row_1",
-      sourceRowNumber: 3,
-      positionName: "Synthetic Climate SPV I",
-      exposureName: "Synthetic Climate I",
-      ownerLabel: "Synthetic Investment Profile",
-      providerStatus: "Live",
-      investedOn: null,
-      investedOnState: "not_reported",
-      investedMinor: 500_000,
-      administratorNavMinor: null,
-      administratorNavState: "not_reported",
-      realizedValueMinor: 0,
-      reportedManagementFeePpm: 20_000,
-      reportedCarryPpm: 200_000,
-      currentExposureNames: ["Synthetic Climate Systems"],
-      action: "no_change",
-      issues: [],
-    },
-  ],
-};
-
 const robinhoodImportPreview = {
   id: "holding_import_synthetic_robinhood",
   provider: "plaid_investments",
@@ -489,94 +449,80 @@ test("imports provider templates without asking to approve clear positions", asy
   await page.route("**/api/alpha", (route) =>
     route.fulfill({ json: alphaFixture }),
   );
-  const previews = {
-    tokenfolio: tokenfolioImportPreview,
-    sydecar: sydecarImportPreview,
-    wefunder: {
-      ...tokenfolioImportPreview,
-      id: "holding_import_synthetic_wefunder",
-      provider: "wefunder",
-    },
-  };
-  const providers = isMobile
-    ? (["sydecar", "wefunder"] as const)
-    : (["tokenfolio"] as const);
-  for (const provider of providers) {
-    const fixture = previews[provider];
-    let uploads = 0;
-    await page.route(`**/api/holding-imports/${provider}`, (route) => {
-      uploads += 1;
-      expect(route.request().method()).toBe("POST");
-      const body = route.request().postData();
-      expect(body).toContain(`filename="${provider}-holdings.csv"`);
-      expect(body).toContain("synthetic template");
-      return route.fulfill({
-        status: 201,
-        json: {
-          ...fixture,
-          status: "applied",
-          summary: {
-            ...fixture.summary,
-            autoAppliedCount: fixture.rows.length,
-          },
-          rows: fixture.rows.map((row) => ({
-            ...row,
-            decisionSource: "policy",
-            adjudicationStatus: "auto_applied",
-          })),
+  const provider = isMobile ? "wefunder" : "tokenfolio";
+  const fixture = isMobile
+    ? {
+        ...tokenfolioImportPreview,
+        id: "holding_import_synthetic_wefunder",
+        provider,
+      }
+    : tokenfolioImportPreview;
+  let uploads = 0;
+  await page.route(`**/api/holding-imports/${provider}`, (route) => {
+    uploads += 1;
+    expect(route.request().method()).toBe("POST");
+    const body = route.request().postData();
+    expect(body).toContain(`filename="${provider}-holdings.csv"`);
+    expect(body).toContain("synthetic template");
+    return route.fulfill({
+      status: 201,
+      json: {
+        ...fixture,
+        status: "applied",
+        summary: {
+          ...fixture.summary,
+          autoAppliedCount: fixture.rows.length,
         },
-      });
+        rows: fixture.rows.map((row) => ({
+          ...row,
+          decisionSource: "policy",
+          adjudicationStatus: "auto_applied",
+        })),
+      },
     });
-    await page.goto("/holdings/sources");
-    await page.getByRole("button", { name: "Import holdings" }).click();
-    await page.getByLabel("Source").click();
-    const label = {
-      tokenfolio: "Tokenfolio",
-      sydecar: "Sydecar",
-      wefunder: "Wefunder",
-    }[provider];
-    await page.getByRole("option", { name: label, exact: true }).click();
-    await expect(
-      page.getByRole("link", { name: `Download ${label} template` }),
-    ).toHaveAttribute("href", `/api/holding-import-templates/${provider}`);
-    if (provider === "tokenfolio" || provider === "wefunder")
-      await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
-        `holdings-import-${provider}-template.png`,
-        { animations: "disabled", maxDiffPixelRatio: 0.025 },
-      );
-    await expect(
-      page.getByRole("button", { name: "Import file", exact: true }),
-    ).toBeDisabled();
-    expect(uploads).toBe(0);
-    const fileTarget = await page.locator('input[type="file"]').boundingBox();
-    expect(fileTarget).not.toBeNull();
-    if (isMobile) {
-      expect(fileTarget!.height).toBeGreaterThanOrEqual(44);
-    }
-    await expectNoHorizontalOverflow(page);
-    await page.locator('input[type="file"]').setInputFiles({
-      name: `${provider}-holdings.csv`,
-      mimeType: "text/csv",
-      buffer: Buffer.from("synthetic template"),
-    });
-    await expect(
-      page.getByRole("button", { name: "Import file", exact: true }),
-    ).toBeEnabled();
-    await page
-      .getByRole("button", { name: "Import file", exact: true })
-      .click();
-    await expect(
-      page.getByRole("heading", { name: "Update complete" }),
-    ).toBeVisible();
-    expect(uploads).toBe(1);
-    await expect(page.getByRole("checkbox")).toHaveCount(0);
-    await expect(page.getByText("No further review is needed.")).toBeVisible();
-    await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
-      `holdings-import-${provider}-complete.png`,
-      { animations: "disabled", maxDiffPixelRatio: 0.025 },
-    );
-    await expectNoHorizontalOverflow(page);
+  });
+  await page.goto("/holdings/sources");
+  await page.getByRole("button", { name: "Import holdings" }).click();
+  await page.getByLabel("Source").click();
+  const label = isMobile ? "Wefunder" : "Tokenfolio";
+  await page.getByRole("option", { name: label, exact: true }).click();
+  await expect(
+    page.getByRole("link", { name: `Download ${label} template` }),
+  ).toHaveAttribute("href", `/api/holding-import-templates/${provider}`);
+  await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
+    `holdings-import-${provider}-template.png`,
+    { animations: "disabled", maxDiffPixelRatio: 0.025 },
+  );
+  await expect(
+    page.getByRole("button", { name: "Import file", exact: true }),
+  ).toBeDisabled();
+  expect(uploads).toBe(0);
+  const fileTarget = await page.locator('input[type="file"]').boundingBox();
+  expect(fileTarget).not.toBeNull();
+  if (isMobile) {
+    expect(fileTarget!.height).toBeGreaterThanOrEqual(44);
   }
+  await expectNoHorizontalOverflow(page);
+  await page.locator('input[type="file"]').setInputFiles({
+    name: `${provider}-holdings.csv`,
+    mimeType: "text/csv",
+    buffer: Buffer.from("synthetic template"),
+  });
+  await expect(
+    page.getByRole("button", { name: "Import file", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Import file", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Update complete" }),
+  ).toBeVisible();
+  expect(uploads).toBe(1);
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByText("No further review is needed.")).toBeVisible();
+  await expect(page.locator(".holding-import-workspace")).toHaveScreenshot(
+    `holdings-import-${provider}-complete.png`,
+    { animations: "disabled", maxDiffPixelRatio: 0.025 },
+  );
+  await expectNoHorizontalOverflow(page);
 });
 
 test(
@@ -610,10 +556,6 @@ test(
 
     await page.goto("/holdings/sources");
     const keelOrigin = new URL(page.url()).origin;
-    const expectedCommands = ["angellist", "tokenfolio", "sydecar"].map(
-      (provider) =>
-        `make provider-agent-setup PROVIDER=${provider} KEEL_URL=${keelOrigin}`,
-    );
 
     await expect(
       page.getByRole("button", { name: "Copy setup command" }),
@@ -658,32 +600,14 @@ test(
       },
     );
 
-    const copyButtons = page.getByRole("button", {
-      name: "Copy setup command",
+    const setup = privateInvestments.getByRole("article", {
+      name: "Tokenfolio",
     });
-    for (const [index, expectedCommand] of expectedCommands.entries()) {
-      await copyButtons.nth(index).click();
-      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-        expectedCommand,
-      );
-    }
-    await expect(page.getByText("Copied. Paste in Terminal.")).toHaveCount(3);
-
-    for (const index of [0, 1, 2]) {
-      const buttonBox = await providerRows
-        .nth(index)
-        .getByRole("button")
-        .boundingBox();
-      const noticeBox = await providerRows
-        .nth(index)
-        .getByText("Copied. Paste in Terminal.")
-        .boundingBox();
-      expect(buttonBox).not.toBeNull();
-      expect(noticeBox).not.toBeNull();
-      expect(Math.abs((buttonBox?.x ?? 0) - (noticeBox?.x ?? 0))).toBeLessThan(
-        1,
-      );
-    }
+    await setup.getByRole("button", { name: "Copy setup command" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      `make provider-agent-setup PROVIDER=tokenfolio KEEL_URL=${keelOrigin}`,
+    );
+    await expect(setup.getByText("Copied. Paste in Terminal.")).toBeVisible();
   },
 );
 
@@ -955,143 +879,6 @@ test(
       page.getByRole("button", { name: "Back to holdings" }),
     ).toBeVisible();
     expect(exchangeBodies).toEqual([{ publicToken: "public-synthetic" }]);
-  },
-);
-
-test(
-  "shows automatic Robinhood checks with exception-only review",
-  { tag: "@desktop-only" },
-  async ({ page }) => {
-    let disconnectCalls = 0;
-    await page.unroute("**/api/investment-connections");
-    await page.route("**/api/alpha", async (route) => {
-      await route.fulfill({ json: alphaFixture });
-    });
-    await page.route("**/api/holding-imports", async (route) => {
-      await route.fulfill({ json: [] });
-    });
-    await page.route("**/api/automation/angellist/status", async (route) => {
-      await route.fulfill({
-        json: {
-          version: 1,
-          status: "ready",
-          interval: "weekly",
-          runStatus: null,
-          lastSeenAt: "2026-08-13T16:00:00.000Z",
-          lastCompletedAt: "2026-08-10T16:00:00.000Z",
-          nextRunAt: "2026-08-17T16:00:00.000Z",
-          latestImportId: null,
-          errorCode: null,
-        },
-      });
-    });
-    const automaticInvestmentState = investmentState([
-      investmentStatus({
-        lastSyncedAt: "2026-08-14T16:00:00.000Z",
-        latestAdjudication: {
-          importId: "holding_import_synthetic_applied",
-          policyVersion: "plaid-investments-holdings-auto-v3",
-          autoAppliedCount: 3,
-          quarantinedCount: 0,
-          preservedPositionCount: 0,
-          baselineRefreshStatus: "refreshed",
-        },
-      }),
-    ]);
-    await page.route("**/api/investment-connections", async (route) => {
-      await route.fulfill({ json: automaticInvestmentState });
-    });
-    await page.route(
-      "**/api/investment-connections/auto-sync",
-      async (route) => {
-        await route.fulfill({ json: automaticInvestmentState });
-      },
-    );
-    await page.route(
-      `**/api/investment-connections/${investmentConnectionId}`,
-      async (route) => {
-        expect(route.request().method()).toBe("DELETE");
-        disconnectCalls += 1;
-        await route.fulfill({
-          json: investmentStatus({
-            status: "disconnected",
-            lastSyncedAt: null,
-            automaticUpdatesEnabled: false,
-            latestRunStatus: null,
-          }),
-        });
-      },
-    );
-
-    await page.goto("/holdings/sources");
-    const robinhoodCard = page
-      .locator(".investment-institution")
-      .filter({ hasText: "Robinhood" });
-    await expect(
-      robinhoodCard.getByRole("heading", { name: "Robinhood" }),
-    ).toBeVisible();
-    await expect(robinhoodCard).toContainText("Up to date");
-    await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
-    await page.getByRole("button", { name: "Disconnect" }).click();
-    await expect(
-      page.getByText(
-        "Provider access will be removed. Reviewed history stays in Keel.",
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Keep connected" }),
-    ).toBeVisible();
-    await expect(robinhoodCard).toHaveScreenshot(
-      "holdings-robinhood-disconnect-confirmation.png",
-      {
-        animations: "disabled",
-        caret: "hide",
-        maxDiffPixelRatio: 0.025,
-        threshold: 0.25,
-      },
-    );
-    await page.getByRole("button", { name: "Keep connected" }).click();
-    await expect(robinhoodCard).toContainText("0 accounts");
-
-    const viewportWidths = await page.evaluate(() => ({
-      client: document.documentElement.clientWidth,
-      scroll: document.documentElement.scrollWidth,
-    }));
-    expect(viewportWidths.scroll).toBe(viewportWidths.client);
-    await page.addStyleTag({
-      content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-    });
-    await expect(page.locator(".screen-stack")).toHaveScreenshot(
-      "holdings-robinhood-automatic.png",
-      {
-        animations: "disabled",
-        caret: "hide",
-        maxDiffPixelRatio: 0.025,
-        threshold: 0.25,
-      },
-    );
-
-    await page.getByRole("button", { name: "Disconnect", exact: true }).click();
-    await page.getByRole("button", { name: "Disconnect", exact: true }).click();
-    await expect(
-      page.getByText(
-        "Robinhood disconnected. Reviewed history remains visible.",
-      ),
-    ).toBeVisible();
-    await expect(robinhoodCard).toBeVisible();
-    await expect(robinhoodCard).toContainText("Disconnected");
-    await expect(robinhoodCard).toContainText(
-      "This Plaid connection ended. Reviewed positions and planning history remain available.",
-    );
-    await expect(
-      robinhoodCard.getByRole("button", { name: "Connect again" }),
-    ).toHaveCount(0);
-    expect(disconnectCalls).toBe(1);
   },
 );
 
@@ -1369,171 +1156,6 @@ test(
         exact: true,
       }),
     ).toBeVisible();
-  },
-);
-
-test(
-  "keeps unverified sign-ins and page-reading failures separate",
-  { tag: "@mobile-only" },
-  async ({ page }) => {
-    await page.clock.install({ time: new Date("2026-09-04T12:01:00.000Z") });
-    const sessionId = "33333333-3333-4333-8333-333333333333";
-    const sydecarSessionId = "44444444-4444-4444-8444-444444444444";
-    let sessionStatus: "opened" | "failed" = "opened";
-    let sydecarSessionStatus: "requested" | "cancelled" = "requested";
-    let sydecarReconnectRequested = false;
-    await page.addInitScript(() => {
-      window.open = () => null;
-    });
-    await page.route("**/api/alpha", (route) =>
-      route.fulfill({ json: alphaFixture }),
-    );
-    await page.route(
-      "**/api/automation/provider-holdings/*/status",
-      async (route) => {
-        const provider = new URL(route.request().url()).pathname
-          .split("/")
-          .at(-2);
-        await route.fulfill({
-          json: {
-            version: 1,
-            provider,
-            status: "needs_attention",
-            interval: "daily",
-            runStatus: null,
-            lastSeenAt: "2026-09-04T12:00:00.000Z",
-            lastCompletedAt: "2026-09-03T12:00:00.000Z",
-            nextRunAt: "2026-09-05T12:00:00.000Z",
-            latestImportId: null,
-            errorCode:
-              provider === "tokenfolio"
-                ? "provider_sign_in_required"
-                : "page_not_supported",
-          },
-        });
-      },
-    );
-    const session = () => ({
-      version: 1,
-      id: sessionId,
-      provider: "tokenfolio",
-      status: sessionStatus,
-      requestedAt: "2026-09-04T12:00:00.000Z",
-      expiresAt: "2026-09-04T12:15:00.000Z",
-      openedAt: sessionStatus === "opened" ? "2026-09-04T12:01:00.000Z" : null,
-      connectedAt: null,
-      errorCode:
-        sessionStatus === "failed" ? "provider_sign_in_incomplete" : null,
-    });
-    await page.route(
-      "**/api/automation/provider-browser/tokenfolio/reconnect",
-      (route) => route.fulfill({ status: 202, json: session() }),
-    );
-    await page.route(
-      `**/api/automation/provider-browser/sessions/${sessionId}`,
-      (route) => route.fulfill({ json: session() }),
-    );
-    const sydecarSession = () => ({
-      ...session(),
-      id: sydecarSessionId,
-      provider: "sydecar",
-      status: sydecarSessionStatus,
-      openedAt: null,
-      errorCode: null,
-    });
-    await page.route(
-      "**/api/automation/provider-browser/sydecar/reconnect",
-      (route) => {
-        sydecarReconnectRequested = true;
-        return route.fulfill({ status: 202, json: sydecarSession() });
-      },
-    );
-    await page.route(
-      `**/api/automation/provider-browser/sessions/${sydecarSessionId}`,
-      (route) => {
-        if (route.request().method() === "DELETE") {
-          sydecarSessionStatus = "cancelled";
-        }
-        return route.fulfill({ json: sydecarSession() });
-      },
-    );
-    await page.goto("/holdings/sources");
-    const sources = page.locator(".provider-agents");
-    const sydecar = sources
-      .locator(".provider-agent-row")
-      .filter({ hasText: "Sydecar" });
-    await expect(
-      sydecar.getByRole("heading", { name: "Could not read Sydecar" }),
-    ).toBeVisible();
-    await expect(
-      sydecar.getByRole("button", { name: "Try update" }),
-    ).toBeVisible();
-    await expect(
-      sydecar.getByRole("button", { name: "Reconnect Sydecar" }),
-    ).toBeVisible();
-    await expect(
-      sydecar.getByRole("button", { name: "Reconnect Sydecar" }),
-    ).toHaveClass(/button--secondary/u);
-    await expect(
-      sydecar.getByRole("button", { name: "Try update" }),
-    ).toHaveClass(/button--primary/u);
-    expect(sydecarReconnectRequested).toBe(false);
-    await page.getByRole("button", { name: "Reconnect Tokenfolio" }).click();
-    await expect(
-      sources.getByText(
-        "Finish signing in to Tokenfolio. Keel will check the saved sign-in before confirming.",
-        { exact: true },
-      ),
-    ).toBeVisible();
-    await expect(sources.getByText(/Tokenfolio reconnected/u)).toHaveCount(0);
-    sessionStatus = "failed";
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await page.clock.runFor(5_100);
-    await expect(
-      sources.getByText(
-        "The sign-in did not stay available for automatic updates. Keel has not marked it connected.",
-        { exact: true },
-      ),
-    ).toBeVisible();
-    await expect(sources.getByText(/Tokenfolio reconnected/u)).toHaveCount(0);
-    await expect(
-      sources.getByText("Your saved provider session was not changed."),
-    ).toHaveCount(0);
-    expect(
-      await page.evaluate(
-        () =>
-          document.documentElement.scrollWidth <=
-          document.documentElement.clientWidth,
-      ),
-    ).toBe(true);
-    await page.mouse.move(0, 0);
-    await page.addStyleTag({
-      content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-    });
-    await expect(sources).toHaveScreenshot(
-      "holdings-provider-session-unverified.png",
-      { animations: "disabled", caret: "hide" },
-    );
-    await sydecar.getByRole("button", { name: "Reconnect Sydecar" }).click();
-    await expect(
-      sydecar.getByText("Preparing a private browser…"),
-    ).toBeVisible();
-    expect(sydecarReconnectRequested).toBe(true);
-    await expect(
-      sydecar.getByRole("button", { name: "Try update" }),
-    ).toBeDisabled();
-    await sydecar.getByRole("button", { name: "Cancel", exact: true }).click();
-    await expect(
-      sydecar.getByRole("button", { name: "Reconnect Sydecar" }),
-    ).toBeVisible();
-    await expect(
-      sydecar.getByRole("button", { name: "Try update" }),
-    ).toBeEnabled();
   },
 );
 

@@ -66,6 +66,8 @@ class DraftSelectionTests(unittest.TestCase):
         doc = "docs/engineering/ci-performance.md"
         stylesheet = "apps/web/src/startup.css"
         shared_stylesheet = "packages/ui/src/styles.css"
+        for reviewed_file in selector.OVERVIEW_REFERENCES:
+            self.assertTrue((Path(__file__).resolve().parents[1] / reviewed_file).is_file(), reviewed_file)
         reference, alternate, *_ = sorted(selector.OVERVIEW_REFERENCES)
         # Two distinct, synthetic one-pixel references keep the simulated Git edit deterministic.
         original_png = base64.b64decode(

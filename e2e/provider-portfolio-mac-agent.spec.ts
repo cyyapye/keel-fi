@@ -56,17 +56,20 @@ for (const [provider, origin, control] of [
     );
 
     await page.goto(`${origin}/portfolio`);
-    await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
+    if (!isMobile) {
+      // This placeholder and login link have the same DOM at both widths.
+      await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("page_not_supported");
 
-    // A login link in a signed-in page must not count as a login form.
-    html = '<a href="/login">Sign in</a><p>Temporarily unavailable</p>';
-    await page.reload();
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
+      // A login link in a signed-in page must not count as a login form.
+      html = '<a href="/login">Sign in</a><p>Temporarily unavailable</p>';
+      await page.reload();
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("page_not_supported");
+    }
 
     for (const form of [
       '<input type="password"><button>Sign in</button>',

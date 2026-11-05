@@ -1,4 +1,10 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import {
+  devices,
+  expect,
+  test,
+  type Page,
+  type TestInfo,
+} from "@playwright/test";
 
 import { PortfolioWatchActivitySchema } from "../packages/domain/src/portfolio-watch-activity";
 import { navigateToScreen } from "./navigation";
@@ -522,10 +528,6 @@ test(
         name: "Scheduled check · Completed with unavailable sources",
       }),
     ).toBeVisible();
-    await expect(page.locator(".watch-screen")).toHaveScreenshot(
-      "portfolio-watch-activity.png",
-      { animations: "disabled" },
-    );
     await page.getByRole("tab", { name: "Updates", exact: true }).click();
     await expect(page.getByText(/Found Aug 2, 2026/)).toBeVisible();
     await page.getByRole("button", { name: "Details", exact: true }).click();
@@ -735,144 +737,154 @@ test(
   },
 );
 
-test("bounds the company list and recovers an activity read failure", async ({
-  page,
-  isMobile,
-}) => {
-  const companies = Array.from({ length: 120 }, (_, index) => ({
-    id: `synthetic-company-${index}`,
-    officialHost: `synthetic-company-${index}.example`,
-    companyName:
-      index === 0
-        ? "SyntheticCompany".repeat(8)
-        : `Synthetic company ${index + 1}`,
-    sources: Array.from({ length: 50 }, (_, sourceIndex) => ({
-      ...watchSourceFixture,
-      id: `source-${index}-${sourceIndex}`,
-      targetId: `synthetic-company-${index}`,
-      url: `https://synthetic-company-${index}.example/source-${sourceIndex}`,
-    })),
-  }));
-  let unavailable = true;
-  let releaseOldSearch: (() => void) | undefined;
-  let oldSearchSettled = false;
-  await page.route("**/api/watch/activity**", async (route) => {
-    if (unavailable)
-      return route.fulfill({
-        status: 503,
-        json: { error: "Synthetic unavailable response" },
-      });
-    const params = new URL(route.request().url()).searchParams;
-    const start = Number(params.get("cursor") ?? 0);
-    const query = (params.get("q") ?? "").toLowerCase();
-    const matching = companies.filter((company) =>
-      company.companyName.toLowerCase().includes(query),
-    );
-    if (query === "syntheticcompany")
-      await new Promise<void>((resolve) => {
-        releaseOldSearch = resolve;
-      });
-    const response = route.fulfill({
-      json: {
-        ...watchActivityFixture,
-        companies: matching.slice(start, start + 20),
-        matchingCompanyCount: matching.length,
-        summary: {
-          ...watchActivityFixture.summary,
-          companyCount: 120,
-          sourceCount: 6000,
+test(
+  "bounds the company list and recovers an activity read failure",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const companies = Array.from({ length: 120 }, (_, index) => ({
+      id: `synthetic-company-${index}`,
+      officialHost: `synthetic-company-${index}.example`,
+      companyName:
+        index === 0
+          ? "SyntheticCompany".repeat(8)
+          : `Synthetic company ${index + 1}`,
+      sources: Array.from({ length: 50 }, (_, sourceIndex) => ({
+        ...watchSourceFixture,
+        id: `source-${index}-${sourceIndex}`,
+        targetId: `synthetic-company-${index}`,
+        url: `https://synthetic-company-${index}.example/source-${sourceIndex}`,
+      })),
+    }));
+    let unavailable = true;
+    let releaseOldSearch: (() => void) | undefined;
+    let oldSearchSettled = false;
+    await page.route("**/api/watch/activity**", async (route) => {
+      if (unavailable)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Synthetic unavailable response" },
+        });
+      const params = new URL(route.request().url()).searchParams;
+      const start = Number(params.get("cursor") ?? 0);
+      const query = (params.get("q") ?? "").toLowerCase();
+      const matching = companies.filter((company) =>
+        company.companyName.toLowerCase().includes(query),
+      );
+      if (query === "syntheticcompany")
+        await new Promise<void>((resolve) => {
+          releaseOldSearch = resolve;
+        });
+      const response = route.fulfill({
+        json: {
+          ...watchActivityFixture,
+          companies: matching.slice(start, start + 20),
+          matchingCompanyCount: matching.length,
+          summary: {
+            ...watchActivityFixture.summary,
+            companyCount: 120,
+            sourceCount: 6000,
+          },
+          nextCursor: start + 20 < matching.length ? String(start + 20) : null,
         },
-        nextCursor: start + 20 < matching.length ? String(start + 20) : null,
-      },
+      });
+      if (query === "syntheticcompany") {
+        // Aborted requests may discard their mocked response entirely.
+        await response.catch(() => undefined);
+        oldSearchSettled = true;
+      } else await response;
     });
-    if (query === "syntheticcompany") {
-      // Aborted requests may discard their mocked response entirely.
-      await response.catch(() => undefined);
-      oldSearchSettled = true;
-    } else await response;
-  });
-  await page.goto("/watch");
-  await expect(
-    page.getByText("Couldn’t load source activity. Try again."),
-  ).toBeVisible();
-  unavailable = false;
-  await page.getByRole("button", { name: "Refresh activity" }).click();
-  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
-  await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
-  await expect(
-    page.getByRole("heading", { name: "120 companies · 6000 pages and feeds" }),
-  ).toBeVisible();
-  await page.getByTestId("watch-target-synthetic-company-0").click();
-  await expect(page.locator(".watch-source-detail")).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Pages and check details (50)" })
-    .click();
-  await expect(page.locator(".watch-source-detail")).toHaveCount(5);
-  await page
-    .getByRole("button", { name: "Show more pages", exact: true })
-    .click();
-  await expect(page.locator(".watch-source-detail")).toHaveCount(10);
-  const widths = await page.locator(".watch-screen").evaluate((element) => ({
-    client: element.clientWidth,
-    scroll: element.scrollWidth,
-  }));
-  expect(widths.scroll).toBeLessThanOrEqual(widths.client);
-  await page.getByRole("button", { name: "Next companies" }).click();
-  await expect(
-    page.getByTestId("watch-target-synthetic-company-20"),
-  ).toBeVisible();
-  await expect(
-    page.getByTestId("watch-target-synthetic-company-0"),
-  ).toHaveCount(0);
-  await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
-  await page.getByRole("button", { name: "First companies" }).click();
-  await expect(
-    page.getByTestId("watch-target-synthetic-company-0"),
-  ).toBeVisible();
-  if (isMobile) return;
-  const search = page.getByRole("searchbox", { name: "Search companies" });
-  await search.fill("SyntheticCompany");
-  await expect.poll(() => releaseOldSearch !== undefined).toBe(true);
-  await search.fill("COMPANY 120");
-  await expect(
-    page.getByTestId("watch-target-synthetic-company-119"),
-  ).toBeVisible();
-  await expect(page.locator(".watch-company-trigger")).toHaveCount(1);
-  await expect(
-    page.getByRole("button", { name: "Next companies" }),
-  ).toHaveCount(0);
-  await expect(page.getByText(/1 company matches/)).toBeVisible();
-  releaseOldSearch!();
-  await expect.poll(() => oldSearchSettled).toBe(true);
-  await expect(
-    page.getByTestId("watch-target-synthetic-company-0"),
-  ).toHaveCount(0);
-  await search.fill("Missing synthetic company");
-  await expect(
-    page.getByRole("heading", { name: "No matching companies" }),
-  ).toBeVisible();
-  await search.press("Escape");
-  await expect(search).toHaveValue("");
-  await expect(search).toBeFocused();
-  await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
-  await search.press("Escape");
-  await expect(
-    page.getByRole("button", { name: "Check now", exact: true }),
-  ).toBeEnabled();
-  unavailable = true;
-  await search.fill("company 120");
-  await expect(
-    page.getByText("Company search unavailable", { exact: true }),
-  ).toBeVisible();
-  await expect(page.locator(".watch-company-trigger")).toHaveCount(0);
-  unavailable = false;
-  await page
-    .getByRole("button", { name: "Refresh activity", exact: true })
-    .click();
-  await expect(
-    page.getByTestId("watch-target-synthetic-company-119"),
-  ).toBeVisible();
-});
+    await page.goto("/watch");
+    await expect(
+      page.getByText("Couldn’t load source activity. Try again."),
+    ).toBeVisible();
+    unavailable = false;
+    await page.getByRole("button", { name: "Refresh activity" }).click();
+    await page.getByRole("tab", { name: "Coverage", exact: true }).click();
+    await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
+    await expect(
+      page.getByRole("heading", {
+        name: "120 companies · 6000 pages and feeds",
+      }),
+    ).toBeVisible();
+    await page.getByTestId("watch-target-synthetic-company-0").click();
+    await expect(page.locator(".watch-source-detail")).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Pages and check details (50)" })
+      .click();
+    await expect(page.locator(".watch-source-detail")).toHaveCount(5);
+    await page
+      .getByRole("button", { name: "Show more pages", exact: true })
+      .click();
+    await expect(page.locator(".watch-source-detail")).toHaveCount(10);
+    const viewport = page.viewportSize()!;
+    for (const width of [viewport.width, devices["Pixel 7"].viewport.width]) {
+      await page.setViewportSize({ width, height: viewport.height });
+      const bounds = await page
+        .locator(".watch-screen")
+        .evaluate((element) => ({
+          client: element.clientWidth,
+          scroll: element.scrollWidth,
+        }));
+      expect(bounds.scroll).toBeLessThanOrEqual(bounds.client);
+      expect(bounds.client).toBeLessThanOrEqual(width);
+    }
+    await page.setViewportSize(viewport);
+    await page.getByRole("button", { name: "Next companies" }).click();
+    await expect(
+      page.getByTestId("watch-target-synthetic-company-20"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("watch-target-synthetic-company-0"),
+    ).toHaveCount(0);
+    await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
+    await page.getByRole("button", { name: "First companies" }).click();
+    await expect(
+      page.getByTestId("watch-target-synthetic-company-0"),
+    ).toBeVisible();
+    const search = page.getByRole("searchbox", { name: "Search companies" });
+    await search.fill("SyntheticCompany");
+    await expect.poll(() => releaseOldSearch !== undefined).toBe(true);
+    await search.fill("COMPANY 120");
+    await expect(
+      page.getByTestId("watch-target-synthetic-company-119"),
+    ).toBeVisible();
+    await expect(page.locator(".watch-company-trigger")).toHaveCount(1);
+    await expect(
+      page.getByRole("button", { name: "Next companies" }),
+    ).toHaveCount(0);
+    await expect(page.getByText(/1 company matches/)).toBeVisible();
+    releaseOldSearch!();
+    await expect.poll(() => oldSearchSettled).toBe(true);
+    await expect(
+      page.getByTestId("watch-target-synthetic-company-0"),
+    ).toHaveCount(0);
+    await search.fill("Missing synthetic company");
+    await expect(
+      page.getByRole("heading", { name: "No matching companies" }),
+    ).toBeVisible();
+    await search.press("Escape");
+    await expect(search).toHaveValue("");
+    await expect(search).toBeFocused();
+    await expect(page.locator(".watch-company-trigger")).toHaveCount(20);
+    await search.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Check now", exact: true }),
+    ).toBeEnabled();
+    unavailable = true;
+    await search.fill("company 120");
+    await expect(
+      page.getByText("Company search unavailable", { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator(".watch-company-trigger")).toHaveCount(0);
+    unavailable = false;
+    await page
+      .getByRole("button", { name: "Refresh activity", exact: true })
+      .click();
+    await expect(
+      page.getByTestId("watch-target-synthetic-company-119"),
+    ).toBeVisible();
+  },
+);
 
 test(
   "puts pending updates first and searches the full history before paging",

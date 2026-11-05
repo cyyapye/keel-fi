@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 326,
+  "retiredBrowserCaseCount": 334,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -374,7 +374,7 @@
       "browserCases": [
         "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine private changes without a baseline review"
       ],
-      "assertions": "Desktop retries a temporary failed read and explicitly confirms the initial baseline. A held private refresh POST exercises pending, dismissal, no redundant review and exactly one refresh. Domain, API and D1 distinguish automatic public/cash feeds and source-specific exceptions; mobile owns overlap, rejection, preserved draft and exception-at-a-time acceptance. Both widths keep the bounded 120-source list. Secondary responsive screenshots, separate cash/public pending sessions and the error appearance retire."
+      "assertions": "Desktop retries a temporary failed read and explicitly confirms the initial baseline. A held private refresh POST exercises pending, dismissal, no redundant review and exactly one refresh. Domain, API and D1 distinguish automatic public/cash feeds and source-specific exceptions; mobile owns overlap, rejection, preserved draft and exception-at-a-time acceptance. Mobile keeps the bounded 120-source list. Secondary responsive screenshots, separate cash/public pending sessions and the error appearance retire."
     },
     {
       "id": "manual-cash-save-reload-duplicate",
@@ -432,10 +432,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: keeps following content reachable in a 500-source queue with automatic observation",
         "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps following content reachable in a 500-source queue with automatic observation"
       ],
-      "assertions": "The manual candidate queue shows the first 25 rows and appends the next 25 on explicit activation. Its draft, return position, following content and request counts are exercised with an available observer, which also rejects accidental automatic loading."
+      "assertions": "Mobile retains the full 500-source queue, explicit 25-row append, ordering, access to following controls, unsaved draft and return scroll, with the same read budget. The independent desktop rendering and scroll/focus at this scale retire."
     },
     {
       "id": "browser-minimal-provider-session-projects",
@@ -496,7 +495,7 @@
         "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
         "e2e/holdings-import.visual.spec.ts :: chromium :: imports provider templates without asking to approve clear positions"
       ],
-      "assertions": "The source screen still exercises real provider reconnect controls and a mounted unverified/error distinction. Pending-provider-retry buttons, malformed AngelList response display and automatic processing of an older pending import lose dedicated mounted fixtures."
+      "assertions": "The source screen still exercises a provider-scoped real viewer interaction. Exact pending-provider retry, malformed AngelList response, unverified-versus-failed-reading card and old pending auto-submit display were retired."
     },
     {
       "id": "browser-minimal-investment-holdings-projects",
@@ -510,9 +509,9 @@
       "browserCases": [
         "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view",
         "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders",
-        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: explains connection recovery for Holdings and recovers on reload"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps failed canonical holdings out of view and retries"
       ],
-      "assertions": "A mounted source list dispatches one due check across revisits. The discarded interrupted-sync, same-label disconnected account and new-Item UI fixtures no longer run. Both browser projects exercise their 1000-holding budgets."
+      "assertions": "A mounted source list dispatches one due check across revisits and supports canceling a disconnect. The discarded interrupted-sync, connection-abort/reload, same-label disconnected account and new-Item UI fixtures no longer run. Both 1000-holding browser budgets remain."
     },
     {
       "id": "browser-minimal-ui-catalogue-projects",
@@ -765,7 +764,7 @@
         "e2e/holdings-import.visual.spec.ts :: chromium :: imports provider templates without asking to approve clear positions",
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: imports provider templates without asking to approve clear positions"
       ],
-      "assertions": "All three providers retain actual template URLs, file uploads, automatic completion and exception-free notices. Tokenfolio uses desktop, and Sydecar and Wefunder use mobile with the 44px file-input target. Real parser and D1 tests cover unavailable values, provider identity and deterministic acceptance."
+      "assertions": "Desktop uploads Tokenfolio and mobile uploads Wefunder, resolving their template URLs, file input and automatic success views. Mobile checks the 44px target. Sydecar parser and real import tests retain its identity, missing-value and acceptance contracts. Its distinct selection/upload/completion screen loses its replay."
     },
     {
       "id": "incomplete-portfolio-return-device",
@@ -818,7 +817,7 @@
       "browserCases": [
         "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
       ],
-      "assertions": "Desktop retains entered name, bounded agreement page, omitted excerpt/reason, exact supporting document, disabled invalid inputs, entity creation and review after reload. Mobile retains the same form in structure mode plus representative exclusion and narrow agreement review. The domain rejects malformed page/name/excerpt, and D1 reloads the exact reviewed evidence. Exact phone spacing of this name-only case and its document guidance is retired."
+      "assertions": "Desktop retains entered name, bounded agreement page, omitted excerpt/reason, exact supporting document, disabled invalid inputs, entity creation and review after reload. Domain and repository tests reject malformed evidence and representative choices. The narrow manual name and compartment-specific agreement screens lose their independent rendering."
     },
     {
       "id": "legal-manual-structure-mobile",
@@ -832,7 +831,7 @@
       "browserCases": [
         "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
       ],
-      "assertions": "Desktop retains manual missing-name entry with the exact supporting document. Mobile retains party and type review for a structure. D1 tests each reviewed compartment type and source-bound entry. The complete manual other_structure create flow and qualification rendering retire."
+      "assertions": "Desktop retains manual missing-name entry with the exact supporting document. Repository tests cover each reviewed compartment type, reject a representative and preserve the source evidence. Manual structure creation, the dedicated party/type form and qualification rendering retire from the browser."
     },
     {
       "id": "legal-structure-link-desktop",
@@ -845,7 +844,7 @@
       "browserCases": [
         "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity"
       ],
-      "assertions": "Mobile links an exact existing entity after a stale resolution; the dedicated structure page retains party roles and a reviewed type. D1 tests exact identity, household scope, optimistic versions and reclassified targets. The desktop structure-specific existing-link checkbox and reload retire."
+      "assertions": "Mobile links an exact existing entity after a stale resolution. Repository tests cover exact identity, household scope, optimistic versions and reclassified structure targets. Both the structure-specific existing-link screen and representative/type layout retire."
     },
     {
       "id": "legal-profile-invalid-mobile",
@@ -935,7 +934,7 @@
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view",
         "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
-      "assertions": "The ordinary mixed-holdings browser journeys check summary, sorting, focus, totals and ordering. The separate intermediate-width sort geometry fixture and screenshot were retired."
+      "assertions": "Both widths retain normal mixed Holdings captures, aggregate and compact-control geometry. Desktop selects both sort directions with its keyboard, checks underlying value order and restores focus on Back. Mobile restores its position focus. Secondary hover, pointer-order, intermediate-width and sort-state pixels were retired."
     },
     {
       "id": "tokenfolio-delayed-fields",
@@ -1239,7 +1238,7 @@
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: requests an AngelList update from the phone-safe Holdings flow",
         "e2e/holdings-import.visual.spec.ts :: chromium :: orders sources by liquidity and groups private investment setup"
       ],
-      "assertions": "Mobile reaches the real AngelList interval selector, submits the exact daily interval, queues its update and checks the disabled queued state. Both viewports retain ordinary source ordering and the provider group. The wide all-working AngelList panel no longer has its own screenshot."
+      "assertions": "Mobile changes AngelList interval, queues the update and checks the disabled queued state. Desktop keeps ordinary source grouping, the Tokenfolio setup clipboard command and initial setup pixels. Copies of all three providers and per-notice alignment are retired."
     },
     {
       "id": "robinhood-single-exception-mobile",
@@ -1248,9 +1247,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders"
       ],
-      "assertions": "Mobile still connects Robinhood and exercises isolated pending exceptions. Desktop checks automatic updates and exception-only review. The single-action/two-waiting-items fixture loses its dedicated exact card count and pixels."
+      "assertions": "Mobile connects Robinhood and exercises isolated pending exceptions. Desktop observes a due check and can cancel a disconnect. The paired automatic adjudication/disconnect success fixture and single-action/two-waiting card layout lose mounted coverage."
     },
     {
       "id": "angellist-reconnect-clock-desktop",
@@ -1263,10 +1262,9 @@
         "scripts/provider-reconnect-access.test.ts :: authenticated reconnect admission > refuses an expired or overlong lease before listening"
       ],
       "browserCases": [
-        "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
-        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate"
+        "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff"
       ],
-      "assertions": "Desktop retains the actual provider-scoped viewer URL, five-second admission, hidden-tab suppression, focus storm, connected terminal state and repair action. Mobile still starts and checks the real Tokenfolio reconnect flow, and the provider access browser boundary still exists on both devices. The repeated mobile AngelList timing/repair sequence is retired."
+      "assertions": "Desktop retains the provider-scoped viewer URL, five-second admission, hidden-tab suppression, focus storm, connected terminal state and repair action. The separate paired mobile unverified/failed-reading status and cancellation surface was retired; real worker auth handling and provider access stay independently tested."
     },
     {
       "id": "planning-single-goal-overview-and-editor",
@@ -1373,7 +1371,7 @@
       "browserCases": [
         "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders"
       ],
-      "assertions": "Desktop checks one due automatic sync; mobile checks failure recovery on reload. The Plaid API exercises cooldown and retryable failed connection admission. The exact manual Try now button and one manual POST after failure were retired."
+      "assertions": "Desktop checks one due automatic sync and successful explicit retry after HTTP 503. The Plaid API exercises cooldown and failed connection admission. Dedicated manual POST-after-failure and mobile offline-reload UI were retired."
     },
     {
       "id": "reviewed-history-account-mobile",
@@ -1397,7 +1395,7 @@
       "browserCases": [
         "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps failed canonical holdings out of view and retries"
       ],
-      "assertions": "Desktop checks the actual 503 message, no fabricated groups or totals and exactly two attempts after manual retry. Mobile retains the longer network-error message and full-width retry layout. The mobile short-503 error crop is retired."
+      "assertions": "Desktop checks the real 503 message, absence of fabricated groups/totals and exactly two attempts after explicit retry. The actual request adapter owns rejected connection recovery. The narrow offline error and wrapping screenshot are retired."
     },
     {
       "id": "large-group-search-return-mobile",
@@ -1417,9 +1415,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: explains connection recovery for Holdings and recovers on reload"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps failed canonical holdings out of view and retries"
       ],
-      "assertions": "Mobile tests a connection abort, its wrapped recovery message and reload to real exposures before asserting the alert disappeared. Desktop retains the server-error card and a real reload elsewhere. Desktop loses the exact offline error layout."
+      "assertions": "The request-adapter test checks recovery text for a rejected Holdings fetch, and desktop runs a mounted 503 retry. The mobile transport-abort, narrow wrapping and full reload fixture were retired."
     },
     {
       "id": "linked-known-subtotal-mobile",
@@ -1430,7 +1428,7 @@
       "browserCases": [
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: groups reviewed public stock with separate SPVs and keeps their value bases"
       ],
-      "assertions": "Both widths still compare the ordinary linked public/SPV group. Mobile checks the $36k known subtotal, an unavailable position, and the exact selected brokerage security grouping link. The 122-position domain fixture preserves known arithmetic and the separate locked contribution. Desktop no longer compares this locked-variant layout."
+      "assertions": "Mobile still compares the normal linked public/SPV group. Domain coverage for 122 positions retains the known arithmetic and separate locked contribution. The locked-subtotal screenshot and mobile follow-through to the linked position are surrendered."
     },
     {
       "id": "mixed-holdings-detail-widths",
@@ -1440,7 +1438,7 @@
         "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view",
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
-      "assertions": "Both widths cover the mixed Holdings and NVDA positions. Desktop follows the grouping return URL, cash keyboard detail, focus restoration and canceling a disconnect. Mobile opens Portfolio Watch detail, its $60k editable estimate and source choice, and restores focus. The wide Watch detail and these cross-width interaction variants are retired."
+      "assertions": "Both widths retain the normal mixed-exposure screen plus aggregate, unavailable values, institution lineage and detail focus/return. Desktop opens a public position and verifies the exact security/return-position link. Phone reads a Watch-estimated position, its source and withheld returns. Secondary public-link roundtrip, cash keyboard detail, sort screenshots and prefilled Watch estimate editor are retired; canceling a disconnect is checked in the due-source path."
     },
     {
       "id": "brokerage-locked-detail-desktop",
@@ -1692,7 +1690,7 @@
         "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > projects timeouts without writes and rejects a late completion after explicit recovery",
         "packages/database/src/portfolio-watch.test.ts :: Portfolio Watch financing fact persistence > creates an append-only proposal against exact signal and scenario versions"
       ],
-      "assertions": "Desktop owns scan progress, source activity, signal tabs and exact-version reconciliation. Mobile owns financing consent, scenario navigation, failed checks, last success, timeout and all five saved history rows after reload. The independent missing-website confirmation and both 120-company layouts survive. The opposite-device pixels and focus positions for those four variants retire."
+      "assertions": "Desktop owns scan progress, source activity, signal tabs and exact-version reconciliation. Desktop opens the scheduled run from history and verifies its heading; the expanded desktop history image retires. Mobile owns financing consent, scenario navigation, failed checks, last success, timeout and five saved rows after reload. The missing-website confirmation remains independent. The desktop scale test renders its expanded 120-company queue at desktop and Pixel 7 widths. Opposite-device pixels and focus positions for the four previously retired permutations remain outside the visual comparisons."
     },
     {
       "id": "browser-value-portfolio-baseline",
@@ -1718,7 +1716,7 @@
         "packages/database/src/holding-imports.test.ts :: reviewed portfolio baseline persistence > refreshes 120 sources around exceptions, retains their values, and resolves only the selected source",
         "apps/api/src/app.test.ts :: Keel API > rejects stale portfolio baseline confirmation without retrying"
       ],
-      "assertions": "Desktop retries a temporary failed read and explicitly confirms the initial baseline. A held private refresh POST exercises pending, dismissal, no redundant review and exactly one refresh. Domain, API and D1 distinguish automatic public/cash feeds and source-specific exceptions; mobile owns overlap, rejection, preserved draft and exception-at-a-time acceptance. Both widths keep the bounded 120-source list. Secondary responsive screenshots, separate cash/public pending sessions and the error appearance retire."
+      "assertions": "Desktop retries a temporary failed read and explicitly confirms the initial baseline. A held private refresh POST exercises pending, dismissal, no redundant review and exactly one refresh. Domain, API and D1 distinguish automatic public/cash feeds and source-specific exceptions; mobile owns overlap, rejection, preserved draft and exception-at-a-time acceptance. Mobile keeps the bounded 120-source list. Secondary responsive screenshots, separate cash/public pending sessions and the error appearance retire."
     },
     {
       "id": "browser-value-portfolio-dashboard",
@@ -1839,16 +1837,16 @@
       ],
       "browserCases": [
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: connects Robinhood through Investments and isolates exceptions",
-        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: shows only unresolved private positions and safely retries their decisions",
         "e2e/holdings-import.visual.spec.ts :: chromium :: orders sources by liquidity and groups private investment setup",
-        "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders"
       ],
       "unitCases": [
         "packages/database/src/holding-imports.test.ts :: exception-based source updates > applies clear rows while keeping only duplicate rows for review, and retries exception decisions safely",
         "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > opens reconnect for one retained connection without replacing its credential"
       ],
-      "assertions": "Connecting an institution, safely deciding exceptions, private setup and automatic checks each run in one browser viewport. Each loses its second layout comparison. The provider CSV path still runs on both widths."
+      "assertions": "The mobile screen connects Robinhood and safely decides private exceptions; desktop retains source grouping/setup and one due sync with canceled disconnect. Desktop Tokenfolio and mobile Wefunder each submit a real file input. Sydecar file submission and standalone automatic account card UI are retired."
     },
     {
       "id": "editor-value-import-secondary-state",
@@ -1862,9 +1860,8 @@
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: sydecar disables reconnect while a page-failure retry is being queued"
       ],
       "browserCases": [
-        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate",
         "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
-        "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders",
         "e2e/holdings-import.visual.spec.ts :: chromium :: imports provider templates without asking to approve clear positions",
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: requests an AngelList update from the phone-safe Holdings flow"
       ],
@@ -1873,7 +1870,7 @@
         "packages/database/src/provider-portfolio-agent.test.ts :: Sydecar session renewal admission > gives already queued captures and reconnects priority over maintenance",
         "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > auto-applies clear Robinhood rows and quarantines only ambiguous changes"
       ],
-      "assertions": "The ordinary provider status, reconnect handoff, upload and automatic Robinhood paths retain mounted coverage. Persistence checks import replay, isolation and lease admission. Exact invalid-payload display, old pending auto-submit on opening, compact exception count, health-card arrangement and disabled reconnect during an in-flight retry lose dedicated browser coverage."
+      "assertions": "The provider screen retains a scoped reconnect handoff, real file imports and opening/canceling brokerage disconnect. Lower layers preserve adjudication, access removal and automated recovery. Malformed/unverified/failed-reading layouts, old pending auto-submit and dedicated automatic confirmation-to-success montage were retired."
     },
     {
       "id": "editor-value-holdings-responsive",
@@ -1904,7 +1901,7 @@
         "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
       "unitCases": [],
-      "assertions": "Ordinary sorting retains its accessible control and ordered results. Larger browser journeys cover bounded pagination and search (one thousand holdings on both viewports). The separate 25-exposure replay and dedicated 1053px sort geometry and pixels are retired."
+      "assertions": "Desktop keeps native keyboard sort, ascending/descending legal-position order and focus. Both mixed screens keep primary geometry, aggregate and unavailable values. The thousand-position search budgets still run on both. Secondary pointer/hover permutations, scrolling sort replay, ascending sort image and intermediate-width geometry have been retired."
     },
     {
       "id": "editor-value-brokerage-recovery",
@@ -1917,7 +1914,7 @@
       ],
       "browserCases": [
         "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders",
-        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: explains connection recovery for Holdings and recovers on reload",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps failed canonical holdings out of view and retries",
         "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
       "unitCases": [
@@ -1926,7 +1923,7 @@
         "packages/database/src/exposures.test.ts :: canonical exposure resolution and aggregation > keeps reconnect history append-only while projecting only the unique current position",
         "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment"
       ],
-      "assertions": "Sources retains one due automatic sync and recovery on reload; ordinary real mounted portfolio navigation remains. API and database tests own cooldown, credential identity and historical projection. Exact interrupted-autoretry and failed-then-manual retry controls, same-label account card, new Item click and the fourteen-position history-only layout lose their browser fixtures."
+      "assertions": "One native due sync still runs across revisits. Primary mixed Holdings navigation and the HTTP 503 retry remain. API and database own cooldown, credential identity and historical projection. The separate mobile transport-abort/reload, same-label account and manual-retry fixtures are retired."
     },
     {
       "id": "editor-value-manual-money-widths",
@@ -2383,9 +2380,9 @@
         "apps/api/src/app-legal-entities.test.ts :: legal entity API > exports every selected row from the authenticated projection as a table"
       ],
       "browserCases": [
-        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps export above 140 entities and preserves choices through collapse and failures"
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reviews legal entities and exports selected counsel fields"
       ],
-      "assertions": "Desktop keeps export above a 140-item list, selection persistence and failures. Retired the narrow positioning/failure permutation; mobile retains provider success and automatic observation."
+      "assertions": "Desktop selects counsel CSV fields; mobile exports selected records and columns. Real API and serializer tests retain authentication, scope and selected fields. The 140-record panel position, collapse/restore, single option request and 503 draft/feedback checks are retired at both widths."
     },
     {
       "id": "user-value-legal-entities-reads-the-complete-saved",
@@ -2425,7 +2422,7 @@
       "browserCases": [
         "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity"
       ],
-      "assertions": "Mobile stale link and live source-party structure review remain; D1 fences current type/identity. Retired desktop linking an existing non-Other structure on the exact structure entry screen."
+      "assertions": "Mobile stale evidence reload and exact-entity link remain. The repository fences current structure type and identity. A reviewer linking a non-Other entity from a compartment-specific screen loses its dedicated browser evidence."
     },
     {
       "id": "user-value-legal-name-resolution-reviews-source-parties",
@@ -2436,9 +2433,9 @@
         "packages/database/src/legal-entities.test.ts :: legal entity repository > resolves other_structure from a clean agreement while rejecting unscanned documents and representative choices"
       ],
       "browserCases": [
-        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: reviews source parties on the dedicated page without offering the representative as the invested name"
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: compares exact alternatives without preselecting and saves a reviewed entity"
       ],
-      "assertions": "Mobile keeps representative/party selection and explicitly reviewed entity type. Retired wide structure-review images."
+      "assertions": "Extraction and domain contracts preserve compartment, certificate and representative roles. The repository tested on SQLite rejects a representative or unscanned source and records each explicit reviewer type against the original evidence. Browser choice, manual page submission and link-after-conflict remain. The specialized compartment radio options, six-type picker cycle, saved qualification layout and non-LLC export checkbox lose direct browser proof."
     },
     {
       "id": "user-value-legal-name-resolution-compares-exact-alternatives",
@@ -2491,7 +2488,7 @@
       "browserCases": [
         "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
       ],
-      "assertions": "The missing-name manual entry still binds the exact document/page and source parties retain a rendered structure review. Retired the parallel manual structure-name create sequence and qualification pixels."
+      "assertions": "The desktop manual missing-name screen binds the exact document/page. The repository accepts a clean reviewed structure and rejects unscanned and representative choices. Manual structure creation, role-specific radio rendering and saved qualification lose dedicated browser evidence."
     },
     {
       "id": "user-value-position-links-review-duplicate-sources",
@@ -2535,6 +2532,129 @@
         "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
       ],
       "assertions": "Candidate selection and missing identity are tested below the browser. Retired the retained historical-source suggestion card, disabled Apply/warning and narrow rendering."
+    },
+    {
+      "id": "baseline-bounded-phone",
+      "retiredBrowserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: keeps a 120-source baseline review DOM bounded"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: keeps a 120-source baseline review DOM bounded"
+      ],
+      "assertions": "Mobile renders the 120-source heading, holds the first page to 12 rows, grows to exactly 24 after Show more, and checks horizontal overflow. The duplicated wide 120-source geometry is retired."
+    },
+    {
+      "id": "legal-export-at-scale",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps export above 140 entities and preserves choices through collapse and failures"
+      ],
+      "unitCases": [
+        "apps/api/src/app-legal-entities.test.ts :: legal entity API > records exact source decisions and returns a non-retained CSV",
+        "apps/api/src/app-legal-entities.test.ts :: legal entity API > exports every selected row from the authenticated projection as a table",
+        "apps/api/src/legal-entity-export.test.ts :: legal entity CSV export > uses selected field order, quotes cells, and neutralizes formulas",
+        "apps/api/src/legal-entity-export.test.ts :: legal entity CSV export > applies historical, type, and needs-review scope independently"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reviews legal entities and exports selected counsel fields",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: creates a Google Sheet from selected records and columns and prevents unchanged resubmission"
+      ],
+      "assertions": "Wide selects counsel CSV fields. Narrow creates a spreadsheet with selected records and columns and checks duplicate/retry policy. The real authenticated API returns a CSV and a projected export table; serializer tests cover selected order, escaping, formulas and scope. The 140-record export panel placement, keyboard toggle, collapsed selection and 503 preservation lose their dedicated browser fixture."
+    },
+    {
+      "id": "legal-queue-width-round2",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: keeps following content reachable in a 500-source queue with automatic observation"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps following content reachable in a 500-source queue with automatic observation"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > reviews a 125-source queue in one fixed-round-trip batch"
+      ],
+      "assertions": "Mobile retains the full 500-source queue, explicit 25-row append, ordering, access to following controls, unsaved draft and return scroll, with the same read budget. The independent desktop rendering and scroll/focus at this scale retire."
+    },
+    {
+      "id": "legal-compartment-role-round2",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: reviews source parties on the dedicated page without offering the representative as the invested name"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: compares exact alternatives without preselecting and saves a reviewed entity",
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason",
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity"
+      ],
+      "unitCases": [
+        "scripts/legal-document-extraction.test.ts :: local legal document extraction > keeps compartment/certificate structures distinct from their representative LLC",
+        "packages/domain/src/provider-legal-documents.test.ts :: source-reported compartment structures > preserves exact names, roles and interest evidence, not an LLC conclusion",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > resolves other_structure from a clean agreement while rejecting unscanned documents and representative choices",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > stores a manually reviewed compartment type corporation without changing its structure evidence",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > stores a manually reviewed compartment type limited_partnership without changing its structure evidence",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > stores a manually reviewed compartment type llc without changing its structure evidence",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > stores a manually reviewed compartment type other without changing its structure evidence",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > stores a manually reviewed compartment type partnership without changing its structure evidence",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > stores a manually reviewed compartment type trust without changing its structure evidence"
+      ],
+      "assertions": "Extraction and domain contracts preserve compartment, certificate and representative roles. The repository tested on SQLite rejects a representative or unscanned source and records each explicit reviewer type against the original evidence. Browser choice, manual page submission and link-after-conflict remain. The specialized compartment radio options, six-type picker cycle, saved qualification layout and non-LLC export checkbox lose direct browser proof."
+    },
+    {
+      "id": "critical-brokerage-automatic-card",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: connects Robinhood through Investments and isolates exceptions"
+      ],
+      "unitCases": [
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > removes provider and stored access while preserving repository history",
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > checks ready and retryable failed connections admitted by the automatic cooldown",
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > applies clear holdings and refreshes the baseline alongside isolated exceptions"
+      ],
+      "assertions": "Actual mobile connection exchanges a token and displays isolated exceptions. Wide checks one due sync, distinguishes reviewed accounts and opens/cancels the disconnect confirmation. The Plaid API owns accepted removal and preserved history. Separate successful disconnect UI, no-duplicate reconnect action, automatic adjudication summary and card pixels are surrendered."
+    },
+    {
+      "id": "critical-provider-repair-display",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate"
+      ],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff"
+      ],
+      "unitCases": [
+        "packages/database/src/provider-portfolio-agent.test.ts :: Sydecar session renewal admission > stops typed recovery at observed expiry without misclassifying it as a rejected login",
+        "packages/database/src/provider-portfolio-agent.test.ts :: Sydecar session renewal admission > stops after provider authorization rejection instead of retrying a lost login"
+      ],
+      "assertions": "The provider viewer still starts with the selected provider, gates polling and handles recovery. The repository distinguishes expired/failing reads from a rejected login. A separate paired unverified Tokenfolio versus failed-reading Sydecar screen, exact status wording, cancellation and its composition are surrendered."
+    },
+    {
+      "id": "critical-holdings-endpoint-recovery",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: explains connection recovery for Holdings and recovers on reload"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps failed canonical holdings out of view and retries"
+      ],
+      "unitCases": [
+        "apps/web/src/api-request.test.ts :: Keel connection recovery > explains how to recover a rejected Holdings read",
+        "apps/web/src/api-request.test.ts :: Keel connection recovery > preserves cancellation and HTTP error responses"
+      ],
+      "assertions": "HTTP 503 recovery still excludes fabricated amounts and waits for an explicit retry to load positions. The actual request adapter checks rejected-read recovery and preserves HTTP/cancellation behavior. A separate mobile transport abort, longer message comparison and explicit recovery on normal reload are surrendered."
+    },
+    {
+      "id": "watch-company-scale-single-session",
+      "retiredBrowserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: bounds the company list and recovers an activity read failure"
+      ],
+      "unitCases": [
+        "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > keeps 120-company reads bounded as same-date history grows",
+        "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > shares a 40-check budget across companies even with 6000 eligible pages"
+      ],
+      "browserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: bounds the company list and recovers an activity read failure",
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload"
+      ],
+      "assertions": "Desktop exercises all paging, retry after a failed read, bounded source rendering and delayed-search response arbitration with 120 companies and 6000 sources. Resizing this same expanded list checks narrow geometry; mobile Watch independently exercises interactive tabs, saved history and the 320px empty/error layout. The separate mobile-context pagination and source expansion session retires."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

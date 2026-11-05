@@ -6,7 +6,6 @@ import {
   type LegalEntityInventory,
   type LegalEntityRecord,
   type LegalEntitySourceSummary,
-  type LegalEntityType,
   type LegalNameResolutionInput,
 } from "../packages/domain/src/legal-entities";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
@@ -88,18 +87,16 @@ const existing: LegalEntityRecord = {
 
 async function setup(
   page: Page,
-  legacy = false,
-  problem?: "name_not_found" | "other_structure",
+  evidence:
+    "conflicting" | "name_not_found" | "legacy_name_not_found" = "conflicting",
 ) {
   const candidate = structuredClone(source);
-  if (problem !== undefined) {
-    const quote =
-      "Demo Series VII, as a compartment of and duly represented by Demo Representative LLC, as Issuer.";
+  if (evidence !== "conflicting") {
     candidate.legalEntityNameEvidence = {
       state: "unavailable",
       legalName: null,
       sourceField: null,
-      problem,
+      problem: "name_not_found",
       documents: [
         {
           id: "11111111-1111-4111-8111-111111111111",
@@ -107,7 +104,7 @@ async function setup(
           sha256: "a".repeat(64),
           page: null,
           quote: null,
-          citations: [],
+          ...(evidence === "legacy_name_not_found" ? {} : { citations: [] }),
           scan: {
             version: 2,
             sha256: "a".repeat(64),
@@ -118,43 +115,10 @@ async function setup(
             databaseUpdatedAt: "2026-09-01T10:00:00.000Z",
             scannedAt: "2026-09-01T11:00:00.000Z",
           },
-          ...(problem === "other_structure"
-            ? {
-                structure: {
-                  kind: "compartment" as const,
-                  page: 1,
-                  quote,
-                  parties: [
-                    {
-                      legalName: "Demo Series VII",
-                      role: "compartment" as const,
-                      page: 1,
-                      quote,
-                    },
-                    {
-                      legalName: "Demo Representative LLC",
-                      role: "representative" as const,
-                      page: 1,
-                      quote,
-                    },
-                  ],
-                  instrument: {
-                    label: "Equity certificates" as const,
-                    page: 1,
-                    quote: "EQUITY CERTIFICATES SUBSCRIPTION AGREEMENT",
-                  },
-                },
-              }
-            : {}),
         },
       ],
     };
   }
-  if (legacy)
-    for (const document of candidate.legalEntityNameEvidence.documents ?? []) {
-      delete document.citations;
-      if (document.structure !== undefined) document.structure.parties = [];
-    }
   const inventory: LegalEntityInventory = {
     version: 3,
     asOf: "2026-09-01T12:00:00.000Z",
@@ -189,7 +153,6 @@ async function setup(
   let rejectWrite = false;
   const reviewedSource = (
     resolution: LegalNameResolutionInput | undefined,
-    entityType: LegalEntityType,
   ): LegalEntitySourceSummary => {
     if (resolution === undefined) throw new Error("Missing review receipt");
     const document = candidate.legalEntityNameEvidence.documents?.find(
@@ -209,9 +172,6 @@ async function setup(
         fileName: document.fileName,
         sha256: document.sha256,
         evidence: candidate.legalEntityNameEvidence,
-        ...(problem === "other_structure"
-          ? { reviewedEntityType: entityType }
-          : {}),
       },
     };
   };
@@ -243,9 +203,7 @@ async function setup(
       ...existing,
       ...input.profile,
       id: "new_demo_entity",
-      sources: [
-        reviewedSource(input.source?.nameResolution, input.profile.entityType),
-      ],
+      sources: [reviewedSource(input.source?.nameResolution)],
     };
     inventory.entities.push(entity);
     inventory.candidates = inventory.candidates.filter(
@@ -272,9 +230,7 @@ async function setup(
         entity.id === input.decision.legalEntityId,
     );
     if (target === undefined) throw new Error("Missing review target");
-    target.sources.push(
-      reviewedSource(input.nameResolution, target.entityType),
-    );
+    target.sources.push(reviewedSource(input.nameResolution));
     inventory.candidates = inventory.candidates.filter(
       (item) => item.source.id !== candidate.source.id,
     );
@@ -295,14 +251,9 @@ async function setup(
     .filter({ hasText: "Demo Climate" });
   await expect(
     row
-      .getByText(
-        problem === "other_structure"
-          ? "Review structure"
-          : problem === "name_not_found"
-            ? "Review PDF"
-            : "Names disagree",
-        { exact: true },
-      )
+      .getByText(evidence === "conflicting" ? "Names disagree" : "Review PDF", {
+        exact: true,
+      })
       .first(),
   ).toBeVisible();
   await expect(
@@ -411,146 +362,10 @@ test(
 );
 
 test(
-  "reviews source parties on the dedicated page without offering the representative as the invested name",
-  { tag: "@mobile-only" },
-  async ({ page }) => {
-    const { row, writes } = await setup(page, false, "other_structure");
-    await row
-      .getByRole("button", { name: "Review structure", exact: true })
-      .click();
-    const resolver = row.getByRole("form");
-    await expect(resolver).toContainText(
-      "Representative: Demo Representative LLC",
-    );
-    await expect(resolver).toContainText(
-      "Reported interest: Equity certificates",
-    );
-    await expect(
-      resolver.getByRole("radio", { name: /Demo Representative LLC/ }),
-    ).toHaveCount(1);
-    // The compartment option quotes the whole source clause, but the representative
-    // has no separate selectable option of its own.
-    await expect(
-      resolver.getByRole("radio", { name: /^Demo Representative LLC/ }),
-    ).toHaveCount(0);
-    await expect(resolver.locator('input[type="radio"]:checked')).toHaveCount(
-      0,
-    );
-    await expect(row).toHaveScreenshot("legal-structure-review.png", {
-      animations: "disabled",
-      caret: "hide",
-    });
-    await resolver.getByRole("radio", { name: /^Demo Series VII/ }).check();
-    await resolver
-      .getByRole("button", { name: "Continue with this name" })
-      .click();
-    const editor = row.locator(".legal-entity-editor");
-    await expect(editor).toBeVisible();
-    await expect(
-      editor.getByRole("combobox", { name: "Entity type" }),
-    ).toBeEnabled();
-    await expect(
-      editor.getByRole("combobox", { name: "Entity type" }),
-    ).toContainText("Other");
-    await editor.getByRole("combobox", { name: "Entity type" }).click();
-    await expect(page.getByRole("option")).toHaveText([
-      "LLC",
-      "Limited partnership",
-      "Corporation",
-      "Partnership",
-      "Trust",
-      "Other",
-    ]);
-    await page
-      .getByRole("option", { name: "Corporation", exact: true })
-      .click();
-    for (const label of [
-      "LLC",
-      "Limited partnership",
-      "Partnership",
-      "Trust",
-      "Other",
-      "Corporation",
-    ]) {
-      await editor.getByRole("combobox", { name: "Entity type" }).click();
-      await page.getByRole("option", { name: label, exact: true }).click();
-      await expect(
-        editor.getByRole("combobox", { name: "Entity type" }),
-      ).toContainText(label);
-    }
-    await expect(editor).toHaveScreenshot("legal-structure-entity-type.png", {
-      animations: "disabled",
-      caret: "hide",
-    });
-    await noOverflow(page);
-    await expect(page.locator(".legal-entities")).toBeHidden();
-    await expect(
-      page
-        .locator(".legal-entity-candidate")
-        .filter({ hasText: "Demo Blocked" }),
-    ).toHaveCount(1);
-    await editor
-      .getByRole("button", { name: "Add entity", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "Edit legal entity", exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(
-      0,
-    );
-    await page
-      .getByRole("button", { name: "Back to legal entities", exact: true })
-      .click();
-    expect(writes[0]).toMatchObject({
-      profile: {
-        legalName: "Demo Series VII",
-        entityType: "corporation",
-        relationship: "investment_vehicle",
-      },
-      source: { nameResolution: { kind: "document_structure", page: 1 } },
-    });
-    await expect(
-      page.getByText(/Reviewed structure: Demo Series VII/),
-    ).toBeVisible();
-    if (
-      await page
-        .getByRole("button", { name: "Back to legal entities", exact: true })
-        .count()
-    )
-      await page
-        .getByRole("button", { name: "Back to legal entities", exact: true })
-        .click();
-    await page.reload();
-    await expect(
-      page.getByText(/Type at review: Corporation \(your classification\)/),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        /Compartment structure; direct ownership is not confirmed/,
-      ),
-    ).toBeVisible();
-    await page.addStyleTag({
-      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-    });
-    await expect(
-      page.locator(".legal-entity-row").filter({ hasText: "Demo Series VII" }),
-    ).toHaveScreenshot("legal-structure-reviewed-type.png", {
-      animations: "disabled",
-      caret: "hide",
-    });
-    await page.getByRole("button", { name: "Export", exact: true }).click();
-    await expect(
-      page.getByRole("checkbox", { name: "Include non-LLC entities" }),
-    ).toBeChecked();
-    await noOverflow(page);
-  },
-);
-
-test(
   "validates manual name_not_found entry without requiring an excerpt or reason",
   { tag: "@desktop-only" },
   async ({ page }) => {
-    const { row, writes } = await setup(page, true, "name_not_found");
+    const { row, writes } = await setup(page, "legacy_name_not_found");
     await row
       .getByRole("button", {
         name: "Review PDF",
@@ -694,95 +509,101 @@ test(
   },
 );
 
-test("keeps following content reachable in a 500-source queue with automatic observation", async ({
-  page,
-}) => {
-  const requests: string[] = [];
-  page.on("request", (request) => {
-    if (new URL(request.url()).pathname.startsWith("/api/"))
-      requests.push(new URL(request.url()).pathname);
-  });
-  const { inventory } = await setup(page, false, "name_not_found");
-  const document = structuredClone(inventory.candidates[0]!);
-  inventory.candidates = Array.from({ length: 498 }, (_, index) => ({
-    ...structuredClone(source),
-    source: { kind: "holding_position" as const, id: `demo-scale-${index}` },
-    sourceDisplayName: `Demo ${String(index).padStart(3, "0")}`,
-    suggestedEntityType: "llc" as const,
-    legalEntityNameEvidence: {
-      state: "provider_reported" as const,
-      legalName: `Demo ${String(index).padStart(3, "0")} LLC`,
-      sourceField: "Fund Name",
-    },
-  }));
-  inventory.candidates.push(
-    {
+test(
+  "keeps following content reachable in a 500-source queue with automatic observation",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const requests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.startsWith("/api/"))
+        requests.push(new URL(request.url()).pathname);
+    });
+    const { inventory } = await setup(page, "name_not_found");
+    const document = structuredClone(inventory.candidates[0]!);
+    inventory.candidates = Array.from({ length: 498 }, (_, index) => ({
       ...structuredClone(source),
-      source: { kind: "holding_position", id: "demo-conflict-last" },
-    },
-    document,
-  );
-  if (
+      source: { kind: "holding_position" as const, id: `demo-scale-${index}` },
+      sourceDisplayName: `Demo ${String(index).padStart(3, "0")}`,
+      suggestedEntityType: "llc" as const,
+      legalEntityNameEvidence: {
+        state: "provider_reported" as const,
+        legalName: `Demo ${String(index).padStart(3, "0")} LLC`,
+        sourceField: "Fund Name",
+      },
+    }));
+    inventory.candidates.push(
+      {
+        ...structuredClone(source),
+        source: { kind: "holding_position", id: "demo-conflict-last" },
+      },
+      document,
+    );
+    if (
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .count()
+    )
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .click();
+    await page.reload();
+    await page.getByRole("button", { name: /^Needs your review/u }).click();
+    const rows = page.locator(
+      ".legal-entity-candidate:visible, .entity-review",
+    );
+    await expect(rows).toHaveCount(25);
+    await expect(rows.nth(0)).toContainText("Review PDF");
+    await expect(rows.nth(1)).toContainText("Names disagree");
+    await expect(rows.nth(2)).toContainText("Demo 000 LLC");
+    await expect(page.getByText("Showing 25 of 500 sources")).toBeVisible();
+    const loadMore = page.getByRole("button", {
+      name: "Load more sources",
+      exact: true,
+    });
+    // Known entities and Add entity follow this queue, so scrolling must leave
+    // them reachable even when IntersectionObserver is available.
+    await loadMore.scrollIntoViewIfNeeded();
+    await expect(rows).toHaveCount(25);
     await page
-      .getByRole("button", { name: "Back to legal entities", exact: true })
-      .count()
-  )
+      .getByRole("button", { name: "Add entity", exact: true })
+      .scrollIntoViewIfNeeded();
+    await expect(rows).toHaveCount(25);
+    await loadMore.click();
+    await expect(rows).toHaveCount(50);
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+    await rows
+      .nth(26)
+      .getByRole("button", { name: "Review details", exact: true })
+      .click();
+    const draft = page
+      .getByRole("tabpanel", { name: "Identity", exact: true })
+      .getByLabel("Legal name", { exact: true });
+    await draft.fill("Demo Draft Still Here LLC");
+    await selectReviewSection(page, "Ownership");
+    await selectReviewSection(page, "Identity");
+    await expect(draft).toHaveValue("Demo Draft Still Here LLC");
     await page
       .getByRole("button", { name: "Back to legal entities", exact: true })
       .click();
-  await page.reload();
-  await page.getByRole("button", { name: /^Needs your review/u }).click();
-  const rows = page.locator(".legal-entity-candidate:visible, .entity-review");
-  await expect(rows).toHaveCount(25);
-  await expect(rows.nth(0)).toContainText("Review PDF");
-  await expect(rows.nth(1)).toContainText("Names disagree");
-  await expect(rows.nth(2)).toContainText("Demo 000 LLC");
-  await expect(page.getByText("Showing 25 of 500 sources")).toBeVisible();
-  const loadMore = page.getByRole("button", {
-    name: "Load more sources",
-    exact: true,
-  });
-  // Known entities and Add entity follow this queue, so scrolling must leave
-  // them reachable even when IntersectionObserver is available.
-  await loadMore.scrollIntoViewIfNeeded();
-  await expect(rows).toHaveCount(25);
-  await page
-    .getByRole("button", { name: "Add entity", exact: true })
-    .scrollIntoViewIfNeeded();
-  await expect(rows).toHaveCount(25);
-  await loadMore.click();
-  await expect(rows).toHaveCount(50);
-  const scrollBefore = await page.evaluate(() => window.scrollY);
-  await rows
-    .nth(26)
-    .getByRole("button", { name: "Review details", exact: true })
-    .click();
-  const draft = page
-    .getByRole("tabpanel", { name: "Identity", exact: true })
-    .getByLabel("Legal name", { exact: true });
-  await draft.fill("Demo Draft Still Here LLC");
-  await selectReviewSection(page, "Ownership");
-  await selectReviewSection(page, "Identity");
-  await expect(draft).toHaveValue("Demo Draft Still Here LLC");
-  await page
-    .getByRole("button", { name: "Back to legal entities", exact: true })
-    .click();
-  await expect(rows).toHaveCount(50);
-  await expect
-    .poll(() => page.evaluate(() => window.scrollY))
-    .toBeGreaterThanOrEqual(scrollBefore - 5);
-  expect(
-    requests.filter((path) => path === "/api/legal-entities"),
-  ).toHaveLength(2);
-  expect(
-    requests.filter((path) =>
-      ["/api/holdings-page", "/api/alpha", "/api/investment-holdings"].includes(
-        path,
+    await expect(rows).toHaveCount(50);
+    await expect
+      .poll(() => page.evaluate(() => window.scrollY))
+      .toBeGreaterThanOrEqual(scrollBefore - 5);
+    expect(
+      requests.filter((path) => path === "/api/legal-entities"),
+    ).toHaveLength(2);
+    expect(
+      requests.filter((path) =>
+        [
+          "/api/holdings-page",
+          "/api/alpha",
+          "/api/investment-holdings",
+        ].includes(path),
       ),
-    ),
-  ).toEqual([]);
-  await noOverflow(page);
-});
+    ).toEqual([]);
+    await noOverflow(page);
+  },
+);
 
 test(
   "keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity",

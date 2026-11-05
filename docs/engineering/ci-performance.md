@@ -328,9 +328,9 @@ Browser verification produces five reports with at most four active workers.
 Three stateful partitions and one mocked partition start together. When the
 first mocked partition validates its report and releases its server, its worker
 slot runs the remaining mocked holdings and agreement-security checks. The other
-partitions can finish independently. The current inventory has 153 required
-Linux cases and 15 explicit exclusions. Each retired case and its remaining
-coverage are recorded in
+partitions can finish independently. The checked-in case inventory defines the
+required executions and explicit exclusions on each platform. Each retired case
+and its remaining coverage are recorded in
 [test performance coverage](test-performance-coverage.md).
 
 The manual-holding visual tests and UI catalogue use the fail-closed API-mocked
@@ -343,11 +343,11 @@ built frontend and bundles the actual collection search module for its browser
 timing check. The development stateful lane owns the recovery, navigation and
 Watch development behavior. Its provider cases use controlled browser profiles
 or provider pages, and the reconnect interstitial still reaches the local API.
-Missing production JS or CSS fails startup. Snapshot identities and baselines
-remain unchanged. Each lane owns its dependency cache and output. Development
-readiness validates the initial module graph; stateful readiness also checks the
-actual holdings projection through the web proxy. A simpler health endpoint
-cannot hide a cold first read.
+Missing production JS or CSS fails startup. Each retained visual comparison uses
+its existing platform reference. Each lane owns its dependency cache and output.
+Development readiness validates the initial module graph; stateful readiness
+also checks the actual holdings projection through the web proxy. A simpler
+health endpoint cannot hide a cold first read.
 
 The migration flow runs every migration and the base synthetic seed, then copies
 its closed D1 tree into a dedicated allowlisted browser path before applying

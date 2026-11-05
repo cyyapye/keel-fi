@@ -1102,11 +1102,15 @@ complete native gate retain their 120- and 900-second limits.
 The
 [297-case control](https://github.com/cyyapye/keel-fi/actions/runs/42046476487)
 passed on the original Linux runner in 850.017 seconds. Its browser phase took
-518.309 seconds. This review retires 144 executions and seven previously
-excluded project registrations. The new inventory has 153 required browser
-executions, 15 explicit browser exclusions and 169 Linux reference images.
-Retired executions accounted for 760.276 summed worker-seconds in the control.
-Wall time must be measured again because the workers overlap.
+518.309 seconds. The first user-workflow review retired 144 executions and seven
+previously excluded project registrations. That candidate had 153 required
+browser executions, 15 explicit browser exclusions and 169 Linux reference
+images. Retired executions accounted for 760.276 summed worker-seconds in the
+control. Its
+[ordinary Linux run](https://github.com/cyyapye/keel-fi/actions/runs/42054598515)
+passed all 153 browser executions in 325.823 seconds. All eleven commands passed
+in 841.973 seconds. Browser wall time fell by 192.486 seconds and missed the
+five-minute target by 25.823 seconds.
 
 - Holdings retains both ordinary layouts, real financial writes and reloads,
   unknown amounts versus zero, the shared date picker, stationary investment
@@ -1134,3 +1138,25 @@ owners. Three stateful shards still use independent seeded profiles. A fourth
 worker runs the two mocked batches consecutively, freeing the second batch from
 waiting for all three databases. All five reports count toward browser wall
 time.
+
+The second review leaves 145 required browser cases, 15 explicit browser
+exclusions and 151 Linux reference images. In the 325.823-second run, the last
+worker finished the mocked Holdings and agreement cases 21 seconds after the
+last stateful shard. The next candidate shortens both multi-institution Holdings
+tours and keeps the normal layouts, security grouping, mobile Watch valuation
+and both 1,000-holding search budgets. The duplicate source-status and
+import-recovery screens lose dedicated checks.
+
+One Watch session now exercises the 6,000-source queue at desktop and phone
+widths. Narrow overflow faults fail that session. The phone still verifies five
+saved historical states, while desktop checks that history opens. The narrow
+500-source legal queue and 120-source baseline each retain paging and overflow.
+The separate wide queue replays and the compartment/certificate type picker are
+retired. Domain and repository tests still reject a representative as the
+invested party and persist the reviewed entity type.
+
+The wide Overview keeps its normal rendered comparisons and keyboard selection.
+Mobile owns the full goal swipe and edit journey. Ordinary CSV export still
+checks the selected fields, and real API tests verify shape, scope and order.
+Retired states include the wide post-swipe images and the export panel's
+collapse and error behavior above a 140-entity list.

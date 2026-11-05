@@ -619,85 +619,89 @@ test(
   },
 );
 
-test("keeps a 120-source baseline review DOM bounded", async ({ page }) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
+test(
+  "keeps a 120-source baseline review DOM bounded",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = await alphaResponse.json();
 
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: alphaFixture.holdings,
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.route("**/api/portfolio-baseline", async (route) => {
-    await route.fulfill({
-      json: {
-        ...scaleReadyState,
-        automaticUpdateCount: 0,
-        exceptions: scalePositions.map((position) => ({
-          key: `position:${position.id}`,
-          kind: "position",
-          name: position.positionName,
-          context: position.ownerLabel,
-          reason: "removed",
-          previousValueMinor: position.valueMinor,
-          proposedValueMinor: null,
-          previousObservedAt: position.observedAt,
-          fiEligibleChangeMinor: -position.valueMinor,
-        })),
-      },
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
     });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "ready",
-        interval: "weekly",
-        runStatus: null,
-        lastSeenAt: "2026-08-18T16:00:00.000Z",
-        lastCompletedAt: "2026-08-18T15:58:00.000Z",
-        nextRunAt: "2026-08-25T16:00:00.000Z",
-        latestImportId: null,
-        errorCode: null,
-      },
+    await routeHoldingsPage(page, {
+      householdName: alphaFixture.dashboard.householdName,
+      holdings: alphaFixture.holdings,
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
     });
-  });
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({ json: investmentConnectionsState });
-  });
-  await page.route("**/api/cash-accounts", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "disconnected",
-        connections: [],
-        acceptedAccounts: [],
-        pendingProposals: [],
-        errorCode: null,
-      },
+    await page.route("**/api/portfolio-baseline", async (route) => {
+      await route.fulfill({
+        json: {
+          ...scaleReadyState,
+          automaticUpdateCount: 0,
+          exceptions: scalePositions.map((position) => ({
+            key: `position:${position.id}`,
+            kind: "position",
+            name: position.positionName,
+            context: position.ownerLabel,
+            reason: "removed",
+            previousValueMinor: position.valueMinor,
+            proposedValueMinor: null,
+            previousObservedAt: position.observedAt,
+            fiEligibleChangeMinor: -position.valueMinor,
+          })),
+        },
+      });
     });
-  });
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({ json: [] });
+    });
+    await page.route("**/api/automation/angellist/status", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          status: "ready",
+          interval: "weekly",
+          runStatus: null,
+          lastSeenAt: "2026-08-18T16:00:00.000Z",
+          lastCompletedAt: "2026-08-18T15:58:00.000Z",
+          nextRunAt: "2026-08-25T16:00:00.000Z",
+          latestImportId: null,
+          errorCode: null,
+        },
+      });
+    });
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({ json: investmentConnectionsState });
+    });
+    await page.route("**/api/cash-accounts", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          status: "disconnected",
+          connections: [],
+          acceptedAccounts: [],
+          pendingProposals: [],
+          errorCode: null,
+        },
+      });
+    });
 
-  await page.goto("/holdings");
-  await expect(
-    page.getByRole("heading", { name: "120 sources need your decision" }),
-  ).toBeVisible();
-  const rows = page.locator(".portfolio-baseline-review article");
-  await expect(rows).toHaveCount(12);
-  await page.getByRole("button", { name: "Show more" }).click();
-  await expect(rows).toHaveCount(24);
-  await expectNoHorizontalOverflow(page);
-});
+    await page.goto("/holdings");
+    await expect(
+      page.getByRole("heading", { name: "120 sources need your decision" }),
+    ).toBeVisible();
+    const rows = page.locator(".portfolio-baseline-review article");
+    await expect(rows).toHaveCount(12);
+    await page.getByRole("button", { name: "Show more" }).click();
+    await expect(rows).toHaveCount(24);
+    await expectNoHorizontalOverflow(page);
+  },
+);
 
 test(
   "automatically refreshes routine private changes without a baseline review",

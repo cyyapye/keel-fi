@@ -39,9 +39,8 @@ LAYOUT_FILES = frozenset({
 })
 OVERVIEW_SPEC = "e2e/overview-links.visual.spec.ts"
 OVERVIEW_REFERENCES = frozenset(
-    f"{OVERVIEW_SPEC}-snapshots/overview-goal-overview{state}-{project}-{platform}.png"
-    for state in ("", "-swiped")
-    for project in ("chromium", "mobile-chromium")
+    f"{OVERVIEW_SPEC}-snapshots/overview-goal-overview-{variant}-{platform}.png"
+    for variant in ("chromium", "mobile-chromium", "swiped-mobile-chromium")
     for platform in ("darwin", "linux")
 )
 LAYOUT_COMPANIONS = {OVERVIEW_SPEC} | OVERVIEW_REFERENCES

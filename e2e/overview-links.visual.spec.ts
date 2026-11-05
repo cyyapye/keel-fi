@@ -223,6 +223,14 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   await goalDots.first().focus();
   await page.keyboard.press("ArrowRight");
   await expect(goalDots.nth(1)).toHaveAttribute("aria-current", "true");
+  if (testInfo.project.name === "chromium") {
+    await expect(goalOverview).toHaveAttribute(
+      "data-goal-id",
+      alphaFixture.goals[1]!.id,
+    );
+    await expectNoHorizontalOverflow(page);
+    return;
+  }
   await goalDots.first().click();
   await expect(goalDots.first()).toHaveAttribute("aria-current", "true");
 
@@ -337,8 +345,7 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   expect(
     linkStyles.every(
       ({ height, textDecorationLine }) =>
-        height >= (testInfo.project.name === "mobile-chromium" ? 44 : 40) &&
-        textDecorationLine === "none",
+        height >= 44 && textDecorationLine === "none",
     ),
   ).toBe(true);
   await expect(goalOverview).not.toContainText("→");
