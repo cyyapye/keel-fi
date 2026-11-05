@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import type { Page, TestInfo } from "@playwright/test";
 import { expect, test } from "./api-mocked-test";
 import { buildUiCatalogue } from "../scripts/ui-catalogue";
 
@@ -12,11 +13,17 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-// Evaluation artifacts only: controlled negative and clean holdout variants
-// live in browser tests and never change the catalogue or production library.
-test("captures blinded design-review variants and semantic holdouts", async ({
-  page,
-}, testInfo) => {
+if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
+  test(
+    "captures blinded design-review variants and semantic holdouts",
+    captureDesignVariants,
+  );
+}
+
+async function captureDesignVariants(
+  { page }: { page: Page },
+  testInfo: TestInfo,
+) {
   await page.goto("/keel-ui-catalogue.html#forms");
   const actions = page.locator(".catalogue-example").filter({
     has: page.getByRole("heading", { name: "Buttons & links", exact: true }),
@@ -77,7 +84,7 @@ test("captures blinded design-review variants and semantic holdouts", async ({
     path: testInfo.outputPath("estimate-holdout.png"),
     ...screenshotOptions,
   });
-});
+}
 const screenshotOptions = {
   animations: "disabled" as const,
   caret: "hide" as const,
@@ -195,6 +202,14 @@ test("quiet buttons keep action spacing and textareas use the filled surface", a
   page,
 }) => {
   await page.goto("/keel-ui-catalogue.html#forms");
+  const disabled = page
+    .locator(".catalogue-example")
+    .filter({
+      has: page.getByRole("heading", { name: "Buttons & links", exact: true }),
+    })
+    .getByRole("button", { name: "Disabled", exact: true });
+  await expect(disabled).toBeDisabled();
+  await expect(disabled).toHaveCSS("opacity", "0.4");
   const primary = page.getByRole("button", { name: "Primary", exact: true });
   const quiet = page.getByRole("button", { name: "Quiet", exact: true });
   const primaryPadding = await primary.evaluate(

@@ -779,54 +779,56 @@ test("shows only unresolved private positions and safely retries their decisions
   await expectNoHorizontalOverflow(page);
 });
 
-test("automatically processes an older pending import without opening its review", async ({
-  page,
-}) => {
-  const preview = {
-    ...importPreview,
-    status: "applied",
-    summary: { ...importPreview.summary, autoAppliedCount: 72 },
-    rows: importPreview.rows.map((row) => ({
-      ...row,
-      decisionSource: "policy",
-      adjudicationStatus: "auto_applied",
-    })),
-  };
-  let processed = false;
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: alphaFixture.holdings,
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [
-      {
-        id: preview.id,
-        provider: "angellist",
-        status: "pending_review",
-        rowCount: 72,
-        observedAt: preview.observedAt,
-        createdAt: preview.observedAt,
+test(
+  "automatically processes an older pending import without opening its review",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const preview = {
+      ...importPreview,
+      status: "applied",
+      summary: { ...importPreview.summary, autoAppliedCount: 72 },
+      rows: importPreview.rows.map((row) => ({
+        ...row,
+        decisionSource: "policy",
+        adjudicationStatus: "auto_applied",
+      })),
+    };
+    let processed = false;
+    await routeHoldingsPage(page, {
+      householdName: alphaFixture.dashboard.householdName,
+      holdings: alphaFixture.holdings,
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [
+        {
+          id: preview.id,
+          provider: "angellist",
+          status: "pending_review",
+          rowCount: 72,
+          observedAt: preview.observedAt,
+          createdAt: preview.observedAt,
+        },
+      ],
+    });
+    await page.route("**/api/alpha", (route) =>
+      route.fulfill({ json: alphaFixture }),
+    );
+    await page.route(
+      `**/api/holding-imports/${preview.id}/reconcile`,
+      (route) => {
+        processed = true;
+        return route.fulfill({ json: preview });
       },
-    ],
-  });
-  await page.route("**/api/alpha", (route) =>
-    route.fulfill({ json: alphaFixture }),
-  );
-  await page.route(
-    `**/api/holding-imports/${preview.id}/reconcile`,
-    (route) => {
-      processed = true;
-      return route.fulfill({ json: preview });
-    },
-  );
-  await page.goto("/holdings/sources");
-  await expect.poll(() => processed).toBe(true);
-  await expect(
-    page.getByRole("button", { name: /Review AngelList import/ }),
-  ).toHaveCount(0);
-  await expect(page.locator(".holding-import-workspace")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-});
+    );
+    await page.goto("/holdings/sources");
+    await expect.poll(() => processed).toBe(true);
+    await expect(
+      page.getByRole("button", { name: /Review AngelList import/ }),
+    ).toHaveCount(0);
+    await expect(page.locator(".holding-import-workspace")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+  },
+);
 
 test("connects Robinhood through Investments and isolates exceptions", async ({
   page,
@@ -1742,83 +1744,89 @@ test("keeps unverified sign-ins and page-reading failures separate", async ({
 });
 
 for (const provider of ["tokenfolio", "sydecar"] as const) {
-  test(`${provider} disables reconnect while a page-failure retry is being queued`, async ({
-    page,
-  }) => {
-    const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
-    let queued = false;
-    let reconnectRequests = 0;
-    let finishUpdate = () => {};
-    const responseReady = new Promise<void>((resolve) => {
-      finishUpdate = resolve;
-    });
-    await page.route("**/api/alpha", (route) =>
-      route.fulfill({ json: alphaFixture }),
-    );
-    await page.route("**/api/automation/provider-holdings/*/status", (route) =>
-      route.fulfill({
-        json: {
-          version: 1,
-          provider: new URL(route.request().url()).pathname.split("/").at(-2),
-          status: queued ? "running" : "needs_attention",
-          interval: "daily",
-          runStatus: queued ? "queued" : null,
-          lastSeenAt: "2026-09-04T12:00:00.000Z",
-          lastCompletedAt: "2026-09-03T12:00:00.000Z",
-          nextRunAt: "2026-09-05T12:00:00.000Z",
-          latestImportId: null,
-          errorCode: "page_not_supported",
+  test(
+    `${provider} disables reconnect while a page-failure retry is being queued`,
+    { tag: provider === "tokenfolio" ? "@desktop-only" : "@mobile-only" },
+    async ({ page }) => {
+      const label = provider === "tokenfolio" ? "Tokenfolio" : "Sydecar";
+      let queued = false;
+      let reconnectRequests = 0;
+      let finishUpdate = () => {};
+      const responseReady = new Promise<void>((resolve) => {
+        finishUpdate = resolve;
+      });
+      await page.route("**/api/alpha", (route) =>
+        route.fulfill({ json: alphaFixture }),
+      );
+      await page.route(
+        "**/api/automation/provider-holdings/*/status",
+        (route) =>
+          route.fulfill({
+            json: {
+              version: 1,
+              provider: new URL(route.request().url()).pathname
+                .split("/")
+                .at(-2),
+              status: queued ? "running" : "needs_attention",
+              interval: "daily",
+              runStatus: queued ? "queued" : null,
+              lastSeenAt: "2026-09-04T12:00:00.000Z",
+              lastCompletedAt: "2026-09-03T12:00:00.000Z",
+              nextRunAt: "2026-09-05T12:00:00.000Z",
+              latestImportId: null,
+              errorCode: "page_not_supported",
+            },
+          }),
+      );
+      await page.route(
+        `**/api/automation/provider-holdings/${provider}/run`,
+        async (route) => {
+          await responseReady;
+          queued = true;
+          await route.fulfill({
+            status: 202,
+            json: {
+              version: 1,
+              provider,
+              runId: "55555555-5555-4555-8555-555555555555",
+              status: "queued",
+            },
+          });
         },
-      }),
-    );
-    await page.route(
-      `**/api/automation/provider-holdings/${provider}/run`,
-      async (route) => {
-        await responseReady;
-        queued = true;
-        await route.fulfill({
-          status: 202,
-          json: {
-            version: 1,
-            provider,
-            runId: "55555555-5555-4555-8555-555555555555",
-            status: "queued",
-          },
-        });
-      },
-    );
-    await page.route(
-      "**/api/automation/provider-browser/*/reconnect",
-      (route) => {
-        reconnectRequests += 1;
-        return route.fulfill({
-          status: 503,
-          json: { error: "Unexpected reconnect" },
-        });
-      },
-    );
-    await page.goto("/holdings/sources");
-    const source = page
-      .locator(".provider-agent-row")
-      .filter({ hasText: label });
-    const reconnect = source.getByRole("button", {
-      name: `Reconnect ${label}`,
-    });
-    await expect(reconnect).toBeEnabled();
-    try {
-      await source.getByRole("button", { name: "Try update" }).click();
+      );
+      await page.route(
+        "**/api/automation/provider-browser/*/reconnect",
+        (route) => {
+          reconnectRequests += 1;
+          return route.fulfill({
+            status: 503,
+            json: { error: "Unexpected reconnect" },
+          });
+        },
+      );
+      await page.goto("/holdings/sources");
+      const source = page
+        .locator(".provider-agent-row")
+        .filter({ hasText: label });
+      const reconnect = source.getByRole("button", {
+        name: `Reconnect ${label}`,
+      });
+      await expect(reconnect).toBeEnabled();
+      try {
+        await source.getByRole("button", { name: "Try update" }).click();
+        await expect(
+          source.getByRole("button", { name: "Requesting…" }),
+        ).toBeDisabled();
+        await expect(reconnect).toBeDisabled();
+        expect(reconnectRequests).toBe(0);
+      } finally {
+        finishUpdate();
+      }
       await expect(
-        source.getByRole("button", { name: "Requesting…" }),
-      ).toBeDisabled();
-      await expect(reconnect).toBeDisabled();
-      expect(reconnectRequests).toBe(0);
-    } finally {
-      finishUpdate();
-    }
-    await expect(
-      source.getByRole("heading", { name: "Update queued" }),
-    ).toBeVisible();
-  });
+        source.getByRole("heading", { name: "Update queued" }),
+      ).toBeVisible();
+    },
+  );
 }
 
 test("starts a provider-scoped browser reconnect without terminal handoff", async ({
@@ -2016,24 +2024,26 @@ test("starts a provider-scoped browser reconnect without terminal handoff", asyn
   ).toBeVisible();
 });
 
-test("keeps invalid AngelList agent responses out of user-facing copy", async ({
-  page,
-}) => {
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({ json: { version: 1, status: "unexpected" } });
-  });
+test(
+  "keeps invalid AngelList agent responses out of user-facing copy",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({ json: [] });
+    });
+    await page.route("**/api/automation/angellist/status", async (route) => {
+      await route.fulfill({ json: { version: 1, status: "unexpected" } });
+    });
 
-  await page.goto("/holdings/sources");
+    await page.goto("/holdings/sources");
 
-  await expect(page.getByRole("alert")).toHaveText(
-    "Keel could not check AngelList updates. Try again shortly.",
-  );
-  await expect(page.locator("body")).not.toContainText("invalid_value");
-  await expect(page.locator("body")).not.toContainText("unrecognized_keys");
-});
+    await expect(page.getByRole("alert")).toHaveText(
+      "Keel could not check AngelList updates. Try again shortly.",
+    );
+    await expect(page.locator("body")).not.toContainText("invalid_value");
+    await expect(page.locator("body")).not.toContainText("unrecognized_keys");
+  },
+);

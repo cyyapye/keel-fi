@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 64,
+  "retiredBrowserCaseCount": 83,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -448,6 +448,99 @@
         "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps following content reachable in a 500-source queue with automatic observation"
       ],
       "assertions": "The manual candidate queue shows the first 25 rows and appends the next 25 on explicit activation. Its draft, return position, following content and request counts are exercised with an available observer, which also rejects accidental automatic loading."
+    },
+    {
+      "id": "browser-minimal-provider-session-projects",
+      "retiredBrowserCases": [
+        "e2e/provider-session.spec.ts :: chromium :: sydecar accepts a saved sign-in after a real Chrome restart",
+        "e2e/provider-session.spec.ts :: chromium :: tokenfolio rejects a lost sign-in after a real Chrome restart",
+        "e2e/provider-session.spec.ts :: mobile-chromium :: sydecar accepts a saved sign-in after a real Chrome restart",
+        "e2e/provider-session.spec.ts :: mobile-chromium :: sydecar rejects a lost sign-in after a real Chrome restart",
+        "e2e/provider-session.spec.ts :: mobile-chromium :: tokenfolio accepts a saved sign-in after a real Chrome restart",
+        "e2e/provider-session.spec.ts :: mobile-chromium :: tokenfolio rejects a lost sign-in after a real Chrome restart"
+      ],
+      "unitCases": [
+        "scripts/provider-browser-reconnect.test.ts :: managed provider browser reconnect > never reports success when close fails",
+        "scripts/provider-browser-reconnect.test.ts :: managed provider browser reconnect > never reports success when verify fails",
+        "scripts/provider-browser-reconnect.test.ts :: managed provider browser reconnect > reports connected only after closing and verifying the saved profile"
+      ],
+      "browserCases": [
+        "e2e/provider-session.spec.ts :: chromium :: sydecar rejects a lost sign-in after a real Chrome restart",
+        "e2e/provider-session.spec.ts :: chromium :: tokenfolio accepts a saved sign-in after a real Chrome restart",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar survives the next daily capture with bounded renewal"
+      ],
+      "assertions": "The same completion routine closes Chrome and verifies the persisted profile before marking the session connected. A real Tokenfolio saved cookie and a Sydecar lost cookie cover the two outcomes across both providers. Sydecar renewal independently exercises saved profile persistence and production shutdown."
+    },
+    {
+      "id": "browser-minimal-provider-portfolio-mac-agent-projects",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: captures explicit Tokenfolio quote dates and split basis without substituting the import date"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures explicit Tokenfolio quote dates and split basis without substituting the import date"
+      ],
+      "assertions": "The capture runs at the worker\u2019s desktop viewport. The retained case checks both quote-date and split-basis variants through the actual provider page parser. Separate narrow-screen authentication and readiness owners execute on both projects."
+    },
+    {
+      "id": "browser-minimal-app-recovery-projects",
+      "retiredBrowserCases": [
+        "e2e/app-recovery.visual.spec.ts :: chromium :: recovers from render exception without displaying internal errors",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: recovers from login HTML without displaying internal errors"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/app-recovery.visual.spec.ts :: chromium :: recovers from login HTML without displaying internal errors",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: recovers from render exception without displaying internal errors"
+      ],
+      "assertions": "Desktop login-HTML and mobile render-exception fixtures retain the same mounted root recovery, private error suppression and successful reload through the actual API read. Other failure modes retain both rendered viewports."
+    },
+    {
+      "id": "browser-minimal-holdings-import-projects",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: automatically processes an older pending import without opening its review",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: sydecar disables reconnect while a page-failure retry is being queued",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps invalid AngelList agent responses out of user-facing copy",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: tokenfolio disables reconnect while a page-failure retry is being queued"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: keeps invalid AngelList agent responses out of user-facing copy",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: tokenfolio disables reconnect while a page-failure retry is being queued",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: automatically processes an older pending import without opening its review",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: sydecar disables reconnect while a page-failure retry is being queued"
+      ],
+      "assertions": "Mobile checks older pending import processing and overflow. Desktop checks invalid agent response sanitization. One real pending retry for each provider on opposite viewports checks its route, disabled reconnect, zero premature dispatch and eventual queued status."
+    },
+    {
+      "id": "browser-minimal-investment-holdings-projects",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: automatically retries an old interrupted brokerage check once",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: opens a new Item flow for a disconnected brokerage",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps a same-label disconnected Item when it has a reviewed account",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: runs one due brokerage check after Holdings renders"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps a same-label disconnected Item when it has a reviewed account",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: automatically retries an old interrupted brokerage check once",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: opens a new Item flow for a disconnected brokerage"
+      ],
+      "assertions": "The retained components check due sync once across revisit, interrupted-sync recovery once, the new-item connection flow and same-label disconnected reviewed account. These API and display contracts each run once across the two projects. Both native 1000-item timing and geometry owners execute."
+    },
+    {
+      "id": "browser-minimal-ui-catalogue-projects",
+      "retiredBrowserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: captures blinded design-review variants and semantic holdouts",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: captures blinded design-review variants and semantic holdouts"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: quiet buttons keep action spacing and textareas use the filled surface",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: quiet buttons keep action spacing and textareas use the filled surface"
+      ],
+      "assertions": "The actual catalogue Button remains disabled with opacity 0.4 on both projects in an existing forms case. Blinded design evaluation can still generate its controlled stimuli on both viewports through explicit invocation."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

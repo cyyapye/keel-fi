@@ -4,6 +4,11 @@ These are evaluation cases, not ordinary agent instructions. Do not give this
 scorecard to a reviewer. Existing instruction-routing holdouts in
 [agent-guidance-evaluation.md](agent-guidance-evaluation.md) still apply.
 
+Generate the blinded catalogue stimuli for a design evaluation with
+`KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/ui-catalogue.visual.spec.ts --grep "captures blinded"'`.
+Playwright writes the four images for each viewport to its test-results
+directory.
+
 ## Cases fixed before the pilot
 
 | Case                    | Request / evidence                                                                            | Observable requirement                                                                                                                                                                                |

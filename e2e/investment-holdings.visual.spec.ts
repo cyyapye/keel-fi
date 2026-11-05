@@ -1539,64 +1539,69 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   ).toHaveCount(0);
 });
 
-test("runs one due brokerage check after Holdings renders", async ({
-  page,
-}, testInfo) => {
-  const robinhoodConnectionId = "11111111-1111-4111-8111-111111111111";
-  const staleStatuses = statuses.map((status) =>
-    status.connectionId === robinhoodConnectionId
-      ? { ...status, lastSyncedAt: "2026-08-17T11:45:00.000Z" }
-      : status,
-  );
-  let automaticRequestCount = 0;
+test(
+  "runs one due brokerage check after Holdings renders",
+  { tag: "@desktop-only" },
+  async ({ page }, testInfo) => {
+    const robinhoodConnectionId = "11111111-1111-4111-8111-111111111111";
+    const staleStatuses = statuses.map((status) =>
+      status.connectionId === robinhoodConnectionId
+        ? { ...status, lastSyncedAt: "2026-08-17T11:45:00.000Z" }
+        : status,
+    );
+    let automaticRequestCount = 0;
 
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: staleStatuses,
-        errorCode: null,
-      },
+    await page.unroute("**/api/investment-connections");
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          connections: staleStatuses,
+          errorCode: null,
+        },
+      });
     });
-  });
-  await page.unroute("**/api/investment-connections/auto-sync");
-  await page.route("**/api/investment-connections/auto-sync", async (route) => {
-    automaticRequestCount += 1;
-    expect(route.request().method()).toBe("POST");
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: staleStatuses,
-        errorCode: null,
+    await page.unroute("**/api/investment-connections/auto-sync");
+    await page.route(
+      "**/api/investment-connections/auto-sync",
+      async (route) => {
+        automaticRequestCount += 1;
+        expect(route.request().method()).toBe("POST");
+        await route.fulfill({
+          json: {
+            version: 1,
+            configured: true,
+            connections: staleStatuses,
+            errorCode: null,
+          },
+        });
       },
-    });
-  });
+    );
 
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
-  await expect(page.locator(".exposure-group")).toHaveCount(5);
-  await openHoldingSources(page);
+    await page.goto("/");
+    const mobile = testInfo.project.name === "mobile-chromium";
+    await navigateToScreen(page, mobile, /Holdings/);
+    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await openHoldingSources(page);
 
-  const robinhoodCard = page
-    .locator(".investment-institution")
-    .filter({ hasText: "Robinhood" });
-  await expect(robinhoodCard).toContainText(
-    "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
-  );
-  await expect.poll(() => automaticRequestCount).toBe(1);
-  await page
-    .getByRole("navigation", { name: "Holdings sections" })
-    .getByRole("link", { name: "Holdings", exact: true })
-    .click();
-  await expect(page.locator(".exposure-group")).toHaveCount(5);
-  await openHoldingSources(page);
-  await expect(robinhoodCard).toBeVisible();
-  expect(automaticRequestCount).toBe(1);
-});
+    const robinhoodCard = page
+      .locator(".investment-institution")
+      .filter({ hasText: "Robinhood" });
+    await expect(robinhoodCard).toContainText(
+      "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
+    );
+    await expect.poll(() => automaticRequestCount).toBe(1);
+    await page
+      .getByRole("navigation", { name: "Holdings sections" })
+      .getByRole("link", { name: "Holdings", exact: true })
+      .click();
+    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await openHoldingSources(page);
+    await expect(robinhoodCard).toBeVisible();
+    expect(automaticRequestCount).toBe(1);
+  },
+);
 
 test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
   const robinhood = statuses[0]!;
@@ -1648,139 +1653,148 @@ test("lets a failed brokerage check be retried", async ({ page }, testInfo) => {
   ).toBeVisible();
 });
 
-test("automatically retries an old interrupted brokerage check once", async ({
-  page,
-}, testInfo) => {
-  const robinhood = statuses[0]!;
-  const failed = {
-    ...robinhood,
-    status: "needs_attention" as const,
-    lastSyncedAt: null,
-    latestRunStatus: "failed" as const,
-    errorCode: "unexpected_failure" as const,
-  };
-  let automaticRequestCount = 0;
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: [failed],
-        errorCode: null,
-      },
-    });
-  });
-  await page.unroute("**/api/investment-connections/auto-sync");
-  await page.route("**/api/investment-connections/auto-sync", async (route) => {
-    automaticRequestCount += 1;
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: [robinhood],
-        errorCode: null,
-      },
-    });
-  });
-
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
-  await openHoldingSources(page);
-  const robinhoodCard = page
-    .locator(".investment-institution")
-    .filter({ hasText: "Robinhood" });
-  await expect(
-    robinhoodCard.getByText("Up to date", { exact: true }),
-  ).toBeVisible();
-  await expect.poll(() => automaticRequestCount).toBe(1);
-});
-
-test("opens a new Item flow for a disconnected brokerage", async ({
-  page,
-}, testInfo) => {
-  let linkTokenRequests = 0;
-  await page.addInitScript(() => {
-    Object.assign(window, {
-      Plaid: {
-        create: ({ onExit }: { onExit: () => void }) => ({
-          destroy: () => undefined,
-          open: () => window.setTimeout(onExit, 0),
-        }),
-      },
-    });
-  });
-  await page.route(
-    "**/api/investment-connections/link-token",
-    async (route) => {
-      linkTokenRequests += 1;
+test(
+  "automatically retries an old interrupted brokerage check once",
+  { tag: "@mobile-only" },
+  async ({ page }, testInfo) => {
+    const robinhood = statuses[0]!;
+    const failed = {
+      ...robinhood,
+      status: "needs_attention" as const,
+      lastSyncedAt: null,
+      latestRunStatus: "failed" as const,
+      errorCode: "unexpected_failure" as const,
+    };
+    let automaticRequestCount = 0;
+    await page.unroute("**/api/investment-connections");
+    await page.route("**/api/investment-connections", async (route) => {
       await route.fulfill({
         json: {
-          linkToken: "link-synthetic-disconnected",
-          expiration: "2026-08-18T12:30:00.000Z",
+          version: 1,
+          configured: true,
+          connections: [failed],
+          errorCode: null,
         },
       });
-    },
-  );
-
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
-  await openHoldingSources(page);
-  const disconnectedCard = page.locator(".investment-institution").filter({
-    hasText: "Synthetic Former Brokerage",
-  });
-  const connectAgain = disconnectedCard.getByRole("button", {
-    name: "Connect again",
-  });
-
-  await connectAgain.click();
-
-  await expect.poll(() => linkTokenRequests).toBe(1);
-  await expect(connectAgain).toBeEnabled();
-});
-
-test("keeps a same-label disconnected Item when it has a reviewed account", async ({
-  page,
-}, testInfo) => {
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        connections: statuses.map((status) =>
-          status.connectionId === "33333333-3333-4333-8333-333333333333"
-            ? {
-                ...status,
-                institutionKey: "ins_fidelity_legacy",
-                status: "disconnected" as const,
-              }
-            : status,
-        ),
-        errorCode: null,
-      },
     });
-  });
+    await page.unroute("**/api/investment-connections/auto-sync");
+    await page.route(
+      "**/api/investment-connections/auto-sync",
+      async (route) => {
+        automaticRequestCount += 1;
+        await route.fulfill({
+          json: {
+            version: 1,
+            configured: true,
+            connections: [robinhood],
+            errorCode: null,
+          },
+        });
+      },
+    );
 
-  await page.goto("/");
-  const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Holdings/);
-  await openHoldingSources(page);
+    await page.goto("/");
+    const mobile = testInfo.project.name === "mobile-chromium";
+    await navigateToScreen(page, mobile, /Holdings/);
+    await openHoldingSources(page);
+    const robinhoodCard = page
+      .locator(".investment-institution")
+      .filter({ hasText: "Robinhood" });
+    await expect(
+      robinhoodCard.getByText("Up to date", { exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => automaticRequestCount).toBe(1);
+  },
+);
 
-  const fidelityCards = page
-    .locator(".investment-institution")
-    .filter({ hasText: "Fidelity" });
-  await expect(fidelityCards).toHaveCount(2);
-  const disconnectedFidelity = fidelityCards.filter({
-    hasText: "Disconnected",
-  });
-  await expect(disconnectedFidelity).toContainText("1 reviewed account");
-  await expect(
-    disconnectedFidelity.getByRole("button", { name: "Connect again" }),
-  ).toBeVisible();
-});
+test(
+  "opens a new Item flow for a disconnected brokerage",
+  { tag: "@mobile-only" },
+  async ({ page }, testInfo) => {
+    let linkTokenRequests = 0;
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        Plaid: {
+          create: ({ onExit }: { onExit: () => void }) => ({
+            destroy: () => undefined,
+            open: () => window.setTimeout(onExit, 0),
+          }),
+        },
+      });
+    });
+    await page.route(
+      "**/api/investment-connections/link-token",
+      async (route) => {
+        linkTokenRequests += 1;
+        await route.fulfill({
+          json: {
+            linkToken: "link-synthetic-disconnected",
+            expiration: "2026-08-18T12:30:00.000Z",
+          },
+        });
+      },
+    );
+
+    await page.goto("/");
+    const mobile = testInfo.project.name === "mobile-chromium";
+    await navigateToScreen(page, mobile, /Holdings/);
+    await openHoldingSources(page);
+    const disconnectedCard = page.locator(".investment-institution").filter({
+      hasText: "Synthetic Former Brokerage",
+    });
+    const connectAgain = disconnectedCard.getByRole("button", {
+      name: "Connect again",
+    });
+
+    await connectAgain.click();
+
+    await expect.poll(() => linkTokenRequests).toBe(1);
+    await expect(connectAgain).toBeEnabled();
+  },
+);
+
+test(
+  "keeps a same-label disconnected Item when it has a reviewed account",
+  { tag: "@desktop-only" },
+  async ({ page }, testInfo) => {
+    await page.unroute("**/api/investment-connections");
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          connections: statuses.map((status) =>
+            status.connectionId === "33333333-3333-4333-8333-333333333333"
+              ? {
+                  ...status,
+                  institutionKey: "ins_fidelity_legacy",
+                  status: "disconnected" as const,
+                }
+              : status,
+          ),
+          errorCode: null,
+        },
+      });
+    });
+
+    await page.goto("/");
+    const mobile = testInfo.project.name === "mobile-chromium";
+    await navigateToScreen(page, mobile, /Holdings/);
+    await openHoldingSources(page);
+
+    const fidelityCards = page
+      .locator(".investment-institution")
+      .filter({ hasText: "Fidelity" });
+    await expect(fidelityCards).toHaveCount(2);
+    const disconnectedFidelity = fidelityCards.filter({
+      hasText: "Disconnected",
+    });
+    await expect(disconnectedFidelity).toContainText("1 reviewed account");
+    await expect(
+      disconnectedFidelity.getByRole("button", { name: "Connect again" }),
+    ).toBeVisible();
+  },
+);
 
 test("keeps reviewed history in exposures without showing fake brokerage accounts", async ({
   page,

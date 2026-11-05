@@ -192,40 +192,42 @@ test("keeps the screen and navigation when a delayed portfolio component fails",
 });
 
 for (const failure of ["login HTML", "render exception"] as const) {
-  test(`recovers from ${failure} without displaying internal errors`, async ({
-    page,
-  }) => {
-    const uncaught: string[] = [];
-    page.on("pageerror", (error) => uncaught.push(error.message));
-    await page.route("**/src/App.tsx*", (route) =>
-      route.fulfill(
-        failure === "login HTML"
-          ? {
-              contentType: "text/html",
-              body: "<!doctype html><title>Synthetic sign-in page</title>",
-            }
-          : {
-              contentType: "text/javascript",
-              body: 'export function App() { throw new Error("Synthetic private error detail"); }',
-            },
-      ),
-    );
-    await page.goto("/");
-    await expect(
-      page.getByRole("heading", { name: "Keel couldn’t open" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/Synthetic (sign-in|private error)/u),
-    ).toHaveCount(0);
-    expect(uncaught).toEqual([]);
-    await page.unroute("**/src/App.tsx*");
-    const recoveredData = waitForCompletedRead(page, "/api/alpha");
-    await page.getByRole("button", { name: "Reload Keel" }).click();
-    await recoveredData;
-    await expect(
-      page.getByRole("region", { name: "Goal overview" }),
-    ).toBeVisible();
-  });
+  test(
+    `recovers from ${failure} without displaying internal errors`,
+    { tag: failure === "login HTML" ? "@desktop-only" : "@mobile-only" },
+    async ({ page }) => {
+      const uncaught: string[] = [];
+      page.on("pageerror", (error) => uncaught.push(error.message));
+      await page.route("**/src/App.tsx*", (route) =>
+        route.fulfill(
+          failure === "login HTML"
+            ? {
+                contentType: "text/html",
+                body: "<!doctype html><title>Synthetic sign-in page</title>",
+              }
+            : {
+                contentType: "text/javascript",
+                body: 'export function App() { throw new Error("Synthetic private error detail"); }',
+              },
+        ),
+      );
+      await page.goto("/");
+      await expect(
+        page.getByRole("heading", { name: "Keel couldn’t open" }),
+      ).toBeVisible();
+      await expect(
+        page.getByText(/Synthetic (sign-in|private error)/u),
+      ).toHaveCount(0);
+      expect(uncaught).toEqual([]);
+      await page.unroute("**/src/App.tsx*");
+      const recoveredData = waitForCompletedRead(page, "/api/alpha");
+      await page.getByRole("button", { name: "Reload Keel" }).click();
+      await recoveredData;
+      await expect(
+        page.getByRole("region", { name: "Goal overview" }),
+      ).toBeVisible();
+    },
+  );
 }
 
 test("keeps a readable recovery action when scripts and styles are unavailable", async ({
