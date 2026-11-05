@@ -593,10 +593,10 @@ test(
     });
     entity.currentOwner = null;
     await page.reload();
-    await expect(details.locator(".entity-review__ownership")).toHaveCount(0);
     await expect(
       details.getByText("Historical", { exact: true }),
     ).toBeVisible();
+    await expect(details.locator(".entity-review__ownership")).toHaveCount(0);
     await expect(details).not.toContainText("0%");
     await expect(details).not.toContainText("Held by");
   },

@@ -530,11 +530,11 @@ test("shows only cash exceptions and preserves failed decisions", async ({
   await expect.poll(() => baselineRefreshRequests).toBe(2);
   await page.reload();
   await expect(
-    cashSection.getByRole("button", { name: /Review .*exception/ }),
-  ).toHaveCount(0);
-  await expect(
     cashSection.locator(".cash-accounts__accepted-value"),
   ).toHaveText(["$24,680.55", "$75,000.00"]);
+  await expect(
+    cashSection.getByRole("button", { name: /Review .*exception/ }),
+  ).toHaveCount(0);
   expect(identityReviewBody).toEqual({
     connectionId,
     priorNaturalKeySha256: "4".repeat(64),

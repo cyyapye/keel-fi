@@ -993,3 +993,11 @@ and 371 Linux reference images. The same image variants were retired on Darwin.
 - The 205-query replay boundary uses the same real workerd handler as the
   provider-day tests. It checks three transport calls, 205 real reads and no
   writes. A bad batch limit, missing table and wrong row still fail.
+
+For an absence assertion after navigation or reload, first wait for a positive
+fact from the same screen and response. The cash-account check now waits for the
+accepted balances before checking that the exception button has gone. The
+historical entity check waits for the saved historical state before checking
+that its owner row has gone. Mobile navigation checks the loaded menu button
+before checking the two closed navigation regions. A delayed response with a
+stale element passed the old assertions and failed all three revised checks.

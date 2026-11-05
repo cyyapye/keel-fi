@@ -119,9 +119,9 @@ test("keeps primary navigation legible and keyboard accessible", async ({
   });
 
   if (mobile) {
+    await expect(menuButton).toHaveAttribute("aria-expanded", "false");
     await expect(desktopNavigation).toBeHidden();
     await expect(mobileNavigation).toBeHidden();
-    await expect(menuButton).toHaveAttribute("aria-expanded", "false");
 
     await menuButton.click();
     await expect(mobileNavigation).toBeVisible();
