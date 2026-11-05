@@ -196,119 +196,122 @@ test("retains an uncertain holding draft through database quota exhaustion witho
   });
 });
 
-test("persists manual Direct, SPV and Fund holdings with unknown financial facts", async ({
+test("persists and reopens an unassigned Direct holding with unknown financial facts", async ({
   page,
 }, testInfo) => {
-  for (const kind of ["Direct", "SPV", "Fund"] as const) {
-    const name = `Synthetic manual ${kind} ${testInfo.project.name}`;
-    await start(page, kind, name);
-    const positionId = await save(page);
-    await expect(
-      page.getByRole("heading", { name, exact: true }),
-    ).toBeVisible();
-    const [reloadedRequest] = await Promise.all([
-      page.waitForRequest(holdingsRequest),
-      page.reload(),
-    ]);
-    await expect(
-      page.getByRole("heading", { name, exact: true }),
-    ).toBeVisible();
-    const holding = await readResponse(
-      await reloadedRequest.response(),
-      positionId,
-    );
-    expect(holding.positionKind).toBe(
-      kind === "Direct"
-        ? "direct"
-        : kind === "SPV"
-          ? "spv_interest"
-          : "fund_interest",
-    );
-    expect(holding.manualContext?.classification).toBe("private_paper");
-    expect(holding.sourceLabel).toBe("Entered by you");
-    expect(holding.sourceStatus).toBe("manual");
-    expect(holding.investedMinor).toBeNull();
-    expect(holding.committedMinor).toBeNull();
-    expect(holding.realizedValueMinor).toBeNull();
-    expect(holding.administratorNavMinor).toBeNull();
-    expect(holding.purchaseContext?.openedOn).toBeNull();
-    await expect(
-      page.getByRole("button", { name: "Add valuation", exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText("$0", { exact: true })).toHaveCount(0);
-    await expect(page.locator(".holding-value-summary")).toHaveCount(0);
-    await expect(page.locator(".holding-investment")).toHaveCount(0);
-    await expect(
-      page.getByRole("heading", { name: "Investment", exact: true }),
-    ).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: "Add investment details", exact: true }),
-    ).toHaveCount(1);
-    await expect(
-      page
-        .locator(".holding-detail-actions")
-        .getByRole("button", { name: "Add valuation", exact: true }),
-    ).toBeVisible();
-    if (kind === "Direct") {
-      await recordMobileGeometry(page, testInfo, "unknown-financial-facts", [
-        {
-          name: "identity edit",
-          locator: page.getByRole("button", {
-            name: "Edit holding details",
-            exact: true,
-          }),
-        },
-        {
-          name: "add investment details",
-          locator: page.getByRole("button", {
-            name: "Add investment details",
-            exact: true,
-          }),
-        },
-        {
-          name: "add valuation",
-          locator: page.getByRole("button", {
-            name: "Add valuation",
-            exact: true,
-          }),
-        },
-        {
-          name: "sources and history",
-          locator: page.getByRole("button", {
-            name: "Sources & history",
-            exact: true,
-          }),
-        },
-      ]);
-      await page.addStyleTag({
-        content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-      });
-      await testInfo.attach("manual-unknown-financial-facts", {
-        body: await page.locator(".spv-holding").screenshot({
-          path: testInfo.outputPath("manual-unknown-financial-facts.png"),
-          animations: "disabled",
-        }),
-        contentType: "image/png",
-      });
-    }
-    await page
-      .getByRole("button", { name: "Add investment details", exact: true })
-      .click();
-    await expect(page.getByLabel("Cash paid · $", { exact: true })).toHaveValue(
-      "",
-    );
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Add valuation", exact: true })
-      .click();
-    await expect(
-      page.getByLabel("Position total · $", { exact: true }),
-    ).toHaveValue("");
-    await expect(
-      page.getByRole("button", { name: "As of", exact: true }),
-    ).toContainText(/choose date|not set|select date/iu);
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  }
+  const name = `Synthetic manual Direct ${testInfo.project.name}`;
+  await start(page, "Direct", name);
+  const positionId = await save(page);
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  const [reloadedRequest] = await Promise.all([
+    page.waitForRequest(holdingsRequest),
+    page.reload(),
+  ]);
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  const holding = await readResponse(
+    await reloadedRequest.response(),
+    positionId,
+  );
+  expect(holding.positionKind).toBe("direct");
+  expect(holding.manualContext?.classification).toBe("private_paper");
+  expect(holding.sourceLabel).toBe("Entered by you");
+  expect(holding.sourceStatus).toBe("manual");
+  expect(holding.investedMinor).toBeNull();
+  expect(holding.committedMinor).toBeNull();
+  expect(holding.realizedValueMinor).toBeNull();
+  expect(holding.administratorNavMinor).toBeNull();
+  expect(holding.purchaseContext?.openedOn).toBeNull();
+  await expect(
+    page.getByRole("button", { name: "Add valuation", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("$0", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".holding-value-summary")).toHaveCount(0);
+  await expect(page.locator(".holding-investment")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Investment", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Add investment details", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page
+      .locator(".holding-detail-actions")
+      .getByRole("button", { name: "Add valuation", exact: true }),
+  ).toBeVisible();
+  await recordMobileGeometry(page, testInfo, "unknown-financial-facts", [
+    {
+      name: "identity edit",
+      locator: page.getByRole("button", {
+        name: "Edit holding details",
+        exact: true,
+      }),
+    },
+    {
+      name: "add investment details",
+      locator: page.getByRole("button", {
+        name: "Add investment details",
+        exact: true,
+      }),
+    },
+    {
+      name: "add valuation",
+      locator: page.getByRole("button", {
+        name: "Add valuation",
+        exact: true,
+      }),
+    },
+    {
+      name: "sources and history",
+      locator: page.getByRole("button", {
+        name: "Sources & history",
+        exact: true,
+      }),
+    },
+  ]);
+  await page.addStyleTag({
+    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  });
+  await testInfo.attach("manual-unknown-financial-facts", {
+    body: await page.locator(".spv-holding").screenshot({
+      path: testInfo.outputPath("manual-unknown-financial-facts.png"),
+      animations: "disabled",
+    }),
+    contentType: "image/png",
+  });
+  await page
+    .getByRole("button", { name: "Add investment details", exact: true })
+    .click();
+  await expect(page.getByLabel("Cash paid · $", { exact: true })).toHaveValue(
+    "",
+  );
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add valuation", exact: true })
+    .click();
+  await expect(
+    page.getByLabel("Position total · $", { exact: true }),
+  ).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "As of", exact: true }),
+  ).toContainText(/choose date|not set|select date/iu);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Back to holdings", exact: true })
+    .click();
+  await page
+    .getByRole("searchbox", { name: "Search holdings", exact: true })
+    .fill(name);
+  const detail = page.getByRole("button", {
+    name: `View ${name} holding details`,
+    exact: true,
+  });
+  await expect(detail).toBeVisible();
+  await detail.click();
+  await expect(page).toHaveURL(new RegExp(`position=${positionId}`));
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add valuation", exact: true }),
+  ).toBeVisible();
 });
 
 test("keeps explicit zero cash separate from a dated estimate through valuation and identity edits", async ({
@@ -338,6 +341,7 @@ test("keeps explicit zero cash separate from a dated estimate through valuation 
     page.getByText("$30,000.01", { exact: true }).first(),
   ).toBeVisible();
   const first = await readResponse(await firstRequest.response(), positionId);
+  expect(first.positionKind).toBe("spv_interest");
   expect(first.investedMinor).toBe(0);
   await expect(
     page
@@ -654,31 +658,6 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
   expect(renamed.purchaseContext?.openedOn).toBeNull();
   expect(renamed.realizedValueMinor).toBeNull();
   await expect(detail.locator("[aria-label^='Return ']")).toHaveCount(0);
-});
-
-test("keeps a holding with no cash or valuation reachable from unassigned Holdings", async ({
-  page,
-}, testInfo) => {
-  const name = `Synthetic unassigned manual Direct ${testInfo.project.name}`;
-  await start(page, "Direct", name);
-  const positionId = await save(page);
-  await page
-    .getByRole("button", { name: "Back to holdings", exact: true })
-    .click();
-  await page
-    .getByRole("searchbox", { name: "Search holdings", exact: true })
-    .fill(name);
-  const detail = page.getByRole("button", {
-    name: `View ${name} holding details`,
-    exact: true,
-  });
-  await expect(detail).toBeVisible();
-  await detail.click();
-  await expect(page).toHaveURL(new RegExp(`position=${positionId}`));
-  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Add valuation", exact: true }),
-  ).toBeVisible();
 });
 
 test("uses the latest saved partial contribution cash through edits and clearing", async ({

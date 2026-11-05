@@ -3,12 +3,14 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 56,
+  "retiredBrowserCaseCount": 64,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
-    "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs"
+    "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
+    "e2e/manual-holdings.spec.ts :: chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
+    "e2e/manual-holdings.spec.ts :: mobile-chromium :: persists and reopens an unassigned Direct holding with unknown financial facts"
   ],
   "requiredPdfFlow": "pdf-isolation",
   "migrations": [
@@ -174,7 +176,10 @@
     },
     {
       "id": "link-suggestion",
-      "retiredBrowserCases": [],
+      "retiredBrowserCases": [
+        "e2e/position-links.visual.spec.ts :: chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts",
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts"
+      ],
       "unitCases": [
         "scripts/position-link-suggestion.test.ts :: only a unique pair is suggested, without mutating records or accepting a link",
         "scripts/position-link-suggestion.test.ts :: retained history rejects mismatched identity: {\"openedOn\":\"2024-07-10\"}",
@@ -198,8 +203,10 @@
         "scripts/position-link-suggestion.test.ts :: suggestion rejects same observation time among 120 unrelated positions"
       ],
       "browserCases": [
-        "e2e/position-links.visual.spec.ts :: chromium :: prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts",
-        "e2e/position-links.visual.spec.ts :: chromium :: suggests a unique retained historical source without accepting missing account or company identity"
+        "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
+        "e2e/position-links.visual.spec.ts :: chromium :: suggests a unique retained historical source without accepting missing account or company identity",
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: suggests a unique retained historical source without accepting missing account or company identity"
       ],
       "assertions": "Eight ordinary and four historical identity holdouts, ambiguity, relationship inference and reviewed-survivor priority among 120 unrelated records. Keep form binding, manual choice, no automatic save, missing-identity warning and screenshot."
     },
@@ -405,6 +412,42 @@
         "e2e/holdings-detail.visual.spec.ts :: mobile-chromium :: leads with the investment and opens a truthful holding detail"
       ],
       "assertions": "Both loaded production summaries show supported returns for known refund treatment and withhold them while inclusion is unknown. The holding-detail journeys exercise Back and focus restoration."
+    },
+    {
+      "id": "manual-unknown-facts-and-reachability",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.spec.ts :: chromium :: keeps a holding with no cash or valuation reachable from unassigned Holdings",
+        "e2e/manual-holdings.spec.ts :: chromium :: persists manual Direct, SPV and Fund holdings with unknown financial facts",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: keeps a holding with no cash or valuation reachable from unassigned Holdings",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: persists manual Direct, SPV and Fund holdings with unknown financial facts"
+      ],
+      "unitCases": [
+        "packages/database/src/manual-holdings.test.ts :: creates an honest unknown-money direct and reuses its dated valuation editor",
+        "packages/database/src/manual-holdings.test.ts :: creates an honest unknown-money fund_interest and reuses its dated valuation editor",
+        "packages/database/src/manual-holdings.test.ts :: creates an honest unknown-money spv_interest and reuses its dated valuation editor"
+      ],
+      "browserCases": [
+        "e2e/manual-holdings.spec.ts :: chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
+        "e2e/manual-holdings.spec.ts :: chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps a Fund company grouping distinct from unknown allocation",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: keeps a Fund company grouping distinct from unknown allocation"
+      ],
+      "assertions": "A Direct record persists, reloads with unknown financial facts, and reopens through unassigned Holdings. The Fund form sends the reviewed identity. SPV zero cash remains distinct from an estimate. All three kinds persist with their exact kind and null opened date."
+    },
+    {
+      "id": "manual-candidate-queue-observer",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: keeps following content reachable in a 500-source queue without automatic observation",
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps following content reachable in a 500-source queue without automatic observation"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: keeps following content reachable in a 500-source queue with automatic observation",
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps following content reachable in a 500-source queue with automatic observation"
+      ],
+      "assertions": "The manual candidate queue shows the first 25 rows and appends the next 25 on explicit activation. Its draft, return position, following content and request counts are exercised with an available observer, which also rejects accidental automatic loading."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

@@ -674,6 +674,17 @@ test("reviews historical company rename from a pending card, keeps the existing 
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  // An optional manual survivor choice remains editable and is never saved on open.
+  await keep.click();
+  await page.getByRole("option", { name: /Sep 2, 2026/ }).click();
+  await expect(member).toContainText("Choose a source record");
+  await keep.click();
+  await page
+    .getByRole("option", { name: /Sep 1, 2026/ })
+    .first()
+    .click();
+  await expect(member).toContainText("Sep 2, 2026");
+  expect(fixture.links()).toHaveLength(0);
   fixture.reject(true);
   await section.getByRole("combobox", { name: "Relationship" }).click();
   await page
@@ -788,6 +799,9 @@ test("suggests a unique retained historical source without accepting missing acc
     ]);
     await page.reload();
     await expect(member).toContainText("Choose a source record");
+    await expect(
+      section.getByRole("button", { name: "Apply link" }),
+    ).toHaveCount(0);
   }
   fixture.setPositions([
     retained,
@@ -797,59 +811,8 @@ test("suggests a unique retained historical source without accepting missing acc
   ]);
   await page.reload();
   await expect(member).toContainText("Choose a source record");
-  expect(fixture.links()).toHaveLength(0);
-});
-
-test("prefills only one exact investment pair and preserves manual choices across identity and ambiguity holdouts", async ({
-  page,
-}) => {
-  const fixture = await openHistoricalRenameReview(page);
-  const { section, availablePositions, unrelatedPositions } = fixture;
-  const keep = section.getByRole("combobox", {
-    name: "Investment record to keep",
-  });
-  const member = section.getByRole("combobox", {
-    name: /^(Source to link|Link another source)$/,
-  });
-  // Retain incompatible and ambiguous UI wiring; domain tests own permutations.
-  for (const mismatch of [
-    { ownershipContainerId: "synthetic-other-account" },
-  ]) {
-    fixture.setPositions([
-      { ...availablePositions[0]!, ...mismatch },
-      availablePositions[1]!,
-      ...unrelatedPositions,
-    ]);
-    await page.reload();
-    await expect(member).toContainText("Choose a source record");
-    await expect(
-      section.getByRole("button", { name: "Apply link" }),
-    ).toHaveCount(0);
-  }
-  fixture.setPositions([
-    ...availablePositions,
-    { ...availablePositions[0]!, id: "synthetic-third-match" },
-    ...unrelatedPositions,
-  ]);
-  await page.reload();
-  await expect(member).toContainText("Choose a source record");
   await expect(section.getByRole("button", { name: "Apply link" })).toHaveCount(
     0,
   );
-  // Relationship and evidence priority matrices run in position-link-suggestion.test.ts.
-  fixture.setPositions([...availablePositions, ...unrelatedPositions]);
-  await page.reload();
-  await expect(keep).toContainText("Sep 1, 2026");
-  await expect(member).toContainText("Sep 2, 2026");
   expect(fixture.links()).toHaveLength(0);
-  // An optional manual survivor choice remains editable and is never saved on open.
-  await keep.click();
-  await page.getByRole("option", { name: /Sep 2, 2026/ }).click();
-  await expect(member).toContainText("Choose a source record");
-  await keep.click();
-  await page
-    .getByRole("option", { name: /Sep 1, 2026/ })
-    .first()
-    .click();
-  await expect(member).toContainText("Sep 2, 2026");
 });

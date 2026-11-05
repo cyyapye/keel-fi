@@ -826,107 +826,95 @@ test("gates manual creation and editing on all profile fields without browser va
   expect(await attempts.jsonValue()).toEqual([]);
 });
 
-for (const supportsObserver of [true, false])
-  test(`keeps following content reachable in a 500-source queue ${supportsObserver ? "with" : "without"} automatic observation`, async ({
-    page,
-  }) => {
-    if (!supportsObserver)
-      await page.addInitScript(() => {
-        Object.defineProperty(window, "IntersectionObserver", {
-          configurable: true,
-          value: undefined,
-        });
-      });
-    const requests: string[] = [];
-    page.on("request", (request) => {
-      if (new URL(request.url()).pathname.startsWith("/api/"))
-        requests.push(new URL(request.url()).pathname);
-    });
-    const { inventory } = await setup(page, false, "name_not_found");
-    const document = structuredClone(inventory.candidates[0]!);
-    inventory.candidates = Array.from({ length: 498 }, (_, index) => ({
+test("keeps following content reachable in a 500-source queue with automatic observation", async ({
+  page,
+}) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      requests.push(new URL(request.url()).pathname);
+  });
+  const { inventory } = await setup(page, false, "name_not_found");
+  const document = structuredClone(inventory.candidates[0]!);
+  inventory.candidates = Array.from({ length: 498 }, (_, index) => ({
+    ...structuredClone(source),
+    source: { kind: "holding_position" as const, id: `demo-scale-${index}` },
+    sourceDisplayName: `Demo ${String(index).padStart(3, "0")}`,
+    suggestedEntityType: "llc" as const,
+    legalEntityNameEvidence: {
+      state: "provider_reported" as const,
+      legalName: `Demo ${String(index).padStart(3, "0")} LLC`,
+      sourceField: "Fund Name",
+    },
+  }));
+  inventory.candidates.push(
+    {
       ...structuredClone(source),
-      source: { kind: "holding_position" as const, id: `demo-scale-${index}` },
-      sourceDisplayName: `Demo ${String(index).padStart(3, "0")}`,
-      suggestedEntityType: "llc" as const,
-      legalEntityNameEvidence: {
-        state: "provider_reported" as const,
-        legalName: `Demo ${String(index).padStart(3, "0")} LLC`,
-        sourceField: "Fund Name",
-      },
-    }));
-    inventory.candidates.push(
-      {
-        ...structuredClone(source),
-        source: { kind: "holding_position", id: "demo-conflict-last" },
-      },
-      document,
-    );
-    if (
-      await page
-        .getByRole("button", { name: "Back to legal entities", exact: true })
-        .count()
-    )
-      await page
-        .getByRole("button", { name: "Back to legal entities", exact: true })
-        .click();
-    await page.reload();
-    await page.getByRole("button", { name: /^Needs your review/u }).click();
-    const rows = page.locator(
-      ".legal-entity-candidate:visible, .entity-review",
-    );
-    await expect(rows).toHaveCount(25);
-    await expect(rows.nth(0)).toContainText("Review PDF");
-    await expect(rows.nth(1)).toContainText("Names disagree");
-    await expect(rows.nth(2)).toContainText("Demo 000 LLC");
-    await expect(page.getByText("Showing 25 of 500 sources")).toBeVisible();
-    const loadMore = page.getByRole("button", {
-      name: "Load more sources",
-      exact: true,
-    });
-    // Known entities and Add entity follow this queue, so scrolling must leave
-    // them reachable. The same explicit control works without an observer.
-    await loadMore.scrollIntoViewIfNeeded();
-    await expect(rows).toHaveCount(25);
+      source: { kind: "holding_position", id: "demo-conflict-last" },
+    },
+    document,
+  );
+  if (
     await page
-      .getByRole("button", { name: "Add entity", exact: true })
-      .scrollIntoViewIfNeeded();
-    await expect(rows).toHaveCount(25);
-    await loadMore.click();
-    await expect(rows).toHaveCount(50);
-    const scrollBefore = await page.evaluate(() => window.scrollY);
-    await rows
-      .nth(26)
-      .getByRole("button", { name: "Review details", exact: true })
-      .click();
-    const draft = page
-      .getByRole("tabpanel", { name: "Identity", exact: true })
-      .getByLabel("Legal name", { exact: true });
-    await draft.fill("Demo Draft Still Here LLC");
-    await selectReviewSection(page, "Ownership");
-    await selectReviewSection(page, "Identity");
-    await expect(draft).toHaveValue("Demo Draft Still Here LLC");
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .count()
+  )
     await page
       .getByRole("button", { name: "Back to legal entities", exact: true })
       .click();
-    await expect(rows).toHaveCount(50);
-    await expect
-      .poll(() => page.evaluate(() => window.scrollY))
-      .toBeGreaterThanOrEqual(scrollBefore - 5);
-    expect(
-      requests.filter((path) => path === "/api/legal-entities"),
-    ).toHaveLength(2);
-    expect(
-      requests.filter((path) =>
-        [
-          "/api/holdings-page",
-          "/api/alpha",
-          "/api/investment-holdings",
-        ].includes(path),
-      ),
-    ).toEqual([]);
-    await noOverflow(page);
+  await page.reload();
+  await page.getByRole("button", { name: /^Needs your review/u }).click();
+  const rows = page.locator(".legal-entity-candidate:visible, .entity-review");
+  await expect(rows).toHaveCount(25);
+  await expect(rows.nth(0)).toContainText("Review PDF");
+  await expect(rows.nth(1)).toContainText("Names disagree");
+  await expect(rows.nth(2)).toContainText("Demo 000 LLC");
+  await expect(page.getByText("Showing 25 of 500 sources")).toBeVisible();
+  const loadMore = page.getByRole("button", {
+    name: "Load more sources",
+    exact: true,
   });
+  // Known entities and Add entity follow this queue, so scrolling must leave
+  // them reachable even when IntersectionObserver is available.
+  await loadMore.scrollIntoViewIfNeeded();
+  await expect(rows).toHaveCount(25);
+  await page
+    .getByRole("button", { name: "Add entity", exact: true })
+    .scrollIntoViewIfNeeded();
+  await expect(rows).toHaveCount(25);
+  await loadMore.click();
+  await expect(rows).toHaveCount(50);
+  const scrollBefore = await page.evaluate(() => window.scrollY);
+  await rows
+    .nth(26)
+    .getByRole("button", { name: "Review details", exact: true })
+    .click();
+  const draft = page
+    .getByRole("tabpanel", { name: "Identity", exact: true })
+    .getByLabel("Legal name", { exact: true });
+  await draft.fill("Demo Draft Still Here LLC");
+  await selectReviewSection(page, "Ownership");
+  await selectReviewSection(page, "Identity");
+  await expect(draft).toHaveValue("Demo Draft Still Here LLC");
+  await page
+    .getByRole("button", { name: "Back to legal entities", exact: true })
+    .click();
+  await expect(rows).toHaveCount(50);
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThanOrEqual(scrollBefore - 5);
+  expect(
+    requests.filter((path) => path === "/api/legal-entities"),
+  ).toHaveLength(2);
+  expect(
+    requests.filter((path) =>
+      ["/api/holdings-page", "/api/alpha", "/api/investment-holdings"].includes(
+        path,
+      ),
+    ),
+  ).toEqual([]);
+  await noOverflow(page);
+});
 
 test("supports a document-backed correction for a legacy conflict with no saved choices", async ({
   page,

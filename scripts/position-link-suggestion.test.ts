@@ -36,6 +36,13 @@ for (const mismatch of [
     switch (mismatch) {
       case "different account":
         changed.ownershipContainerId = "synthetic-other-account";
+        // With just one candidate, ambiguity cannot disguise a missed account check.
+        expect(
+          suggestPositionLink(
+            { positions: [changed, newer], links: [] },
+            newer.id,
+          ),
+        ).toBeNull();
         break;
       case "missing account":
         delete changed.ownershipContainerId;
