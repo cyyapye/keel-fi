@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 148,
+  "retiredBrowserCaseCount": 154,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -207,7 +207,6 @@
       "browserCases": [
         "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
         "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
-        "e2e/position-links.visual.spec.ts :: chromium :: suggests a unique retained historical source without accepting missing account or company identity",
         "e2e/position-links.visual.spec.ts :: mobile-chromium :: suggests a unique retained historical source without accepting missing account or company identity"
       ],
       "assertions": "Eight ordinary and four historical identity holdouts, ambiguity, relationship inference and reviewed-survivor priority among 120 unrelated records. Keep form binding, manual choice, no automatic save, missing-identity warning and screenshot."
@@ -1224,6 +1223,89 @@
         "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: shows manual creation and only actual identity corrections in normal History"
       ],
       "assertions": "Mobile checks two genuine identity corrections, the initial paid cash, and no spurious Company or Cleared field when the same company IDs reorder. Both widths retain ordinary history at other fixtures."
+    },
+    {
+      "id": "retained-position-source-mobile",
+      "retiredBrowserCases": [
+        "e2e/position-links.visual.spec.ts :: chromium :: suggests a unique retained historical source without accepting missing account or company identity"
+      ],
+      "unitCases": [
+        "scripts/position-link-suggestion.test.ts :: only a unique pair is suggested, without mutating records or accepting a link",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects missing account among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: retained history rejects mismatched identity: {\"sourceProvider\":\"sydecar\"}"
+      ],
+      "browserCases": [
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: suggests a unique retained historical source without accepting missing account or company identity",
+        "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing"
+      ],
+      "assertions": "Mobile renders the unique suggestion among 120 unrelated positions, requires the missing-account warning, disabled Apply and zero writes, then reloads wrong-provider and ambiguous candidates with no Apply. Both widths still compare ordinary historical rename forms. The wide missing-identity warning and facts layout loses its exact image."
+    },
+    {
+      "id": "public-company-ambiguous-mobile",
+      "retiredBrowserCases": [
+        "e2e/company-names.visual.spec.ts :: chromium :: shows an unresolved issuer match without presenting a second grouping form"
+      ],
+      "unitCases": [
+        "apps/api/src/app-company-identity.test.ts :: authenticates company identity reads and writes, validates boundaries and returns stale conflicts"
+      ],
+      "browserCases": [
+        "e2e/company-names.visual.spec.ts :: mobile-chromium :: shows an unresolved issuer match without presenting a second grouping form",
+        "e2e/company-names.visual.spec.ts :: chromium :: reviews an issuer link before grouping a public holding"
+      ],
+      "assertions": "Mobile keeps the ambiguous issuer heading, absence of Approve, exactly one manual company picker and no second review form. The wide and narrow recommended issuer views remain, and desktop retains stale recommendation refresh, correction and readback. The standalone desktop ambiguous issuer image is retired."
+    },
+    {
+      "id": "source-quota-pause-mobile",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: pauses running source status checks until the database reset"
+      ],
+      "unitCases": [
+        "apps/web/src/bounded-polling.test.ts :: browser request budgets > honors a quota pause across focus events and stops at the existing deadline"
+      ],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: pauses running source status checks until the database reset"
+      ],
+      "assertions": "Mobile verifies exactly two requests per source for three private agents and Investments, the loaded quota message, no more requests over 20 simulated minutes, repeated focus events, and no overflow. The polling unit advances its own clock through the precise D1 retry timestamp and deadline. The optional capture command still generates the unchecked image for both widths."
+    },
+    {
+      "id": "angellist-phone-updates",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: requests an AngelList update from the phone-safe Holdings flow"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: requests an AngelList update from the phone-safe Holdings flow",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: orders sources by liquidity and groups private investment setup"
+      ],
+      "assertions": "Mobile reaches the real AngelList interval selector, submits the exact daily interval, queues its update and checks the disabled queued state. Both viewports retain ordinary source ordering and the provider group. The wide all-working AngelList panel no longer has its own screenshot."
+    },
+    {
+      "id": "robinhood-single-exception-mobile",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: shows one Robinhood exception entry point"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: shows one Robinhood exception entry point",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review"
+      ],
+      "assertions": "Mobile shows two waiting items and precisely one review action, omits the duplicate pending-import card, and retains the narrow exception screenshot. The ordinary wide automatic Robinhood card and actual private exception review remain. The wide single-exception crop loses independent pixel sensitivity."
+    },
+    {
+      "id": "angellist-reconnect-clock-desktop",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: starts a provider-scoped browser reconnect without terminal handoff"
+      ],
+      "unitCases": [
+        "apps/web/src/bounded-polling.test.ts :: browser request budgets > honors a quota pause across focus events and stops at the existing deadline",
+        "apps/web/src/bounded-polling.test.ts :: browser request budgets > pauses hidden tabs and cannot turn focus events into extra requests",
+        "scripts/provider-reconnect-access.test.ts :: authenticated reconnect admission > refuses an expired or overlong lease before listening"
+      ],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate"
+      ],
+      "assertions": "Desktop retains the actual provider-scoped viewer URL, five-second admission, hidden-tab suppression, focus storm, connected terminal state and repair action. Mobile still starts and checks the real Tokenfolio reconnect flow, and the provider access browser boundary still exists on both devices. The repeated mobile AngelList timing/repair sequence is retired."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

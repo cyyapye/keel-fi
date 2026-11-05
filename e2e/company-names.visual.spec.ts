@@ -199,6 +199,7 @@ test("reviews generic duplicate names, preserves a rejected draft and finds save
 });
 
 test("reviews an issuer link before grouping a public holding", async ({
+  isMobile,
   page,
 }) => {
   await routeHoldingsPage(page, {
@@ -327,6 +328,14 @@ test("reviews an issuer link before grouping a public holding", async ({
     animations: "disabled",
     fullPage: true,
   });
+  if (isMobile) {
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    return;
+  }
   await editor.getByRole("button", { name: "Approve grouping" }).click();
   await expect(editor).toContainText("Company evidence changed.");
   await expect(editor).toContainText("Northstar Robotics · Legal notice");
@@ -371,68 +380,70 @@ test("reviews an issuer link before grouping a public holding", async ({
   ).toBe(true);
 });
 
-test("shows an unresolved issuer match without presenting a second grouping form", async ({
-  page,
-}) => {
-  await routeHoldingsPage(page, {
-    householdName: "Demo Household",
-    holdings: [],
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.route("**/api/companies/public-links", (route) =>
-    route.fulfill({
-      json: {
-        securities: [
-          {
-            exposureId: "demo_public",
-            name: "Demo Systems Class A",
-            companyId: null,
-            reviewId: null,
-            positionCount: 1,
-          },
-        ],
-        companies: [{ id: "demo_company", name: "Demo Systems" }],
-      },
-    }),
-  );
-  await page.route(
-    "**/api/companies/public-links/demo_public/recommendation",
-    (route) =>
+test(
+  "shows an unresolved issuer match without presenting a second grouping form",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await routeHoldingsPage(page, {
+      householdName: "Demo Household",
+      holdings: [],
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    });
+    await page.route("**/api/companies/public-links", (route) =>
       route.fulfill({
         json: {
-          id: "demo_match",
-          exposureId: "demo_public",
-          status: "ambiguous",
-          companyId: null,
-          companyName: null,
-          sourceUrl: null,
-          sourceTitle: null,
-          reason:
-            "More than one company matches the issuer evidence. Choose the correct company.",
+          securities: [
+            {
+              exposureId: "demo_public",
+              name: "Demo Systems Class A",
+              companyId: null,
+              reviewId: null,
+              positionCount: 1,
+            },
+          ],
+          companies: [{ id: "demo_company", name: "Demo Systems" }],
         },
       }),
-  );
-  await page.goto("/holdings/entities?companies=1&public=demo_public");
-  await expect(
-    page.getByRole("link", { name: "Back to holdings", exact: true }),
-  ).toHaveAttribute("href", "/holdings");
-  await expect(
-    page.getByRole("heading", { name: "Match needs clarification" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Approve grouping" }),
-  ).toHaveCount(0);
-  await expect(page).toHaveScreenshot("public-company-link-unresolved.png", {
-    animations: "disabled",
-    fullPage: true,
-  });
-  await page.getByRole("button", { name: "Choose company manually" }).click();
-  await expect(page.getByRole("combobox", { name: "Group under" })).toHaveCount(
-    1,
-  );
-  await expect(
-    page.getByRole("heading", { name: "Review a company name" }),
-  ).toHaveCount(0);
-});
+    );
+    await page.route(
+      "**/api/companies/public-links/demo_public/recommendation",
+      (route) =>
+        route.fulfill({
+          json: {
+            id: "demo_match",
+            exposureId: "demo_public",
+            status: "ambiguous",
+            companyId: null,
+            companyName: null,
+            sourceUrl: null,
+            sourceTitle: null,
+            reason:
+              "More than one company matches the issuer evidence. Choose the correct company.",
+          },
+        }),
+    );
+    await page.goto("/holdings/entities?companies=1&public=demo_public");
+    await expect(
+      page.getByRole("link", { name: "Back to holdings", exact: true }),
+    ).toHaveAttribute("href", "/holdings");
+    await expect(
+      page.getByRole("heading", { name: "Match needs clarification" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Approve grouping" }),
+    ).toHaveCount(0);
+    await expect(page).toHaveScreenshot("public-company-link-unresolved.png", {
+      animations: "disabled",
+      fullPage: true,
+    });
+    await page.getByRole("button", { name: "Choose company manually" }).click();
+    await expect(
+      page.getByRole("combobox", { name: "Group under" }),
+    ).toHaveCount(1);
+    await expect(
+      page.getByRole("heading", { name: "Review a company name" }),
+    ).toHaveCount(0);
+  },
+);

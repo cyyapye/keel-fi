@@ -987,77 +987,81 @@ test("connects Robinhood through Investments and isolates exceptions", async ({
   expect(exchangeBodies).toEqual([{ publicToken: "public-synthetic" }]);
 });
 
-test("shows one Robinhood exception entry point", async ({ page }) => {
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({
-      json: [
-        {
-          id: robinhoodImportPreview.id,
-          provider: "plaid_investments",
-          status: "quarantined",
-          observedAt: robinhoodImportPreview.observedAt,
-          rowCount: robinhoodImportPreview.summary.rowCount,
-          createdAt: "2026-08-10T16:01:00.000Z",
-        },
-      ],
+test(
+  "shows one Robinhood exception entry point",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await page.unroute("**/api/investment-connections");
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
     });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "ready",
-        interval: "weekly",
-        runStatus: null,
-        lastSeenAt: "2026-08-09T16:00:00.000Z",
-        lastCompletedAt: "2026-08-03T16:00:00.000Z",
-        nextRunAt: "2026-08-16T16:00:00.000Z",
-        latestImportId: null,
-        errorCode: null,
-      },
-    });
-  });
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({
-      json: investmentState([
-        investmentStatus({
-          latestImportId: robinhoodImportPreview.id,
-          latestAdjudication: {
-            importId: robinhoodImportPreview.id,
-            policyVersion: "plaid-investments-holdings-auto-v3",
-            autoAppliedCount: 2,
-            quarantinedCount: 2,
-            preservedPositionCount: 1,
-            baselineRefreshStatus: "refreshed",
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({
+        json: [
+          {
+            id: robinhoodImportPreview.id,
+            provider: "plaid_investments",
+            status: "quarantined",
+            observedAt: robinhoodImportPreview.observedAt,
+            rowCount: robinhoodImportPreview.summary.rowCount,
+            createdAt: "2026-08-10T16:01:00.000Z",
           },
-        }),
-      ]),
+        ],
+      });
     });
-  });
+    await page.route("**/api/automation/angellist/status", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          status: "ready",
+          interval: "weekly",
+          runStatus: null,
+          lastSeenAt: "2026-08-09T16:00:00.000Z",
+          lastCompletedAt: "2026-08-03T16:00:00.000Z",
+          nextRunAt: "2026-08-16T16:00:00.000Z",
+          latestImportId: null,
+          errorCode: null,
+        },
+      });
+    });
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({
+        json: investmentState([
+          investmentStatus({
+            latestImportId: robinhoodImportPreview.id,
+            latestAdjudication: {
+              importId: robinhoodImportPreview.id,
+              policyVersion: "plaid-investments-holdings-auto-v3",
+              autoAppliedCount: 2,
+              quarantinedCount: 2,
+              preservedPositionCount: 1,
+              baselineRefreshStatus: "refreshed",
+            },
+          }),
+        ]),
+      });
+    });
 
-  await page.goto("/holdings/sources");
-  const robinhoodCard = page
-    .locator(".investment-institution")
-    .filter({ hasText: "Robinhood" });
-  await expect(robinhoodCard).toContainText("2 waiting for review");
-  await expect(
-    page.getByRole("button", { name: "Review 2 items" }),
-  ).toHaveCount(1);
-  await expect(page.locator(".holding-import-pending")).toHaveCount(0);
-  await expect(robinhoodCard).toHaveScreenshot(
-    "holdings-robinhood-single-exception.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-});
+    await page.goto("/holdings/sources");
+    const robinhoodCard = page
+      .locator(".investment-institution")
+      .filter({ hasText: "Robinhood" });
+    await expect(robinhoodCard).toContainText("2 waiting for review");
+    await expect(
+      page.getByRole("button", { name: "Review 2 items" }),
+    ).toHaveCount(1);
+    await expect(page.locator(".holding-import-pending")).toHaveCount(0);
+    await expect(robinhoodCard).toHaveScreenshot(
+      "holdings-robinhood-single-exception.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
+  },
+);
 
 test("shows automatic Robinhood checks with exception-only review", async ({
   page,
@@ -1189,267 +1193,282 @@ test("shows automatic Robinhood checks with exception-only review", async ({
   expect(disconnectCalls).toBe(1);
 });
 
-test("requests an AngelList update from the phone-safe Holdings flow", async ({
-  page,
-}) => {
-  const intervalUpdates: unknown[] = [];
-  let interval = "weekly";
-  let running = false;
+test(
+  "requests an AngelList update from the phone-safe Holdings flow",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const intervalUpdates: unknown[] = [];
+    let interval = "weekly";
+    let running = false;
 
-  const overview = () => ({
-    version: 1,
-    status: running ? "running" : "ready",
-    interval,
-    runStatus: running ? "queued" : null,
-    lastSeenAt: "2026-08-09T16:00:00.000Z",
-    lastCompletedAt: "2026-08-08T16:00:00.000Z",
-    nextRunAt:
-      interval === "off"
-        ? null
-        : interval === "daily"
-          ? "2026-08-10T16:00:00.000Z"
-          : "2026-08-16T16:00:00.000Z",
-    latestImportId: null,
-    errorCode: null,
-  });
-
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({ json: overview() });
-  });
-  await page.route(
-    "**/api/automation/angellist/mac-agent/config",
-    async (route) => {
-      const body = route.request().postDataJSON() as { interval: string };
-      intervalUpdates.push(body);
-      interval = body.interval;
-      await route.fulfill({ json: overview() });
-    },
-  );
-  await page.route("**/api/automation/angellist/run", async (route) => {
-    running = true;
-    await route.fulfill({
-      json: {
-        version: 1,
-        runId: "11111111-1111-4111-8111-111111111111",
-        status: "queued",
-      },
-      status: 202,
+    const overview = () => ({
+      version: 1,
+      status: running ? "running" : "ready",
+      interval,
+      runStatus: running ? "queued" : null,
+      lastSeenAt: "2026-08-09T16:00:00.000Z",
+      lastCompletedAt: "2026-08-08T16:00:00.000Z",
+      nextRunAt:
+        interval === "off"
+          ? null
+          : interval === "daily"
+            ? "2026-08-10T16:00:00.000Z"
+            : "2026-08-16T16:00:00.000Z",
+      latestImportId: null,
+      errorCode: null,
     });
-  });
-  await page.route(
-    "**/api/automation/provider-holdings/*/status",
-    async (route) => {
-      const provider = new URL(route.request().url()).pathname
-        .split("/")
-        .at(-2);
+
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({ json: [] });
+    });
+    await page.route("**/api/automation/angellist/status", async (route) => {
+      await route.fulfill({ json: overview() });
+    });
+    await page.route(
+      "**/api/automation/angellist/mac-agent/config",
+      async (route) => {
+        const body = route.request().postDataJSON() as { interval: string };
+        intervalUpdates.push(body);
+        interval = body.interval;
+        await route.fulfill({ json: overview() });
+      },
+    );
+    await page.route("**/api/automation/angellist/run", async (route) => {
+      running = true;
       await route.fulfill({
-        json: { ...overview(), provider, interval: "daily" },
+        json: {
+          version: 1,
+          runId: "11111111-1111-4111-8111-111111111111",
+          status: "queued",
+        },
+        status: 202,
       });
-    },
-  );
+    });
+    await page.route(
+      "**/api/automation/provider-holdings/*/status",
+      async (route) => {
+        const provider = new URL(route.request().url()).pathname
+          .split("/")
+          .at(-2);
+        await route.fulfill({
+          json: { ...overview(), provider, interval: "daily" },
+        });
+      },
+    );
 
-  await page.goto("/holdings/sources");
-  const privateInvestments = page.getByRole("region", {
-    name: "Private investments",
-  });
-  await expect(
-    privateInvestments.getByRole("heading", { name: "Working" }),
-  ).toHaveCount(3);
-  const angelList = privateInvestments.getByRole("article", {
-    name: "AngelList Working",
-  });
-  const intervalSelect = angelList.getByRole("combobox", {
-    name: "Automatic updates",
-  });
-  await expect(intervalSelect).toHaveText("Weekly");
-  await expect(
-    privateInvestments.getByText(
-      "Clear positions update automatically. Only uncertain positions need review.",
-    ),
-  ).toBeVisible();
+    await page.goto("/holdings/sources");
+    const privateInvestments = page.getByRole("region", {
+      name: "Private investments",
+    });
+    await expect(
+      privateInvestments.getByRole("heading", { name: "Working" }),
+    ).toHaveCount(3);
+    const angelList = privateInvestments.getByRole("article", {
+      name: "AngelList Working",
+    });
+    const intervalSelect = angelList.getByRole("combobox", {
+      name: "Automatic updates",
+    });
+    await expect(intervalSelect).toHaveText("Weekly");
+    await expect(
+      privateInvestments.getByText(
+        "Clear positions update automatically. Only uncertain positions need review.",
+      ),
+    ).toBeVisible();
 
-  const viewportWidths = await page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+    const viewportWidths = await page.evaluate(() => ({
+      client: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+    }));
+    expect(viewportWidths.scroll).toBe(viewportWidths.client);
 
-  await page.addStyleTag({
-    content: `
+    await page.addStyleTag({
+      content: `
       .topbar,
       .mobile-nav {
         visibility: hidden !important;
       }
     `,
-  });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-angellist-mac-agent.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+    });
+    await expect(page.locator(".screen-stack")).toHaveScreenshot(
+      "holdings-angellist-mac-agent.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
 
-  await intervalSelect.click();
-  await page.getByRole("option", { name: "Daily" }).click();
-  await expect(page.getByText("AngelList will update daily.")).toBeVisible();
-  expect(intervalUpdates).toEqual([{ interval: "daily" }]);
+    await intervalSelect.click();
+    await page.getByRole("option", { name: "Daily" }).click();
+    await expect(page.getByText("AngelList will update daily.")).toBeVisible();
+    expect(intervalUpdates).toEqual([{ interval: "daily" }]);
 
-  await privateInvestments
-    .getByRole("article", { name: "AngelList Working" })
-    .getByRole("button", { name: "Queue update" })
-    .click();
-  await expect(
-    privateInvestments
-      .getByRole("article", { name: "AngelList Update queued" })
-      .getByRole("heading", { name: "Update queued" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("AngelList update queued for the agent’s next daily check."),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Update queued" }),
-  ).toBeDisabled();
-});
+    await privateInvestments
+      .getByRole("article", { name: "AngelList Working" })
+      .getByRole("button", { name: "Queue update" })
+      .click();
+    await expect(
+      privateInvestments
+        .getByRole("article", { name: "AngelList Update queued" })
+        .getByRole("heading", { name: "Update queued" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "AngelList update queued for the agent’s next daily check.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Update queued" }),
+    ).toBeDisabled();
+  },
+);
 
-test("pauses running source status checks until the database reset", async ({
-  page,
-}, testInfo) => {
-  await page.clock.install({ time: new Date("2026-09-12T12:00:00.000Z") });
-  const checks = { angellist: 0, tokenfolio: 0, sydecar: 0, investment: 0 };
-  const quota = {
-    error:
-      "Database checks are paused until the daily allowance resets. Reload after 00:00 UTC to check progress.",
-    code: "d1_quota_exhausted",
-    retryAt: "2026-09-13T00:00:00.000Z",
-    outcome: "not_started",
-  };
-  await page.route("**/api/alpha", (route) =>
-    route.fulfill({ json: alphaFixture }),
-  );
-  await page.route("**/api/holding-imports", (route) =>
-    route.fulfill({ json: [] }),
-  );
-  await page.route("**/api/automation/angellist/status", (route) => {
-    checks.angellist++;
-    return route.fulfill(
-      checks.angellist > 1
-        ? { status: 503, json: quota }
-        : {
-            json: {
-              version: 1,
-              status: "running",
-              interval: "daily",
-              runStatus: "running",
-              lastSeenAt: "2026-09-12T12:00:00.000Z",
-              lastCompletedAt: null,
-              nextRunAt: null,
-              latestImportId: null,
-              errorCode: null,
+const captureDesignReview = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
+
+test(
+  "pauses running source status checks until the database reset",
+  { tag: captureDesignReview ? [] : "@mobile-only" },
+  async ({ page }, testInfo) => {
+    await page.clock.install({ time: new Date("2026-09-12T12:00:00.000Z") });
+    const checks = { angellist: 0, tokenfolio: 0, sydecar: 0, investment: 0 };
+    const quota = {
+      error:
+        "Database checks are paused until the daily allowance resets. Reload after 00:00 UTC to check progress.",
+      code: "d1_quota_exhausted",
+      retryAt: "2026-09-13T00:00:00.000Z",
+      outcome: "not_started",
+    };
+    await page.route("**/api/alpha", (route) =>
+      route.fulfill({ json: alphaFixture }),
+    );
+    await page.route("**/api/holding-imports", (route) =>
+      route.fulfill({ json: [] }),
+    );
+    await page.route("**/api/automation/angellist/status", (route) => {
+      checks.angellist++;
+      return route.fulfill(
+        checks.angellist > 1
+          ? { status: 503, json: quota }
+          : {
+              json: {
+                version: 1,
+                status: "running",
+                interval: "daily",
+                runStatus: "running",
+                lastSeenAt: "2026-09-12T12:00:00.000Z",
+                lastCompletedAt: null,
+                nextRunAt: null,
+                latestImportId: null,
+                errorCode: null,
+              },
             },
-          },
+      );
+    });
+    await page.route(
+      "**/api/automation/provider-holdings/*/status",
+      (route) => {
+        const provider = new URL(route.request().url()).pathname
+          .split("/")
+          .at(-2);
+        if (provider !== "tokenfolio" && provider !== "sydecar")
+          throw new Error("Unexpected synthetic provider");
+        checks[provider]++;
+        return route.fulfill(
+          checks[provider] > 1
+            ? { status: 503, json: quota }
+            : {
+                json: {
+                  version: 1,
+                  provider,
+                  status: "running",
+                  interval: "daily",
+                  runStatus: "running",
+                  lastSeenAt: "2026-09-12T12:00:00.000Z",
+                  lastCompletedAt: null,
+                  nextRunAt: null,
+                  latestImportId: null,
+                  errorCode: null,
+                },
+              },
+        );
+      },
     );
-  });
-  await page.route("**/api/automation/provider-holdings/*/status", (route) => {
-    const provider = new URL(route.request().url()).pathname.split("/").at(-2);
-    if (provider !== "tokenfolio" && provider !== "sydecar")
-      throw new Error("Unexpected synthetic provider");
-    checks[provider]++;
-    return route.fulfill(
-      checks[provider] > 1
-        ? { status: 503, json: quota }
-        : {
-            json: {
-              version: 1,
-              provider,
-              status: "running",
-              interval: "daily",
-              runStatus: "running",
-              lastSeenAt: "2026-09-12T12:00:00.000Z",
-              lastCompletedAt: null,
-              nextRunAt: null,
-              latestImportId: null,
-              errorCode: null,
+    await page.route("**/api/investment-connections", (route) => {
+      checks.investment++;
+      return route.fulfill(
+        checks.investment > 1
+          ? { status: 503, json: quota }
+          : {
+              json: investmentState([
+                investmentStatus({
+                  status: "syncing",
+                  automaticUpdatesEnabled: false,
+                  latestRunStatus: "running",
+                }),
+              ]),
             },
-          },
-    );
-  });
-  await page.route("**/api/investment-connections", (route) => {
-    checks.investment++;
-    return route.fulfill(
-      checks.investment > 1
-        ? { status: 503, json: quota }
-        : {
-            json: investmentState([
-              investmentStatus({
-                status: "syncing",
-                automaticUpdatesEnabled: false,
-                latestRunStatus: "running",
-              }),
-            ]),
-          },
-    );
-  });
-  await page.goto("/holdings/sources");
-  await expect
-    .poll(() => checks)
-    .toEqual({ angellist: 1, tokenfolio: 1, sydecar: 1, investment: 1 });
-  await expect(
-    page.getByRole("heading", { name: "Reading portfolio", exact: true }),
-  ).toHaveCount(3);
-  await expect(
-    page.getByRole("button", { name: "Checking…", exact: true }),
-  ).toBeDisabled();
-  await page.clock.runFor(10_100);
-  await expect(page.getByText(quota.error, { exact: true })).toHaveCount(3);
-  await expect(
-    page.getByText(`${quota.error} Reviewed holdings were not changed.`, {
-      exact: true,
-    }),
-  ).toBeVisible();
-  expect(checks).toEqual({
-    angellist: 2,
-    tokenfolio: 2,
-    sydecar: 2,
-    investment: 2,
-  });
-  await expectNoHorizontalOverflow(page);
-  await testInfo.attach("running-source-database-pause", {
-    body: await page.screenshot({
-      fullPage: true,
-      path: testInfo.outputPath("running-source-database-pause.png"),
-    }),
-    contentType: "image/png",
-  });
-  await page.evaluate(() => {
-    for (let index = 0; index < 5; index++) {
-      window.dispatchEvent(new Event("focus"));
-      window.dispatchEvent(new Event("pageshow"));
-      document.dispatchEvent(new Event("visibilitychange"));
+      );
+    });
+    await page.goto("/holdings/sources");
+    await expect
+      .poll(() => checks)
+      .toEqual({ angellist: 1, tokenfolio: 1, sydecar: 1, investment: 1 });
+    await expect(
+      page.getByRole("heading", { name: "Reading portfolio", exact: true }),
+    ).toHaveCount(3);
+    await expect(
+      page.getByRole("button", { name: "Checking…", exact: true }),
+    ).toBeDisabled();
+    await page.clock.runFor(10_100);
+    await expect(page.getByText(quota.error, { exact: true })).toHaveCount(3);
+    await expect(
+      page.getByText(`${quota.error} Reviewed holdings were not changed.`, {
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(checks).toEqual({
+      angellist: 2,
+      tokenfolio: 2,
+      sydecar: 2,
+      investment: 2,
+    });
+    await expectNoHorizontalOverflow(page);
+    if (captureDesignReview) {
+      await testInfo.attach("running-source-database-pause", {
+        body: await page.screenshot({
+          fullPage: true,
+          path: testInfo.outputPath("running-source-database-pause.png"),
+        }),
+        contentType: "image/png",
+      });
     }
-  });
-  await page.clock.runFor(20 * 60_000);
-  expect(checks).toEqual({
-    angellist: 2,
-    tokenfolio: 2,
-    sydecar: 2,
-    investment: 2,
-  });
-  await expect(page.getByText(quota.error, { exact: true })).toHaveCount(3);
-  await expect(
-    page.getByText(`${quota.error} Reviewed holdings were not changed.`, {
-      exact: true,
-    }),
-  ).toBeVisible();
-});
+    await page.evaluate(() => {
+      for (let index = 0; index < 5; index++) {
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new Event("pageshow"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      }
+    });
+    await page.clock.runFor(20 * 60_000);
+    expect(checks).toEqual({
+      angellist: 2,
+      tokenfolio: 2,
+      sydecar: 2,
+      investment: 2,
+    });
+    await expect(page.getByText(quota.error, { exact: true })).toHaveCount(3);
+    await expect(
+      page.getByText(`${quota.error} Reviewed holdings were not changed.`, {
+        exact: true,
+      }),
+    ).toBeVisible();
+  },
+);
 
 test("shows clear health and repair actions for portfolio agents", async ({
   page,
@@ -1836,200 +1855,203 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
   );
 }
 
-test("starts a provider-scoped browser reconnect without terminal handoff", async ({
-  page,
-}) => {
-  await page.clock.install({ time: new Date("2026-08-26T12:00:00.000Z") });
-  let reconnectChecks = 0;
-  let alphaChecks = 0;
-  const sessionId = "22222222-2222-4222-8222-222222222222";
-  let sessionStatus: "ready" | "opened" | "connected" = "ready";
-  await page.addInitScript(() => {
-    window.open = () => null;
-    const attempts: number[] = [];
-    Object.defineProperty(window, "__syntheticReconnectAttempts", {
-      value: attempts,
+test(
+  "starts a provider-scoped browser reconnect without terminal handoff",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-08-26T12:00:00.000Z") });
+    let reconnectChecks = 0;
+    let alphaChecks = 0;
+    const sessionId = "22222222-2222-4222-8222-222222222222";
+    let sessionStatus: "ready" | "opened" | "connected" = "ready";
+    await page.addInitScript(() => {
+      window.open = () => null;
+      const attempts: number[] = [];
+      Object.defineProperty(window, "__syntheticReconnectAttempts", {
+        value: attempts,
+      });
+      const request = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url.includes("/api/automation/provider-browser/sessions/"))
+          attempts.push(Date.now());
+        return request(input, init);
+      };
     });
-    const request = window.fetch.bind(window);
-    window.fetch = (input, init) => {
-      const url = input instanceof Request ? input.url : input.toString();
-      if (url.includes("/api/automation/provider-browser/sessions/"))
-        attempts.push(Date.now());
-      return request(input, init);
-    };
-  });
-  await page.route("**/api/alpha", async (route) => {
-    alphaChecks++;
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "needs_attention",
-        interval: "daily",
-        runStatus: null,
-        lastSeenAt: "2026-08-26T12:00:00.000Z",
-        lastCompletedAt: "2026-08-25T12:00:00.000Z",
-        nextRunAt: "2026-08-27T12:00:00.000Z",
-        latestImportId: "import_synthetic_angellist",
-        errorCode: "angellist_sign_in_required",
-      },
+    await page.route("**/api/alpha", async (route) => {
+      alphaChecks++;
+      await route.fulfill({ json: alphaFixture });
     });
-  });
-  await page.route(
-    "**/api/automation/provider-holdings/*/status",
-    async (route) => {
-      const provider = new URL(route.request().url()).pathname
-        .split("/")
-        .at(-2);
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({ json: [] });
+    });
+    await page.route("**/api/automation/angellist/status", async (route) => {
       await route.fulfill({
         json: {
           version: 1,
-          provider,
-          status: "ready",
+          status: "needs_attention",
           interval: "daily",
           runStatus: null,
           lastSeenAt: "2026-08-26T12:00:00.000Z",
           lastCompletedAt: "2026-08-25T12:00:00.000Z",
           nextRunAt: "2026-08-27T12:00:00.000Z",
-          latestImportId: null,
-          errorCode: null,
+          latestImportId: "import_synthetic_angellist",
+          errorCode: "angellist_sign_in_required",
         },
       });
-    },
-  );
-  await page.route(
-    "**/api/automation/provider-browser/angellist/reconnect",
-    async (route) => {
-      expect(route.request().method()).toBe("POST");
-      await route.fulfill({
-        status: 202,
-        json: {
-          version: 1,
-          id: sessionId,
-          provider: "angellist",
-          status: "requested",
-          requestedAt: "2026-08-26T12:00:00.000Z",
-          expiresAt: "2026-08-26T12:15:00.000Z",
-          openedAt: null,
-          connectedAt: null,
-          errorCode: null,
-        },
-      });
-    },
-  );
-  await page.route(
-    `**/api/automation/provider-browser/sessions/${sessionId}`,
-    async (route) => {
-      reconnectChecks++;
-      await route.fulfill({
-        json: {
-          version: 1,
-          id: sessionId,
-          provider: "angellist",
-          status: sessionStatus,
-          requestedAt: "2026-08-26T12:00:00.000Z",
-          expiresAt: "2026-08-26T12:15:00.000Z",
-          openedAt:
-            sessionStatus === "ready" ? null : "2026-08-26T12:01:00.000Z",
-          connectedAt:
-            sessionStatus === "connected" ? "2026-08-26T12:02:00.000Z" : null,
-          errorCode: null,
-        },
-      });
-    },
-  );
+    });
+    await page.route(
+      "**/api/automation/provider-holdings/*/status",
+      async (route) => {
+        const provider = new URL(route.request().url()).pathname
+          .split("/")
+          .at(-2);
+        await route.fulfill({
+          json: {
+            version: 1,
+            provider,
+            status: "ready",
+            interval: "daily",
+            runStatus: null,
+            lastSeenAt: "2026-08-26T12:00:00.000Z",
+            lastCompletedAt: "2026-08-25T12:00:00.000Z",
+            nextRunAt: "2026-08-27T12:00:00.000Z",
+            latestImportId: null,
+            errorCode: null,
+          },
+        });
+      },
+    );
+    await page.route(
+      "**/api/automation/provider-browser/angellist/reconnect",
+      async (route) => {
+        expect(route.request().method()).toBe("POST");
+        await route.fulfill({
+          status: 202,
+          json: {
+            version: 1,
+            id: sessionId,
+            provider: "angellist",
+            status: "requested",
+            requestedAt: "2026-08-26T12:00:00.000Z",
+            expiresAt: "2026-08-26T12:15:00.000Z",
+            openedAt: null,
+            connectedAt: null,
+            errorCode: null,
+          },
+        });
+      },
+    );
+    await page.route(
+      `**/api/automation/provider-browser/sessions/${sessionId}`,
+      async (route) => {
+        reconnectChecks++;
+        await route.fulfill({
+          json: {
+            version: 1,
+            id: sessionId,
+            provider: "angellist",
+            status: sessionStatus,
+            requestedAt: "2026-08-26T12:00:00.000Z",
+            expiresAt: "2026-08-26T12:15:00.000Z",
+            openedAt:
+              sessionStatus === "ready" ? null : "2026-08-26T12:01:00.000Z",
+            connectedAt:
+              sessionStatus === "connected" ? "2026-08-26T12:02:00.000Z" : null,
+            errorCode: null,
+          },
+        });
+      },
+    );
 
-  await page.goto("/holdings/sources");
-  await page.getByRole("button", { name: "Reconnect AngelList" }).click();
-  await expect(page.getByText("Preparing a private browser…")).toBeVisible();
-  await page.clock.runFor(5_100);
-  const openLink = page.getByRole("link", { name: "Open AngelList" });
-  await expect(openLink).toHaveAttribute(
-    "href",
-    `/api/automation/provider-browser/sessions/${sessionId}/open`,
-  );
-  await expect(openLink).toHaveAttribute("data-slot", "button-link");
-  await expect(page.locator("body")).not.toContainText("SSH");
-  await expect(page.locator("body")).not.toContainText("VNC");
-  await expect(page.locator("body")).not.toContainText("Paste in Terminal");
+    await page.goto("/holdings/sources");
+    await page.getByRole("button", { name: "Reconnect AngelList" }).click();
+    await expect(page.getByText("Preparing a private browser…")).toBeVisible();
+    await page.clock.runFor(5_100);
+    const openLink = page.getByRole("link", { name: "Open AngelList" });
+    await expect(openLink).toHaveAttribute(
+      "href",
+      `/api/automation/provider-browser/sessions/${sessionId}/open`,
+    );
+    await expect(openLink).toHaveAttribute("data-slot", "button-link");
+    await expect(page.locator("body")).not.toContainText("SSH");
+    await expect(page.locator("body")).not.toContainText("VNC");
+    await expect(page.locator("body")).not.toContainText("Paste in Terminal");
 
-  await page.clock.pauseAt(new Date("2026-08-26T12:00:20.000Z"));
-  await page.waitForLoadState("networkidle");
-  const firstAttempts = await page.evaluate(
-    () =>
-      (Reflect.get(window, "__syntheticReconnectAttempts") as number[]).length,
-  );
-  await page.clock.runFor(1_000);
-  expect(
-    await page.evaluate(
+    await page.clock.pauseAt(new Date("2026-08-26T12:00:20.000Z"));
+    await page.waitForLoadState("networkidle");
+    const firstAttempts = await page.evaluate(
       () =>
         (Reflect.get(window, "__syntheticReconnectAttempts") as number[])
           .length,
-    ),
-    "Reconnect checks must wait five seconds",
-  ).toBe(firstAttempts);
+    );
+    await page.clock.runFor(1_000);
+    expect(
+      await page.evaluate(
+        () =>
+          (Reflect.get(window, "__syntheticReconnectAttempts") as number[])
+            .length,
+      ),
+      "Reconnect checks must wait five seconds",
+    ).toBe(firstAttempts);
 
-  // Returned status objects and focus events must not restart the effect or
-  // bypass the shared five-second clock. Hidden tabs do no background work.
-  const firstCount = reconnectChecks;
-  for (let index = 0; index < 10; index++) {
+    // Returned status objects and focus events must not restart the effect or
+    // bypass the shared five-second clock. Hidden tabs do no background work.
+    const firstCount = reconnectChecks;
+    for (let index = 0; index < 10; index++) {
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await page.clock.runFor(100);
+    }
+    expect(reconnectChecks - firstCount).toBeLessThanOrEqual(1);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const hiddenCount = reconnectChecks;
+    await page.clock.runFor(60_000);
+    expect(reconnectChecks).toBe(hiddenCount);
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await page.clock.runFor(1);
+    expect(alphaChecks).toBe(0);
+
+    sessionStatus = "opened";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await page.clock.runFor(100);
-  }
-  expect(reconnectChecks - firstCount).toBeLessThanOrEqual(1);
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "hidden",
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
-  const hiddenCount = reconnectChecks;
-  await page.clock.runFor(60_000);
-  expect(reconnectChecks).toBe(hiddenCount);
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", {
-      configurable: true,
-      get: () => "visible",
-    });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
-  await page.clock.runFor(1);
-  expect(alphaChecks).toBe(0);
+    await page.clock.runFor(5_100);
+    await expect(
+      page.getByText(
+        "Finish signing in to AngelList. When the private screen closes, return to Keel.",
+        { exact: true },
+      ),
+    ).toBeVisible();
 
-  sessionStatus = "opened";
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page.clock.runFor(5_100);
-  await expect(
-    page.getByText(
-      "Finish signing in to AngelList. When the private screen closes, return to Keel.",
-      { exact: true },
-    ),
-  ).toBeVisible();
+    sessionStatus = "connected";
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.clock.runFor(5_100);
+    await expect(
+      page.getByText(
+        "AngelList reconnected. Clear positions update automatically; exceptions stay available for review.",
+        { exact: true },
+      ),
+    ).toBeVisible();
 
-  sessionStatus = "connected";
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await page.clock.runFor(5_100);
-  await expect(
-    page.getByText(
-      "AngelList reconnected. Clear positions update automatically; exceptions stay available for review.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-
-  const completedCount = reconnectChecks;
-  await page.clock.runFor(60_000);
-  expect(reconnectChecks).toBe(completedCount);
-  await page.getByText("Troubleshooting", { exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Copy AngelList repair command" }),
-  ).toBeVisible();
-});
+    const completedCount = reconnectChecks;
+    await page.clock.runFor(60_000);
+    expect(reconnectChecks).toBe(completedCount);
+    await page.getByText("Troubleshooting", { exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Copy AngelList repair command" }),
+    ).toBeVisible();
+  },
+);
 
 test(
   "keeps invalid AngelList agent responses out of user-facing copy",
