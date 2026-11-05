@@ -3,14 +3,16 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 135,
+  "retiredBrowserCaseCount": 140,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/manual-holdings.spec.ts :: chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
-    "e2e/manual-holdings.spec.ts :: mobile-chromium :: persists and reopens an unassigned Direct holding with unknown financial facts"
+    "e2e/manual-holdings.spec.ts :: mobile-chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
+    "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage",
+    "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage"
   ],
   "requiredPdfFlow": "pdf-isolation",
   "migrations": [
@@ -576,7 +578,7 @@
         "e2e/investment-review.visual.spec.ts :: chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history",
         "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history"
       ],
-      "assertions": "The retained mobile journey saves a candidate, navigates through the saved entry, checks one and zero remaining arrows and follows direct saved URLs. Both devices retain the separate wrap, reload, back/forward and focus journey."
+      "assertions": "The retained mobile journey saves a candidate, navigates through the saved entry, checks one and zero remaining arrows and follows direct saved URLs. Mobile owns backward wrap and narrow button geometry. Desktop owns forward wrap, reload, back/forward history and keyboard focus. Both widths retain the queue navigation image and visible controls across section changes."
     },
     {
       "id": "legacy-investment-link-device",
@@ -1075,6 +1077,49 @@
         "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: shared controls expose disabled states and styled keyboard tabs"
       ],
       "assertions": "Mobile drives all four disabled control types, exact dim opacity, keyboard tab focus, 44px target and no overflow. Desktop foundation tabs still check focus versus selection and activate the History panel. The exact wide standalone default tab crop is retired."
+    },
+    {
+      "id": "legal-owner-only-device",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: owner-only source groupings do not become legal identity tasks"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > keeps company-only holdings out of legal triage without hiding evidence or exceptions"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: owner-only source groupings do not become legal identity tasks",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage"
+      ],
+      "assertions": "Desktop enters the actual owner-only triage, checks the evidence-backed trust stays reviewable, verifies absent profile fields and the earlier saved owner. Mobile keeps the rendered two-source triage geometry. The domain guard rejects using owner or holding labels as legal-name evidence."
+    },
+    {
+      "id": "legal-paging-by-mode",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: loads 140 entities manually before history without extra reads",
+        "e2e/legal-entities.visual.spec.ts :: chromium :: loads 140 entities automatically at the page end without extra reads"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: loads 140 entities manually before history without extra reads",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: loads 140 entities automatically at the page end without extra reads"
+      ],
+      "assertions": "Desktop preserves manual loading before history and focus on the first new row. Mobile preserves automatic loading at the page end with focus on Export. Both retained journeys enforce the same 140-entity fixture, exactly one original read, bounded row count and no overflow."
+    },
+    {
+      "id": "legal-company-label-export",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: company-only holding labels stay out of triage but remain available in source details and export",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: company-only holding labels stay out of triage but remain available in source details and export"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > keeps company-only holdings out of legal triage without hiding evidence or exceptions",
+        "apps/api/src/legal-entity-export.test.ts :: legal entity CSV export > applies historical, type, and needs-review scope independently"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage"
+      ],
+      "assertions": "Both widths keep the two actionable records and the existing tested triage image. Desktop searches and navigates only eligible tasks, opens the selected company-only source directly, shows missing document guidance and sends zero writes. The export unit requests the source and legal-name columns for three company-only holding positions: each label remains present, each legal name stays empty and reported zero stays distinct from missing cash."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

@@ -11,6 +11,7 @@ import type {
 import { legalEntityExportTable } from "../apps/api/src/legal-entity-export";
 
 import {
+  companyOnlyHoldingSources,
   familyHoldingsProfile,
   historicalTrustProfile,
   studioProfile,
@@ -206,82 +207,84 @@ const initialInventory = {
   },
 } satisfies LegalEntityInventory;
 
-test("owner-only source groupings do not become legal identity tasks", async ({
-  page,
-}) => {
-  await routeInvestmentReview(page, positionSource);
-  const ownerOnly: LegalEntitySourceSummary = {
-    ...positionSource,
-    source: { kind: "ownership_container", id: "synthetic_owner" },
-    sourceDisplayName: "Demo Operator",
-    suggestedEntityType: null,
-    relationship: "ownership_entity",
-    legalEntityNameEvidence: {
-      state: "unavailable",
-      legalName: null,
-      sourceField: null,
-    },
-  };
-  const evidenceBacked: LegalEntitySourceSummary = {
-    ...positionSource,
-    source: { kind: "ownership_container", id: "synthetic_trust" },
-    sourceDisplayName: "Demo Trust",
-    relationship: "ownership_entity",
-  };
-  await page.route("**/api/legal-entities", (route) =>
-    route.fulfill({
-      json: {
-        ...initialInventory,
-        candidates: [ownerOnly, evidenceBacked],
-        entities: [
-          {
-            ...initialInventory.entities[0],
-            legalName: "Demo Venture SPV LLC",
-            jurisdiction: null,
-            ownershipInterestPpm: null,
-            sources: [positionSource],
-          },
-        ],
+test(
+  "owner-only source groupings do not become legal identity tasks",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await routeInvestmentReview(page, positionSource);
+    const ownerOnly: LegalEntitySourceSummary = {
+      ...positionSource,
+      source: { kind: "ownership_container", id: "synthetic_owner" },
+      sourceDisplayName: "Demo Operator",
+      suggestedEntityType: null,
+      relationship: "ownership_entity",
+      legalEntityNameEvidence: {
+        state: "unavailable",
+        legalName: null,
+        sourceField: null,
       },
-    }),
-  );
-  await page.route("**/api/legal-entity-export/options", (route) =>
-    route.fulfill({ json: { googleSheetsClientId: null } }),
-  );
-  await page.goto("/holdings/entities");
-  await page
-    .getByRole("button", { name: "Needs your review · 1", exact: true })
-    .click();
-  await expect(page.locator(".legal-entity-candidate")).toHaveCount(1);
-  await expect(page.locator(".legal-entity-candidate")).toContainText(
-    "Demo Trust",
-  );
-  await expect(page.locator(".legal-entity-candidate")).not.toContainText(
-    "Demo Operator",
-  );
-  await expect(
-    page.getByRole("checkbox", { name: "Show company names" }),
-  ).toHaveCount(0);
-  const entity = page.locator(".legal-entity-row");
-  await expect(entity.locator(".legal-entity-row__companies")).toHaveText(
-    "Demo Robotics",
-  );
-  await expect(entity).not.toContainText("Not recorded");
-  await expect(entity).not.toContainText("Jurisdiction");
-  await expect(entity).not.toContainText("Ownership interest");
-  await expect(
-    entity.getByRole("button", { name: "Demo Venture SPV LLC", exact: true }),
-  ).toBeVisible();
-  await entity
-    .getByRole("button", { name: "Demo Venture SPV LLC", exact: true })
-    .click();
-  await expect(
-    page.locator(".entity-review__identity .entity-review__kind"),
-  ).toContainText("Earlier entity entry");
-  await expect(page.locator(".entity-review__ownership")).toHaveText(
-    "Demo Operator",
-  );
-});
+    };
+    const evidenceBacked: LegalEntitySourceSummary = {
+      ...positionSource,
+      source: { kind: "ownership_container", id: "synthetic_trust" },
+      sourceDisplayName: "Demo Trust",
+      relationship: "ownership_entity",
+    };
+    await page.route("**/api/legal-entities", (route) =>
+      route.fulfill({
+        json: {
+          ...initialInventory,
+          candidates: [ownerOnly, evidenceBacked],
+          entities: [
+            {
+              ...initialInventory.entities[0],
+              legalName: "Demo Venture SPV LLC",
+              jurisdiction: null,
+              ownershipInterestPpm: null,
+              sources: [positionSource],
+            },
+          ],
+        },
+      }),
+    );
+    await page.route("**/api/legal-entity-export/options", (route) =>
+      route.fulfill({ json: { googleSheetsClientId: null } }),
+    );
+    await page.goto("/holdings/entities");
+    await page
+      .getByRole("button", { name: "Needs your review · 1", exact: true })
+      .click();
+    await expect(page.locator(".legal-entity-candidate")).toHaveCount(1);
+    await expect(page.locator(".legal-entity-candidate")).toContainText(
+      "Demo Trust",
+    );
+    await expect(page.locator(".legal-entity-candidate")).not.toContainText(
+      "Demo Operator",
+    );
+    await expect(
+      page.getByRole("checkbox", { name: "Show company names" }),
+    ).toHaveCount(0);
+    const entity = page.locator(".legal-entity-row");
+    await expect(entity.locator(".legal-entity-row__companies")).toHaveText(
+      "Demo Robotics",
+    );
+    await expect(entity).not.toContainText("Not recorded");
+    await expect(entity).not.toContainText("Jurisdiction");
+    await expect(entity).not.toContainText("Ownership interest");
+    await expect(
+      entity.getByRole("button", { name: "Demo Venture SPV LLC", exact: true }),
+    ).toBeVisible();
+    await entity
+      .getByRole("button", { name: "Demo Venture SPV LLC", exact: true })
+      .click();
+    await expect(
+      page.locator(".entity-review__identity .entity-review__kind"),
+    ).toContainText("Earlier entity entry");
+    await expect(page.locator(".entity-review__ownership")).toHaveText(
+      "Demo Operator",
+    );
+  },
+);
 
 async function expectNoHorizontalOverflow(page: Page) {
   const widths = await page.evaluate(() => ({
@@ -291,42 +294,11 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("company-only holding labels stay out of triage but remain available in source details and export", async ({
+test("keeps company-only holding labels out of legal triage", async ({
+  isMobile,
   page,
 }) => {
-  const companyOnly: LegalEntitySourceSummary[] = [
-    "Demo Orchard",
-    "Demo Harbor",
-    "Demo Circuit",
-  ].map((name, index) => ({
-    ...positionSource,
-    source: { kind: "holding_position", id: `synthetic_company_${index}` },
-    sourceDisplayName: name,
-    suggestedEntityType: null,
-    sourceLabel: "Demo provider",
-    legalEntityNameEvidence: {
-      state: "unavailable",
-      legalName: null,
-      sourceField: null,
-      problem: "missing",
-    },
-    automaticReview: {
-      id: "33333333-3333-4333-8333-333333333333",
-      policyVersion: "investment-review-auto-v1",
-      snapshotId: `synthetic_snapshot_${index}`,
-      evaluatedAt: "2026-09-01T12:00:00.000Z",
-      resolved: [],
-      issues: [
-        { section: "identity", code: "missing", message: "No legal name." },
-        {
-          section: "company",
-          code: "missing",
-          message: "No company citation.",
-        },
-        { section: "economics", code: "missing", message: "No fee evidence." },
-      ],
-    },
-  }));
+  const companyOnly = companyOnlyHoldingSources(positionSource);
   const conflict: LegalEntitySourceSummary = {
     ...companyOnly[0]!,
     source: { kind: "holding_position", id: "synthetic_identity_conflict" },
@@ -391,6 +363,11 @@ test("company-only holding labels stay out of triage but remain available in sou
   await expectNoHorizontalOverflow(page);
   await expect(queue).toHaveScreenshot("legal-entities-evidence-triage.png");
 
+  if (isMobile) {
+    expect(writes).toEqual([]);
+    return;
+  }
+
   // Search must not manufacture a task from the raw source inventory.
   await page
     .getByRole("searchbox", { name: "Search legal entities" })
@@ -409,15 +386,6 @@ test("company-only holding labels stay out of triage but remain available in sou
   await expect(
     page.getByRole("heading", { name: "Demo Identity Conflict", exact: true }),
   ).toBeVisible();
-
-  const table = legalEntityExportTable(inventory, {
-    fields: ["source_record", "legal_name"],
-    includeNeedsReview: true,
-    includeHistorical: false,
-    includeOtherEntityTypes: true,
-  });
-  for (const source of companyOnly)
-    expect(table.rows).toContainEqual([source.sourceDisplayName, ""]);
 
   await page.goto(
     `/holdings/entities?review=holding_position%3A${companyOnly[0]!.source.id}&tab=documents`,
@@ -957,6 +925,7 @@ test("searches the full legal inventory, reveals historical matches and refreshe
 });
 
 test("reviews legal entities and exports selected counsel fields", async ({
+  isMobile,
   page,
 }) => {
   const pageErrors: string[] = [];
@@ -1277,22 +1246,24 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expectNoHorizontalOverflow(page);
   agreementBlocked = false;
   agreementAvailable = true;
-  // Refresh after a successful later check; a 423 must not leave a clickable
-  // download action that suggests the original can be opened while blocked.
   await page.reload();
-  await evidence
-    .getByRole("button", { name: "Source evidence · page 2" })
-    .click();
-  const agreementDownload = page.waitForEvent("download");
-  await agreement.click();
-  expect((await agreementDownload).suggestedFilename()).toBe(
-    "demo-subscription-agreement.pdf",
-  );
-  await expect(
-    evidence.locator(".legal-entity-documents .form-message"),
-  ).toHaveCount(0);
-  expect(downloadMethods).toEqual(["POST", "POST", "POST"]);
-  await expectNoHorizontalOverflow(page);
+  if (isMobile) {
+    await evidence
+      .getByRole("button", { name: "Source evidence · page 2" })
+      .click();
+    const agreementDownload = page.waitForEvent("download");
+    await agreement.click();
+    expect((await agreementDownload).suggestedFilename()).toBe(
+      "demo-subscription-agreement.pdf",
+    );
+    await expect(
+      evidence.locator(".legal-entity-documents .form-message"),
+    ).toHaveCount(0);
+    expect(downloadMethods).toEqual(["POST", "POST", "POST"]);
+    await expectNoHorizontalOverflow(page);
+  } else {
+    expect(downloadMethods).toEqual(["POST", "POST"]);
+  }
 
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
@@ -1361,6 +1332,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   });
   await expectNoHorizontalOverflow(page);
 
+  if (isMobile) return;
   await editor.getByRole("button", { name: "Add entity" }).click();
   await page
     .getByRole("button", { name: "Edit legal entity", exact: true })
@@ -1508,6 +1480,7 @@ test("opens Holdings sections directly and returns from nested workspaces", asyn
 });
 
 test("keeps export above 140 entities and preserves choices through collapse and failures", async ({
+  isMobile,
   page,
 }) => {
   const inventory = {
@@ -1589,6 +1562,10 @@ test("keeps export above 140 entities and preserves choices through collapse and
     page.getByRole("checkbox", { name: "Notes", exact: true }),
   ).toBeChecked();
   expect(exportRequests).toBe(1);
+  if (!isMobile) {
+    await expectNoHorizontalOverflow(page);
+    return;
+  }
   for (const checkbox of await page
     .locator(".legal-entity-export__field-grid")
     .getByRole("checkbox")
@@ -1607,64 +1584,66 @@ test("keeps export above 140 entities and preserves choices through collapse and
 });
 
 for (const followingSection of [false, true]) {
-  test(`loads 140 entities ${followingSection ? "manually before history" : "automatically at the page end"} without extra reads`, async ({
-    page,
-  }) => {
-    let reads = 0;
-    await page.route("**/api/legal-entities", (route) => {
-      reads += 1;
-      return route.fulfill({
-        json: {
-          ...initialInventory,
-          candidates: [],
-          excludedCandidates: [],
-          entities: [
-            ...Array.from({ length: 140 }, (_, index) => ({
-              ...initialInventory.entities[0]!,
-              id: `synthetic-page-${index}`,
-              legalName: `Synthetic ${String(index).padStart(3, "0")} LLC`,
-            })),
-            ...(followingSection
-              ? [
-                  {
-                    ...initialInventory.entities[0]!,
-                    id: "synthetic-page-history",
-                    legalName: "Synthetic Historical LLC",
-                    interestStatus: "historical",
-                  },
-                ]
-              : []),
-          ],
-        },
+  test(
+    `loads 140 entities ${followingSection ? "manually before history" : "automatically at the page end"} without extra reads`,
+    { tag: followingSection ? "@desktop-only" : "@mobile-only" },
+    async ({ page }) => {
+      let reads = 0;
+      await page.route("**/api/legal-entities", (route) => {
+        reads += 1;
+        return route.fulfill({
+          json: {
+            ...initialInventory,
+            candidates: [],
+            excludedCandidates: [],
+            entities: [
+              ...Array.from({ length: 140 }, (_, index) => ({
+                ...initialInventory.entities[0]!,
+                id: `synthetic-page-${index}`,
+                legalName: `Synthetic ${String(index).padStart(3, "0")} LLC`,
+              })),
+              ...(followingSection
+                ? [
+                    {
+                      ...initialInventory.entities[0]!,
+                      id: "synthetic-page-history",
+                      legalName: "Synthetic Historical LLC",
+                      interestStatus: "historical",
+                    },
+                  ]
+                : []),
+            ],
+          },
+        });
       });
-    });
-    await page.goto("/holdings/entities");
-    const rows = page.locator(".legal-entity-row");
-    await expect(rows).toHaveCount(25);
-    const initialReads = reads;
-    const more = page.getByRole("button", {
-      name: "Load more entities",
-      exact: true,
-    });
-    await page.getByRole("button", { name: "Export", exact: true }).focus();
-    await more.scrollIntoViewIfNeeded();
-    if (followingSection) {
-      await page
-        .getByRole("button", { name: "Historical interests · 1" })
-        .click();
-      await expect(rows).toHaveCount(26);
-      await more.click();
-      await expect(rows).toHaveCount(51);
-      await expect(rows.nth(25).getByRole("button").first()).toBeFocused();
-    } else {
-      await expect(rows).toHaveCount(50);
-      await expect(
-        page.getByRole("button", { name: "Export", exact: true }),
-      ).toBeFocused();
-    }
-    expect(reads).toBe(initialReads);
-    await expectNoHorizontalOverflow(page);
-  });
+      await page.goto("/holdings/entities");
+      const rows = page.locator(".legal-entity-row");
+      await expect(rows).toHaveCount(25);
+      const initialReads = reads;
+      const more = page.getByRole("button", {
+        name: "Load more entities",
+        exact: true,
+      });
+      await page.getByRole("button", { name: "Export", exact: true }).focus();
+      await more.scrollIntoViewIfNeeded();
+      if (followingSection) {
+        await page
+          .getByRole("button", { name: "Historical interests · 1" })
+          .click();
+        await expect(rows).toHaveCount(26);
+        await more.click();
+        await expect(rows).toHaveCount(51);
+        await expect(rows.nth(25).getByRole("button").first()).toBeFocused();
+      } else {
+        await expect(rows).toHaveCount(50);
+        await expect(
+          page.getByRole("button", { name: "Export", exact: true }),
+        ).toBeFocused();
+      }
+      expect(reads).toBe(initialReads);
+      await expectNoHorizontalOverflow(page);
+    },
+  );
 }
 
 async function routeGoogleExport(

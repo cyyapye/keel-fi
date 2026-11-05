@@ -23,12 +23,14 @@ async function setup(
     backgroundCount = 0,
     netImported = false,
     purchaseFlow = false,
+    selectCompanyEvidence = false,
     entry = "review",
   }: {
     conflict?: boolean;
     backgroundCount?: number;
     netImported?: boolean;
     purchaseFlow?: boolean;
+    selectCompanyEvidence?: boolean;
     entry?: "inventory" | "review";
   } = {},
 ) {
@@ -231,12 +233,13 @@ async function setup(
   await expect(
     review.getByRole("heading", { name: "Underlying company", exact: true }),
   ).toBeVisible();
-  const companyEdit = review.getByRole("button", {
-    name: "Edit company",
-    exact: true,
-  });
-  if (await companyEdit.isVisible()) await companyEdit.click();
-  if (!conflict) {
+  if (selectCompanyEvidence) {
+    const companyEdit = review.getByRole("button", {
+      name: "Edit company",
+      exact: true,
+    });
+    if (await companyEdit.isVisible()) await companyEdit.click();
+
     await review
       .getByRole("combobox", { name: "Company evidence", exact: true })
       .click();
@@ -244,12 +247,8 @@ async function setup(
       .getByRole("option", { name: "Demo Robotics Inc. · page 2", exact: true })
       .click();
   }
-  const snapshotStyle = await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
   return {
     ...fixture,
-    snapshotStyle,
     row: page.locator(".entity-review"),
     review,
     source,
@@ -296,12 +295,9 @@ test(
 test("navigates both ways through pending reviews, including wrapping, reload and browser history", async ({
   page,
 }, testInfo) => {
-  const { inventory, row, snapshotStyle } = await setup(page, {
+  const { inventory, row } = await setup(page, {
     backgroundCount: 3,
     entry: "inventory",
-  });
-  await snapshotStyle.evaluate((style) => {
-    style.parentNode?.removeChild(style);
   });
   for (const candidate of inventory.candidates.slice(1))
     await routeInvestmentReview(page, candidate);
@@ -326,40 +322,43 @@ test("navigates both ways through pending reviews, including wrapping, reload an
   await expect(row.locator(".entity-review__navigation")).toHaveScreenshot(
     "investment-review-queue-navigation.png",
   );
-  for (const name of [
-    "Demo A 2 LLC",
-    "Demo A 1 LLC",
-    "Demo A 0 LLC",
-    "Demo Growth IV",
-  ]) {
-    await previous.click();
-    await expect(title).toHaveText(name);
-  }
-  for (const name of [
-    "Demo A 0 LLC",
-    "Demo A 1 LLC",
-    "Demo A 2 LLC",
-    "Demo Growth IV",
-  ]) {
+  if (testInfo.project.name === "mobile-chromium") {
+    for (const name of [
+      "Demo A 2 LLC",
+      "Demo A 1 LLC",
+      "Demo A 0 LLC",
+      "Demo Growth IV",
+    ]) {
+      await previous.click();
+      await expect(title).toHaveText(name);
+    }
+  } else {
+    for (const name of [
+      "Demo A 0 LLC",
+      "Demo A 1 LLC",
+      "Demo A 2 LLC",
+      "Demo Growth IV",
+    ]) {
+      await next.click();
+      await expect(title).toHaveText(name);
+    }
     await next.click();
-    await expect(title).toHaveText(name);
+    await expect(title).toHaveText("Demo A 0 LLC");
+    await next.click();
+    await expect(title).toHaveText("Demo A 1 LLC");
+    await page.reload();
+    await expect(title).toHaveText("Demo A 1 LLC");
+    await next.click();
+    await expect(title).toHaveText("Demo A 2 LLC");
+    await page.goBack();
+    await expect(title).toHaveText("Demo A 1 LLC");
+    await page.goForward();
+    await expect(title).toHaveText("Demo A 2 LLC");
+    await next.press("Shift+Tab");
+    await expect(previous).toBeFocused();
+    await previous.press("Enter");
+    await expect(title).toHaveText("Demo A 1 LLC");
   }
-  await next.click();
-  await expect(title).toHaveText("Demo A 0 LLC");
-  await next.click();
-  await expect(title).toHaveText("Demo A 1 LLC");
-  await page.reload();
-  await expect(title).toHaveText("Demo A 1 LLC");
-  await next.click();
-  await expect(title).toHaveText("Demo A 2 LLC");
-  await page.goBack();
-  await expect(title).toHaveText("Demo A 1 LLC");
-  await page.goForward();
-  await expect(title).toHaveText("Demo A 2 LLC");
-  await next.press("Shift+Tab");
-  await expect(previous).toBeFocused();
-  await previous.press("Enter");
-  await expect(title).toHaveText("Demo A 1 LLC");
   for (const section of ["Documents", "Ownership", "Identity"])
     await selectReviewSection(page, section);
   await previous.scrollIntoViewIfNeeded();
@@ -818,7 +817,7 @@ test(
 test("reviews company evidence and keeps ownership drafts across independent saves", async ({
   page,
 }) => {
-  const { review, writes } = await setup(page);
+  const { review, writes } = await setup(page, { selectCompanyEvidence: true });
   await selectReviewSection(page, "Ownership");
   await review
     .getByRole("button", { name: "Add ownership evidence", exact: true })
@@ -1082,7 +1081,7 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
   isMobile,
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  const { review, writes } = await setup(page);
+  const { review, writes } = await setup(page, { selectCompanyEvidence: true });
   const navigation = review.locator(".section-navigation");
   await expect(navigation).toContainText("Optional");
   await expect(
@@ -1498,7 +1497,7 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
 }) => {
   await page.clock.install({ time: new Date("2026-09-18T12:00:00.000Z") });
   const { context, inventory, source, review, rejectWrites, writes } =
-    await setup(page);
+    await setup(page, { selectCompanyEvidence: true });
   if (!isMobile) {
     let release = () => {};
     const pending = new Promise<void>((resolve) => {
@@ -1672,7 +1671,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
   page,
   isMobile,
 }) => {
-  const fixture = await setup(page);
+  const fixture = await setup(page, { selectCompanyEvidence: true });
   await selectReviewSection(page, "Record actions");
   const panel = page.getByRole("region", {
     name: "Investment review",
@@ -1787,7 +1786,7 @@ test("records a continuing SPV conversion, retains rejected evidence and amends 
   page,
   isMobile,
 }) => {
-  const fixture = await setup(page);
+  const fixture = await setup(page, { selectCompanyEvidence: true });
   await selectReviewSection(page, "Record actions");
   const section = page.getByRole("region", {
     name: "Mergers and conversions",

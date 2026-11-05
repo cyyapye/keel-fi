@@ -1,4 +1,7 @@
-import type { LegalEntityRecord } from "../packages/domain/src/legal-entities";
+import type {
+  LegalEntityRecord,
+  LegalEntitySourceSummary,
+} from "../packages/domain/src/legal-entities";
 
 export const familyHoldingsProfile = {
   id: "legal_entity_demo_family_holdings",
@@ -50,3 +53,38 @@ export const historicalTrustProfile = {
   einLastFour: null,
   notes: null,
 } satisfies LegalEntityRecord;
+
+export function companyOnlyHoldingSources(
+  source: LegalEntitySourceSummary,
+): LegalEntitySourceSummary[] {
+  return ["Demo Orchard", "Demo Harbor", "Demo Circuit"].map((name, index) => ({
+    ...source,
+    currentDecisionId: null,
+    source: { kind: "holding_position", id: `synthetic_company_${index}` },
+    sourceDisplayName: name,
+    suggestedEntityType: null,
+    sourceLabel: "Demo provider",
+    legalEntityNameEvidence: {
+      state: "unavailable",
+      legalName: null,
+      sourceField: null,
+      problem: "missing",
+    },
+    automaticReview: {
+      id: "33333333-3333-4333-8333-333333333333",
+      policyVersion: "investment-review-auto-v1",
+      snapshotId: `synthetic_snapshot_${index}`,
+      evaluatedAt: "2026-09-01T12:00:00.000Z",
+      resolved: [],
+      issues: [
+        { section: "identity", code: "missing", message: "No legal name." },
+        {
+          section: "company",
+          code: "missing",
+          message: "No company citation.",
+        },
+        { section: "economics", code: "missing", message: "No fee evidence." },
+      ],
+    },
+  }));
+}
