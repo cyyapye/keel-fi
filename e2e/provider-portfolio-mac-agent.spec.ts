@@ -11,6 +11,17 @@ const {
   requireProviderPageReady,
 } = __providerPortfolioMacAgentTest;
 
+const nonblockingMfaMarkup = [
+  "<h1>Set up two-factor authentication</h1><button>Continue</button>",
+  "<div hidden><form><h1>Verify your identity</h1><button>Verify</button></form></div>",
+  "<form><h1 hidden>Verify your identity</h1><button>Verify</button></form>",
+  "<form><h1>Verify your identity</h1><button hidden>Verify</button></form>",
+  "<form><h1>Verify your identity</h1></form><form><button>Verify</button></form>",
+  "<button hidden>Sign in with a passkey</button>",
+  "<form><h1>Two-factor authentication</h1><button>Disable</button></form>",
+  "<form><h1>Security settings</h1><button>Add passkey</button></form>",
+] as const;
+
 for (const [provider, origin, control] of [
   [
     "tokenfolio",
@@ -25,12 +36,25 @@ for (const [provider, origin, control] of [
 ] as const) {
   test(`${provider} distinguishes sign-in from missing, responsive, or delayed portfolio controls`, async ({
     page,
+    isMobile,
   }) => {
     let html =
       '<div role="button" class="relative cursor-pointer">Not a portfolio</div>';
     await page.route(`${origin}/**`, (route) =>
       route.fulfill({ body: html, contentType: "text/html" }),
     );
+
+    await page.route("https://unrelated.example/**", (route) =>
+      route.fulfill({
+        body: '<input type="password"><button>Sign in with a passkey</button>',
+        contentType: "text/html",
+      }),
+    );
+    await page.goto("https://unrelated.example/login");
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "page_not_supported",
+    );
+
     await page.goto(`${origin}/portfolio`);
     await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
     await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
@@ -57,17 +81,57 @@ for (const [provider, origin, control] of [
       ).rejects.toThrow("provider_sign_in_required");
     }
 
-    await page.route("https://unrelated.example/**", (route) =>
-      route.fulfill({
-        body: '<input type="password"><button>Sign in</button>',
-        contentType: "text/html",
-      }),
-    );
-    await page.goto("https://unrelated.example/login");
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
+    if (isMobile) {
+      // The remote desktop can resize to its viewer before saved-session verification.
+      const responsive = `<meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>@media (max-width: 700px) { .wide-only { display: none } }
+        @media (min-width: 701px) { .narrow-only { display: none } }</style>`;
+      html = `${responsive}<div class="wide-only">${control}</div>`;
+      await page.goto(`${origin}/portfolio`);
+      await expect(page.locator(".wide-only")).toBeHidden();
+      await expect(providerPageReady(page, provider)).resolves.toBe(
+        provider === "sydecar",
+      );
 
+      html = `${responsive}<div id="portfolio" class="narrow-only">Loading</div>
+        <script>setTimeout(() => document.getElementById("portfolio").innerHTML = ${JSON.stringify(control)}, 200)</script>`;
+      await page.reload();
+      await expect(page.locator(".narrow-only")).toBeVisible();
+      await expect(
+        requireProviderPageReady(page, provider),
+      ).resolves.toBeUndefined();
+      if (provider === "tokenfolio") {
+        // Ordinary settings alone cannot establish a signed-in portfolio.
+        html = `${responsive}${nonblockingMfaMarkup.join("")}`;
+        await page.reload();
+        await expect(providerPageReady(page, provider, 100)).resolves.toBe(
+          false,
+        );
+        for (const optional of nonblockingMfaMarkup) {
+          html = `${responsive}${control}<div class="narrow-only">${optional}</div>`;
+          await page.reload();
+          await expect(providerPageReady(page, provider)).resolves.toBe(true);
+        }
+        html = `${responsive}${control}<form class="narrow-only"><h1>Set up two-factor authentication</h1><button>Continue</button></form>`;
+        await page.reload();
+        await expect(providerPageReady(page, provider)).resolves.toBe(true);
+        for (const challenge of [
+          "<button>Sign in with a passkey</button>",
+          "<button>Log in with your passkey</button>",
+          '<div role="dialog"><h2>Set up your passkey</h2><button>Continue</button></div>',
+        ]) {
+          html = `${responsive}${control}<div class="narrow-only">${challenge}</div>`;
+          await page.reload();
+          await expect(providerPageReady(page, provider)).resolves.toBe(false);
+          html = `${responsive}${control}<div class="wide-only">${challenge}</div>`;
+          await page.reload();
+          await expect(
+            requireProviderPageReady(page, provider),
+          ).resolves.toBeUndefined();
+        }
+      }
+      return;
+    }
     html = `<div hidden>${control}</div>`;
     await page.goto(`${origin}/portfolio`);
     // This is a positive readiness check for Sydecar's mounted responsive
@@ -126,68 +190,61 @@ for (const [provider, origin, control] of [
   );
 }
 
-test("Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in", async ({
-  page,
-}) => {
-  const origin = "https://app.tokenfolio.co";
-  const control =
-    '<button id="portfolio-tab-active" role="tab">Active Holdings0</button>';
-  let html = "";
-  await page.route(`${origin}/**`, (route) =>
-    route.fulfill({ body: html, contentType: "text/html" }),
-  );
+test(
+  "Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const origin = "https://app.tokenfolio.co";
+    const control =
+      '<button id="portfolio-tab-active" role="tab">Active Holdings0</button>';
+    let html = "";
+    await page.route(`${origin}/**`, (route) =>
+      route.fulfill({ body: html, contentType: "text/html" }),
+    );
 
-  for (const content of [
-    "<button>Sign in with a passkey</button>",
-    "<button>Log in with your passkey</button>",
-    '<form><h1>Verify your identity</h1><input inputmode="numeric"><button>Verify</button></form>',
-    '<form><h1>Two-factor authentication</h1><input inputmode="numeric"><button>Verify</button></form>',
-    "<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>",
-    `${control}<div role="dialog"><h2>Set up your passkey</h2><button>Continue</button></div>`,
-  ]) {
-    html = content;
-    await page.goto(`${origin}/portfolio`);
-    await expect(
-      requireProviderPageReady(page, "tokenfolio", 100),
-    ).rejects.toThrow("provider_sign_in_required");
-  }
+    for (const content of [
+      "<button>Sign in with a passkey</button>",
+      "<button>Log in with your passkey</button>",
+      '<form><h1>Verify your identity</h1><input inputmode="numeric"><button>Verify</button></form>',
+      '<form><h1>Two-factor authentication</h1><input inputmode="numeric"><button>Verify</button></form>',
+      "<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>",
+      `${control}<div role="dialog"><h2>Set up your passkey</h2><button>Continue</button></div>`,
+    ]) {
+      html = content;
+      await page.goto(`${origin}/portfolio`);
+      await expect(
+        requireProviderPageReady(page, "tokenfolio", 100),
+      ).rejects.toThrow("provider_sign_in_required");
+    }
 
-  for (const content of [
-    "<h1>Set up two-factor authentication</h1><button>Continue</button>",
-    "<div hidden><form><h1>Verify your identity</h1><button>Verify</button></form></div>",
-    "<form><h1 hidden>Verify your identity</h1><button>Verify</button></form>",
-    "<form><h1>Verify your identity</h1><button hidden>Verify</button></form>",
-    "<form><h1>Verify your identity</h1></form><form><button>Verify</button></form>",
-    "<button hidden>Sign in with a passkey</button>",
-    "<form><h1>Two-factor authentication</h1><button>Disable</button></form>",
-    "<form><h1>Security settings</h1><button>Add passkey</button></form>",
-  ]) {
-    html = content;
+    for (const content of nonblockingMfaMarkup) {
+      html = content;
+      await page.goto(`${origin}/portfolio`);
+      await expect(
+        requireProviderPageReady(page, "tokenfolio", 100),
+      ).rejects.toThrow("page_not_supported");
+      html = `${control}${content}`;
+      await page.reload();
+      await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
+    }
+
+    // Optional enrollment within the portfolio's settings is not a sign-in gate.
+    html = `${control}<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>`;
     await page.goto(`${origin}/portfolio`);
+    await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
+
+    await page.route("https://unrelated.example/**", (route) =>
+      route.fulfill({
+        body: "<button>Sign in with a passkey</button>",
+        contentType: "text/html",
+      }),
+    );
+    await page.goto("https://unrelated.example/login");
     await expect(
       requireProviderPageReady(page, "tokenfolio", 100),
     ).rejects.toThrow("page_not_supported");
-    html = `${control}${content}`;
-    await page.reload();
-    await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
-  }
-
-  // Optional enrollment within the portfolio's settings is not a sign-in gate.
-  html = `${control}<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>`;
-  await page.goto(`${origin}/portfolio`);
-  await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
-
-  await page.route("https://unrelated.example/**", (route) =>
-    route.fulfill({
-      body: "<button>Sign in with a passkey</button>",
-      contentType: "text/html",
-    }),
-  );
-  await page.goto("https://unrelated.example/login");
-  await expect(
-    requireProviderPageReady(page, "tokenfolio", 100),
-  ).rejects.toThrow("page_not_supported");
-});
+  },
+);
 
 test(
   "Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",

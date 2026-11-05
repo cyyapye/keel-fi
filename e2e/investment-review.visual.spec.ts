@@ -395,89 +395,94 @@ test(
   },
 );
 
-test("opens the supported entity name after moving a different investment's agreement", async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "IntersectionObserver", {
-      value: undefined,
-      configurable: true,
-    });
-  });
-  const { review, row, source, context } = await setup(page, {
-    conflict: true,
-    backgroundCount: 40,
-    entry: "inventory",
-  });
-  await expect(page.locator(".legal-entity-candidate")).toHaveCount(25);
-  await selectReviewSection(page, "Ownership");
-  await review
-    .getByRole("button", { name: "Add ownership evidence", exact: true })
-    .click();
-  await expect(
-    review.getByLabel("Source description", { exact: true }),
-  ).toHaveCount(0);
-  await review
-    .getByRole("textbox", { name: "Ownership interest %", exact: true })
-    .fill("12.5");
-  await page.route(
-    "**/api/investment-positions/*/related-investments",
-    async (route) => {
-      const input = CreateDocumentInvestmentInputSchema.parse(
-        route.request().postDataJSON(),
-      );
-      expect(input.documentIds).toEqual([
-        "22222222-2222-4222-8222-222222222222",
-      ]);
-      source.legalEntityNameEvidence = {
-        state: "document_reported",
-        legalName: "Demo Growth IV LLC",
-        sourceField: "Assigned agreement",
-        documents: [context.documents[0]!],
-      };
-      source.suggestedEntityType = "llc";
-      return route.fulfill({
-        status: 201,
-        json: { positionId: "position_demo_cancelled" },
+test(
+  "opens the supported entity name after moving a different investment's agreement",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "IntersectionObserver", {
+        value: undefined,
+        configurable: true,
       });
-    },
-  );
-  await selectReviewSection(page, "Documents");
-  await review
-    .getByRole("button", { name: "Change assignments", exact: true })
-    .click();
-  await review
-    .getByRole("combobox", { name: "These agreements belong to" })
-    .click();
-  await page
-    .getByRole("option", { name: "A separate investment", exact: true })
-    .click();
-  await review
-    .getByRole("checkbox", {
-      name: "demo-cancelled-subscription.pdf",
-      exact: true,
-    })
-    .check();
-  await review
-    .getByLabel("Investment label", { exact: true })
-    .fill("Demo Cancelled Vehicle");
-  await review
-    .getByRole("button", { name: "Create separate investment", exact: true })
-    .click();
-  await selectReviewSection(page, "Identity");
-  await expect(
-    row.getByRole("textbox", { name: "Legal name", exact: true }),
-  ).toHaveValue("Demo Growth IV LLC");
-  await expect(
-    row.getByRole("heading", { name: "Resolve name", exact: true }),
-  ).toHaveCount(0);
-  await selectReviewSection(page, "Ownership");
-  await expect(
-    review.getByRole("textbox", { name: "Ownership interest %", exact: true }),
-  ).toHaveValue("12.5");
-  // Reordering the background list does not remount the dedicated review.
-  await expect(page.locator(".legal-entity-candidate")).toHaveCount(25);
-});
+    });
+    const { review, row, source, context } = await setup(page, {
+      conflict: true,
+      backgroundCount: 40,
+      entry: "inventory",
+    });
+    await expect(page.locator(".legal-entity-candidate")).toHaveCount(25);
+    await selectReviewSection(page, "Ownership");
+    await review
+      .getByRole("button", { name: "Add ownership evidence", exact: true })
+      .click();
+    await expect(
+      review.getByLabel("Source description", { exact: true }),
+    ).toHaveCount(0);
+    await review
+      .getByRole("textbox", { name: "Ownership interest %", exact: true })
+      .fill("12.5");
+    await page.route(
+      "**/api/investment-positions/*/related-investments",
+      async (route) => {
+        const input = CreateDocumentInvestmentInputSchema.parse(
+          route.request().postDataJSON(),
+        );
+        expect(input.documentIds).toEqual([
+          "22222222-2222-4222-8222-222222222222",
+        ]);
+        source.legalEntityNameEvidence = {
+          state: "document_reported",
+          legalName: "Demo Growth IV LLC",
+          sourceField: "Assigned agreement",
+          documents: [context.documents[0]!],
+        };
+        source.suggestedEntityType = "llc";
+        return route.fulfill({
+          status: 201,
+          json: { positionId: "position_demo_cancelled" },
+        });
+      },
+    );
+    await selectReviewSection(page, "Documents");
+    await review
+      .getByRole("button", { name: "Change assignments", exact: true })
+      .click();
+    await review
+      .getByRole("combobox", { name: "These agreements belong to" })
+      .click();
+    await page
+      .getByRole("option", { name: "A separate investment", exact: true })
+      .click();
+    await review
+      .getByRole("checkbox", {
+        name: "demo-cancelled-subscription.pdf",
+        exact: true,
+      })
+      .check();
+    await review
+      .getByLabel("Investment label", { exact: true })
+      .fill("Demo Cancelled Vehicle");
+    await review
+      .getByRole("button", { name: "Create separate investment", exact: true })
+      .click();
+    await selectReviewSection(page, "Identity");
+    await expect(
+      row.getByRole("textbox", { name: "Legal name", exact: true }),
+    ).toHaveValue("Demo Growth IV LLC");
+    await expect(
+      row.getByRole("heading", { name: "Resolve name", exact: true }),
+    ).toHaveCount(0);
+    await selectReviewSection(page, "Ownership");
+    await expect(
+      review.getByRole("textbox", {
+        name: "Ownership interest %",
+        exact: true,
+      }),
+    ).toHaveValue("12.5");
+    // Reordering the background list does not remount the dedicated review.
+    await expect(page.locator(".legal-entity-candidate")).toHaveCount(25);
+  },
+);
 
 test(
   "distinguishes an earlier company mapping from agreement evidence and never preselects a saved entity",

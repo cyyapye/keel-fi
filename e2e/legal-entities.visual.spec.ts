@@ -931,6 +931,17 @@ test("searches the full legal inventory, reveals historical matches and refreshe
   expect(errors).toEqual([]);
 });
 
+async function expectHoldingsSectionTargets(page: Page) {
+  const links = page
+    .getByRole("navigation", { name: "Holdings sections" })
+    .getByRole("link");
+  await expect(links).toHaveCount(3);
+  for (const link of await links.all()) {
+    await expect(link).toBeInViewport();
+    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+}
+
 test("reviews legal entities and exports selected counsel fields", async ({
   isMobile,
   page,
@@ -1108,6 +1119,7 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect(page.locator(".page-intro")).toContainText(
     "This inventory does not transfer interests to a trust.",
   );
+  if (!isMobile) await expectHoldingsSectionTargets(page);
   const exportButton = page.getByRole("button", {
     name: "Export",
     exact: true,
@@ -1407,84 +1419,85 @@ test("reviews legal entities and exports selected counsel fields", async ({
   await expect(page).toHaveURL(/\/holdings\/entities$/u);
 });
 
-test("opens Holdings sections directly and returns from nested workspaces", async ({
-  page,
-}) => {
-  let holdingsRequests = 0;
-  let entityRequests = 0;
-  await routeHoldingsPage(page, () => {
-    holdingsRequests += 1;
-    return {
-      householdName: "Demo Household",
-      holdings: [],
-      investmentHoldings: emptyInvestmentHoldingsView,
-      acceptedCashAccounts: [],
-      pendingImports: [],
-    };
-  });
-  await page.route("**/api/legal-entities", (route) => {
-    entityRequests += 1;
-    return route.fulfill({ json: initialInventory });
-  });
-  await page.goto("/holdings/entities");
-  const sections = page.getByRole("navigation", { name: "Holdings sections" });
-  const entities = sections.getByRole("link", { name: "Legal entities" });
-  const sources = sections.getByRole("link", { name: "Sources" });
-  await expect(
-    page.getByRole("button", { name: "Export", exact: true }),
-  ).toBeVisible();
-  expect(holdingsRequests).toBe(0);
-  expect(entityRequests).toBe(1);
-  await entities.click();
-  await expect(
-    page.getByRole("button", { name: "Export", exact: true }),
-  ).toBeVisible();
-  expect(entityRequests).toBe(1);
-  await expect(entities).toHaveAttribute("aria-current", "page");
-  for (const link of await sections.getByRole("link").all()) {
-    await expect(link).toBeInViewport();
-    expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  }
+test(
+  "opens Holdings sections directly and returns from nested workspaces",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    let holdingsRequests = 0;
+    let entityRequests = 0;
+    await routeHoldingsPage(page, () => {
+      holdingsRequests += 1;
+      return {
+        householdName: "Demo Household",
+        holdings: [],
+        investmentHoldings: emptyInvestmentHoldingsView,
+        acceptedCashAccounts: [],
+        pendingImports: [],
+      };
+    });
+    await page.route("**/api/legal-entities", (route) => {
+      entityRequests += 1;
+      return route.fulfill({ json: initialInventory });
+    });
+    await page.goto("/holdings/entities");
+    const sections = page.getByRole("navigation", {
+      name: "Holdings sections",
+    });
+    const entities = sections.getByRole("link", { name: "Legal entities" });
+    const sources = sections.getByRole("link", { name: "Sources" });
+    await expect(
+      page.getByRole("button", { name: "Export", exact: true }),
+    ).toBeVisible();
+    expect(holdingsRequests).toBe(0);
+    expect(entityRequests).toBe(1);
+    await entities.click();
+    await expect(
+      page.getByRole("button", { name: "Export", exact: true }),
+    ).toBeVisible();
+    expect(entityRequests).toBe(1);
+    await expect(entities).toHaveAttribute("aria-current", "page");
+    await expectHoldingsSectionTargets(page);
 
-  await sources.click();
-  await expect(page).toHaveURL(/\/holdings\/sources$/u);
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Holding sources" }),
-  ).toBeVisible();
-  await expect(sources).toHaveAttribute("aria-current", "page");
-  await page
-    .getByRole("button", { name: "Import holdings", exact: true })
-    .click();
-  await expect(page.locator(".holding-import-workspace")).toBeVisible();
-  await sources.click();
-  await expect(page.locator(".holding-import-workspace")).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Holding sources" }),
-  ).toBeVisible();
+    await sources.click();
+    await expect(page).toHaveURL(/\/holdings\/sources$/u);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Holding sources" }),
+    ).toBeVisible();
+    await expect(sources).toHaveAttribute("aria-current", "page");
+    await page
+      .getByRole("button", { name: "Import holdings", exact: true })
+      .click();
+    await expect(page.locator(".holding-import-workspace")).toBeVisible();
+    await sources.click();
+    await expect(page.locator(".holding-import-workspace")).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Holding sources" }),
+    ).toBeVisible();
 
-  await entities.press("Enter");
-  await expect(page).toHaveURL(/\/holdings\/entities$/u);
-  await expect(entities).toHaveAttribute("aria-current", "page");
-  await page.goBack();
-  await expect(sources).toHaveAttribute("aria-current", "page");
-  await page.goForward();
-  await expect(entities).toHaveAttribute("aria-current", "page");
-  await page.getByRole("button", { name: "Add entity", exact: true }).click();
-  const requestsBeforeReturning = entityRequests;
-  await expect(page).toHaveURL(/review=new/u);
-  await entities.click();
-  await expect(page).toHaveURL(/\/holdings\/entities$/u);
-  await expect(
-    page.getByRole("button", { name: "Export", exact: true }),
-  ).toBeVisible();
-  expect(entityRequests).toBe(requestsBeforeReturning);
-  await sections.getByRole("link", { name: "Holdings", exact: true }).click();
-  await expect(page).toHaveURL(/\/holdings$/u);
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Holdings", exact: true }),
-  ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-});
+    await entities.press("Enter");
+    await expect(page).toHaveURL(/\/holdings\/entities$/u);
+    await expect(entities).toHaveAttribute("aria-current", "page");
+    await page.goBack();
+    await expect(sources).toHaveAttribute("aria-current", "page");
+    await page.goForward();
+    await expect(entities).toHaveAttribute("aria-current", "page");
+    await page.getByRole("button", { name: "Add entity", exact: true }).click();
+    const requestsBeforeReturning = entityRequests;
+    await expect(page).toHaveURL(/review=new/u);
+    await entities.click();
+    await expect(page).toHaveURL(/\/holdings\/entities$/u);
+    await expect(
+      page.getByRole("button", { name: "Export", exact: true }),
+    ).toBeVisible();
+    expect(entityRequests).toBe(requestsBeforeReturning);
+    await sections.getByRole("link", { name: "Holdings", exact: true }).click();
+    await expect(page).toHaveURL(/\/holdings$/u);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Holdings", exact: true }),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  },
+);
 
 test("keeps export above 140 entities and preserves choices through collapse and failures", async ({
   isMobile,

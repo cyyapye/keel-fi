@@ -1044,3 +1044,37 @@ that the manual editor receives usable owner choices and starts the provider
 reconnect clock at the request that creates the session. A 503, malformed
 choices, an extra reconnect poll and a truncated Watch history each fail the
 corresponding checks. A slow start still reaches the real viewer link.
+
+All 301 browser cases passed the first attempt in the
+[ordinary Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41987550558).
+Browsers took 494.533 seconds and the eleven-flow gate took 830.882 seconds. The
+[same-tree browser-only run](https://github.com/cyyapye/keel-fi/actions/runs/41989473113)
+took 317.299 seconds on the same runner. The full run spent 1,707.833 summed
+worker-seconds in browser cases, which overlap on four workers. Both
+measurements miss the five-minute target.
+
+The [next full run](https://github.com/cyyapye/keel-fi/actions/runs/41989582807)
+also passed all 301 browser cases on their first attempt. Browsers took 480.920
+seconds and the complete gate took 799.552 seconds. It checks the initial
+catalogue state before asserting that obsolete navigation and carousel actions
+are absent. The Evidence test opens its route directly and the financing test
+still checks entry from the primary menu.
+
+The next review keeps the four-worker ceiling and 361 Linux reference images.
+Narrow Chromium checks the raw startup document with styles and scripts blocked,
+including the usable reload link and document width. Both widths still exercise
+styled entry failure, keyboard focus and an actual reload. Desktop checks the
+agreement reassignment and the unsaved ownership draft. Mobile checks nested
+section navigation and history. The wide export journey now checks all three
+section links for usable 44-pixel targets. This retires the separate wide
+unstyled, narrow reassignment and wide nested-navigation combinations.
+
+The provider review leaves 297 required browser cases. Mobile reconnect uses the
+readiness check while the remote browser may still be narrow. Both provider
+fixtures therefore keep missing controls, foreign origins, credentials and a
+delayed portfolio at that width. Tokenfolio also distinguishes a blocking MFA
+prompt over mounted holdings from optional security settings. Desktop retains
+the error classifications used after the saved session restores its capture
+viewport. The separate narrow error matrix for pages without a portfolio is
+retired. Mobile and desktop still run the authenticated viewer and passive-link
+checks.

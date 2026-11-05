@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 171,
+  "retiredBrowserCaseCount": 175,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -749,10 +749,9 @@
         "e2e/investment-review.visual.spec.ts :: chromium :: opens the supported entity name after moving a different investment's agreement",
         "e2e/investment-review.visual.spec.ts :: chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection",
         "e2e/investment-review.visual.spec.ts :: mobile-chromium :: creates a separate cancelled investment with selected agreements, not copied amounts",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens the supported entity name after moving a different investment's agreement",
         "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection"
       ],
-      "assertions": "Mobile retains the selected-agreement create flow and checks an explicit cancelled child without copying money. The repository creates the separate child and checks null contributions, agreement ownership and preserved parent state. Real desktop and mobile agreement move and saved/reload journeys remain."
+      "assertions": "Mobile retains the selected-agreement create flow and checks an explicit cancelled child without copying money. The repository creates the separate child and checks null contributions, agreement ownership and preserved parent state. The wide reassignment owner checks preservation of an independent unsaved draft. Both widths still retain saved document destinations and reload."
     },
     {
       "id": "review-amount-save-desktop",
@@ -1508,6 +1507,59 @@
         "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload"
       ],
       "assertions": "Both projects still render the exact failed-monitoring image, limited empty-state copy and layout, open read news and navigate to Coverage. The mobile owner also requires a failed run after a prior success, a successful scan without updates, a freshly reloaded timeout, all five saved history rows, the frozen timeout image and the no-eligible-sources response. The previous duplicate reload of the same successful response and the second independent failure screen are retired."
+    },
+    {
+      "id": "unstyled-entry-recovery-mobile",
+      "retiredBrowserCases": [
+        "e2e/app-recovery.visual.spec.ts :: chromium :: keeps a readable recovery action when scripts and styles are unavailable"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: keeps a readable recovery action when scripts and styles are unavailable",
+        "e2e/app-recovery.visual.spec.ts :: chromium :: offers recovery even when the entry script never starts",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: offers recovery even when the entry script never starts"
+      ],
+      "assertions": "The narrow browser blocks real scripts and styles, requires the static recovery heading and link, and rejects an offscreen link or a document wider than the device. Desktop and mobile still exercise the styled startup fallback, keyboard focus, original images, real reload and hydrated Holdings readback. The unstyled 1280px viewport is retired, so a future wide-only raw fallback difference is no longer observed independently."
+    },
+    {
+      "id": "review-moving-assignment-cross-section",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens the supported entity name after moving a different investment's agreement"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: connected investment review > splits a cancelled agreement into a separate investment without copying money or dissolving the entity"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: opens the supported entity name after moving a different investment's agreement",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: creates a separate cancelled investment with selected agreements, not copied amounts",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: uses responsive section navigation, keeps focus rings visible, and leaves unsourced terms blank"
+      ],
+      "assertions": "Desktop retains exact selected document ID, refreshed source name, a 12.5% unsaved ownership draft and the 25-row manual inventory before and after reassignment. Mobile keeps the separate cancelled-child create without copied amounts and responsive review section navigation. The exact one-combined-mobile-journey observation retires."
+    },
+    {
+      "id": "holdings-section-history-and-link-size",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: opens Holdings sections directly and returns from nested workspaces"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: opens Holdings sections directly and returns from nested workspaces",
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reviews legal entities and exports selected counsel fields"
+      ],
+      "assertions": "Mobile retains direct entry, no duplicate inventory read, import/editor section returns, Enter, back/forward, final Holdings read and no overflow. Both actual widths require exactly three visible section links inside the viewport, each at least 44px high. Desktop checks those targets after arriving through the actual Holdings link; it no longer replays the full nested history sequence."
+    },
+    {
+      "id": "provider-interactive-narrow-classification",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: tokenfolio distinguishes sign-in from missing, responsive, or delayed portfolio controls",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: sydecar distinguishes sign-in from missing, responsive, or delayed portfolio controls"
+      ],
+      "assertions": "Desktop retains the full sign-in and unsupported-page error/classification matrix. Narrow reconnects still reject foreign origins, distinguish CSS-hidden controls from a live portfolio, wait for delayed mounting, refuse credentials over mounted holdings, and retain every previously checked optional or incomplete MFA state over a mounted Tokenfolio portfolio. Narrow-only passkey labels and blocking dialogs, their CSS-hidden equivalents and a visible optional Add passkey control are covered. The duplicated mobile classifications for unsupported pages without a mounted portfolio are retired. The managed interactive caller only asks whether a portfolio is ready at that width."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

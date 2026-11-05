@@ -236,17 +236,29 @@ for (const failure of ["login HTML", "render exception"] as const) {
   );
 }
 
-test("keeps a readable recovery action when scripts and styles are unavailable", async ({
-  page,
-}) => {
-  await page.route("**/*", (route) =>
-    ["script", "stylesheet"].includes(route.request().resourceType())
-      ? route.abort("failed")
-      : route.continue(),
-  );
-  await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Opening Keel" }),
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Reload Keel" })).toBeVisible();
-});
+test(
+  "keeps a readable recovery action when scripts and styles are unavailable",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const failed = new Set<string>();
+    page.on("requestfailed", (request) => failed.add(request.resourceType()));
+    await page.route("**/*", (route) =>
+      ["script", "stylesheet"].includes(route.request().resourceType())
+        ? route.abort("failed")
+        : route.continue(),
+    );
+    await page.goto("/");
+    await expect
+      .poll(() => [...failed])
+      .toEqual(expect.arrayContaining(["script", "stylesheet"]));
+    await expect(
+      page.getByRole("heading", { name: "Opening Keel" }),
+    ).toBeVisible();
+    const reload = page.getByRole("link", { name: "Reload Keel" });
+    await expect(reload).toBeVisible();
+    await expect(reload).toBeInViewport({ ratio: 1 });
+    expect(
+      await page.locator("html").evaluate((root) => root.scrollWidth),
+    ).toBeLessThanOrEqual(page.viewportSize()!.width);
+  },
+);
