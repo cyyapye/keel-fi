@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 99,
+  "retiredBrowserCaseCount": 102,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -651,6 +651,37 @@
         "e2e/purchase-details.visual.spec.ts :: chromium :: source conflicts recover with current prices while preserving user input"
       ],
       "assertions": "A mounted valuation form explicitly adopts the new source price after a conflict. A partial purchase edit preserves both scope flags. Native Pacific browser history shows local time and the original calendar date."
+    },
+    {
+      "id": "sparse-entity-profile-facts",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: omits absent optional profile fields and preserves a recorded zero interest",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: omits absent optional profile fields and preserves a recorded zero interest"
+      ],
+      "unitCases": [
+        "apps/web/src/SavedEntityProfile.test.tsx :: displays recorded zero interest and omits absent profile facts"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reads the complete saved entity profile and refreshes it after edits",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reads the complete saved entity profile and refreshes it after edits",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps historical ownership and an explicit structure clear with incomplete details"
+      ],
+      "assertions": "The actual profile renders 0% and its one known jurisdiction without inventing an owner, tax classification or optional detail. Populated desktop/mobile profiles keep layout, edit and readback proof."
+    },
+    {
+      "id": "historical-entity-profile-desktop",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps historical ownership and an explicit structure clear with incomplete details"
+      ],
+      "unitCases": [
+        "apps/web/src/SavedEntityProfile.test.tsx :: keeps historical trust ownership distinct from zero interest"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reads the complete saved entity profile and refreshes it after edits",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reads the complete saved entity profile and refreshes it after edits",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps historical ownership and an explicit structure clear with incomplete details"
+      ],
+      "assertions": "A historical trust retains its recorded type, owner, date and Historical label. Clearing the owner omits ownership and keeps the historical status. The mobile browser still checks the long owner, wrapping, overflow and reloaded state."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

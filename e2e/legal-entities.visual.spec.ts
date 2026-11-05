@@ -10,6 +10,11 @@ import type {
 } from "../packages/domain/src/legal-entities";
 import { legalEntityExportTable } from "../apps/api/src/legal-entity-export";
 
+import {
+  familyHoldingsProfile,
+  historicalTrustProfile,
+  studioProfile,
+} from "./legal-entity-profile-fixtures";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import {
@@ -114,44 +119,7 @@ const limitedPartnershipSources = [
 const initialInventory = {
   version: 3,
   asOf: "2026-09-01T12:00:00.000Z",
-  entities: [
-    {
-      id: "legal_entity_demo_family_holdings",
-      versionId: "legal_entity_version_demo_family_holdings_v1",
-      version: 1,
-      recordedAt: "2026-08-30T17:00:00.000Z",
-      legalName: "Demo Family Holdings LLC",
-      entityType: "llc",
-      relationship: "ownership_entity",
-      currentOwner: "Demo Operator",
-      jurisdiction: "Delaware, US",
-      formedOn: "2024-03-12",
-      einLastFour: "4821",
-      ownershipInterestPpm: 1_000_000,
-      interestStatus: "current",
-      taxClassification: "Partnership",
-      notes: "Synthetic entity prepared for counsel review.",
-      sources: [],
-    },
-    {
-      id: "legal_entity_demo_studio",
-      versionId: "legal_entity_version_demo_studio_v1",
-      version: 1,
-      recordedAt: "2026-08-30T17:05:00.000Z",
-      legalName: "Demo Studio LLC",
-      entityType: "llc",
-      relationship: "operating_entity",
-      currentOwner: null,
-      jurisdiction: "California, US",
-      formedOn: null,
-      einLastFour: null,
-      ownershipInterestPpm: 650_000,
-      interestStatus: "current",
-      taxClassification: null,
-      notes: null,
-      sources: [],
-    },
-  ],
+  entities: [familyHoldingsProfile, studioProfile],
   candidates: [
     positionSource,
     ...limitedPartnershipSources,
@@ -622,99 +590,49 @@ test("reads the complete saved entity profile and refreshes it after edits", asy
   await expect(ownership).toHaveText("Demo Trustee · 62.3456%");
 });
 
-test("omits absent optional profile fields and preserves a recorded zero interest", async ({
-  page,
-}) => {
-  await page.route("**/api/legal-entities", (route) =>
-    route.fulfill({
-      json: {
-        ...initialInventory,
-        entities: [
-          {
-            ...initialInventory.entities[1],
-            ownershipInterestPpm: 0,
-            interestStatus: "unknown",
-          },
-        ],
-      },
-    }),
-  );
-  await page.route("**/api/legal-entity-export/options", (route) =>
-    route.fulfill({ json: { googleSheetsClientId: null } }),
-  );
-  await page.goto(
-    "/holdings/entities?review=entity%3Alegal_entity_demo_studio&tab=identity",
-  );
-  const details = page.locator(".entity-review__identity");
-  await expect(details.locator(".entity-review__ownership")).toHaveText("0%");
-  await expect(
-    details.getByText("California, US", { exact: true }),
-  ).toBeVisible();
-  await expect(details.locator(".entity-review__kind")).toHaveText(
-    "Operating entity",
-  );
-  await expect(details.locator(".entity-review__notes")).toHaveCount(0);
-  await expect(details.locator(".entity-review__profile-facts p")).toHaveCount(
-    1,
-  );
-  await expect(details.locator("dt")).toHaveCount(0);
-  await expect(details).not.toContainText("owned by");
-  await expect(details).not.toContainText("Not recorded");
-  await expect(details).not.toContainText("Unknown");
-  await expectNoHorizontalOverflow(page);
-  await expect(page).toHaveScreenshot("legal-entity-sparse-profile.png", {
-    fullPage: true,
-  });
-});
-
-test("keeps historical ownership and an explicit structure clear with incomplete details", async ({
-  page,
-}) => {
-  const entity: LegalEntityRecord = {
-    ...initialInventory.entities[0]!,
-    legalName: "Demo Family Trust",
-    entityType: "trust",
-    currentOwner: "Demo International Family Trust Administration Company",
-    jurisdiction: null,
-    ownershipInterestPpm: null,
-    interestStatus: "historical",
-    taxClassification: null,
-    einLastFour: null,
-    notes: null,
-  };
-  await page.route("**/api/legal-entities", (route) =>
-    route.fulfill({
-      json: { ...initialInventory, entities: [entity] },
-    }),
-  );
-  await page.route("**/api/legal-entity-export/options", (route) =>
-    route.fulfill({ json: { googleSheetsClientId: null } }),
-  );
-  await page.goto(
-    `/holdings/entities?review=entity%3A${entity.id}&tab=identity`,
-  );
-  const details = page.locator(".entity-review__identity");
-  await expect(details.locator(".entity-review__kind")).toHaveText(
-    "Ownership entity · Trust",
-  );
-  await expect(details.locator(".entity-review__ownership")).toHaveText(
-    entity.currentOwner!,
-  );
-  await expect(details.getByText("Historical", { exact: true })).toBeVisible();
-  await expect(details.locator(".entity-review__profile-facts p")).toHaveText([
-    "Mar 12, 2024",
-  ]);
-  await expectNoHorizontalOverflow(page);
-  await expect(page).toHaveScreenshot("legal-entity-historical-profile.png", {
-    fullPage: true,
-  });
-  entity.currentOwner = null;
-  await page.reload();
-  await expect(details.locator(".entity-review__ownership")).toHaveCount(0);
-  await expect(details.getByText("Historical", { exact: true })).toBeVisible();
-  await expect(details).not.toContainText("0%");
-  await expect(details).not.toContainText("Held by");
-});
+test(
+  "keeps historical ownership and an explicit structure clear with incomplete details",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const entity: LegalEntityRecord = { ...historicalTrustProfile };
+    await page.route("**/api/legal-entities", (route) =>
+      route.fulfill({
+        json: { ...initialInventory, entities: [entity] },
+      }),
+    );
+    await page.route("**/api/legal-entity-export/options", (route) =>
+      route.fulfill({ json: { googleSheetsClientId: null } }),
+    );
+    await page.goto(
+      `/holdings/entities?review=entity%3A${entity.id}&tab=identity`,
+    );
+    const details = page.locator(".entity-review__identity");
+    await expect(details.locator(".entity-review__kind")).toHaveText(
+      "Ownership entity · Trust",
+    );
+    await expect(details.locator(".entity-review__ownership")).toHaveText(
+      entity.currentOwner!,
+    );
+    await expect(
+      details.getByText("Historical", { exact: true }),
+    ).toBeVisible();
+    await expect(details.locator(".entity-review__profile-facts p")).toHaveText(
+      ["Mar 12, 2024"],
+    );
+    await expectNoHorizontalOverflow(page);
+    await expect(page).toHaveScreenshot("legal-entity-historical-profile.png", {
+      fullPage: true,
+    });
+    entity.currentOwner = null;
+    await page.reload();
+    await expect(details.locator(".entity-review__ownership")).toHaveCount(0);
+    await expect(
+      details.getByText("Historical", { exact: true }),
+    ).toBeVisible();
+    await expect(details).not.toContainText("0%");
+    await expect(details).not.toContainText("Held by");
+  },
+);
 
 test("starts with compact triage and a visible entity inventory", async ({
   page,

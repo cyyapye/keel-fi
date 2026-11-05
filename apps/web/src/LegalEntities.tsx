@@ -1214,7 +1214,7 @@ function CandidateRow({
   );
 }
 
-function SavedEntityProfile({ entity }: { entity: LegalEntityRecord }) {
+export function SavedEntityProfile({ entity }: { entity: LegalEntityRecord }) {
   const earlierOwnership =
     entity.sources.some(
       (source) => source.source.kind === "holding_position",
