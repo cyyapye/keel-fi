@@ -565,158 +565,162 @@ test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   });
 });
 
-test("keeps empty, failed and timed-out checks distinct and restores saved history after reload", async ({
-  page,
-}, testInfo) => {
-  let state = PortfolioWatchActivitySchema.parse({
-    ...watchActivityFixture,
-    summary: {
-      ...watchActivityFixture.summary,
-      companiesWithVerifiedSources: 2,
-      unavailableCount: 0,
-    },
-    companies: watchActivityFixture.companies.map((company) => ({
-      ...company,
-      sources: company.sources.map((source) => ({
-        ...source,
-        outcome: "succeeded",
-        errorCode: null,
-        httpStatus: 200,
-        signalCount: 0,
-        lastSuccessAt: "2026-08-02T12:00:00.000Z",
-      })),
-    })),
-    runs: [
-      {
-        ...watchActivityFixture.runs[0]!,
-        status: "succeeded",
-        totalCount: 3,
-        completedCount: 3,
-        succeededCount: 3,
-        failedCount: 0,
-        signalCount: 0,
+test(
+  "keeps empty, failed and timed-out checks distinct and restores saved history after reload",
+  { tag: "@mobile-only" },
+  async ({ page }, testInfo) => {
+    let state = PortfolioWatchActivitySchema.parse({
+      ...watchActivityFixture,
+      summary: {
+        ...watchActivityFixture.summary,
+        companiesWithVerifiedSources: 2,
+        unavailableCount: 0,
       },
-    ],
-  });
-  await page.route("**/api/watch/activity**", async (route) =>
-    route.fulfill({ json: PortfolioWatchActivitySchema.parse(state) }),
-  );
-  await page.goto("/watch");
-  const summary = page.getByTestId("portfolio-watch-control");
-  await expect(summary).toContainText("No new updates from those sources");
-  // A successful check is not full portfolio coverage when companies lack sources.
-  await expect(summary.locator(".watch-check-title")).toHaveText(
-    "Monitoring limited",
-  );
-  await page.reload();
-  await expect(summary).toContainText("Last attempt Aug 2, 2026");
-  state = {
-    ...state,
-    asOf: "2026-08-03T12:00:00.000Z",
-    summary: {
-      ...state.summary,
-      companiesWithVerifiedSources: 0,
-      unavailableCount: 3,
-      nextCheckAt: "2026-08-03T13:00:00.000Z",
-    },
-    companies: state.companies.map((company) => ({
-      ...company,
-      sources: company.sources.map((source) => ({
-        ...source,
-        outcome: "failed",
-        errorCode: "source_timeout",
-        httpStatus: null,
-        lastAttemptAt: "2026-08-03T12:00:00.000Z",
-        lastCompletedAt: "2026-08-03T12:00:00.000Z",
+      companies: watchActivityFixture.companies.map((company) => ({
+        ...company,
+        sources: company.sources.map((source) => ({
+          ...source,
+          outcome: "succeeded",
+          errorCode: null,
+          httpStatus: 200,
+          signalCount: 0,
+          lastSuccessAt: "2026-08-02T12:00:00.000Z",
+        })),
+      })),
+      runs: [
+        {
+          ...watchActivityFixture.runs[0]!,
+          status: "succeeded",
+          totalCount: 3,
+          completedCount: 3,
+          succeededCount: 3,
+          failedCount: 0,
+          signalCount: 0,
+        },
+      ],
+    });
+    await page.route("**/api/watch/activity**", async (route) =>
+      route.fulfill({ json: PortfolioWatchActivitySchema.parse(state) }),
+    );
+    await page.goto("/watch");
+    const summary = page.getByTestId("portfolio-watch-control");
+    await expect(summary).toContainText("No new updates from those sources");
+    // A successful check is not full portfolio coverage when companies lack sources.
+    await expect(summary.locator(".watch-check-title")).toHaveText(
+      "Monitoring limited",
+    );
+    await page.reload();
+    await expect(summary).toContainText("Last attempt Aug 2, 2026");
+    state = {
+      ...state,
+      asOf: "2026-08-03T12:00:00.000Z",
+      summary: {
+        ...state.summary,
+        companiesWithVerifiedSources: 0,
+        unavailableCount: 3,
         nextCheckAt: "2026-08-03T13:00:00.000Z",
+      },
+      companies: state.companies.map((company) => ({
+        ...company,
+        sources: company.sources.map((source) => ({
+          ...source,
+          outcome: "failed",
+          errorCode: "source_timeout",
+          httpStatus: null,
+          lastAttemptAt: "2026-08-03T12:00:00.000Z",
+          lastCompletedAt: "2026-08-03T12:00:00.000Z",
+          nextCheckAt: "2026-08-03T13:00:00.000Z",
+        })),
       })),
-    })),
-    runs: [
-      {
-        ...state.runs[0]!,
-        id: "run_failed",
-        requestedAt: "2026-08-03T11:59:00.000Z",
-        startedAt: "2026-08-03T11:59:10.000Z",
-        completedAt: "2026-08-03T12:00:00.000Z",
-        deadlineAt: "2026-08-03T12:14:00.000Z",
-        status: "failed",
-        succeededCount: 0,
-        failedCount: 3,
-      },
-      ...state.runs,
-    ],
-  };
-  await page.reload();
-  await expect(summary).toContainText(
-    "0 of 3 pages and feeds read · 3 unavailable",
-  );
-  await expect(summary).not.toContainText("No new updates");
-  await expect(summary.locator(".watch-check-title")).toHaveText(
-    "Last check failed",
-  );
-  await expect(summary).toContainText("Last attempt Aug 3, 2026");
-  await expect(summary).toContainText("Last successful read Aug 2, 2026");
-  state = {
-    ...state,
-    asOf: "2026-08-04T12:15:00.000Z",
-    summary: { ...state.summary, nextCheckAt: "2026-08-04T13:00:00.000Z" },
-    companies: state.companies.map((company) => ({
-      ...company,
-      sources: company.sources.map((source) => ({
-        ...source,
-        outcome: "failed",
-        errorCode: "check_timed_out",
-        lastAttemptAt: "2026-08-04T11:59:10.000Z",
-        lastCompletedAt: "2026-08-04T12:15:00.000Z",
-        nextCheckAt: "2026-08-04T13:00:00.000Z",
+      runs: [
+        {
+          ...state.runs[0]!,
+          id: "run_failed",
+          requestedAt: "2026-08-03T11:59:00.000Z",
+          startedAt: "2026-08-03T11:59:10.000Z",
+          completedAt: "2026-08-03T12:00:00.000Z",
+          deadlineAt: "2026-08-03T12:14:00.000Z",
+          status: "failed",
+          succeededCount: 0,
+          failedCount: 3,
+        },
+        ...state.runs,
+      ],
+    };
+    await page.reload();
+    await expect(summary).toContainText(
+      "0 of 3 pages and feeds read · 3 unavailable",
+    );
+    await expect(summary).not.toContainText("No new updates");
+    await expect(summary.locator(".watch-check-title")).toHaveText(
+      "Last check failed",
+    );
+    await expect(summary).toContainText("Last attempt Aug 3, 2026");
+    await expect(summary).toContainText("Last successful read Aug 2, 2026");
+    state = {
+      ...state,
+      asOf: "2026-08-04T12:15:00.000Z",
+      summary: { ...state.summary, nextCheckAt: "2026-08-04T13:00:00.000Z" },
+      companies: state.companies.map((company) => ({
+        ...company,
+        sources: company.sources.map((source) => ({
+          ...source,
+          outcome: "failed",
+          errorCode: "check_timed_out",
+          lastAttemptAt: "2026-08-04T11:59:10.000Z",
+          lastCompletedAt: "2026-08-04T12:15:00.000Z",
+          nextCheckAt: "2026-08-04T13:00:00.000Z",
+        })),
       })),
-    })),
-    runs: [
-      {
-        ...state.runs[0]!,
-        id: "run_timeout",
-        requestedAt: "2026-08-04T11:59:00.000Z",
-        startedAt: "2026-08-04T11:59:10.000Z",
-        completedAt: "2026-08-04T12:15:00.000Z",
-        deadlineAt: "2026-08-04T12:14:00.000Z",
-        status: "timed_out",
-        completedCount: 0,
-        failedCount: 0,
-      },
-      ...state.runs,
-    ],
-  };
-  await page.reload();
-  await expect(summary).toContainText("This check did not finish");
-  await expect(summary.locator(".watch-check-title")).toHaveText(
-    "Last check timed out",
-  );
-  await expect(summary).toContainText("Last attempt Aug 4, 2026");
-  await expect(summary).toContainText("Last successful read Aug 2, 2026");
-  await expect(summary).toHaveScreenshot("portfolio-watch-timeout.png");
-  if (captureDesignReview) {
-    await page.screenshot({ path: testInfo.outputPath("review-timeout.png") });
-  }
-  await expect(
-    page.getByRole("button", { name: "Check now", exact: true }),
-  ).toBeEnabled();
-  await page.route("**/api/watch/scan", async (route) =>
-    route.fulfill({
-      json: {
-        checkedAt: state.asOf,
-        discoveredCount: 0,
-        proposedCount: 0,
-        queuedCount: 0,
-      },
-    }),
-  );
-  await page.getByRole("button", { name: "Check now", exact: true }).click();
-  await expect(
-    page.getByText(
-      "No eligible sources were available to check. Open Coverage for details.",
-    ),
-  ).toBeVisible();
-});
+      runs: [
+        {
+          ...state.runs[0]!,
+          id: "run_timeout",
+          requestedAt: "2026-08-04T11:59:00.000Z",
+          startedAt: "2026-08-04T11:59:10.000Z",
+          completedAt: "2026-08-04T12:15:00.000Z",
+          deadlineAt: "2026-08-04T12:14:00.000Z",
+          status: "timed_out",
+          completedCount: 0,
+          failedCount: 0,
+        },
+        ...state.runs,
+      ],
+    };
+    await page.reload();
+    await expect(summary).toContainText("This check did not finish");
+    await expect(summary.locator(".watch-check-title")).toHaveText(
+      "Last check timed out",
+    );
+    await expect(summary).toContainText("Last attempt Aug 4, 2026");
+    await expect(summary).toContainText("Last successful read Aug 2, 2026");
+    await expect(summary).toHaveScreenshot("portfolio-watch-timeout.png");
+    if (captureDesignReview) {
+      await page.screenshot({
+        path: testInfo.outputPath("review-timeout.png"),
+      });
+    }
+    await expect(
+      page.getByRole("button", { name: "Check now", exact: true }),
+    ).toBeEnabled();
+    await page.route("**/api/watch/scan", async (route) =>
+      route.fulfill({
+        json: {
+          checkedAt: state.asOf,
+          discoveredCount: 0,
+          proposedCount: 0,
+          queuedCount: 0,
+        },
+      }),
+    );
+    await page.getByRole("button", { name: "Check now", exact: true }).click();
+    await expect(
+      page.getByText(
+        "No eligible sources were available to check. Open Coverage for details.",
+      ),
+    ).toBeVisible();
+  },
+);
 
 test("bounds the company list and recovers an activity read failure", async ({
   page,
@@ -1518,270 +1522,274 @@ test("reconciles financing reports before creating a version-safe proposal", asy
   );
 });
 
-test("reads news independently of decisions, restores read state, and opens the selected evidence", async ({
-  page,
-}) => {
-  // Includes cold navigation plus saved-state reloads in both Watch and Evidence Inbox.
-  test.setTimeout(60_000);
-  const alphaResponse = await test.step(
-    "Load the saved dashboard",
-    () => page.request.get("/api/alpha"),
-    { timeout: 30_000 },
-  );
-  expect(alphaResponse.ok()).toBe(true);
-  const alpha = await alphaResponse.json();
-  const selected = alpha.evidenceInbox[0];
-  const financing = {
-    ...portfolioWatchFixture.observations[0]!,
-    evidenceEventId: selected.id,
-    readAt: null,
-    readVersion: 0,
-  };
-  const news = {
-    ...financing,
-    id: "synthetic-news",
-    evidenceEventId: "synthetic-news-event",
-    financingFacts: null,
-    valuationLowMinor: null,
-    valuationMiddleMinor: null,
-    valuationHighMinor: null,
-    sourceTitle:
-      "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
-    observedFact:
-      "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
-    readAt: null as string | null,
-  };
-  const legacy = {
-    ...financing,
-    id: "synthetic-legacy-range",
-    evidenceEventId: portfolioWatchFixture.observations[0]!.evidenceEventId,
-    sourceTitle: "Synthetic prior holding range",
-    financingFacts: null,
-    readAt: "2026-08-02T12:30:00.000Z",
-    readVersion: 1,
-  };
-  const additionalNews: (typeof legacy)[] = [];
-  const evidenceInbox = [...alpha.evidenceInbox];
-  await page.route("**/api/alpha", (route) =>
-    route.fulfill({
-      json: {
-        ...alpha,
-        signalReconciliations: [],
-        evidenceInbox,
-        portfolioWatch: {
-          ...portfolioWatchFixture,
-          observations: [news, financing, ...additionalNews],
-        },
-      },
-    }),
-  );
-  await page.route("**/api/watch/activity**", (route) =>
-    route.fulfill({ json: watchActivityFixture }),
-  );
-  let fail = true;
-  let evidenceWrites = 0;
-  page.on("request", (request) => {
-    if (request.method() === "POST" && /\/api\/evidence/.test(request.url()))
-      evidenceWrites++;
-  });
-  await page.route(
-    "**/api/watch/observations/synthetic-news/read",
-    async (route) => {
-      if (fail)
-        return route.fulfill({
-          status: 503,
-          json: { error: "Couldn’t save read status. Try again." },
-        });
-      const body = route.request().postDataJSON();
-      expect(body.expectedVersion).toBe(news.readVersion);
-      news.readAt = body.read ? "2026-08-02T12:30:00.000Z" : null;
-      news.readVersion++;
-      await route.fulfill({
-        json: {
-          observationId: news.id,
-          readAt: news.readAt,
-          version: news.readVersion,
-        },
-      });
-    },
-  );
-  await page.goto("/watch");
-  await page
-    .getByRole("heading", { name: "Portfolio Watch", exact: true })
-    .waitFor();
-  const row = page.getByRole("article", {
-    name: news.sourceTitle,
-    exact: true,
-  });
-  await expect(
-    row.getByRole("link", { name: news.sourceTitle }),
-  ).toHaveAttribute("href", news.sourceUrl);
-  await expect(row.getByRole("button", { name: /Review/ })).toHaveCount(0);
-  await expect(
-    row.getByText(/Not estimated|Model confidence|Keel estimate/),
-  ).toHaveCount(0);
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await page.mouse.move(0, 0);
-  await expect(page.locator(".watch-screen")).toHaveScreenshot(
-    "portfolio-watch-news.png",
-    { animations: "disabled" },
-  );
-  await row.getByRole("button", { name: "Mark read", exact: true }).click();
-  await expect(
-    row.getByText("Couldn’t save read status. Try again."),
-  ).toBeVisible();
-  await expect(row).toBeVisible();
-  fail = false;
-  await row.getByRole("button", { name: "Mark read", exact: true }).click();
-  await expect(row).toHaveCount(0);
-  await test.step(
-    "Show the legacy estimate after its Details disclosure",
-    async () => {
-      additionalNews.push(legacy);
-      await page.reload();
-      await page.getByRole("tab", { name: "Updates", exact: true }).click();
-      await page
-        .getByRole("heading", { name: "Portfolio Watch", exact: true })
-        .waitFor();
-      await expect(
-        page.getByRole("button", { name: "Unread (1)", exact: true }),
-      ).toBeVisible();
-      await expect(row).toHaveCount(0);
-      await page
-        .getByRole("button", { name: "All updates", exact: true })
-        .click();
-      await expect(
-        row.getByRole("button", { name: "Mark unread", exact: true }),
-      ).toBeVisible();
-      const rangeRow = page.getByRole("article", {
-        name: legacy.sourceTitle,
-        exact: true,
-      });
-      await expect(page.getByText("Estimated range")).toHaveCount(0);
-      await rangeRow
-        .getByRole("button", { name: "Details", exact: true })
-        .click();
-      await expect(rangeRow.getByText("Estimated range")).toBeVisible();
-      await expect(rangeRow.getByText("$930k – $1.4M")).toBeVisible();
-      await expect(page.getByText("Reported financing")).toHaveCount(0);
-      await rangeRow
-        .getByRole("button", { name: "Details", exact: true })
-        .click();
-    },
-    { timeout: 30_000 },
-  );
-  expect(evidenceWrites).toBe(0);
-  await page
-    .getByRole("button", { name: "Review decision", exact: true })
-    .click();
-  await expect(page).toHaveURL(
-    new RegExp(`/evidence\\?event=${encodeURIComponent(selected.id)}`),
-  );
-  await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
-  await test.step(
-    "Show ambiguous financing without choosing an amount",
-    async () => {
-      evidenceInbox.push(ambiguousFinancingItem);
-      await page.reload();
-      await page.getByRole("heading", { name: "Evidence Inbox" }).waitFor();
-      await expect(
-        page.locator(`[id="evidence-${selected.id}"]`),
-      ).toBeFocused();
-      const card = page
-        .locator(".evidence-card")
-        .filter({ hasText: "Synthetic financing amounts need source review" });
-      await expect(card.getByText("Series C")).toBeVisible();
-      await expect(
-        card.getByText(
-          `Source wording: “${ambiguousFinancingItem.sourceExcerpt}”`,
-        ),
-      ).toBeVisible();
-      await expect(
-        card.getByText("Check source wording: multiple funding amounts"),
-      ).toBeVisible();
-      await expect(card.getByText(/USD 40M|USD 15M/)).toHaveCount(0);
-      await expect(
-        card.getByRole("link", { name: "Open official source" }),
-      ).toHaveAttribute("href", ambiguousFinancingItem.sourceUrl);
-      await expect(card.getByText("Holding impact")).toBeVisible();
-    },
-    { timeout: 30_000 },
-  );
-});
-
-test("confirms a missing website while keeping source verification pending", async ({
-  page,
-}) => {
-  let activity = structuredClone(watchActivityFixture);
-  await page.route("**/api/watch/activity**", (route) =>
-    route.fulfill({ json: activity }),
-  );
-  let submitted: Record<string, string> | undefined;
-  await page.route(
-    "**/api/watch/targets/watch_northstar/website",
-    async (route) => {
-      submitted = route.request().postDataJSON();
-      expect(submitted?.companyName).toBe("Northstar Robotics");
-      activity = {
-        ...activity,
-        companies: activity.companies.map((company) =>
-          company.id === "watch_northstar"
-            ? {
-                ...company,
-                officialHost: "northstar-robotics.example",
-                sources: [
-                  {
-                    ...watchSourceFixture,
-                    id: "source_new",
-                    targetId: company.id,
-                    url: "https://northstar-robotics.example/",
-                    status: "discovered",
-                    lastAttemptAt: null,
-                    lastCompletedAt: null,
-                    lastSuccessAt: null,
-                    outcome: null,
-                    signalCount: 0,
-                  },
-                ],
-              }
-            : company,
-        ),
-      } as typeof activity;
-      await route.fulfill({
-        json: {
-          decisionId: submitted!.decisionId,
-          officialHost: "northstar-robotics.example",
-          decidedAt: "2026-08-02T12:00:00.000Z",
-        },
-      });
-    },
-  );
-  await page.goto("/watch");
-  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
-  const company = page.getByTestId("watch-target-watch_northstar");
-  await company.click();
-  await expect(
-    page.getByRole("button", { name: "Confirm website", exact: true }),
-  ).toBeDisabled();
-  await page
-    .getByLabel("Official website URL", { exact: true })
-    .fill("https://northstar-robotics.example/");
-  await page
-    .getByLabel("Why this is the same company", { exact: true })
-    .fill(
-      "The website identifies Northstar Robotics and its robotics business.",
+test(
+  "reads news independently of decisions, restores read state, and opens the selected evidence",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    // Includes cold navigation plus saved-state reloads in both Watch and Evidence Inbox.
+    test.setTimeout(60_000);
+    const alphaResponse = await test.step(
+      "Load the saved dashboard",
+      () => page.request.get("/api/alpha"),
+      { timeout: 30_000 },
     );
-  await page
-    .getByRole("button", { name: "Confirm website", exact: true })
-    .click();
-  await expect(company).toContainText("Waiting for first completed check");
-  await expect(
-    page.getByText("Last successful read: None recorded", { exact: true }),
-  ).toBeVisible();
-  await page.reload();
-  await page.getByRole("tab", { name: "Coverage", exact: true }).click();
-  await expect(company).toContainText("Waiting for first completed check");
-  expect(submitted?.rationale).toContain("Northstar Robotics");
-});
+    expect(alphaResponse.ok()).toBe(true);
+    const alpha = await alphaResponse.json();
+    const selected = alpha.evidenceInbox[0];
+    const financing = {
+      ...portfolioWatchFixture.observations[0]!,
+      evidenceEventId: selected.id,
+      readAt: null,
+      readVersion: 0,
+    };
+    const news = {
+      ...financing,
+      id: "synthetic-news",
+      evidenceEventId: "synthetic-news-event",
+      financingFacts: null,
+      valuationLowMinor: null,
+      valuationMiddleMinor: null,
+      valuationHighMinor: null,
+      sourceTitle:
+        "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
+      observedFact:
+        "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
+      readAt: null as string | null,
+    };
+    const legacy = {
+      ...financing,
+      id: "synthetic-legacy-range",
+      evidenceEventId: portfolioWatchFixture.observations[0]!.evidenceEventId,
+      sourceTitle: "Synthetic prior holding range",
+      financingFacts: null,
+      readAt: "2026-08-02T12:30:00.000Z",
+      readVersion: 1,
+    };
+    const additionalNews: (typeof legacy)[] = [];
+    const evidenceInbox = [...alpha.evidenceInbox];
+    await page.route("**/api/alpha", (route) =>
+      route.fulfill({
+        json: {
+          ...alpha,
+          signalReconciliations: [],
+          evidenceInbox,
+          portfolioWatch: {
+            ...portfolioWatchFixture,
+            observations: [news, financing, ...additionalNews],
+          },
+        },
+      }),
+    );
+    await page.route("**/api/watch/activity**", (route) =>
+      route.fulfill({ json: watchActivityFixture }),
+    );
+    let fail = true;
+    let evidenceWrites = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && /\/api\/evidence/.test(request.url()))
+        evidenceWrites++;
+    });
+    await page.route(
+      "**/api/watch/observations/synthetic-news/read",
+      async (route) => {
+        if (fail)
+          return route.fulfill({
+            status: 503,
+            json: { error: "Couldn’t save read status. Try again." },
+          });
+        const body = route.request().postDataJSON();
+        expect(body.expectedVersion).toBe(news.readVersion);
+        news.readAt = body.read ? "2026-08-02T12:30:00.000Z" : null;
+        news.readVersion++;
+        await route.fulfill({
+          json: {
+            observationId: news.id,
+            readAt: news.readAt,
+            version: news.readVersion,
+          },
+        });
+      },
+    );
+    await page.goto("/watch");
+    await page
+      .getByRole("heading", { name: "Portfolio Watch", exact: true })
+      .waitFor();
+    const row = page.getByRole("article", {
+      name: news.sourceTitle,
+      exact: true,
+    });
+    await expect(
+      row.getByRole("link", { name: news.sourceTitle }),
+    ).toHaveAttribute("href", news.sourceUrl);
+    await expect(row.getByRole("button", { name: /Review/ })).toHaveCount(0);
+    await expect(
+      row.getByText(/Not estimated|Model confidence|Keel estimate/),
+    ).toHaveCount(0);
+    await page.addStyleTag({
+      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+    await page.mouse.move(0, 0);
+    await expect(page.locator(".watch-screen")).toHaveScreenshot(
+      "portfolio-watch-news.png",
+      { animations: "disabled" },
+    );
+    await row.getByRole("button", { name: "Mark read", exact: true }).click();
+    await expect(
+      row.getByText("Couldn’t save read status. Try again."),
+    ).toBeVisible();
+    await expect(row).toBeVisible();
+    fail = false;
+    await row.getByRole("button", { name: "Mark read", exact: true }).click();
+    await expect(row).toHaveCount(0);
+    await test.step(
+      "Show the legacy estimate after its Details disclosure",
+      async () => {
+        additionalNews.push(legacy);
+        await page.reload();
+        await page.getByRole("tab", { name: "Updates", exact: true }).click();
+        await page
+          .getByRole("heading", { name: "Portfolio Watch", exact: true })
+          .waitFor();
+        await expect(
+          page.getByRole("button", { name: "Unread (1)", exact: true }),
+        ).toBeVisible();
+        await expect(row).toHaveCount(0);
+        await page
+          .getByRole("button", { name: "All updates", exact: true })
+          .click();
+        await expect(
+          row.getByRole("button", { name: "Mark unread", exact: true }),
+        ).toBeVisible();
+        const rangeRow = page.getByRole("article", {
+          name: legacy.sourceTitle,
+          exact: true,
+        });
+        await expect(page.getByText("Estimated range")).toHaveCount(0);
+        await rangeRow
+          .getByRole("button", { name: "Details", exact: true })
+          .click();
+        await expect(rangeRow.getByText("Estimated range")).toBeVisible();
+        await expect(rangeRow.getByText("$930k – $1.4M")).toBeVisible();
+        await expect(page.getByText("Reported financing")).toHaveCount(0);
+        await rangeRow
+          .getByRole("button", { name: "Details", exact: true })
+          .click();
+      },
+      { timeout: 30_000 },
+    );
+    expect(evidenceWrites).toBe(0);
+    await page
+      .getByRole("button", { name: "Review decision", exact: true })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(`/evidence\\?event=${encodeURIComponent(selected.id)}`),
+    );
+    await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
+    await test.step(
+      "Show ambiguous financing without choosing an amount",
+      async () => {
+        evidenceInbox.push(ambiguousFinancingItem);
+        await page.reload();
+        await page.getByRole("heading", { name: "Evidence Inbox" }).waitFor();
+        await expect(
+          page.locator(`[id="evidence-${selected.id}"]`),
+        ).toBeFocused();
+        const card = page.locator(".evidence-card").filter({
+          hasText: "Synthetic financing amounts need source review",
+        });
+        await expect(card.getByText("Series C")).toBeVisible();
+        await expect(
+          card.getByText(
+            `Source wording: “${ambiguousFinancingItem.sourceExcerpt}”`,
+          ),
+        ).toBeVisible();
+        await expect(
+          card.getByText("Check source wording: multiple funding amounts"),
+        ).toBeVisible();
+        await expect(card.getByText(/USD 40M|USD 15M/)).toHaveCount(0);
+        await expect(
+          card.getByRole("link", { name: "Open official source" }),
+        ).toHaveAttribute("href", ambiguousFinancingItem.sourceUrl);
+        await expect(card.getByText("Holding impact")).toBeVisible();
+      },
+      { timeout: 30_000 },
+    );
+  },
+);
+
+test(
+  "confirms a missing website while keeping source verification pending",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    let activity = structuredClone(watchActivityFixture);
+    await page.route("**/api/watch/activity**", (route) =>
+      route.fulfill({ json: activity }),
+    );
+    let submitted: Record<string, string> | undefined;
+    await page.route(
+      "**/api/watch/targets/watch_northstar/website",
+      async (route) => {
+        submitted = route.request().postDataJSON();
+        expect(submitted?.companyName).toBe("Northstar Robotics");
+        activity = {
+          ...activity,
+          companies: activity.companies.map((company) =>
+            company.id === "watch_northstar"
+              ? {
+                  ...company,
+                  officialHost: "northstar-robotics.example",
+                  sources: [
+                    {
+                      ...watchSourceFixture,
+                      id: "source_new",
+                      targetId: company.id,
+                      url: "https://northstar-robotics.example/",
+                      status: "discovered",
+                      lastAttemptAt: null,
+                      lastCompletedAt: null,
+                      lastSuccessAt: null,
+                      outcome: null,
+                      signalCount: 0,
+                    },
+                  ],
+                }
+              : company,
+          ),
+        } as typeof activity;
+        await route.fulfill({
+          json: {
+            decisionId: submitted!.decisionId,
+            officialHost: "northstar-robotics.example",
+            decidedAt: "2026-08-02T12:00:00.000Z",
+          },
+        });
+      },
+    );
+    await page.goto("/watch");
+    await page.getByRole("tab", { name: "Coverage", exact: true }).click();
+    const company = page.getByTestId("watch-target-watch_northstar");
+    await company.click();
+    await expect(
+      page.getByRole("button", { name: "Confirm website", exact: true }),
+    ).toBeDisabled();
+    await page
+      .getByLabel("Official website URL", { exact: true })
+      .fill("https://northstar-robotics.example/");
+    await page
+      .getByLabel("Why this is the same company", { exact: true })
+      .fill(
+        "The website identifies Northstar Robotics and its robotics business.",
+      );
+    await page
+      .getByRole("button", { name: "Confirm website", exact: true })
+      .click();
+    await expect(company).toContainText("Waiting for first completed check");
+    await expect(
+      page.getByText("Last successful read: None recorded", { exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    await page.getByRole("tab", { name: "Coverage", exact: true }).click();
+    await expect(company).toContainText("Waiting for first completed check");
+    expect(submitted?.rationale).toContain("Northstar Robotics");
+  },
+);

@@ -521,78 +521,76 @@ test("reviews source parties on the dedicated page without offering the represen
 });
 
 for (const problem of ["name_not_found", "other_structure"] as const)
-  test(`validates manual ${problem} entry without requiring an excerpt or reason`, async ({
-    page,
-    isMobile,
-  }) => {
-    const { row, writes } = await setup(page, true, problem);
-    await row
-      .getByRole("button", {
-        name: problem === "other_structure" ? "Review structure" : "Review PDF",
-        exact: true,
-      })
-      .click();
-    if (problem === "name_not_found") {
-      await selectReviewSection(page, "Documents");
-      await expect(row).toContainText(
-        "Review the agreement and enter its exact name and page.",
-      );
-      await expect(row).not.toContainText("page and excerpt");
-      await expect(row).toHaveScreenshot("legal-name-recovery-guidance.png", {
-        animations: "disabled",
-        caret: "hide",
+  test(
+    `validates manual ${problem} entry without requiring an excerpt or reason`,
+    { tag: problem === "name_not_found" ? "@desktop-only" : "@mobile-only" },
+    async ({ page }) => {
+      const { row, writes } = await setup(page, true, problem);
+      await row
+        .getByRole("button", {
+          name:
+            problem === "other_structure" ? "Review structure" : "Review PDF",
+          exact: true,
+        })
+        .click();
+      if (problem === "name_not_found") {
+        await selectReviewSection(page, "Documents");
+        await expect(row).toContainText(
+          "Review the agreement and enter its exact name and page.",
+        );
+        await expect(row).not.toContainText("page and excerpt");
+        await expect(row).toHaveScreenshot("legal-name-recovery-guidance.png", {
+          animations: "disabled",
+          caret: "hide",
+        });
+        await noOverflow(page);
+        await selectReviewSection(page, "Identity");
+      }
+      const resolver = row.getByRole("form");
+      if (problem === "other_structure")
+        await resolver
+          .getByRole("radio", { name: /Enter the name from an agreement/ })
+          .check();
+      const submit = resolver.getByRole("button", {
+        name: "Continue with this name",
       });
-      await noOverflow(page);
-      await selectReviewSection(page, "Identity");
-    }
-    const resolver = row.getByRole("form");
-    if (problem === "other_structure")
+      const name = resolver.getByLabel("Exact legal name", { exact: true });
+      const agreementPage = resolver.getByLabel("Agreement page", {
+        exact: true,
+      });
+      await expect(resolver).toHaveAttribute("novalidate", "");
+      await expect(submit).toBeDisabled();
+      await expect(resolver.getByLabel("Reason for correction")).toHaveCount(0);
+      await resolver.evaluate((form) => {
+        form.dataset.invalidEvents = "0";
+        form.addEventListener(
+          "invalid",
+          () => {
+            form.dataset.invalidEvents = String(
+              Number(form.dataset.invalidEvents) + 1,
+            );
+          },
+          true,
+        );
+      });
+      await name.press("Enter");
+      await expect(resolver).toHaveAttribute("data-invalid-events", "0");
+      await expect(row.locator(".legal-entity-editor")).toHaveCount(0);
+      await name.fill("Demo Recognized LLC");
+      await agreementPage.fill("4");
+      // The only eligible supporting agreement is prefilled, not fabricated.
+      await expect(
+        resolver.getByRole("combobox", { name: "Supporting agreement" }),
+      ).toContainText("demo-subscription.pdf");
+      await expect(submit).toBeEnabled();
       await resolver
-        .getByRole("radio", { name: /Enter the name from an agreement/ })
-        .check();
-    const submit = resolver.getByRole("button", {
-      name: "Continue with this name",
-    });
-    const name = resolver.getByLabel("Exact legal name", { exact: true });
-    const agreementPage = resolver.getByLabel("Agreement page", {
-      exact: true,
-    });
-    await expect(resolver).toHaveAttribute("novalidate", "");
-    await expect(submit).toBeDisabled();
-    await expect(resolver.getByLabel("Reason for correction")).toHaveCount(0);
-    await resolver.evaluate((form) => {
-      form.dataset.invalidEvents = "0";
-      form.addEventListener(
-        "invalid",
-        () => {
-          form.dataset.invalidEvents = String(
-            Number(form.dataset.invalidEvents) + 1,
-          );
-        },
-        true,
-      );
-    });
-    await name.press("Enter");
-    await expect(resolver).toHaveAttribute("data-invalid-events", "0");
-    await expect(row.locator(".legal-entity-editor")).toHaveCount(0);
-    await name.fill("Demo Recognized LLC");
-    await agreementPage.fill("4");
-    // The only eligible supporting agreement is prefilled, not fabricated.
-    await expect(
-      resolver.getByRole("combobox", { name: "Supporting agreement" }),
-    ).toContainText("demo-subscription.pdf");
-    await expect(submit).toBeEnabled();
-    await resolver
-      .getByRole("combobox", { name: "Supporting agreement" })
-      .click();
-    await page
-      .getByRole("option", { name: "demo-subscription.pdf", exact: true })
-      .click();
-    await expect(submit).toBeEnabled();
-    const excerpt = resolver.getByLabel("Document excerpt");
-    const checksInvalidInputs =
-      problem === "other_structure" ? isMobile : !isMobile;
-    if (checksInvalidInputs) {
+        .getByRole("combobox", { name: "Supporting agreement" })
+        .click();
+      await page
+        .getByRole("option", { name: "demo-subscription.pdf", exact: true })
+        .click();
+      await expect(submit).toBeEnabled();
+      const excerpt = resolver.getByLabel("Document excerpt");
       await agreementPage.fill("151");
       await expect(submit).toBeDisabled();
       await agreementPage.fill("4");
@@ -606,65 +604,144 @@ for (const problem of ["name_not_found", "other_structure"] as const)
       await expect(submit).toBeEnabled();
       await excerpt.fill("");
       await expect(submit).toBeEnabled();
-    } else {
-      await excerpt.focus();
-    }
-    // Do not capture a hover carried from a control that moved during editing.
-    await page.mouse.move(0, 0);
-    await expect(resolver).toHaveScreenshot(
-      problem === "other_structure"
-        ? "legal-structure-entry.png"
-        : "legal-name-entry.png",
-      { animations: "disabled", caret: "hide" },
-    );
-    await noOverflow(page);
-    await submit.click();
-    const editor = row.locator(".legal-entity-editor");
-    await expect(editor).toBeVisible();
-    const entityType = editor.getByRole("combobox", { name: "Entity type" });
-    await expect(entityType).toBeEnabled();
-    if (problem === "other_structure") {
-      // Even an explicit LLC suffix does not auto-classify a structure.
-      await expect(entityType).toContainText("Other");
-      await entityType.click();
-      await page.getByRole("option", { name: "LLC", exact: true }).click();
-    }
-    const add = editor.getByRole("button", { name: "Add entity", exact: true });
-    await expect(editor.locator("form")).toHaveAttribute("novalidate", "");
-    await expect(add).toBeEnabled();
-    await editor
-      .getByRole("button", { name: "Additional details (optional)" })
-      .click();
-    await editor.getByLabel("EIN last four").fill("12");
-    await expect(add).toBeDisabled();
-    await expect(editor).toContainText("Enter exactly four digits");
-    await editor.getByLabel("EIN last four").press("Enter");
-    expect(writes).toHaveLength(0);
-    await editor.getByLabel("EIN last four").fill("12345");
-    await expect(add).toBeDisabled();
-    await editor.getByLabel("EIN last four").fill("1234");
-    await expect(editor.getByLabel("EIN last four")).toHaveValue("1234");
-    await expect(add).toBeEnabled();
-    // Participation and percentages now belong to the specific investment.
-    // Their independent validation is covered in investment-review.visual.
-    await expect(editor.getByLabel("Ownership interest")).toHaveCount(0);
-    await expect(add).toBeEnabled();
-    await add.click();
-    await expect
-      .poll(() => writes[0])
-      .toMatchObject({
-        profile: { entityType: "llc", relationship: "investment_vehicle" },
-        source: {
-          nameResolution: {
-            kind: "document_entry",
-            documentId: "11111111-1111-4111-8111-111111111111",
-            legalName: "Demo Recognized LLC",
-            page: 4,
-            quote: null,
-            reason: null,
-          },
-        },
+      // Do not capture a hover carried from a control that moved during editing.
+      await page.mouse.move(0, 0);
+      await expect(resolver).toHaveScreenshot(
+        problem === "other_structure"
+          ? "legal-structure-entry.png"
+          : "legal-name-entry.png",
+        { animations: "disabled", caret: "hide" },
+      );
+      await noOverflow(page);
+      await submit.click();
+      const editor = row.locator(".legal-entity-editor");
+      await expect(editor).toBeVisible();
+      const entityType = editor.getByRole("combobox", { name: "Entity type" });
+      await expect(entityType).toBeEnabled();
+      if (problem === "other_structure") {
+        // Even an explicit LLC suffix does not auto-classify a structure.
+        await expect(entityType).toContainText("Other");
+        await entityType.click();
+        await page.getByRole("option", { name: "LLC", exact: true }).click();
+      }
+      const add = editor.getByRole("button", {
+        name: "Add entity",
+        exact: true,
       });
+      await expect(editor.locator("form")).toHaveAttribute("novalidate", "");
+      await expect(add).toBeEnabled();
+      await editor
+        .getByRole("button", { name: "Additional details (optional)" })
+        .click();
+      await editor.getByLabel("EIN last four").fill("12");
+      await expect(add).toBeDisabled();
+      await expect(editor).toContainText("Enter exactly four digits");
+      await editor.getByLabel("EIN last four").press("Enter");
+      expect(writes).toHaveLength(0);
+      await editor.getByLabel("EIN last four").fill("12345");
+      await expect(add).toBeDisabled();
+      await editor.getByLabel("EIN last four").fill("1234");
+      await expect(editor.getByLabel("EIN last four")).toHaveValue("1234");
+      await expect(add).toBeEnabled();
+      // Participation and percentages now belong to the specific investment.
+      // Their independent validation is covered in investment-review.visual.
+      await expect(editor.getByLabel("Ownership interest")).toHaveCount(0);
+      await expect(add).toBeEnabled();
+      await add.click();
+      await expect
+        .poll(() => writes[0])
+        .toMatchObject({
+          profile: { entityType: "llc", relationship: "investment_vehicle" },
+          source: {
+            nameResolution: {
+              kind: "document_entry",
+              documentId: "11111111-1111-4111-8111-111111111111",
+              legalName: "Demo Recognized LLC",
+              page: 4,
+              quote: null,
+              reason: null,
+            },
+          },
+        });
+      if (
+        await page
+          .getByRole("button", { name: "Back to legal entities", exact: true })
+          .count()
+      )
+        await page
+          .getByRole("button", { name: "Back to legal entities", exact: true })
+          .click();
+      await page.reload();
+      await expect(
+        page.getByText(/Name entered by you: Demo Recognized LLC/),
+      ).toBeVisible();
+      if (problem === "other_structure") {
+        await expect(
+          page.getByText(/Type at review: LLC \(your classification\)/),
+        ).toBeVisible();
+        await expect(
+          page.getByText(
+            /Compartment structure; direct ownership is not confirmed/,
+          ),
+        ).toBeVisible();
+      }
+      await noOverflow(page);
+    },
+  );
+
+test(
+  "links a reviewed structure to an exact existing non-Other entity",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const { inventory, writes, row } = await setup(
+      page,
+      false,
+      "other_structure",
+    );
+    inventory.entities[0]!.legalName = "Demo Series VII";
+    if (
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .count()
+    )
+      await page
+        .getByRole("button", { name: "Back to legal entities", exact: true })
+        .click();
+    await page.reload();
+    await page.getByRole("button", { name: /^Needs your review/u }).click();
+    await row
+      .getByRole("button", { name: "Review structure", exact: true })
+      .click();
+    const resolver = row.getByRole("form");
+    await resolver.getByRole("radio", { name: /^Demo Series VII/ }).check();
+    await resolver.getByRole("combobox", { name: "Save to" }).click();
+    await page
+      .getByRole("option", { name: "Link existing: Demo Series VII" })
+      .click();
+    const reviewUrl = new URL("/api/legal-entity-sources/review", page.url())
+      .href;
+    const [review] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url() === reviewUrl &&
+          response.request().method() === "POST",
+      ),
+      resolver
+        .getByRole("button", { name: "Link entity", exact: true })
+        .click(),
+    ]);
+    expect(review.status()).toBe(201);
+    const submitted = review.request().postDataJSON();
+    expect(submitted).toMatchObject({
+      source: source.source,
+      expectedDecisionId: null,
+      decision: { kind: "linked", legalEntityId: existing.id },
+      nameResolution: {
+        kind: "document_structure",
+        legalName: "Demo Series VII",
+        page: 1,
+      },
+    });
     if (
       await page
         .getByRole("button", { name: "Back to legal entities", exact: true })
@@ -675,158 +752,87 @@ for (const problem of ["name_not_found", "other_structure"] as const)
         .click();
     await page.reload();
     await expect(
-      page.getByText(/Name entered by you: Demo Recognized LLC/),
+      page.getByText(/Type at review: LLC \(your classification\)/),
     ).toBeVisible();
-    if (problem === "other_structure") {
-      await expect(
-        page.getByText(/Type at review: LLC \(your classification\)/),
-      ).toBeVisible();
-      await expect(
-        page.getByText(
-          /Compartment structure; direct ownership is not confirmed/,
-        ),
-      ).toBeVisible();
-    }
+    expect(writes).toEqual([submitted]);
     await noOverflow(page);
-  });
+  },
+);
 
-test("links a reviewed structure to an exact existing non-Other entity", async ({
-  page,
-}) => {
-  const { inventory, writes, row } = await setup(
-    page,
-    false,
-    "other_structure",
-  );
-  inventory.entities[0]!.legalName = "Demo Series VII";
-  if (
-    await page
-      .getByRole("button", { name: "Back to legal entities", exact: true })
-      .count()
-  )
-    await page
-      .getByRole("button", { name: "Back to legal entities", exact: true })
+test(
+  "gates manual creation and editing on all profile fields without browser validation pop-ups",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const { writes } = await setup(page);
+    const attempts = await page.evaluateHandle((id) => {
+      const endpoints = ["/api/legal-entities", `/api/legal-entities/${id}`];
+      const submitted: string[] = [];
+      window.fetch = new Proxy(fetch, {
+        apply(send, receiver, args: Parameters<typeof fetch>) {
+          const [input, init] = args;
+          const url = new URL(
+            input instanceof Request ? input.url : input,
+            location.href,
+          );
+          const method = (
+            init?.method ?? (input instanceof Request ? input.method : "GET")
+          ).toUpperCase();
+          if (
+            url.origin === location.origin &&
+            endpoints.includes(url.pathname) &&
+            ["POST", "PUT"].includes(method)
+          ) {
+            submitted.push(`${method} ${url.pathname}`);
+          }
+          return Reflect.apply(send, receiver, args);
+        },
+      });
+      return submitted;
+    }, encodeURIComponent(existing.id));
+    await page.getByRole("button", { name: "Add entity", exact: true }).click();
+    const editor = page.locator(".legal-entity-editor");
+    const name = editor.getByLabel("Legal name", { exact: true });
+    const add = editor.getByRole("button", { name: "Add entity", exact: true });
+    await expect(add).toBeDisabled();
+    await expect(editor.locator("form")).toHaveAttribute("novalidate", "");
+    await name.fill("   ");
+    await name.press("Enter");
+    await expect(add).toBeDisabled();
+    expect(writes).toHaveLength(0);
+    await name.fill("Demo Manual LLC");
+    await expect(add).toBeEnabled();
+    await editor
+      .getByRole("button", { name: "Additional details (optional)" })
       .click();
-  await page.reload();
-  await page.getByRole("button", { name: /^Needs your review/u }).click();
-  await row
-    .getByRole("button", { name: "Review structure", exact: true })
-    .click();
-  const resolver = row.getByRole("form");
-  await resolver.getByRole("radio", { name: /^Demo Series VII/ }).check();
-  await resolver.getByRole("combobox", { name: "Save to" }).click();
-  await page
-    .getByRole("option", { name: "Link existing: Demo Series VII" })
-    .click();
-  const reviewUrl = new URL("/api/legal-entity-sources/review", page.url())
-    .href;
-  const [review] = await Promise.all([
-    page.waitForResponse(
-      (response) =>
-        response.url() === reviewUrl && response.request().method() === "POST",
-    ),
-    resolver.getByRole("button", { name: "Link entity", exact: true }).click(),
-  ]);
-  expect(review.status()).toBe(201);
-  const submitted = review.request().postDataJSON();
-  expect(submitted).toMatchObject({
-    source: source.source,
-    expectedDecisionId: null,
-    decision: { kind: "linked", legalEntityId: existing.id },
-    nameResolution: {
-      kind: "document_structure",
-      legalName: "Demo Series VII",
-      page: 1,
-    },
-  });
-  if (
+    await editor.getByLabel("EIN last four").fill("abcd");
+    await expect(add).toBeDisabled();
+    await editor.getByLabel("EIN last four").fill("");
+    await expect(add).toBeEnabled();
+    await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.locator(".legal-entity-row h3").getByRole("button").click();
     await page
-      .getByRole("button", { name: "Back to legal entities", exact: true })
-      .count()
-  )
-    await page
-      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .getByRole("button", { name: "Edit legal entity", exact: true })
       .click();
-  await page.reload();
-  await expect(
-    page.getByText(/Type at review: LLC \(your classification\)/),
-  ).toBeVisible();
-  expect(writes).toEqual([submitted]);
-  await noOverflow(page);
-});
-
-test("gates manual creation and editing on all profile fields without browser validation pop-ups", async ({
-  page,
-}) => {
-  const { writes } = await setup(page);
-  const attempts = await page.evaluateHandle((id) => {
-    const endpoints = ["/api/legal-entities", `/api/legal-entities/${id}`];
-    const submitted: string[] = [];
-    window.fetch = new Proxy(fetch, {
-      apply(send, receiver, args: Parameters<typeof fetch>) {
-        const [input, init] = args;
-        const url = new URL(
-          input instanceof Request ? input.url : input,
-          location.href,
-        );
-        const method = (
-          init?.method ?? (input instanceof Request ? input.method : "GET")
-        ).toUpperCase();
-        if (
-          url.origin === location.origin &&
-          endpoints.includes(url.pathname) &&
-          ["POST", "PUT"].includes(method)
-        ) {
-          submitted.push(`${method} ${url.pathname}`);
-        }
-        return Reflect.apply(send, receiver, args);
-      },
+    const save = editor.getByRole("button", {
+      name: "Save version",
+      exact: true,
     });
-    return submitted;
-  }, encodeURIComponent(existing.id));
-  await page.getByRole("button", { name: "Add entity", exact: true }).click();
-  const editor = page.locator(".legal-entity-editor");
-  const name = editor.getByLabel("Legal name", { exact: true });
-  const add = editor.getByRole("button", { name: "Add entity", exact: true });
-  await expect(add).toBeDisabled();
-  await expect(editor.locator("form")).toHaveAttribute("novalidate", "");
-  await name.fill("   ");
-  await name.press("Enter");
-  await expect(add).toBeDisabled();
-  expect(writes).toHaveLength(0);
-  await name.fill("Demo Manual LLC");
-  await expect(add).toBeEnabled();
-  await editor
-    .getByRole("button", { name: "Additional details (optional)" })
-    .click();
-  await editor.getByLabel("EIN last four").fill("abcd");
-  await expect(add).toBeDisabled();
-  await editor.getByLabel("EIN last four").fill("");
-  await expect(add).toBeEnabled();
-  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.locator(".legal-entity-row h3").getByRole("button").click();
-  await page
-    .getByRole("button", { name: "Edit legal entity", exact: true })
-    .click();
-  const save = editor.getByRole("button", {
-    name: "Save version",
-    exact: true,
-  });
-  await expect(save).toBeDisabled(); // No unsaved changes yet.
-  await name.fill("");
-  await expect(save).toBeDisabled();
-  await name.fill(existing.legalName);
-  await editor
-    .getByRole("button", { name: "Additional details (optional)" })
-    .click();
-  await editor.getByLabel("Ownership interest").fill("100.0001");
-  await expect(save).toBeDisabled();
-  await editor.getByLabel("Ownership interest").fill("100");
-  await expect(save).toBeEnabled();
-  await editor.getByRole("button", { name: "Cancel", exact: true }).click();
-  expect(writes).toHaveLength(0);
-  expect(await attempts.jsonValue()).toEqual([]);
-});
+    await expect(save).toBeDisabled(); // No unsaved changes yet.
+    await name.fill("");
+    await expect(save).toBeDisabled();
+    await name.fill(existing.legalName);
+    await editor
+      .getByRole("button", { name: "Additional details (optional)" })
+      .click();
+    await editor.getByLabel("Ownership interest").fill("100.0001");
+    await expect(save).toBeDisabled();
+    await editor.getByLabel("Ownership interest").fill("100");
+    await expect(save).toBeEnabled();
+    await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(writes).toHaveLength(0);
+    expect(await attempts.jsonValue()).toEqual([]);
+  },
+);
 
 test("keeps following content reachable in a 500-source queue with automatic observation", async ({
   page,
@@ -918,127 +924,139 @@ test("keeps following content reachable in a 500-source queue with automatic obs
   await noOverflow(page);
 });
 
-test("supports a document-backed correction for a legacy conflict with no saved choices", async ({
-  page,
-}) => {
-  const { row, writes } = await setup(page, true);
-  await row.getByRole("button", { name: "Resolve name", exact: true }).click();
-  const resolver = row.getByRole("form");
-  await expect(resolver).toContainText("No name options are available");
-  await resolver
-    .getByRole("radio", { name: /Enter a document-backed correction/u })
-    .check();
-  await resolver
-    .getByRole("combobox", { name: "Supporting agreement" })
-    .click();
-  await page
-    .getByRole("option", { name: "demo-subscription.pdf", exact: true })
-    .click();
-  await resolver
-    .getByLabel("Exact legal name", { exact: true })
-    .fill("Demo Climate Series I LLC");
-  await resolver.getByLabel("Agreement page", { exact: true }).fill("2");
-  const submit = resolver.getByRole("button", {
-    name: "Continue with this name",
-  });
-  await expect(submit).toBeDisabled();
-  await resolver.getByLabel("Reason for correction").fill("   ");
-  await expect(submit).toBeDisabled();
-  await resolver
-    .getByLabel("Document excerpt")
-    .fill("Issuer: Demo Climate Series I LLC");
-  await resolver
-    .getByLabel("Reason for correction")
-    .fill("The executed subscription names the invested series.");
-  await expect(submit).toBeEnabled();
-  await resolver.getByLabel("Document excerpt").fill("");
-  await expect(submit).toBeEnabled();
-  await resolver
-    .getByLabel("Document excerpt")
-    .fill("Issuer: Demo Climate Series I LLC");
-  await expect(resolver).toHaveScreenshot("legal-name-correction.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  await noOverflow(page);
-  await resolver
-    .getByRole("button", { name: "Continue with this name" })
-    .click();
-  await page
-    .locator(".legal-entity-editor")
-    .getByRole("button", { name: "Add entity", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Edit legal entity", exact: true }),
-  ).toBeVisible();
-  expect(
-    (writes[0] as CreateLegalEntityInput).source?.nameResolution,
-  ).toMatchObject({
-    kind: "document_correction",
-    legalName: "Demo Climate Series I LLC",
-    reason: "The executed subscription names the invested series.",
-  });
-  await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Back to legal entities", exact: true })
-    .click();
-  await expect(
-    page.getByText(
-      /Your document-backed correction: Demo Climate Series I LLC/u,
-    ),
-  ).toBeVisible();
-});
+test(
+  "supports a document-backed correction for a legacy conflict with no saved choices",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const { row, writes } = await setup(page, true);
+    await row
+      .getByRole("button", { name: "Resolve name", exact: true })
+      .click();
+    const resolver = row.getByRole("form");
+    await expect(resolver).toContainText("No name options are available");
+    await resolver
+      .getByRole("radio", { name: /Enter a document-backed correction/u })
+      .check();
+    await resolver
+      .getByRole("combobox", { name: "Supporting agreement" })
+      .click();
+    await page
+      .getByRole("option", { name: "demo-subscription.pdf", exact: true })
+      .click();
+    await resolver
+      .getByLabel("Exact legal name", { exact: true })
+      .fill("Demo Climate Series I LLC");
+    await resolver.getByLabel("Agreement page", { exact: true }).fill("2");
+    const submit = resolver.getByRole("button", {
+      name: "Continue with this name",
+    });
+    await expect(submit).toBeDisabled();
+    await resolver.getByLabel("Reason for correction").fill("   ");
+    await expect(submit).toBeDisabled();
+    await resolver
+      .getByLabel("Document excerpt")
+      .fill("Issuer: Demo Climate Series I LLC");
+    await resolver
+      .getByLabel("Reason for correction")
+      .fill("The executed subscription names the invested series.");
+    await expect(submit).toBeEnabled();
+    await resolver.getByLabel("Document excerpt").fill("");
+    await expect(submit).toBeEnabled();
+    await resolver
+      .getByLabel("Document excerpt")
+      .fill("Issuer: Demo Climate Series I LLC");
+    await expect(resolver).toHaveScreenshot("legal-name-correction.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+    await noOverflow(page);
+    await resolver
+      .getByRole("button", { name: "Continue with this name" })
+      .click();
+    await page
+      .locator(".legal-entity-editor")
+      .getByRole("button", { name: "Add entity", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Edit legal entity", exact: true }),
+    ).toBeVisible();
+    expect(
+      (writes[0] as CreateLegalEntityInput).source?.nameResolution,
+    ).toMatchObject({
+      kind: "document_correction",
+      legalName: "Demo Climate Series I LLC",
+      reason: "The executed subscription names the invested series.",
+    });
+    await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(
+      0,
+    );
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        /Your document-backed correction: Demo Climate Series I LLC/u,
+      ),
+    ).toBeVisible();
+  },
+);
 
-test("keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity", async ({
-  page,
-}) => {
-  const { row, inventory, writes, reject } = await setup(page);
-  reject(true);
-  await row.getByRole("button", { name: "Resolve name", exact: true }).click();
-  const resolver = row.getByRole("form");
-  await resolver.getByRole("radio", { name: /^Demo Climate, LLC /u }).check();
-  await resolver.getByRole("combobox", { name: "Save to" }).click();
-  await page
-    .getByRole("option", {
-      name: "Link existing: Demo Climate, LLC",
-      exact: true,
-    })
-    .click();
-  await resolver
-    .getByRole("button", { name: "Link entity", exact: true })
-    .click();
-  await expect(resolver).toContainText("The agreement evidence changed.");
-  expect(inventory.entities[0]?.sources).toHaveLength(0);
-  await resolver.getByRole("button", { name: "Reload evidence" }).click();
-  await expect(resolver).toBeVisible();
-  reject(false);
-  await resolver.getByRole("radio", { name: /^Demo Climate, LLC /u }).check();
-  await resolver.getByRole("combobox", { name: "Save to" }).click();
-  await page
-    .getByRole("option", {
-      name: "Link existing: Demo Climate, LLC",
-      exact: true,
-    })
-    .click();
-  await resolver
-    .getByRole("button", { name: "Link entity", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Edit legal entity", exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Back to legal entities", exact: true })
-    .click();
-  await expect(
-    page
-      .locator(".legal-entity-candidate:visible")
-      .filter({ hasText: "Demo Climate" }),
-  ).toHaveCount(0);
-  expect(inventory.entities).toHaveLength(1);
-  expect(writes).toHaveLength(2);
-  expect(inventory.entities[0]?.sources[0]?.nameResolution).toMatchObject({
-    legalName: "Demo Climate, LLC",
-    kind: "document_choice",
-  });
-});
+test(
+  "keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const { row, inventory, writes, reject } = await setup(page);
+    reject(true);
+    await row
+      .getByRole("button", { name: "Resolve name", exact: true })
+      .click();
+    const resolver = row.getByRole("form");
+    await resolver.getByRole("radio", { name: /^Demo Climate, LLC /u }).check();
+    await resolver.getByRole("combobox", { name: "Save to" }).click();
+    await page
+      .getByRole("option", {
+        name: "Link existing: Demo Climate, LLC",
+        exact: true,
+      })
+      .click();
+    await resolver
+      .getByRole("button", { name: "Link entity", exact: true })
+      .click();
+    await expect(resolver).toContainText("The agreement evidence changed.");
+    expect(inventory.entities[0]?.sources).toHaveLength(0);
+    await resolver.getByRole("button", { name: "Reload evidence" }).click();
+    await expect(resolver).toBeVisible();
+    reject(false);
+    await resolver.getByRole("radio", { name: /^Demo Climate, LLC /u }).check();
+    await resolver.getByRole("combobox", { name: "Save to" }).click();
+    await page
+      .getByRole("option", {
+        name: "Link existing: Demo Climate, LLC",
+        exact: true,
+      })
+      .click();
+    await resolver
+      .getByRole("button", { name: "Link entity", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Edit legal entity", exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Review saved.", { exact: true })).toHaveCount(
+      0,
+    );
+    await page
+      .getByRole("button", { name: "Back to legal entities", exact: true })
+      .click();
+    await expect(
+      page
+        .locator(".legal-entity-candidate:visible")
+        .filter({ hasText: "Demo Climate" }),
+    ).toHaveCount(0);
+    expect(inventory.entities).toHaveLength(1);
+    expect(writes).toHaveLength(2);
+    expect(inventory.entities[0]?.sources[0]?.nameResolution).toMatchObject({
+      legalName: "Demo Climate, LLC",
+      kind: "document_choice",
+    });
+  },
+);

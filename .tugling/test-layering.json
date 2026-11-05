@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 110,
+  "retiredBrowserCaseCount": 119,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -279,7 +279,7 @@
       ],
       "browserCases": [
         "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason",
-        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual other_structure entry without requiring an excerpt or reason"
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: validates manual other_structure entry without requiring an excerpt or reason"
       ],
       "assertions": "Blank/zero, fractional and >150 page bounds remain in the schema; UI retains disabled invalid submission, correction, optional excerpt and both review forms."
     },
@@ -839,6 +839,125 @@
         "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: drills each portfolio chart into its corresponding Holdings detail without arrows"
       ],
       "assertions": "Cash opens by keyboard on both widths. Public market opens on desktop. Private paper and other liquid open on mobile. Every key, focused heading and selected row still has an actual navigation owner."
+    },
+    {
+      "id": "legal-not-found-desktop",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > accepts a user-entered name with only a document and page, without weakening extracted choices",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > resolves name_not_found from a clean agreement while rejecting unscanned documents and representative choices"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
+      ],
+      "assertions": "Desktop retains entered name, bounded agreement page, omitted excerpt/reason, exact supporting document, disabled invalid inputs, entity creation and review after reload. Mobile retains the same form in structure mode plus representative exclusion and narrow agreement review. The domain rejects malformed page/name/excerpt, and D1 reloads the exact reviewed evidence. Exact phone spacing of this name-only case and its document guidance is retired."
+    },
+    {
+      "id": "legal-manual-structure-mobile",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual other_structure entry without requiring an excerpt or reason"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > accepts a user-entered name with only a document and page, without weakening extracted choices",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > resolves other_structure from a clean agreement while rejecting unscanned documents and representative choices"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: validates manual other_structure entry without requiring an excerpt or reason"
+      ],
+      "assertions": "Mobile requires an explicit manual choice and entity type, validates inputs and the exact supporting document, creates the entity, reloads the classification and preserves the compartment qualification. Normal structure party/review and legal-name choice screens retain both widths. Exact wide spacing for the manually entered structure form is retired."
+    },
+    {
+      "id": "legal-structure-link-desktop",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: links a reviewed structure to an exact existing non-Other entity"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > links a resolved name only to the exact household entity and protects its current name"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: links a reviewed structure to an exact existing non-Other entity"
+      ],
+      "assertions": "Desktop selects the exact existing non-Other entity, submits its ID and document_structure kind, and reloads the linked source without creating a new record. D1 rejects an unrelated name, protects household boundaries and optimistic versioning. Mobile retains the form, party roles and manual classification in separate cases."
+    },
+    {
+      "id": "legal-profile-invalid-mobile",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: gates manual creation and editing on all profile fields without browser validation pop-ups"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > rejects ambiguous or out-of-range ownership text"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: gates manual creation and editing on all profile fields without browser validation pop-ups"
+      ],
+      "assertions": "Mobile tests the actual create/edit forms, Enter, no native popups, disabled invalid EIN or ownership, and zero POST/PATCH requests. Domain rejects ambiguous ownership and out-of-range percentages. Desktop retains actual EIN gating during entity creation."
+    },
+    {
+      "id": "legal-stale-resolution-mobile",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > rejects an unselected conflict, a forged alternative, a foreign document, stale evidence and a blocked source"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity"
+      ],
+      "assertions": "Mobile keeps stale evidence unsaved, reloads the agreement, chooses the exact existing entity, retries, and verifies the stored selection. D1 independently rejects stale or forged evidence."
+    },
+    {
+      "id": "watch-timeout-mobile",
+      "retiredBrowserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload"
+      ],
+      "unitCases": [
+        "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > projects timeouts without writes and rejects a late completion after explicit recovery"
+      ],
+      "browserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload"
+      ],
+      "assertions": "Mobile distinguishes an empty successful check, failed check and timeout, preserves last successful read across reloads, wraps long status text, and rechecks explicitly. D1 projects the expired run without mutating it and rejects late completion. Wide ordinary monitoring and limited/failed state geometry remain. Exact wide timeout text arrangement is retired."
+    },
+    {
+      "id": "watch-news-read-mobile",
+      "retiredBrowserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: reads news independently of decisions, restores read state, and opens the selected evidence"
+      ],
+      "unitCases": [
+        "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > persists personal read state with conflict protection and no financial decisions"
+      ],
+      "browserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: reads news independently of decisions, restores read state, and opens the selected evidence"
+      ],
+      "assertions": "Mobile retries a failed read write with the correct version, reloads the personal read state, preserves zero evidence writes, focuses the selected evidence after navigation/reload, and discloses ranges and ambiguous sources without an invented amount. D1 checks receipt isolation/conflicts and separation from financial decisions. The ordinary news row stays at both widths; the wide two-item news arrangement is retired."
+    },
+    {
+      "id": "watch-website-desktop",
+      "retiredBrowserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: confirms a missing website while keeping source verification pending"
+      ],
+      "unitCases": [
+        "packages/database/src/portfolio-watch.test.ts :: reviewed Watch websites > records an identity decision before scheduling verification and rejects stale or unrelated writes"
+      ],
+      "browserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: confirms a missing website while keeping source verification pending"
+      ],
+      "assertions": "Desktop submits the actual company, URL and rationale, refreshes the coverage panel and reloads its pending state. The real D1 test requires one append-only identity decision, an unverified source with zero health, no last successful read, household isolation and a bounded three-query receipt against 125 companies."
+    },
+    {
+      "id": "legal-legacy-correction-mobile",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: supports a document-backed correction for a legacy conflict with no saved choices"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > requires a correction reason and validates an optional exact-name excerpt"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: supports a document-backed correction for a legacy conflict with no saved choices"
+      ],
+      "assertions": "Mobile retains empty legacy choices, requires an explicit documented correction reason, accepts an optional matching excerpt, submits the reason and exact legal name, and checks the saved review. The domain enforces the reason and matching optional excerpt. The ordinary wide agreement form keeps the same stacked fields and side-by-side actions. The exact wide arrangement of two populated textareas is retired."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
