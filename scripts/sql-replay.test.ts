@@ -9,16 +9,21 @@ import {
 import { emptyD1Cost } from "./test-support/d1-meter";
 import { createSqliteTrace } from "./test-support/sqlite-trace";
 
-it("replays setup, atomic batches, bindings and reads with actual D1 index-write costs", async () => {
-  const bundled = await build({
+let worker: Promise<string> | undefined;
+async function createReplayFixture() {
+  worker ??= build({
     entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
     bundle: true,
     write: false,
     format: "esm",
     platform: "neutral",
     target: "es2022",
-  });
-  const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
+  }).then((result) => result.outputFiles[0]!.text);
+  return createCostDatabase(await worker);
+}
+
+it("replays setup, atomic batches, bindings and reads with actual D1 index-write costs", async () => {
+  const fixture = await createReplayFixture();
   const trace = createSqliteTrace();
   try {
     const db = trace.database;
@@ -93,15 +98,7 @@ it("replays setup, atomic batches, bindings and reads with actual D1 index-write
 }, 30_000);
 
 it("validates consumed affected-row counts against D1 while rejecting synthetic billing metadata", async () => {
-  const bundled = await build({
-    entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
-    bundle: true,
-    write: false,
-    format: "esm",
-    platform: "neutral",
-    target: "es2022",
-  });
-  const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
+  const fixture = await createReplayFixture();
   const trace = createSqliteTrace();
   const unsupported = createSqliteTrace();
   try {
@@ -244,7 +241,7 @@ it("rejects incomplete replay, missing billing metadata and failed SQL traces", 
 });
 
 it("batches only adjacent standalone reads without changing real billing or production round trips", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createReplayFixture();
   try {
     await fixture.execute(
       "CREATE TABLE replay_reads (id TEXT PRIMARY KEY, value INTEGER); CREATE INDEX replay_reads_value ON replay_reads(value)",
@@ -325,15 +322,23 @@ it("batches only adjacent standalone reads without changing real billing or prod
         .prepare("SELECT COUNT(*) AS count FROM replay_reads")
         .first("count"),
     ).toBe(0);
-    const bounded = await replaySql(fixture.database, {
-      queries: ["SELECT value FROM replay_reads"],
-      steps: Array.from({ length: 205 }, () => ({
-        batch: false,
-        statements: [{ query: 0, bindings: [], rows: [] }],
-      })),
-      offset: 0,
-      measureFrom: 0,
-    });
+    const response = await fixture.dispatchFetch(
+      "https://synthetic-replay.invalid",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          queries: ["SELECT value FROM replay_reads"],
+          steps: Array.from({ length: 205 }, () => ({
+            batch: false,
+            statements: [{ query: 0, bindings: [], rows: [] }],
+          })),
+          offset: 0,
+          measureFrom: 0,
+        } satisfies SqlReplayChunk),
+      },
+    );
+    if (!response.ok) throw new Error(await response.text());
+    const bounded = await response.json();
     expect(bounded).toMatchObject({
       roundTrips: 205,
       statements: 205,
@@ -346,15 +351,7 @@ it("batches only adjacent standalone reads without changing real billing or prod
 }, 30_000);
 
 it("coalesces proven zero-write updates while retaining actual writes, triggers and billing", async () => {
-  const bundled = await build({
-    entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
-    bundle: true,
-    write: false,
-    format: "esm",
-    platform: "neutral",
-    target: "es2022",
-  });
-  const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
+  const fixture = await createReplayFixture();
   const trace = createSqliteTrace();
   try {
     const db = trace.database;
