@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 52,
+  "retiredBrowserCaseCount": 54,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -357,7 +357,7 @@
         "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar recognizes a dedicated sign-in page before its form loads",
         "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio recognizes a dedicated sign-in page before its form loads"
       ],
-      "assertions": "The real desktop browser retains both providers’ dedicated sign-in checks before the form loads and the complete Tokenfolio hosted Auth0 route, origin, visibility, same-form and provider boundaries. Both projects retain the full MFA, optional enrollment and responsive readiness checks. The existing unit owners verify the normal Chrome setup launches for each provider."
+      "assertions": "The real desktop browser retains both providers\u2019 dedicated sign-in checks before the form loads and the complete Tokenfolio hosted Auth0 route, origin, visibility, same-form and provider boundaries. Both projects retain the full MFA, optional enrollment and responsive readiness checks. The existing unit owners verify the normal Chrome setup launches for each provider."
     },
     {
       "id": "routine-baseline-refresh-projects",
@@ -377,6 +377,19 @@
         "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: automatically refreshes routine private changes without a baseline review"
       ],
       "assertions": "Desktop exercises public, private and cash changes. Mobile exercises the shared pending and settled views with private changes. Each case holds the real refresh POST, observes the pending status, releases the response and verifies dismissal, one refresh, zero confirmation requests and no horizontal overflow. Both private screenshots remain. The API and database cases cover source-specific refresh policy."
+    },
+    {
+      "id": "manual-cash-save-reload-duplicate",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: reads current receipt cash instead of immutable initial cash after partial contributions change or clear",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: reads current receipt cash instead of immutable initial cash after partial contributions change or clear"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/manual-holdings.spec.ts :: chromium :: uses the latest saved partial contribution cash through edits and clearing",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: uses the latest saved partial contribution cash through edits and clearing"
+      ],
+      "assertions": "The retained real API/D1 case covers initial cash, edited minor units, null after clearing, no stale or invented zero cash, cashCoversPosition=false, and reload/readback. It now observes exactly two purchases POSTs. Valuation and null capital/fees/returns checks remain. Both original and retained cases reject stale initial cash and duplicate save dispatch; no screenshot is retired."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

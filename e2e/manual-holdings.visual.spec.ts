@@ -2,10 +2,6 @@ import { expect, test, type Page } from "./api-mocked-test";
 import type { Request } from "@playwright/test";
 import { HoldingSchema } from "../packages/domain/src/index";
 import {
-  AcceptPurchasesSchema,
-  PurchaseReceiptSchema,
-} from "../packages/domain/src/position-purchases";
-import {
   ManualHoldingIdentityInputSchema,
   ManualHoldingInputSchema,
 } from "../packages/domain/src/manual-holdings";
@@ -1105,80 +1101,6 @@ test("shows manual creation and only actual identity corrections in normal Histo
     "manual-holding-identity-history.png",
     { animations: "disabled" },
   );
-});
-
-test("reads current receipt cash instead of immutable initial cash after partial contributions change or clear", async ({
-  page,
-}) => {
-  let receipt = receiptWithCash(2_500_000);
-  const fixture = await registerManualHoldingRoutes(page, () =>
-    HoldingSchema.parse({
-      ...holding(),
-      positionKind: "spv_interest",
-      investedMinor: 2_500_000,
-      purchaseContext: {
-        snapshotId: "manual-snapshot",
-        currency: "USD",
-        openedOn: null,
-        receipt,
-      },
-    }),
-  );
-  fixture.accept();
-  let saves = 0;
-  await page.route(
-    `**/api/investment-positions/${positionId}/purchases`,
-    async (route) => {
-      const input = AcceptPurchasesSchema.parse(route.request().postDataJSON());
-      expect(input.details.cashCoversPosition).toBe(false);
-      saves += 1;
-      receipt = PurchaseReceiptSchema.parse({
-        ...receipt,
-        id: `manual-cash-edit-${saves}`,
-        details: input.details,
-      });
-      await route.fulfill({ json: receipt });
-    },
-  );
-  await page.goto(`/holdings?position=${positionId}`);
-  const detail = page.locator(".spv-holding");
-  await expect(
-    detail.getByRole("group", { name: "Cash paid", exact: true }),
-  ).toContainText("$25,000.00");
-  for (const value of ["26000", ""]) {
-    await page
-      .getByRole("button", { name: "Edit investment", exact: true })
-      .click();
-    await page.getByLabel("Cash paid · $", { exact: true }).fill(value);
-    await detail
-      .locator(".holding-investment")
-      .getByRole("button", { name: "Save", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", {
-        name: value ? "Edit investment" : "Add investment details",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await page.reload();
-    if (value) {
-      await expect(
-        detail.getByRole("group", { name: "Cash paid", exact: true }),
-      ).toContainText("$26,000.00");
-      expect(receipt.details.lots[0]?.grossCashMinor).toBe(2_600_000);
-    } else {
-      await expect(
-        detail.getByRole("group", { name: "Cash paid", exact: true }),
-      ).toHaveCount(0);
-      await expect(detail.getByText("$0.00", { exact: true })).toHaveCount(0);
-      expect(receipt.details.lots[0]?.grossCashMinor).toBeNull();
-    }
-    await expect(detail.getByText("$25,000.00", { exact: true })).toHaveCount(
-      0,
-    );
-    expect(receipt.details.cashCoversPosition).toBe(false);
-  }
-  expect(saves).toBe(2);
 });
 
 test("preserves a current single-company Fund grouping when only the name changes", async ({

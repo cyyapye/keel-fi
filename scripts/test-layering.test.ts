@@ -18,7 +18,9 @@ const manifest = z
           .object({
             id: z.string().min(1),
             retiredBrowserCases: z.array(z.string()),
-            unitCases: z.array(z.string()).nonempty(),
+            // A browser duplicate can consolidate into a stronger real API/D1
+            // browser owner without adding an unnecessary unit test.
+            unitCases: z.array(z.string()),
             browserCases: z.array(z.string()).nonempty(),
             assertions: z.string().min(30),
           })

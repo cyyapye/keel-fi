@@ -714,6 +714,15 @@ test("uses the latest saved partial contribution cash through edits and clearing
     false,
   );
   const valuation = created.purchaseContext?.receipt?.details.valuation;
+  const purchaseSaves: Request[] = [];
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname ===
+        `/api/investment-positions/${positionId}/purchases`
+    )
+      purchaseSaves.push(request);
+  });
   for (const [value, expectedCash] of [
     ["26000", 2_600_000],
     ["", null],
@@ -779,4 +788,5 @@ test("uses the latest saved partial contribution cash through edits and clearing
     ).toBeVisible();
     await expect(summary.locator("[aria-label^='Return ']")).toHaveCount(0);
   }
+  expect(purchaseSaves).toHaveLength(2);
 });
