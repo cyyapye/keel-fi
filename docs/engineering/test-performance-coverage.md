@@ -1011,6 +1011,13 @@ took 313.577 seconds and its
 [identical repeat](https://github.com/cyyapye/keel-fi/actions/runs/41980100466)
 took 324.023 seconds. All three used the original runner and four-worker cap.
 
+The [Linux worker-priority trial](https://github.com/cyyapye/keel-fi/actions/runs/41981845508)
+passed every first attempt on the same 312 browser cases. The main Vitest
+workers ran at nice 3. Browsers took 491.384 seconds and the full gate took
+796.429 seconds, respectively 22.933 and 25.918 seconds longer than the
+ordinary control. Main Vitest took 675.854 seconds versus 569.088 seconds.
+The next candidate restores the original scheduling priority.
+
 The subsequent agreement and Holdings review leaves 302 required browser cases
 and 361 Linux references. Ownership percentages, dates and document references
 now run on the actual ownership component. The existing K-1 journey also loads
