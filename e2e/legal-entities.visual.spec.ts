@@ -23,6 +23,8 @@ import {
   selectReviewSection,
 } from "./investment-review-fixtures";
 
+const captureDesignReview = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
+
 // Keep the existing manual-review fixtures fixed; automatic transitions have
 // their own browser suite and real D1 integration tests.
 test.beforeEach(async ({ page }) => {
@@ -533,11 +535,9 @@ test(
 
 test(
   "starts with compact triage and a visible entity inventory",
-  { tag: "@mobile-only" },
-  async ({ page }, testInfo) => {
-    const captureDesignReview =
-      process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
-    await page.setViewportSize({ width: 393, height: 680 });
+  { tag: captureDesignReview ? [] : "@mobile-only" },
+  async ({ page, isMobile }, testInfo) => {
+    if (isMobile) await page.setViewportSize({ width: 393, height: 680 });
     await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
     await routeHoldingsPage(page, {
       householdName: "Demo Household",
@@ -567,7 +567,8 @@ test(
     ).toBeInViewport();
     await expect(batchAction).toBeHidden();
     await expectNoHorizontalOverflow(page);
-    await expect(page).toHaveScreenshot("legal-entities-initial.png");
+    if (isMobile)
+      await expect(page).toHaveScreenshot("legal-entities-initial.png");
     await triage.click();
     await expect(batchAction).toBeVisible();
     const summary = page.locator(".legal-entity-exact-batch__summary");
@@ -601,15 +602,17 @@ test(
       summary.getByText(/2 sources remain outside this batch/u),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
-    await expect(page.locator(".legal-entity-exact-batch")).toHaveScreenshot(
-      "legal-entities-batch-details.png",
-    );
+    if (isMobile)
+      await expect(page.locator(".legal-entity-exact-batch")).toHaveScreenshot(
+        "legal-entities-batch-details.png",
+      );
     if (captureDesignReview) {
       await page.screenshot({
         path: testInfo.outputPath("batch-details-viewport.png"),
       });
     }
 
+    if (!isMobile) return;
     await details.click();
     await page.setViewportSize({ width: 320, height: 680 });
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -1509,23 +1512,6 @@ test(
     ).toBeChecked();
     expect(exportRequests).toBe(1);
 
-    await expectNoHorizontalOverflow(page);
-    return;
-
-    for (const checkbox of await page
-      .locator(".legal-entity-export__field-grid")
-      .getByRole("checkbox")
-      .all())
-      await checkbox.uncheck();
-    await expect(download).toBeDisabled();
-    await expect(page.getByText("Choose at least one column.")).toBeVisible();
-    await page.getByRole("button", { name: "Use recommended fields" }).click();
-    await expect(download).toBeEnabled();
-    await expect(
-      page
-        .locator(".legal-entity-export__field-grid")
-        .getByRole("checkbox", { checked: true }),
-    ).toHaveCount(16);
     await expectNoHorizontalOverflow(page);
   },
 );

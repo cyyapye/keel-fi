@@ -354,6 +354,7 @@ async function checkFailedMonitoringLayout(page: Page, testInfo: TestInfo) {
     await page.screenshot({
       path: testInfo.outputPath("review-empty-viewport.png"),
     });
+    if (testInfo.project.name === "chromium") return failed.runs;
   }
   await page.addStyleTag({
     content: ".topbar, .mobile-nav { visibility: hidden !important; }",
@@ -378,7 +379,7 @@ async function checkFailedMonitoringLayout(page: Page, testInfo: TestInfo) {
 
 test(
   "keeps Portfolio Watch visually sparse and decision-oriented",
-  { tag: "@desktop-only" },
+  { tag: captureDesignReview ? [] : "@desktop-only" },
   async ({ page }, testInfo) => {
     const alphaResponse = await page.request.get("/api/alpha");
     expect(alphaResponse.ok()).toBe(true);
@@ -478,10 +479,11 @@ test(
       content: ".topbar, .mobile-nav { visibility: hidden !important; }",
     });
     await page.mouse.move(0, 0);
-    await expect(page.locator(".watch-screen")).toHaveScreenshot(
-      "portfolio-watch-running.png",
-      { animations: "disabled" },
-    );
+    if (!mobile)
+      await expect(page.locator(".watch-screen")).toHaveScreenshot(
+        "portfolio-watch-running.png",
+        { animations: "disabled" },
+      );
     completed = true;
     await page.clock.fastForward(10_000);
     await expect(checkButton).toBeEnabled();
@@ -502,6 +504,7 @@ test(
         path: testInfo.outputPath("review-coverage.png"),
         animations: "disabled",
       });
+      if (mobile) return;
     }
     await page.addStyleTag({
       content: ".topbar, .mobile-nav { visibility: hidden !important; }",
@@ -577,9 +580,10 @@ test(
 
 test(
   "keeps empty, failed and timed-out checks distinct and restores saved history after reload",
-  { tag: "@mobile-only" },
-  async ({ page }, testInfo) => {
+  { tag: captureDesignReview ? [] : "@mobile-only" },
+  async ({ page, isMobile }, testInfo) => {
     const priorRuns = await checkFailedMonitoringLayout(page, testInfo);
+    if (!isMobile) return;
     let state = PortfolioWatchActivitySchema.parse({
       ...watchActivityFixture,
       asOf: "2026-08-02T12:00:30.000Z",

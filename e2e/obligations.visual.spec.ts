@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const captureDesignReview = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
 const observedAt = "2026-08-14T16:00:00.000Z";
 const connectionId = "liability_connection_demo_bank";
 const proposalId = "liability_proposal_demo_bank";
@@ -272,8 +273,8 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 test(
   "reviews obligations and preserves unknown and stale states",
-  { tag: "@mobile-only" },
-  async ({ page }, testInfo) => {
+  { tag: captureDesignReview ? [] : "@mobile-only" },
+  async ({ page, isMobile }, testInfo) => {
     const alphaResponse = await page.request.get("/api/alpha");
     expect(alphaResponse.ok()).toBe(true);
     const alphaFixture = await alphaResponse.json();
@@ -328,12 +329,13 @@ test(
     await page.addStyleTag({
       content: ".topbar, .mobile-nav { visibility: hidden !important; }",
     });
-    await expect(pageContent).toHaveScreenshot("obligations-ready.png", {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    });
+    if (isMobile)
+      await expect(pageContent).toHaveScreenshot("obligations-ready.png", {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      });
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "Review obligations" }).click();
@@ -348,12 +350,13 @@ test(
     await review.evaluate((element) =>
       element.scrollIntoView({ block: "start", behavior: "auto" }),
     );
-    await expect(review).toHaveScreenshot("obligations-review.png", {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    });
+    if (isMobile)
+      await expect(review).toHaveScreenshot("obligations-review.png", {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      });
     await expectNoHorizontalOverflow(page);
 
     await page.getByRole("button", { name: "Apply review" }).click();
@@ -383,7 +386,6 @@ test(
       ],
     });
 
-    const captureDates = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
     await page.clock.setFixedTime(new Date(observedAt));
     await page.getByRole("button", { name: "Add manually" }).click();
     const manual = page.locator(".manual-obligation");
@@ -428,7 +430,7 @@ test(
     await page
       .getByRole("button", { name: "Friday, August 14, 2026", exact: true })
       .click();
-    if (captureDates)
+    if (captureDesignReview)
       await manual.screenshot({
         path: testInfo.outputPath("manual-obligation-dates.png"),
         animations: "disabled",
