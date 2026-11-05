@@ -112,272 +112,240 @@ async function waitForOverviewLayout(page: Page) {
   await expect(page.locator(".portfolio-snapshot__metrics")).toBeVisible();
 }
 
-test("keeps material plan drift actionable without changing the plan", async ({
-  page,
-  isMobile,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = withStableOverviewValues(
-    (await alphaResponse.json()) as AlphaData,
-  );
-  let monitoringState: object = {
-    ...monitoringBase,
-    status: "needs_action",
-    actionItems: [...actionItems],
-    deferredItems: [],
-  };
-
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/plan-actual-monitoring", async (route) => {
-    await route.fulfill({ json: monitoringState });
-  });
-  await page.route("**/api/plan-actual-monitoring/snooze", async (route) => {
-    const deferredCash = {
-      ...cashItem,
-      cooldownUntil: "2026-08-23T12:00:00.000Z",
-    };
-    monitoringState = {
+test(
+  "keeps material plan drift actionable without changing the plan",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = withStableOverviewValues(
+      (await alphaResponse.json()) as AlphaData,
+    );
+    let monitoringState: object = {
       ...monitoringBase,
       status: "needs_action",
-      actionItems: actionItems.slice(1),
-      deferredItems: [deferredCash],
-    };
-    await route.fulfill({ status: 201, json: monitoringState });
-  });
-
-  await page.goto("/");
-  await waitForOverviewLayout(page);
-  await hideStickyTopbar(page);
-  const monitoring = page.locator(".plan-monitoring");
-  const monitoringSummary = monitoring.getByRole("button", {
-    name: /Monitoring needs attention/u,
-  });
-  await expect(monitoringSummary).toHaveAttribute("aria-expanded", "false");
-  await expect(monitoringSummary).toContainText("4 decisions to review");
-  await expect(monitoringSummary).toContainText("Needs attention");
-  await expect(monitoringSummary).not.toHaveAttribute("data-panel-open", "");
-  const summaryHierarchy = await monitoringSummary.evaluate((summary) => {
-    const eyebrow = summary.querySelector(".eyebrow");
-    const title = summary.querySelector(
-      ".plan-monitoring__summary-text strong",
-    );
-    const detail = summary.querySelector(
-      ".plan-monitoring__summary-text small",
-    );
-    if (eyebrow === null || title === null || detail === null) return null;
-    const eyebrowBounds = eyebrow.getBoundingClientRect();
-    const titleBounds = title.getBoundingClientRect();
-    const detailBounds = detail.getBoundingClientRect();
-    return {
-      detailTop: detailBounds.top,
-      eyebrowBottom: eyebrowBounds.bottom,
-      eyebrowLeft: eyebrowBounds.left,
-      titleBottom: titleBounds.bottom,
-      titleLeft: titleBounds.left,
-      titleTop: titleBounds.top,
-    };
-  });
-  expect(summaryHierarchy).not.toBeNull();
-  expect(
-    Math.abs(summaryHierarchy!.eyebrowLeft - summaryHierarchy!.titleLeft),
-  ).toBeLessThanOrEqual(1);
-  expect(summaryHierarchy!.titleTop).toBeGreaterThanOrEqual(
-    summaryHierarchy!.eyebrowBottom,
-  );
-  expect(summaryHierarchy!.detailTop).toBeGreaterThanOrEqual(
-    summaryHierarchy!.titleBottom,
-  );
-  expect(
-    await monitoringSummary.evaluate((summary) => {
-      const status = summary.querySelector(".plan-monitoring__indicator");
-      const indicator = summary.querySelector(".plan-monitoring__toggle-mark");
-      if (status === null || indicator === null) {
-        return Number.POSITIVE_INFINITY;
-      }
-      const statusBounds = status.getBoundingClientRect();
-      const indicatorBounds = indicator.getBoundingClientRect();
-      return Math.abs(
-        statusBounds.top +
-          statusBounds.height / 2 -
-          (indicatorBounds.top + indicatorBounds.height / 2),
-      );
-    }),
-  ).toBeLessThanOrEqual(1);
-  await expect(monitoring.locator(".plan-monitoring__details")).toHaveCount(0);
-  await expect(
-    monitoring.getByRole("heading", { name: "4 decisions to review" }),
-  ).toHaveCount(0);
-  await expect(
-    monitoring.getByText("Nothing here changes your saved plan or forecast."),
-  ).toHaveCount(0);
-  await expect(
-    monitoring.getByRole("button", { name: "Reconcile cash and baseline" }),
-  ).toHaveCount(0);
-  expect(
-    await monitoring.evaluate(
-      (element) =>
-        element.previousElementSibling?.querySelector("h2")?.textContent,
-    ),
-  ).toBe("What the saved plan says");
-  await expect(monitoring).toHaveScreenshot("plan-actual-attention.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-
-  await monitoringSummary.click();
-  await expect(monitoringSummary).toHaveAttribute("aria-expanded", "true");
-  await expect(monitoringSummary).toHaveAttribute("data-panel-open", "");
-  const disclosureMotion = await monitoring
-    .locator('[data-slot="collapsible-content"]')
-    .evaluate((panel) => {
-      const style = window.getComputedStyle(panel);
-      return {
-        duration: style.transitionDuration,
-        property: style.transitionProperty,
-      };
-    });
-  expect(disclosureMotion.property).toContain("height");
-  expect(disclosureMotion.duration).not.toBe("0s");
-  await expect(
-    monitoring.getByRole("heading", { name: "4 decisions to review" }),
-  ).toBeVisible();
-  await expect(
-    monitoring.getByText("Nothing here changes your saved plan or forecast."),
-  ).toBeVisible();
-  await expect(monitoring).toHaveScreenshot("plan-actual-actions.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-
-  const targetSizes = await monitoring
-    .locator("button")
-    .evaluateAll((buttons) =>
-      buttons.map((button) => {
-        const bounds = button.getBoundingClientRect();
-        return { height: bounds.height, width: bounds.width };
-      }),
-    );
-  expect(
-    targetSizes.every(({ height, width }) => height >= 44 && width >= 44),
-  ).toBe(true);
-  await expectNoHorizontalOverflow(page);
-
-  await monitoring
-    .getByRole("button", { name: "Reconcile cash and baseline" })
-    .click();
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Holdings" }),
-  ).toBeVisible();
-
-  await page.goto("/");
-  await waitForOverviewLayout(page);
-  const restoredMonitoring = page.locator(".plan-monitoring");
-  const restoredSummary = restoredMonitoring.getByRole("button", {
-    name: /Monitoring needs attention/u,
-  });
-  await restoredSummary.click();
-  await restoredMonitoring
-    .getByRole("button", { name: "Review in 7 days" })
-    .first()
-    .click();
-  await expect(restoredSummary).toBeFocused();
-  await expect(restoredSummary).toContainText("3 decisions to review");
-  await expect(restoredMonitoring.getByRole("status")).toHaveText(
-    "Moved to review later for 7 days.",
-  );
-
-  if (!isMobile) {
-    monitoringState = {
-      ...monitoringBase,
-      status: "clear",
-      actionItems: [],
+      actionItems: [...actionItems],
       deferredItems: [],
     };
-    await page.reload();
+
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await page.route("**/api/plan-actual-monitoring", async (route) => {
+      await route.fulfill({ json: monitoringState });
+    });
+    await page.route("**/api/plan-actual-monitoring/snooze", async (route) => {
+      const deferredCash = {
+        ...cashItem,
+        cooldownUntil: "2026-08-23T12:00:00.000Z",
+      };
+      monitoringState = {
+        ...monitoringBase,
+        status: "needs_action",
+        actionItems: actionItems.slice(1),
+        deferredItems: [deferredCash],
+      };
+      await route.fulfill({ status: 201, json: monitoringState });
+    });
+
+    await page.goto("/");
     await waitForOverviewLayout(page);
     await hideStickyTopbar(page);
-    const clearMonitoring = page.locator(".plan-monitoring");
-    const clearSummary = clearMonitoring.getByRole("button", {
-      name: /Monitoring is healthy/u,
+    const monitoring = page.locator(".plan-monitoring");
+    const monitoringSummary = monitoring.getByRole("button", {
+      name: /Monitoring needs attention/u,
     });
-    await expect(clearSummary).toHaveAttribute("aria-expanded", "false");
-    await expect(clearSummary).toContainText(
-      "Reviewed actuals are within plan guardrails",
+    await expect(monitoringSummary).toHaveAttribute("aria-expanded", "false");
+    await expect(monitoringSummary).toContainText("4 decisions to review");
+    await expect(monitoringSummary).toContainText("Needs attention");
+    await expect(monitoringSummary).not.toHaveAttribute("data-panel-open", "");
+    const summaryHierarchy = await monitoringSummary.evaluate((summary) => {
+      const eyebrow = summary.querySelector(".eyebrow");
+      const title = summary.querySelector(
+        ".plan-monitoring__summary-text strong",
+      );
+      const detail = summary.querySelector(
+        ".plan-monitoring__summary-text small",
+      );
+      if (eyebrow === null || title === null || detail === null) return null;
+      const eyebrowBounds = eyebrow.getBoundingClientRect();
+      const titleBounds = title.getBoundingClientRect();
+      const detailBounds = detail.getBoundingClientRect();
+      return {
+        detailTop: detailBounds.top,
+        eyebrowBottom: eyebrowBounds.bottom,
+        eyebrowLeft: eyebrowBounds.left,
+        titleBottom: titleBounds.bottom,
+        titleLeft: titleBounds.left,
+        titleTop: titleBounds.top,
+      };
+    });
+    expect(summaryHierarchy).not.toBeNull();
+    expect(
+      Math.abs(summaryHierarchy!.eyebrowLeft - summaryHierarchy!.titleLeft),
+    ).toBeLessThanOrEqual(1);
+    expect(summaryHierarchy!.titleTop).toBeGreaterThanOrEqual(
+      summaryHierarchy!.eyebrowBottom,
     );
-    await expect(clearSummary).toContainText("Healthy");
-    await expect(
-      page.getByRole("heading", {
-        name: "Reviewed actuals are within the plan guardrails",
+    expect(summaryHierarchy!.detailTop).toBeGreaterThanOrEqual(
+      summaryHierarchy!.titleBottom,
+    );
+    expect(
+      await monitoringSummary.evaluate((summary) => {
+        const status = summary.querySelector(".plan-monitoring__indicator");
+        const indicator = summary.querySelector(
+          ".plan-monitoring__toggle-mark",
+        );
+        if (status === null || indicator === null) {
+          return Number.POSITIVE_INFINITY;
+        }
+        const statusBounds = status.getBoundingClientRect();
+        const indicatorBounds = indicator.getBoundingClientRect();
+        return Math.abs(
+          statusBounds.top +
+            statusBounds.height / 2 -
+            (indicatorBounds.top + indicatorBounds.height / 2),
+        );
       }),
+    ).toBeLessThanOrEqual(1);
+    await expect(monitoring.locator(".plan-monitoring__details")).toHaveCount(
+      0,
+    );
+    await expect(
+      monitoring.getByRole("heading", { name: "4 decisions to review" }),
     ).toHaveCount(0);
-    await expect(clearMonitoring).toHaveScreenshot("plan-actual-clear.png", {
+    await expect(
+      monitoring.getByText("Nothing here changes your saved plan or forecast."),
+    ).toHaveCount(0);
+    await expect(
+      monitoring.getByRole("button", { name: "Reconcile cash and baseline" }),
+    ).toHaveCount(0);
+    expect(
+      await monitoring.evaluate(
+        (element) =>
+          element.previousElementSibling?.querySelector("h2")?.textContent,
+      ),
+    ).toBe("What the saved plan says");
+    await expect(monitoring).toHaveScreenshot("plan-actual-attention.png", {
       animations: "disabled",
       caret: "hide",
       maxDiffPixelRatio: 0.025,
       threshold: 0.25,
     });
-    await clearSummary.click();
+
+    await monitoringSummary.click();
+    await expect(monitoringSummary).toHaveAttribute("aria-expanded", "true");
+    await expect(monitoringSummary).toHaveAttribute("data-panel-open", "");
+    const disclosureMotion = await monitoring
+      .locator('[data-slot="collapsible-content"]')
+      .evaluate((panel) => {
+        const style = window.getComputedStyle(panel);
+        return {
+          duration: style.transitionDuration,
+          property: style.transitionProperty,
+        };
+      });
+    expect(disclosureMotion.property).toContain("height");
+    expect(disclosureMotion.duration).not.toBe("0s");
     await expect(
-      clearMonitoring.getByRole("heading", {
-        name: "Reviewed actuals are within the plan guardrails",
-      }),
+      monitoring.getByRole("heading", { name: "4 decisions to review" }),
     ).toBeVisible();
+    await expect(
+      monitoring.getByText("Nothing here changes your saved plan or forecast."),
+    ).toBeVisible();
+    await expect(monitoring).toHaveScreenshot("plan-actual-actions.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+
+    const targetSizes = await monitoring
+      .locator("button")
+      .evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const bounds = button.getBoundingClientRect();
+          return { height: bounds.height, width: bounds.width };
+        }),
+      );
+    expect(
+      targetSizes.every(({ height, width }) => height >= 44 && width >= 44),
+    ).toBe(true);
     await expectNoHorizontalOverflow(page);
-    return;
-  }
 
-  monitoringState = {
-    ...monitoringBase,
-    status: "limited",
-    coverage: {
-      cash: "not_configured",
-      debt: "current",
-      burn: "not_configured",
-      runway: "limited",
-    },
-    actionItems: [],
-    deferredItems: [],
-  };
-  await page.reload();
-  await waitForOverviewLayout(page);
-  const limitedMonitoring = page.locator(".plan-monitoring");
-  const limitedSummary = limitedMonitoring.getByRole("button", {
-    name: /Monitoring is limited/u,
-  });
-  await expect(limitedSummary).toHaveAttribute("aria-expanded", "false");
-  await expect(limitedSummary).toContainText(
-    "More reviewed actuals are needed",
-  );
-  await expect(
-    limitedMonitoring.getByRole("heading", {
-      name: "Monitoring is ready for connected actuals",
-    }),
-  ).toHaveCount(0);
-  await expect(limitedMonitoring).toHaveScreenshot("plan-actual-limited.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  const goalSignal = page.locator(".goal-signal");
-  const goalStats = goalSignal.locator(
-    ".goal-signal__stats [data-slot='stat']",
-  );
-  await expect(goalStats).toHaveCount(2);
-  await expect(goalSignal).toContainText("Goal target");
-  await expect(goalSignal).not.toContainText("Protected runway");
-  await expect(goalSignal).not.toContainText("FI-eligible liquid");
+    await monitoring
+      .getByRole("button", { name: "Reconcile cash and baseline" })
+      .click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Holdings" }),
+    ).toBeVisible();
 
-  const portfolioBase = page.locator(".portfolio-outlook__base");
-  await expect(portfolioBase).toContainText("Current base");
-  await expect(portfolioBase).toContainText("Protected runway");
-  await expect(portfolioBase).toContainText("FI-eligible liquid");
-  await expectNoHorizontalOverflow(page);
-});
+    await page.goto("/");
+    await waitForOverviewLayout(page);
+    const restoredMonitoring = page.locator(".plan-monitoring");
+    const restoredSummary = restoredMonitoring.getByRole("button", {
+      name: /Monitoring needs attention/u,
+    });
+    await restoredSummary.click();
+    await restoredMonitoring
+      .getByRole("button", { name: "Review in 7 days" })
+      .first()
+      .click();
+    await expect(restoredSummary).toBeFocused();
+    await expect(restoredSummary).toContainText("3 decisions to review");
+    await expect(restoredMonitoring.getByRole("status")).toHaveText(
+      "Moved to review later for 7 days.",
+    );
+
+    monitoringState = {
+      ...monitoringBase,
+      status: "limited",
+      coverage: {
+        cash: "not_configured",
+        debt: "current",
+        burn: "not_configured",
+        runway: "limited",
+      },
+      actionItems: [],
+      deferredItems: [],
+    };
+    await page.reload();
+    await waitForOverviewLayout(page);
+    const limitedMonitoring = page.locator(".plan-monitoring");
+    const limitedSummary = limitedMonitoring.getByRole("button", {
+      name: /Monitoring is limited/u,
+    });
+    await expect(limitedSummary).toHaveAttribute("aria-expanded", "false");
+    await expect(limitedSummary).toContainText(
+      "More reviewed actuals are needed",
+    );
+    await expect(
+      limitedMonitoring.getByRole("heading", {
+        name: "Monitoring is ready for connected actuals",
+      }),
+    ).toHaveCount(0);
+    await expect(limitedMonitoring).toHaveScreenshot(
+      "plan-actual-limited.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
+    const goalSignal = page.locator(".goal-signal");
+    const goalStats = goalSignal.locator(
+      ".goal-signal__stats [data-slot='stat']",
+    );
+    await expect(goalStats).toHaveCount(2);
+    await expect(goalSignal).toContainText("Goal target");
+    await expect(goalSignal).not.toContainText("Protected runway");
+    await expect(goalSignal).not.toContainText("FI-eligible liquid");
+
+    const portfolioBase = page.locator(".portfolio-outlook__base");
+    await expect(portfolioBase).toContainText("Current base");
+    await expect(portfolioBase).toContainText("Protected runway");
+    await expect(portfolioBase).toContainText("FI-eligible liquid");
+    await expectNoHorizontalOverflow(page);
+  },
+);

@@ -167,10 +167,7 @@ class NativeAccountingTests(unittest.TestCase):
                 }],
             }]}]}
         inventory = {"playwright": [f"e2e/{lane}.spec.ts :: chromium :: required" for lane in native.BROWSER_LANES], "exclusions": []}
-        execution = {
-            lane: {"workers": 4 if lane == "mocked-development" else 1}
-            for lane in native.BROWSER_LANES
-        }
+        execution = {lane: {"workers": 1} for lane in native.BROWSER_LANES}
         for lane in native.BROWSER_LANES:
             workers = execution[lane]["workers"]
             correct = report(f"{lane}.spec.ts", workers)
@@ -209,14 +206,14 @@ class NativeAccountingTests(unittest.TestCase):
         lanes = {lane: [f"{lane}.spec.ts"] for lane in native.BROWSER_LANES}
         execution = {
             "mocked": {"server": "mocked", "frontend": "production", "workers": 1, "webPort": 31031, "apiPort": None},
-            "mocked-development": {"server": "mocked", "frontend": "production", "workers": 4, "webPort": 31034, "apiPort": None},
+            "mocked-development": {"server": "mocked", "frontend": "production", "workers": 1, "webPort": 31034, "apiPort": None},
             "stateful-development": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31035, "apiPort": 32035},
             "stateful-a": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31032, "apiPort": 32032},
             "stateful-b": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31033, "apiPort": 32033},
         }
         schedule = {
             "mocked": [],
-            "mocked-development": ["mocked", "stateful-development", "stateful-a", "stateful-b"],
+            "mocked-development": ["mocked"],
             "stateful-development": [],
             "stateful-a": [],
             "stateful-b": [],
@@ -227,7 +224,7 @@ class NativeAccountingTests(unittest.TestCase):
         )
         for lane, field, value in (
             ("mocked", "workers", 2),
-            ("mocked-development", "workers", 1),
+            ("mocked-development", "workers", 4),
             ("mocked-development", "frontend", "development"),
             ("stateful-a", "webPort", 40000),
             ("stateful-b", "apiPort", 32032),
@@ -240,8 +237,8 @@ class NativeAccountingTests(unittest.TestCase):
         invalid_schedules = (
             {**schedule, "mocked-development": ["unknown"]},
             {**schedule, "mocked-development": ["mocked-development"]},
-            {**schedule, "stateful-development": ["mocked-development"]},
-            {**schedule, "mocked-development": ["stateful-development"]},
+            {**schedule, "mocked": ["mocked-development"]},
+            {**schedule, "mocked-development": ["stateful-a"]},
         )
         for invalid in invalid_schedules:
             with self.subTest(schedule=invalid), self.assertRaises(ValueError):
@@ -249,15 +246,12 @@ class NativeAccountingTests(unittest.TestCase):
 
         schedule = {
             "mocked": [],
-            "mocked-development": ["mocked", "stateful-development", "stateful-a", "stateful-b"],
+            "mocked-development": ["mocked"],
             "stateful-development": [],
             "stateful-a": [],
             "stateful-b": [],
         }
-        execution = {
-            lane: {"workers": 4 if lane == "mocked-development" else 1}
-            for lane in native.BROWSER_LANES
-        }
+        execution = {lane: {"workers": 1} for lane in native.BROWSER_LANES}
 
         class Process:
             def __init__(self, running=True):
@@ -279,15 +273,15 @@ class NativeAccountingTests(unittest.TestCase):
         started.update(initial)
         self.assertEqual(native.ready_browser_lanes(started, completed, schedule), [])
 
-        processes["stateful-development"].running = False
+        processes["mocked"].running = False
         self.assertEqual(native.active_browser_workers(processes, execution), 3)
         self.assertEqual(native.ready_browser_lanes(started, completed, schedule), [])
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
-        stateful_port = listener.getsockname()[1]
+        previous_port = listener.getsockname()[1]
         teardown_execution = {
-            "stateful-development": {"webPort": stateful_port, "apiPort": None}
+            "mocked": {"webPort": previous_port, "apiPort": None}
         }
         try:
             with (
@@ -295,12 +289,12 @@ class NativeAccountingTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "did not release"),
             ):
                 native.release_browser_lane(
-                    "stateful-development",
+                    "mocked",
                     processes,
                     teardown_execution,
                     timeout_seconds=0.05,
                 )
-            self.assertIn("stateful-development", processes)
+            self.assertIn("mocked", processes)
             self.assertEqual(
                 native.ready_browser_lanes(started, completed, schedule), []
             )
@@ -308,18 +302,13 @@ class NativeAccountingTests(unittest.TestCase):
             listener.close()
         with patch.object(native, "browser_process_group_alive", return_value=False):
             native.release_browser_lane(
-                "stateful-development",
+                "mocked",
                 processes,
                 teardown_execution,
                 timeout_seconds=0.05,
             )
-        self.assertNotIn("stateful-development", processes)
-        completed.add("stateful-development")
-        self.assertEqual(native.ready_browser_lanes(started, completed, schedule), [])
-        for lane in ("mocked", "stateful-a", "stateful-b"):
-            processes[lane].running = False
-            del processes[lane]
-            completed.add(lane)
+        self.assertNotIn("mocked", processes)
+        completed.add("mocked")
         handoff = native.ready_browser_lanes(started, completed, schedule)
         self.assertEqual(handoff, ["mocked-development"])
         processes["mocked-development"] = Process()

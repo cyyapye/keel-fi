@@ -323,351 +323,376 @@ test("persists and reopens an unassigned Direct holding with unknown financial f
   ).toBeVisible();
 });
 
-test("keeps explicit zero cash separate from a dated estimate through valuation and identity edits", async ({
-  page,
-}, testInfo) => {
-  const name = `Synthetic dated manual SPV ${testInfo.project.name}`;
-  await start(page, "SPV", name);
-  await page
-    .getByRole("button", {
-      name: "Add investment or valuation details",
-      exact: true,
-    })
-    .click();
-  await page.getByLabel("Cash paid · USD", { exact: true }).fill("0");
-  await page
-    .getByLabel("Estimated value · USD", { exact: true })
-    .fill("30,000.01");
-  await chooseValuationDate(page);
-  await select(page, "Carry treatment", "Before carry");
-  const positionId = await save(page);
-  const [firstRequest] = await Promise.all([
-    page.waitForRequest(holdingsRequest),
-    page.reload(),
-  ]);
-  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-  await expect(
-    page.getByText("$30,000.01", { exact: true }).first(),
-  ).toBeVisible();
-  const first = await readResponse(await firstRequest.response(), positionId);
-  expect(first.positionKind).toBe("spv_interest");
-  expect(first.investedMinor).toBe(0);
-  await expect(
-    page
-      .locator(".spv-holding")
-      .getByRole("group", { name: "Cash paid", exact: true }),
-  ).toContainText("$0.00");
-  expect(first.committedMinor).toBeNull();
-  expect(first.realizedValueMinor).toBeNull();
-  expect(first.administratorNavMinor).toBeNull();
-  const initialValuation = first.purchaseContext?.receipt?.details.valuation;
-  const initialRecord = initialValuation?.records.find(
-    (record) => record.id === initialValuation.selected?.recordId,
-  );
-  expect(initialRecord).toMatchObject({
-    origin: "judgment",
-    totalMinor: 3_000_001,
-    effectiveDate: "2026-10-15",
-    carryStatus: "before_carry",
-  });
-  await page
-    .getByRole("button", { name: "Edit valuation", exact: true })
-    .click();
-  await expect(
-    page.getByLabel("Position total · $", { exact: true }),
-  ).toHaveValue("30000.01");
-  await page
-    .getByLabel("Position total · $", { exact: true })
-    .fill("32,000.02".replaceAll(",", ""));
-  await page
-    .getByRole("form", { name: "Edit valuation", exact: true })
-    .getByRole("button", { name: "Save", exact: true })
-    .click();
-  await expect(
-    page.getByRole("form", { name: "Edit valuation", exact: true }),
-  ).toHaveCount(0);
-  const [secondRequest] = await Promise.all([
-    page.waitForRequest(holdingsRequest),
-    page.reload(),
-  ]);
-  await expect(
-    page.getByText("$32,000.02", { exact: true }).first(),
-  ).toBeVisible();
-  const second = await readResponse(await secondRequest.response(), positionId);
-  expect(second.investedMinor).toBe(0);
-  const updatedValuation = second.purchaseContext?.receipt?.details.valuation;
-  expect(
-    updatedValuation?.records.find(
-      (record) => record.id === updatedValuation.selected?.recordId,
-    ),
-  ).toMatchObject({
-    totalMinor: 3_200_002,
-    effectiveDate: "2026-10-15",
-    carryStatus: "before_carry",
-  });
-  await page
-    .getByRole("button", { name: "Edit holding details", exact: true })
-    .click();
-  await expect(page.getByLabel("SPV legal name", { exact: true })).toHaveValue(
-    name,
-  );
-  await expect(
-    page.getByRole("button", { name: "Save changes", exact: true }),
-  ).toBeDisabled();
-  await page
-    .getByLabel("SPV legal name", { exact: true })
-    .fill(`${name} Revised`);
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: `${name} Revised`, exact: true }),
-  ).toBeVisible();
-  const [revisedRequest] = await Promise.all([
-    page.waitForRequest(holdingsRequest),
-    page.reload(),
-  ]);
-  const revised = await readResponse(
-    await revisedRequest.response(),
-    positionId,
-  );
-  expect(revised.positionName).toBe(`${name} Revised`);
-  expect(revised.manualContext?.version).toBe(2);
-  expect(revised.investedMinor).toBe(0);
-  expect(revised.purchaseContext?.receipt?.details.valuation).toEqual(
-    second.purchaseContext?.receipt?.details.valuation,
-  );
-  await page
-    .getByRole("button", { name: "Sources & history", exact: true })
-    .click();
-  const history = page.locator(".holding-receipt-history");
-  await expect(
-    history.getByText("Holding created", { exact: true }),
-  ).toBeVisible();
-  await history
-    .getByRole("button", { name: /Holding details corrected/u })
-    .click();
-  await expect(history).toContainText(`${name} → ${name} Revised`);
-  await expect(history.getByText("Name", { exact: true })).toHaveCount(1);
-  await expect(history.getByText("Held by", { exact: true })).toHaveCount(0);
-  await expect(
-    history.getByText("Investment type", { exact: true }),
-  ).toHaveCount(0);
-  await expect(history.getByText("Company", { exact: true })).toHaveCount(0);
-  await history.getByRole("button", { name: /Holding created/u }).click();
-  await expect(history.getByText("Cash paid", { exact: true })).toHaveCount(1);
-  await expect(history.getByText("$0.00", { exact: true })).toBeVisible();
-  await expect(history.getByText("$30,000.01", { exact: true })).toBeVisible();
-  await expect(history).not.toContainText("judgment");
-  await expect(
-    history.getByText("Entered by you · Type", { exact: true }),
-  ).toHaveCount(0);
-  await expect(history).toContainText("Oct 15, 2026");
-  await expect(history).toContainText("Before carry");
-  for (const label of ["Position total", "Valuation date", "Carry"]) {
-    await expect(
-      history.locator("dt").filter({ hasText: new RegExp(`^${label}$`, "u") }),
-    ).toHaveCount(1);
-    await expect(
-      history.getByText(`Entered by you · ${label}`, { exact: true }),
-    ).toHaveCount(0);
-  }
-  await recordMobileGeometry(page, testInfo, "identity-history", [
-    {
-      name: "sources and history",
-      locator: page.getByRole("button", {
-        name: "Sources & history",
+test(
+  "keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
+  { tag: captureDesignReview ? [] : "@mobile-only" },
+  async ({ page }, testInfo) => {
+    const name = `Synthetic dated manual SPV ${testInfo.project.name}`;
+    await start(page, "SPV", name);
+    await page
+      .getByRole("button", {
+        name: "Add investment or valuation details",
         exact: true,
-      }),
-    },
-    {
-      name: "holding details correction",
-      locator: history.getByRole("button", {
-        name: /Holding details corrected/u,
-      }),
-    },
-    {
-      name: "holding creation",
-      locator: history.getByRole("button", { name: /Holding created/u }),
-    },
-  ]);
-  if (captureDesignReview) {
-    await history.screenshot({
-      path: testInfo.outputPath("manual-identity-history.png"),
-      animations: "disabled",
-      style: captureStyle,
+      })
+      .click();
+    await page.getByLabel("Cash paid · USD", { exact: true }).fill("0");
+    await page
+      .getByLabel("Estimated value · USD", { exact: true })
+      .fill("30,000.01");
+    await chooseValuationDate(page);
+    await select(page, "Carry treatment", "Before carry");
+    const positionId = await save(page);
+    const [firstRequest] = await Promise.all([
+      page.waitForRequest(holdingsRequest),
+      page.reload(),
+    ]);
+    await expect(
+      page.getByRole("heading", { name, exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("$30,000.01", { exact: true }).first(),
+    ).toBeVisible();
+    const first = await readResponse(await firstRequest.response(), positionId);
+    expect(first.positionKind).toBe("spv_interest");
+    expect(first.investedMinor).toBe(0);
+    await expect(
+      page
+        .locator(".spv-holding")
+        .getByRole("group", { name: "Cash paid", exact: true }),
+    ).toContainText("$0.00");
+    expect(first.committedMinor).toBeNull();
+    expect(first.realizedValueMinor).toBeNull();
+    expect(first.administratorNavMinor).toBeNull();
+    const initialValuation = first.purchaseContext?.receipt?.details.valuation;
+    const initialRecord = initialValuation?.records.find(
+      (record) => record.id === initialValuation.selected?.recordId,
+    );
+    expect(initialRecord).toMatchObject({
+      origin: "judgment",
+      totalMinor: 3_000_001,
+      effectiveDate: "2026-10-15",
+      carryStatus: "before_carry",
     });
-  }
-});
-
-test("shows contributed cash beside an estimate without inventing fees, capital or return, and preserves a later purchase date", async ({
-  page,
-}, testInfo) => {
-  const name = `Synthetic cash and estimate SPV ${testInfo.project.name}`;
-  await start(page, "SPV", name);
-  await page
-    .getByRole("button", {
-      name: "Add investment or valuation details",
-      exact: true,
-    })
-    .click();
-  await page.getByLabel("Cash paid · USD", { exact: true }).fill("25,000");
-  await page
-    .getByLabel("Estimated value · USD", { exact: true })
-    .fill("30,000");
-  await chooseValuationDate(page);
-  await select(page, "Carry treatment", "Before carry");
-  const positionId = await save(page);
-  const [createdRequest] = await Promise.all([
-    page.waitForRequest(holdingsRequest),
-    page.reload(),
-  ]);
-  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-  const detail = page.locator(".spv-holding");
-  await expect(detail.getByText("$25,000.00", { exact: true })).toHaveCount(1);
-  await expect(detail.locator(".holding-investment")).toHaveCount(0);
-  await expect(
-    detail.getByRole("button", { name: "Edit investment", exact: true }),
-  ).toHaveCount(1);
-  await expect(
-    detail.getByRole("group", { name: "Cash paid", exact: true }),
-  ).toContainText("Cash paid");
-  await expect(
-    detail.getByRole("group", { name: "Cash paid", exact: true }),
-  ).toContainText("$25,000");
-  await expect(
-    detail.getByText("$30,000.00", { exact: true }).first(),
-  ).toBeVisible();
-  await expect(detail.locator("[aria-label^='Return ']")).toHaveCount(0);
-  await expect(detail.getByText("+20.00%", { exact: true })).toHaveCount(0);
-  await recordMobileGeometry(page, testInfo, "cash-and-estimate", [
-    {
-      name: "identity edit",
-      locator: page.getByRole("button", {
-        name: "Edit holding details",
-        exact: true,
-      }),
-    },
-    {
-      name: "metric investment edit",
-      locator: page.getByRole("button", {
-        name: "Edit investment",
-        exact: true,
-      }),
-    },
-    {
-      name: "metric valuation edit",
-      locator: page.getByRole("button", {
-        name: "Edit valuation",
-        exact: true,
-      }),
-    },
-    {
-      name: "sources and history",
-      locator: page.getByRole("button", {
-        name: "Sources & history",
-        exact: true,
-      }),
-    },
-  ]);
-  if (captureDesignReview) {
-    await testInfo.attach("manual-cash-and-estimate", {
-      body: await detail.screenshot({
-        path: testInfo.outputPath("manual-cash-and-estimate.png"),
+    await page
+      .getByRole("button", { name: "Edit valuation", exact: true })
+      .click();
+    await expect(
+      page.getByLabel("Position total · $", { exact: true }),
+    ).toHaveValue("30000.01");
+    await page
+      .getByLabel("Position total · $", { exact: true })
+      .fill("32,000.02".replaceAll(",", ""));
+    await page
+      .getByRole("form", { name: "Edit valuation", exact: true })
+      .getByRole("button", { name: "Save", exact: true })
+      .click();
+    await expect(
+      page.getByRole("form", { name: "Edit valuation", exact: true }),
+    ).toHaveCount(0);
+    const [secondRequest] = await Promise.all([
+      page.waitForRequest(holdingsRequest),
+      page.reload(),
+    ]);
+    await expect(
+      page.getByText("$32,000.02", { exact: true }).first(),
+    ).toBeVisible();
+    const second = await readResponse(
+      await secondRequest.response(),
+      positionId,
+    );
+    expect(second.investedMinor).toBe(0);
+    const updatedValuation = second.purchaseContext?.receipt?.details.valuation;
+    expect(
+      updatedValuation?.records.find(
+        (record) => record.id === updatedValuation.selected?.recordId,
+      ),
+    ).toMatchObject({
+      totalMinor: 3_200_002,
+      effectiveDate: "2026-10-15",
+      carryStatus: "before_carry",
+    });
+    await page
+      .getByRole("button", { name: "Edit holding details", exact: true })
+      .click();
+    await expect(
+      page.getByLabel("SPV legal name", { exact: true }),
+    ).toHaveValue(name);
+    await expect(
+      page.getByRole("button", { name: "Save changes", exact: true }),
+    ).toBeDisabled();
+    await page
+      .getByLabel("SPV legal name", { exact: true })
+      .fill(`${name} Revised`);
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: `${name} Revised`, exact: true }),
+    ).toBeVisible();
+    const [revisedRequest] = await Promise.all([
+      page.waitForRequest(holdingsRequest),
+      page.reload(),
+    ]);
+    const revised = await readResponse(
+      await revisedRequest.response(),
+      positionId,
+    );
+    expect(revised.positionName).toBe(`${name} Revised`);
+    expect(revised.manualContext?.version).toBe(2);
+    expect(revised.investedMinor).toBe(0);
+    expect(revised.purchaseContext?.receipt?.details.valuation).toEqual(
+      second.purchaseContext?.receipt?.details.valuation,
+    );
+    await page
+      .getByRole("button", { name: "Sources & history", exact: true })
+      .click();
+    const history = page.locator(".holding-receipt-history");
+    await expect(
+      history.getByText("Holding created", { exact: true }),
+    ).toBeVisible();
+    await history
+      .getByRole("button", { name: /Holding details corrected/u })
+      .click();
+    await expect(history).toContainText(`${name} → ${name} Revised`);
+    await expect(history.getByText("Name", { exact: true })).toHaveCount(1);
+    await expect(history.getByText("Held by", { exact: true })).toHaveCount(0);
+    await expect(
+      history.getByText("Investment type", { exact: true }),
+    ).toHaveCount(0);
+    await expect(history.getByText("Company", { exact: true })).toHaveCount(0);
+    await history.getByRole("button", { name: /Holding created/u }).click();
+    await expect(history.getByText("Cash paid", { exact: true })).toHaveCount(
+      1,
+    );
+    await expect(history.getByText("$0.00", { exact: true })).toBeVisible();
+    await expect(
+      history.getByText("$30,000.01", { exact: true }),
+    ).toBeVisible();
+    await expect(history).not.toContainText("judgment");
+    await expect(
+      history.getByText("Entered by you · Type", { exact: true }),
+    ).toHaveCount(0);
+    await expect(history).toContainText("Oct 15, 2026");
+    await expect(history).toContainText("Before carry");
+    for (const label of ["Position total", "Valuation date", "Carry"]) {
+      await expect(
+        history
+          .locator("dt")
+          .filter({ hasText: new RegExp(`^${label}$`, "u") }),
+      ).toHaveCount(1);
+      await expect(
+        history.getByText(`Entered by you · ${label}`, { exact: true }),
+      ).toHaveCount(0);
+    }
+    await recordMobileGeometry(page, testInfo, "identity-history", [
+      {
+        name: "sources and history",
+        locator: page.getByRole("button", {
+          name: "Sources & history",
+          exact: true,
+        }),
+      },
+      {
+        name: "holding details correction",
+        locator: history.getByRole("button", {
+          name: /Holding details corrected/u,
+        }),
+      },
+      {
+        name: "holding creation",
+        locator: history.getByRole("button", { name: /Holding created/u }),
+      },
+    ]);
+    if (captureDesignReview) {
+      await history.screenshot({
+        path: testInfo.outputPath("manual-identity-history.png"),
         animations: "disabled",
         style: captureStyle,
-      }),
-      contentType: "image/png",
+      });
+    }
+  },
+);
+
+test(
+  "shows contributed cash beside an estimate without inventing fees, capital or return, and preserves a later purchase date",
+  { tag: captureDesignReview ? [] : "@desktop-only" },
+  async ({ page }, testInfo) => {
+    const name = `Synthetic cash and estimate SPV ${testInfo.project.name}`;
+    await start(page, "SPV", name);
+    await page
+      .getByRole("button", {
+        name: "Add investment or valuation details",
+        exact: true,
+      })
+      .click();
+    await page.getByLabel("Cash paid · USD", { exact: true }).fill("25,000");
+    await page
+      .getByLabel("Estimated value · USD", { exact: true })
+      .fill("30,000");
+    await chooseValuationDate(page);
+    await select(page, "Carry treatment", "Before carry");
+    const positionId = await save(page);
+    const [createdRequest] = await Promise.all([
+      page.waitForRequest(holdingsRequest),
+      page.reload(),
+    ]);
+    await expect(
+      page.getByRole("heading", { name, exact: true }),
+    ).toBeVisible();
+    const detail = page.locator(".spv-holding");
+    await expect(detail.getByText("$25,000.00", { exact: true })).toHaveCount(
+      1,
+    );
+    await expect(detail.locator(".holding-investment")).toHaveCount(0);
+    await expect(
+      detail.getByRole("button", { name: "Edit investment", exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      detail.getByRole("group", { name: "Cash paid", exact: true }),
+    ).toContainText("Cash paid");
+    await expect(
+      detail.getByRole("group", { name: "Cash paid", exact: true }),
+    ).toContainText("$25,000");
+    await expect(
+      detail.getByText("$30,000.00", { exact: true }).first(),
+    ).toBeVisible();
+    await expect(detail.locator("[aria-label^='Return ']")).toHaveCount(0);
+    await expect(detail.getByText("+20.00%", { exact: true })).toHaveCount(0);
+    await recordMobileGeometry(page, testInfo, "cash-and-estimate", [
+      {
+        name: "identity edit",
+        locator: page.getByRole("button", {
+          name: "Edit holding details",
+          exact: true,
+        }),
+      },
+      {
+        name: "metric investment edit",
+        locator: page.getByRole("button", {
+          name: "Edit investment",
+          exact: true,
+        }),
+      },
+      {
+        name: "metric valuation edit",
+        locator: page.getByRole("button", {
+          name: "Edit valuation",
+          exact: true,
+        }),
+      },
+      {
+        name: "sources and history",
+        locator: page.getByRole("button", {
+          name: "Sources & history",
+          exact: true,
+        }),
+      },
+    ]);
+    if (captureDesignReview) {
+      await testInfo.attach("manual-cash-and-estimate", {
+        body: await detail.screenshot({
+          path: testInfo.outputPath("manual-cash-and-estimate.png"),
+          animations: "disabled",
+          style: captureStyle,
+        }),
+        contentType: "image/png",
+      });
+    }
+    const created = await readResponse(
+      await createdRequest.response(),
+      positionId,
+    );
+    const lot = created.purchaseContext?.receipt?.details.lots[0];
+    expect(lot).toMatchObject({
+      grossCashMinor: 2_500_000,
+      netCapitalMinor: null,
+      purchasedOn: null,
     });
-  }
-  const created = await readResponse(
-    await createdRequest.response(),
-    positionId,
-  );
-  const lot = created.purchaseContext?.receipt?.details.lots[0];
-  expect(lot).toMatchObject({
-    grossCashMinor: 2_500_000,
-    netCapitalMinor: null,
-    purchasedOn: null,
-  });
-  expect(lot).toBeDefined();
-  expect(purchaseCapital(lot!).upfrontDeductionsMinor).toBeNull();
-  expect(purchaseFeeSummary(lot!)).toBeNull();
-  expect(created.realizedValueMinor).toBeNull();
-  expect(created.administratorNavMinor).toBeNull();
-  await page
-    .getByRole("button", { name: "Edit investment", exact: true })
-    .click();
-  await detail
-    .getByRole("button", { name: "Source details", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Purchase date", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Previous month", exact: true })
-    .click();
-  await page
-    .getByRole("button", { name: "Thursday, October 15, 2026", exact: true })
-    .click();
-  await detail
-    .locator(".holding-investment")
-    .getByRole("button", { name: "Save", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Edit investment", exact: true }),
-  ).toBeVisible();
-  const [datedRequest] = await Promise.all([
-    page.waitForRequest(holdingsRequest),
-    page.reload(),
-  ]);
-  const dated = await readResponse(await datedRequest.response(), positionId);
-  expect(dated.purchaseContext?.receipt?.details.lots[0]).toMatchObject({
-    grossCashMinor: 2_500_000,
-    netCapitalMinor: null,
-    feesComplete: false,
-    purchasedOn: "2026-10-15",
-  });
-  expect(
-    purchaseCapital(dated.purchaseContext!.receipt!.details.lots[0]!)
-      .upfrontDeductionsMinor,
-  ).toBeNull();
-  expect(
-    purchaseFeeSummary(dated.purchaseContext!.receipt!.details.lots[0]!),
-  ).toBeNull();
-  expect(dated.purchaseContext?.openedOn).toBeNull();
-  await expect(detail.locator(".holding-investment")).toContainText(
-    "Oct 15, 2026",
-  );
-  await expect(detail.getByText("$25,000.00", { exact: true })).toHaveCount(1);
-  await expect(
-    detail
+    expect(lot).toBeDefined();
+    expect(purchaseCapital(lot!).upfrontDeductionsMinor).toBeNull();
+    expect(purchaseFeeSummary(lot!)).toBeNull();
+    expect(created.realizedValueMinor).toBeNull();
+    expect(created.administratorNavMinor).toBeNull();
+    await page
+      .getByRole("button", { name: "Edit investment", exact: true })
+      .click();
+    await detail
+      .getByRole("button", { name: "Source details", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Purchase date", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Previous month", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Thursday, October 15, 2026", exact: true })
+      .click();
+    await detail
       .locator(".holding-investment")
-      .getByText("Cash paid", { exact: true }),
-  ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Edit holding details", exact: true })
-    .click();
-  await page
-    .getByLabel("SPV legal name", { exact: true })
-    .fill(`${name} Renamed`);
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: `${name} Renamed`, exact: true }),
-  ).toBeVisible();
-  const [renamedRequest] = await Promise.all([
-    page.waitForRequest(holdingsRequest),
-    page.reload(),
-  ]);
-  const renamed = await readResponse(
-    await renamedRequest.response(),
-    positionId,
-  );
-  expect(renamed.purchaseContext?.receipt?.details.lots[0]?.purchasedOn).toBe(
-    "2026-10-15",
-  );
-  expect(renamed.purchaseContext?.openedOn).toBeNull();
-  expect(renamed.realizedValueMinor).toBeNull();
-  await expect(detail.locator("[aria-label^='Return ']")).toHaveCount(0);
-});
+      .getByRole("button", { name: "Save", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Edit investment", exact: true }),
+    ).toBeVisible();
+    const [datedRequest] = await Promise.all([
+      page.waitForRequest(holdingsRequest),
+      page.reload(),
+    ]);
+    const dated = await readResponse(await datedRequest.response(), positionId);
+    expect(dated.purchaseContext?.receipt?.details.lots[0]).toMatchObject({
+      grossCashMinor: 2_500_000,
+      netCapitalMinor: null,
+      feesComplete: false,
+      purchasedOn: "2026-10-15",
+    });
+    expect(
+      purchaseCapital(dated.purchaseContext!.receipt!.details.lots[0]!)
+        .upfrontDeductionsMinor,
+    ).toBeNull();
+    expect(
+      purchaseFeeSummary(dated.purchaseContext!.receipt!.details.lots[0]!),
+    ).toBeNull();
+    expect(dated.purchaseContext?.openedOn).toBeNull();
+    await expect(detail.locator(".holding-investment")).toContainText(
+      "Oct 15, 2026",
+    );
+    await expect(detail.getByText("$25,000.00", { exact: true })).toHaveCount(
+      1,
+    );
+    await expect(
+      detail
+        .locator(".holding-investment")
+        .getByText("Cash paid", { exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Edit holding details", exact: true })
+      .click();
+    await page
+      .getByLabel("SPV legal name", { exact: true })
+      .fill(`${name} Renamed`);
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: `${name} Renamed`, exact: true }),
+    ).toBeVisible();
+    const [renamedRequest] = await Promise.all([
+      page.waitForRequest(holdingsRequest),
+      page.reload(),
+    ]);
+    const renamed = await readResponse(
+      await renamedRequest.response(),
+      positionId,
+    );
+    expect(renamed.purchaseContext?.receipt?.details.lots[0]?.purchasedOn).toBe(
+      "2026-10-15",
+    );
+    expect(renamed.purchaseContext?.openedOn).toBeNull();
+    expect(renamed.realizedValueMinor).toBeNull();
+    await expect(detail.locator("[aria-label^='Return ']")).toHaveCount(0);
+  },
+);
 
 test(
   "uses the latest saved partial contribution cash through edits and clearing",

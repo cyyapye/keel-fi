@@ -26,16 +26,6 @@ const reviewedCompanyFixtures = [
     websiteHost: "lattice-grove.example",
     status: "active",
   },
-  ...Array.from({ length: 48 }, (_, index) => {
-    const suffix = String(index + 1).padStart(2, "0");
-
-    return {
-      id: `company_review_${suffix}_synthetic`,
-      legalName: `Synthetic Review Company ${suffix}`,
-      websiteHost: `review-${suffix}.example`,
-      status: "active",
-    };
-  }),
 ] as const;
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -268,30 +258,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
       });
     },
   );
-  await page.route(
-    "**/api/private-exposure-reviews/*/assign",
-    async (route) => {
-      expect(route.request().postDataJSON()).toEqual({
-        expectedSnapshotId: "snapshot_holding_demo_locked",
-        company: {
-          mode: "existing",
-          companyId: "company_lattice_synthetic",
-        },
-      });
-      exposureResolved = true;
-      await route.fulfill({
-        status: 201,
-        json: {
-          version: 1,
-          positionId: "holding_demo_locked",
-          companyId: "company_lattice_synthetic",
-          companyName: "Lattice Grove Energy",
-          exposureId: "exposure_holding_demo_locked",
-          mappingId: "mapping_holding_demo_locked",
-        },
-      });
-    },
-  );
   await page.route("**/api/cash-accounts", async (route) => {
     await route.fulfill({
       json: {
@@ -494,164 +460,20 @@ test("leads with the investment and opens a truthful holding detail", async ({
   });
   await expect(chooseCompany).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-reviewed-private-exposures.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  await chooseCompany.click();
-  const exposureReview = page.getByRole("form", {
-    name: "Assign Ridge Demo SPV exposure",
-  });
-  await expect(
-    exposureReview.getByRole("heading", {
-      name: "Choose the underlying company",
-    }),
-  ).toBeVisible();
-  await expect(exposureReview).toContainText(
-    "The legal position and value stay unchanged.",
-  );
-  const companySelect = exposureReview.getByRole("combobox", {
-    name: "Company",
-    exact: true,
-  });
-  await companySelect.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-    window.scrollBy({
-      top: rect.bottom - window.innerHeight + 16,
-    });
-  });
-  await companySelect.click();
-  const companyList = page.locator(".select-list");
-  await expect(companyList).toBeVisible();
-  const companyListMetrics = await companyList.evaluate((element) => {
-    const rect = element.getBoundingClientRect();
-
-    return {
-      bottom: rect.bottom,
-      clientHeight: element.clientHeight,
-      overflowY: window.getComputedStyle(element).overflowY,
-      scrollHeight: element.scrollHeight,
-      top: rect.top,
-      viewportHeight: window.innerHeight,
-    };
-  });
-  expect(companyListMetrics.top).toBeGreaterThanOrEqual(0);
-  expect(companyListMetrics.bottom).toBeLessThanOrEqual(
-    companyListMetrics.viewportHeight,
-  );
-  expect(companyListMetrics.overflowY).toBe("auto");
-  expect(companyListMetrics.scrollHeight).toBeGreaterThan(
-    companyListMetrics.clientHeight,
-  );
-  await companyList.evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
-  });
-  const companyListBottom = await companyList.evaluate(
-    (element) => element.scrollTop,
-  );
-  expect(companyListBottom).toBeGreaterThan(0);
-  await companyList.hover();
-  await page.mouse.wheel(0, -480);
-  await expect
-    .poll(() => companyList.evaluate((element) => element.scrollTop))
-    .toBeLessThan(companyListBottom);
-  await companyList.evaluate((element) => {
-    element.scrollTop = 0;
-  });
-  await page.mouse.move(1, 1);
-  await page.keyboard.press("Home");
-  await expect(page).toHaveScreenshot(
-    "holdings-private-exposure-company-menu.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  await page
-    .getByRole("option", {
-      name: "Lattice Grove Energy · lattice-grove.example",
-    })
-    .click();
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-private-exposure-review.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  await exposureReview.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Assign 1 exact match" }).click();
   await expect(
     page.getByText(
       "1 position now groups under 1 company. Legal positions and values stayed unchanged.",
     ),
   ).toBeVisible();
-  const latticeExposure = page.locator(".exposure-group").filter({
-    has: page.getByText("Lattice Grove Energy", { exact: true }),
-  });
-  await expect(latticeExposure).toContainText("1 position");
-  await latticeExposure.locator(".exposure-group__summary").click();
-  await expect(latticeExposure.getByText("Ridge Demo SPV")).toBeVisible();
+  await expect(
+    page.locator(".exposure-group").filter({
+      has: page.getByText("Lattice Grove Energy", { exact: true }),
+    }),
+  ).toHaveCount(1);
   await expect(
     page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
   ).toHaveCount(0);
-
-  // The narrow form owns the carry-only warning. Both widths exercise the normal terms editor.
-  if (mobile) {
-    const summitAction = page.getByRole("button", {
-      name: "View Summit Demo SPV holding details",
-    });
-    await summitAction.click();
-    await expect(
-      page.getByText("Summit Demo SPV · Demo Family LLC", { exact: true }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: /^Fees & carry/ }).click();
-    await expect(
-      page.getByText("Management fee is not included in this source.", {
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(
-      page.locator(".position-economics__rows").getByText("20.0%", {
-        exact: true,
-      }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Review fee & carry" }).click();
-    await expect(page.getByLabel("Management fee rate")).toHaveValue("");
-    await expect(page.getByLabel("Fee term")).toHaveValue("");
-    await expect(page.getByLabel("Carry")).toHaveValue("20");
-    await expect(
-      page.getByText(
-        "Management fee is not included in this source. Confirm it against the deal documents before accepting.",
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Review terms" }),
-    ).toBeDisabled();
-    await expectNoHorizontalOverflow(page);
-    await expect(page.locator(".screen-stack")).toHaveScreenshot(
-      "holding-spv-economics-carry-only-form.png",
-      {
-        animations: "disabled",
-        caret: "hide",
-        maxDiffPixelRatio: 0.025,
-        threshold: 0.25,
-      },
-    );
-    await page.getByRole("button", { name: "Back to holdings" }).click();
-    await expect(page.locator(".holding-detail-workspace")).toHaveCount(0);
-  }
-  await expect(harborExposure).toBeVisible();
   const reopenedHarborAction = harborExposure.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
@@ -687,261 +509,53 @@ test("leads with the investment and opens a truthful holding detail", async ({
     "holding-detail-summary.png",
     { animations: "disabled", caret: "hide" },
   );
-  const planningToggle = page.getByRole("button", {
-    name: /^Planning & liquidity/u,
-  });
-  await planningToggle.click();
-  await expect(page.locator(".holding-planning")).not.toContainText(
-    /Not set|Unknown|Unavailable/,
-  );
-  await expect(page.locator(".holding-planning .data-list__item")).toHaveCount(
-    1,
-  );
-  const planningRow = page
-    .locator(".holding-planning .data-list__item")
-    .filter({ hasText: "Planning value" });
-  await expect(planningRow).toContainText(
-    "Amount counted toward financial independence.",
-  );
-  const planningLabel = await planningRow.locator("dt").boundingBox();
-  const planningValue = await planningRow.locator("dd strong").boundingBox();
-  const planningHelp = await planningRow.locator("dd small").boundingBox();
-  expect(planningLabel).not.toBeNull();
-  expect(planningValue).not.toBeNull();
-  expect(planningHelp).not.toBeNull();
-  expect(planningValue!.x).toBeGreaterThan(planningLabel!.x);
-  expect(planningHelp!.y).toBeGreaterThanOrEqual(
-    planningValue!.y + planningValue!.height,
-  );
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-planning-values.png",
-    { animations: "disabled", caret: "hide" },
-  );
-  await planningToggle.click();
-  const ownershipToggle = page.getByRole("button", {
-    name: /^Ownership, sources & history/u,
-  });
-  await expect(ownershipToggle).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByText("Legal SPV")).not.toBeVisible();
-  await ownershipToggle.click();
-  await expect(page.getByText("Legal SPV")).toBeVisible();
-  await expect(page.getByText("Held through")).toBeVisible();
-  await expect(
-    page.getByText("Imported source", { exact: true }),
-  ).toBeVisible();
-  const otherValuesToggle = page.getByRole("button", {
-    name: "Other valuations",
-    exact: true,
-  });
-  await expect(ownershipToggle).toHaveAttribute("aria-expanded", "true");
-  // Closing Planning and opening Ownership moves this nested trigger. Wait for
-  // those real transitions to finish before clicking its final mobile position.
-  await expect
-    .poll(() =>
-      page
-        .locator(".holding-detail-workspace")
-        .evaluate(
-          (element) =>
-            element
-              .getAnimations({ subtree: true })
-              .filter((animation) => animation.playState === "running").length,
-        ),
-    )
-    .toBe(0);
-  await expect(otherValuesToggle).toHaveAttribute("aria-expanded", "false");
-  await otherValuesToggle.click();
-  await expect(otherValuesToggle).toHaveAttribute("aria-expanded", "true");
-  await expect(
-    page.getByText(
-      "Reviewed value copied into the provider template as of the source date.",
-    ),
-  ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-detail-supporting-details.png",
-    { animations: "disabled", caret: "hide" },
-  );
-  await ownershipToggle.click();
-  await page.getByRole("button", { name: /^Fees & carry/ }).click();
-  await expect(page.getByText("Allocation", { exact: true })).toBeVisible();
-  await expect(
-    page.locator(".position-economics__rows").getByText("$100k"),
-  ).toHaveCount(1);
-  await expect(page.getByText("Source confidence")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-detail.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await page.getByRole("button", { name: "Review fee & carry" }).click();
-  const adminFeeRate = page.getByLabel("Management fee rate");
-  await expect(adminFeeRate).toHaveAttribute("data-slot", "input");
-  await expect(adminFeeRate).toHaveValue("2");
-  await expect(page.getByLabel("Fee term")).toHaveValue("");
-  await expect(page.getByLabel("Carry")).toHaveValue("20");
-  await adminFeeRate.focus();
-  await expect(adminFeeRate).toHaveCSS("box-shadow", "none");
-  await expect(
-    page.getByLabel("Management fee rate").locator("xpath=.."),
-  ).toHaveCSS("border-bottom-color", "rgb(38, 34, 56)");
-  await page
-    .getByRole("combobox", { name: "Imported amount", exact: true })
-    .click();
-  await page
-    .getByRole("option", {
-      name: "Before fees · gross commitment",
-      exact: true,
-    })
-    .click();
-  await page.getByLabel("Fee term").fill("1");
-  await page
-    .getByLabel("What changed")
-    .fill("Reviewed synthetic SPV subscription terms.");
-  await expect(
-    page.getByRole("button", { name: "Review terms", exact: true }),
-  ).toBeDisabled();
-  await page.getByLabel("Setup fee", { exact: true }).fill("0");
-  await adminFeeRate.focus();
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-spv-economics-form.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  await page.getByRole("button", { name: "Review terms" }).click();
-  const economicsReview = page.locator(".position-economics__review");
-  await expect(economicsReview).toContainText("2.0% · $2k");
-  await expect(economicsReview).toContainText("$100k");
-  await expect(economicsReview).toContainText("$98k");
-  await expect(economicsReview).toContainText("20.0%");
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-spv-economics-review.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  await page.getByRole("button", { name: "Accept terms" }).click();
-  await expect(page.getByText("SPV fee and carry terms accepted.")).toHaveCount(
-    0,
-  );
-  await expect(
-    page.getByRole("button", { name: "Update fee & carry" }),
-  ).toBeVisible();
-  await expect(
-    page.locator(".position-economics__rows").getByText("$98k"),
-  ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-spv-economics-accepted.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await page.getByRole("button", { name: /^Value & return/ }).click();
-  await page.getByRole("button", { name: "Add value evidence" }).click();
-  await page.getByLabel("Value · $").fill("150000");
-  const valueDateTrigger = page.getByRole("button", {
-    name: "As of",
-    exact: true,
-  });
-  // Give the vertical-placement capture enough scroll room on both renderers.
-  // A shorter collapsed page legitimately uses the calendar's side fallback.
-  await ownershipToggle.click();
-  await valueDateTrigger.evaluate((element) => {
-    window.scrollBy({
-      top: element.getBoundingClientRect().top - 160,
-      behavior: "instant",
-    });
-  });
-  await valueDateTrigger.click();
-  const valueDateCalendar = page.getByRole("dialog", {
-    name: "As of calendar",
-  });
-  await expect(valueDateCalendar).toBeVisible();
-  await expect(valueDateCalendar).toContainText("August 2026");
-  await expect
-    .poll(async () => {
-      const trigger = await valueDateTrigger.boundingBox();
-      const calendar = await valueDateCalendar.boundingBox();
-      const viewport = page.viewportSize();
-      if (trigger === null || calendar === null || viewport === null)
-        return false;
-      const above = Math.abs(calendar.y + calendar.height - trigger.y + 8) <= 1;
-      const below = Math.abs(calendar.y - trigger.y - trigger.height - 8) <= 1;
-      return (
-        calendar.y >= 0 &&
-        calendar.y + calendar.height <= viewport.height &&
-        Math.abs(calendar.x + calendar.width - trigger.x - trigger.width) <=
-          1 &&
-        (above || below)
-      );
-    })
-    .toBe(true);
-  await expectNoHorizontalOverflow(page);
-  // The form/review captures cover its context; this capture keeps the anchor still.
-  await expect(valueDateCalendar).toHaveScreenshot(
-    "holding-value-evidence-calendar.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  await valueDateCalendar
-    .getByRole("button", { name: "Tuesday, August 18, 2026" })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "As of", exact: true }),
-  ).toContainText("Aug 18, 2026");
-  await ownershipToggle.click();
-  await page
-    .getByRole("combobox", { name: "Position value source type" })
-    .click();
-  await page.getByRole("option", { name: "News article" }).click();
-  await page.getByLabel("Source name").fill("Synthetic Health Journal");
-  await page.getByLabel("Source link").fill("https://news.example/harbor-mark");
-  await page
-    .getByLabel("What this value reflects")
-    .fill("A secondary transaction supports this position mark.");
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-value-evidence-form.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-  // The mobile flow owns the value acceptance, source readback and regrouped total.
-  if (mobile) {
-    await page.getByRole("button", { name: "Review value" }).click();
+  if (!mobile) {
+    await page.getByRole("button", { name: /^Fees & carry/ }).click();
+    await expect(page.getByText("Allocation", { exact: true })).toBeVisible();
     await expect(
-      page.locator(".position-value-adjustment__review"),
-    ).toContainText("$125k → $150k");
+      page.locator(".position-economics__rows").getByText("$100k"),
+    ).toHaveCount(1);
+    await expect(page.getByText("Source confidence")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("button", { name: "Review fee & carry" }).click();
+    const adminFeeRate = page.getByLabel("Management fee rate");
+    await expect(adminFeeRate).toHaveAttribute("data-slot", "input");
+    await expect(adminFeeRate).toHaveValue("2");
+    await expect(page.getByLabel("Fee term")).toHaveValue("");
+    await expect(page.getByLabel("Carry")).toHaveValue("20");
+    await adminFeeRate.focus();
+    await expect(adminFeeRate).toHaveCSS("box-shadow", "none");
+    await expect(
+      page.getByLabel("Management fee rate").locator("xpath=.."),
+    ).toHaveCSS("border-bottom-color", "rgb(38, 34, 56)");
+    await page
+      .getByRole("combobox", { name: "Imported amount", exact: true })
+      .click();
+    await page
+      .getByRole("option", {
+        name: "Before fees · gross commitment",
+        exact: true,
+      })
+      .click();
+    await page.getByLabel("Fee term").fill("1");
+    await page
+      .getByLabel("What changed")
+      .fill("Reviewed synthetic SPV subscription terms.");
+    await expect(
+      page.getByRole("button", { name: "Review terms", exact: true }),
+    ).toBeDisabled();
+    await page.getByLabel("Setup fee", { exact: true }).fill("0");
+    await adminFeeRate.focus();
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("button", { name: "Review terms" }).click();
+    const economicsReview = page.locator(".position-economics__review");
+    await expect(economicsReview).toContainText("2.0% · $2k");
+    await expect(economicsReview).toContainText("$100k");
+    await expect(economicsReview).toContainText("$98k");
+    await expect(economicsReview).toContainText("20.0%");
     await expectNoHorizontalOverflow(page);
     await expect(page.locator(".screen-stack")).toHaveScreenshot(
-      "holding-value-evidence-review.png",
+      "holding-spv-economics-review.png",
       {
         animations: "disabled",
         caret: "hide",
@@ -949,6 +563,54 @@ test("leads with the investment and opens a truthful holding detail", async ({
         threshold: 0.25,
       },
     );
+    await page.getByRole("button", { name: "Accept terms" }).click();
+    await expect(
+      page.getByText("SPV fee and carry terms accepted."),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Update fee & carry" }),
+    ).toBeVisible();
+    await expect(
+      page.locator(".position-economics__rows").getByText("$98k"),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  } else {
+    await page.getByRole("button", { name: /^Value & return/ }).click();
+    await page.getByRole("button", { name: "Add value evidence" }).click();
+    await page.getByLabel("Value · $").fill("150000");
+    const valueDateTrigger = page.getByRole("button", {
+      name: "As of",
+      exact: true,
+    });
+    await valueDateTrigger.click();
+    const valueDateCalendar = page.getByRole("dialog", {
+      name: "As of calendar",
+    });
+    await expect(valueDateCalendar).toBeVisible();
+    await expect(valueDateCalendar).toContainText("August 2026");
+    await valueDateCalendar
+      .getByRole("button", { name: "Tuesday, August 18, 2026" })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "As of", exact: true }),
+    ).toContainText("Aug 18, 2026");
+    await page
+      .getByRole("combobox", { name: "Position value source type" })
+      .click();
+    await page.getByRole("option", { name: "News article" }).click();
+    await page.getByLabel("Source name").fill("Synthetic Health Journal");
+    await page
+      .getByLabel("Source link")
+      .fill("https://news.example/harbor-mark");
+    await page
+      .getByLabel("What this value reflects")
+      .fill("A secondary transaction supports this position mark.");
+    await expectNoHorizontalOverflow(page);
+    await page.getByRole("button", { name: "Review value" }).click();
+    await expect(
+      page.locator(".position-value-adjustment__review"),
+    ).toContainText("$125k → $150k");
+    await expectNoHorizontalOverflow(page);
     await page.getByRole("button", { name: "Accept value" }).click();
     await expect(
       page.getByText(
@@ -968,15 +630,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
       reviewedMark.getByRole("link", { name: "Open source" }),
     ).toHaveAttribute("data-slot", "text-link");
     await expectNoHorizontalOverflow(page);
-    await expect(page.locator(".screen-stack")).toHaveScreenshot(
-      "holding-value-evidence-accepted.png",
-      {
-        animations: "disabled",
-        caret: "hide",
-        maxDiffPixelRatio: 0.025,
-        threshold: 0.25,
-      },
-    );
   }
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(harborAction).toBeFocused();
@@ -987,9 +640,6 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await expect(
     harborExposure.locator(".exposure-group__summary"),
   ).toHaveAttribute("aria-expanded", "true");
-  await expect(
-    latticeExposure.locator(".exposure-group__summary"),
-  ).toHaveAttribute("aria-expanded", "false");
   if (mobile) {
     const adjustedBeaconPosition = harborExposure
       .locator(".exposure-group__positions article")
@@ -999,47 +649,4 @@ test("leads with the investment and opens a truthful holding detail", async ({
     ).toHaveAttribute("title", "Reviewed mark as of Aug 18, 2026");
     await expect(adjustedBeaconPosition).toContainText("Reviewed mark");
   }
-  if (mobile) return;
-  await latticeExposure.locator(".exposure-group__summary").click();
-  await page
-    .getByRole("button", {
-      name: "View Ridge Demo SPV holding details",
-    })
-    .click();
-  await expect(
-    page.getByRole("region", { name: "Position summary" }),
-  ).toHaveCount(0);
-  await expect(page.getByText("Locked by AngelList")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-
-  await page.getByRole("button", { name: "Back to holdings" }).click();
-  await publicExposure.locator(".exposure-group__summary").click();
-  await page
-    .getByRole("button", {
-      name: "View SYN holding details",
-    })
-    .click();
-  await page
-    .getByRole("button", { name: /^Ownership, sources & history/u })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Brokerage source" }),
-  ).toBeVisible();
-  await expect(page.getByText("1,250")).toBeVisible();
-  await page
-    .getByRole("button", { name: "Other valuations", exact: true })
-    .click();
-  await expect(
-    page.getByText("Brokerage-reported market value as of the source date."),
-  ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holding-detail-robinhood.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
 });

@@ -12,9 +12,9 @@ import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { routeInvestmentReview } from "./investment-review-fixtures";
 
-async function setup(page: Page, { failed = false, sourceCount = 120 } = {}) {
+async function setup(page: Page) {
   const sources: LegalEntitySourceSummary[] = Array.from(
-    { length: sourceCount },
+    { length: 120 },
     (_, index) => ({
       source: {
         kind: "holding_position",
@@ -115,14 +115,6 @@ async function setup(page: Page, { failed = false, sourceCount = 120 } = {}) {
   let resolves = 0;
   await page.route("**/api/legal-entities/resolve", async (route) => {
     resolves++;
-    if (failed)
-      return route.fulfill({
-        status: 503,
-        json: {
-          error:
-            "Automatic review could not finish. Your saved records are available.",
-        },
-      });
     const first = inventory.entities.length === 0;
     if (first) {
       inventory.entities = sources.map((item, index) => {
@@ -273,57 +265,5 @@ test(
     );
     expect(fixture.termWrites).toHaveLength(0);
     expect(fixture.writes).toHaveLength(0);
-  },
-);
-
-test(
-  "preserves investment deep links by opening the existing Holdings position",
-  { tag: "@desktop-only" },
-  async ({ page }) => {
-    await setup(page, { sourceCount: 1 });
-    await page.route(
-      "**/holdings?position=synthetic-auto-position-0",
-      (route) =>
-        route.fulfill({
-          contentType: "text/html",
-          body: "<h1>Existing Holdings position</h1>",
-        }),
-    );
-    await page.goto(
-      "/holdings/entities?review=holding_position%3Asynthetic-auto-position-0&tab=investment",
-    );
-    await expect(page).toHaveURL(
-      /\/holdings\?position=synthetic-auto-position-0$/u,
-    );
-    await expect(
-      page.getByRole("heading", {
-        name: "Existing Holdings position",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await page.goBack();
-    await expect(page).toHaveURL(/\/holdings\/entities$/u);
-  },
-);
-
-test(
-  "keeps the inventory accessible after a failed automatic review without background retries",
-  { tag: "@mobile-only" },
-  async ({ page }) => {
-    const fixture = await setup(page, { failed: true });
-    await expect(
-      page.getByText(
-        "Automatic review could not finish. Your saved records are available.",
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Add entity", exact: true }),
-    ).toBeVisible();
-    expect(fixture.resolves()).toBe(1);
-    await expect(page).toHaveScreenshot("automatic-investment-retry.png");
-    await page
-      .getByRole("button", { name: "Retry automatic review", exact: true })
-      .click();
-    await expect.poll(fixture.resolves).toBe(2);
   },
 );

@@ -132,6 +132,17 @@ for (const [provider, origin, control] of [
       }
       return;
     }
+    // A provider's own login page can arrive before its form has mounted.
+    html = "<h1>Log in to your account</h1>";
+    await page.goto(`${origin}/login`);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "provider_sign_in_required",
+    );
+    await page.goto(`${origin}/portfolio?redirect=/login`);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "page_not_supported",
+    );
+
     html = `<div hidden>${control}</div>`;
     await page.goto(`${origin}/portfolio`);
     // This is a positive readiness check for Sydecar's mounted responsive
@@ -146,48 +157,6 @@ for (const [provider, origin, control] of [
       requireProviderPageReady(page, provider, 2_000),
     ).resolves.toBeUndefined();
   });
-
-  test(
-    `${provider} recognizes a dedicated sign-in page before its form loads`,
-    { tag: "@desktop-only" },
-    async ({ page }) => {
-      let html = "<h1>Log in to your account</h1><div>Loading…</div>";
-      await page.route(`${origin}/**`, (route) =>
-        route.fulfill({ body: html, contentType: "text/html" }),
-      );
-      await page.goto(`${origin}/login`);
-      await expect(
-        requireProviderPageReady(page, provider, 100),
-      ).rejects.toThrow("provider_sign_in_required");
-
-      // A heading without the dedicated route is not proof of an expired session.
-      await page.goto(`${origin}/portfolio?redirect=/login`);
-      await expect(
-        requireProviderPageReady(page, provider, 100),
-      ).rejects.toThrow("page_not_supported");
-      // Neither an auth route alone nor hidden authentication copy is sufficient.
-      for (const content of [
-        "<h1>Temporarily unavailable</h1>",
-        "<h1 hidden>Log in to your account</h1><div>Loading…</div>",
-      ]) {
-        html = content;
-        await page.goto(`${origin}/login`);
-        await expect(
-          requireProviderPageReady(page, provider, 100),
-        ).rejects.toThrow("page_not_supported");
-      }
-      await page.route("https://unrelated.example/**", (route) =>
-        route.fulfill({
-          body: "<h1>Log in to your account</h1>",
-          contentType: "text/html",
-        }),
-      );
-      await page.goto("https://unrelated.example/login");
-      await expect(
-        requireProviderPageReady(page, provider, 100),
-      ).rejects.toThrow("page_not_supported");
-    },
-  );
 }
 
 test(
@@ -289,7 +258,6 @@ function tokenfolioPage({
   detailDelayMs = 0,
   tabCountDelayMs = 0,
   drawerUrlDelayMs = 0,
-  rowRenderDelayMs = 0,
   shareBases = [null, null],
 }: {
   activeCount?: number;
@@ -298,7 +266,6 @@ function tokenfolioPage({
   detailDelayMs?: number;
   tabCountDelayMs?: number;
   drawerUrlDelayMs?: number;
-  rowRenderDelayMs?: number;
   shareBases?: readonly [string | null, string | null];
 } = {}): string {
   const rows = [
@@ -401,14 +368,6 @@ function tokenfolioPage({
             history.replaceState(null, '', url.href);
           }, ${drawerUrlDelayMs.toString()});
         });
-        if (${rowRenderDelayMs.toString()} > 0) {
-          const list = document.querySelector('#portfolio-rows');
-          const rows = [...list.children];
-          list.replaceChildren();
-          document.addEventListener('restore-portfolio-rows', () => {
-            setTimeout(() => list.append(...rows), ${rowRenderDelayMs.toString()});
-          }, { once: true });
-        }
       </script>
     </body></html>`;
 }
@@ -619,53 +578,6 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
     "22222222-2222-4222-8222-222222222222",
   ]);
   expect(new URL(page.url()).searchParams.has("investmentId")).toBe(false);
-});
-
-test("Tokenfolio waits for all holdings after document return before continuing and reconciling", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  let loads = 0;
-  await page.route("https://app.tokenfolio.co/**", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: tokenfolioPage({ rowRenderDelayMs: loads++ === 0 ? 0 : 500 }),
-    }),
-  );
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-  const ids: Array<string | null> = [];
-  const agreements: AgreementCollector = {
-    collect: async (sourcePage) => {
-      ids.push(new URL(sourcePage.url()).searchParams.get("investmentId"));
-      await sourcePage.goto("https://app.tokenfolio.co/portfolio?tab=active");
-      await expect(sourcePage.locator("#portfolio-tab-active")).toBeVisible();
-      expect(
-        await sourcePage
-          .locator('div[role="button"].relative.cursor-pointer')
-          .count(),
-      ).toBe(0);
-      await sourcePage.evaluate(() => {
-        document.dispatchEvent(new Event("restore-portfolio-rows"));
-      });
-    },
-    collectSydecarDocuments: () =>
-      Promise.reject(new Error("Unexpected provider")),
-    flush: () => Promise.resolve(),
-  };
-  const bytes = await captureTokenfolio(
-    page,
-    "2026-08-21",
-    () => undefined,
-    agreements,
-  );
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
-  expect(ids).toEqual([
-    "11111111-1111-4111-8111-111111111111",
-    "22222222-2222-4222-8222-222222222222",
-  ]);
-  expect(loads).toBe(3);
 });
 
 test("fails closed when the Tokenfolio visible count does not reconcile", async ({

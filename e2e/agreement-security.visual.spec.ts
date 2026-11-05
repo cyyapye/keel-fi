@@ -163,90 +163,92 @@ async function noOverflow(page: Page) {
   );
 }
 
-test("offers a targeted retry for legacy and incomplete checks, and explains a busy source", async ({
-  page,
-}) => {
-  const { workspace, open, downloads } = await setup(page, [
-    blockedAgreementSource(4, "Demo Legacy"),
-    blockedAgreementSource(5, "Demo Scanner Setup", undefined, true),
-    blockedAgreementSource(3, "Demo Energy", {
-      reason: "malware_signature",
-      signature: "Win.Test.EICAR_HDB-1",
-    }),
-  ]);
-  const requests: unknown[] = [];
-  let busy = true;
-  await page.route("**/api/legal-entity-documents/*/recheck", (route) => {
-    requests.push({
-      method: route.request().method(),
-      body: route.request().postDataJSON(),
+test(
+  "offers a targeted retry for legacy and incomplete checks, and explains a busy source",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const { workspace, open, downloads } = await setup(page, [
+      blockedAgreementSource(4, "Demo Legacy"),
+      blockedAgreementSource(5, "Demo Scanner Setup", undefined, true),
+      blockedAgreementSource(3, "Demo Energy", {
+        reason: "malware_signature",
+        signature: "Win.Test.EICAR_HDB-1",
+      }),
+    ]);
+    const requests: unknown[] = [];
+    let busy = true;
+    await page.route("**/api/legal-entity-documents/*/recheck", (route) => {
+      requests.push({
+        method: route.request().method(),
+        body: route.request().postDataJSON(),
+      });
+      return route.fulfill(
+        busy
+          ? {
+              status: 409,
+              json: {
+                error:
+                  "A source update is already queued or running. Wait for it to finish, then recheck this agreement.",
+              },
+            }
+          : {
+              status: 202,
+              json: {
+                version: 1,
+                provider: "sydecar",
+                runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                status: "queued",
+              },
+            },
+      );
     });
-    return route.fulfill(
-      busy
-        ? {
-            status: 409,
-            json: {
-              error:
-                "A source update is already queued or running. Wait for it to finish, then recheck this agreement.",
-            },
-          }
-        : {
-            status: 202,
-            json: {
-              version: 1,
-              provider: "sydecar",
-              runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-              status: "queued",
-            },
-          },
+    await open("Demo Energy");
+    await expect(workspace).toContainText("Keep this agreement blocked");
+    await expect(
+      workspace.getByRole("button", { name: "demo-3-agreement.pdf" }),
+    ).toHaveCount(0);
+    await expect(
+      workspace.getByRole("button", { name: "Recheck agreement" }),
+    ).toBeEnabled();
+    await expect(
+      workspace.getByRole("button", { name: "Review details" }),
+    ).toHaveCount(0);
+    await page.mouse.move(0, 0);
+    await expect(workspace).toHaveScreenshot("agreement-security-threat.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+    await noOverflow(page);
+    await open("Demo Scanner Setup");
+    await expect(workspace).toContainText("Security check incomplete");
+    await expect(
+      workspace.getByRole("button", { name: "Recheck agreement" }),
+    ).toBeEnabled();
+    await open("Demo Legacy");
+    await expect(workspace).toContainText("Alert reason unavailable");
+    await workspace.getByRole("button", { name: "Recheck agreement" }).click();
+    await expect(workspace).toContainText("Wait for it to finish");
+    busy = false;
+    await workspace.getByRole("button", { name: "Recheck agreement" }).click();
+    await expect(
+      workspace.getByRole("button", { name: "Check queued" }),
+    ).toBeDisabled();
+    await expect(workspace).toContainText(
+      "The agreement stays blocked until it passes",
     );
-  });
-  await open("Demo Energy");
-  await expect(workspace).toContainText("Keep this agreement blocked");
-  await expect(
-    workspace.getByRole("button", { name: "demo-3-agreement.pdf" }),
-  ).toHaveCount(0);
-  await expect(
-    workspace.getByRole("button", { name: "Recheck agreement" }),
-  ).toBeEnabled();
-  await expect(
-    workspace.getByRole("button", { name: "Review details" }),
-  ).toHaveCount(0);
-  await page.mouse.move(0, 0);
-  await expect(workspace).toHaveScreenshot("agreement-security-threat.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  await noOverflow(page);
-  await open("Demo Scanner Setup");
-  await expect(workspace).toContainText("Security check incomplete");
-  await expect(
-    workspace.getByRole("button", { name: "Recheck agreement" }),
-  ).toBeEnabled();
-  await open("Demo Legacy");
-  await expect(workspace).toContainText("Alert reason unavailable");
-  await workspace.getByRole("button", { name: "Recheck agreement" }).click();
-  await expect(workspace).toContainText("Wait for it to finish");
-  busy = false;
-  await workspace.getByRole("button", { name: "Recheck agreement" }).click();
-  await expect(
-    workspace.getByRole("button", { name: "Check queued" }),
-  ).toBeDisabled();
-  await expect(workspace).toContainText(
-    "The agreement stays blocked until it passes",
-  );
-  await expect(
-    workspace.getByRole("link", { name: "View source progress" }),
-  ).toHaveAttribute("href", "/holdings/sources");
-  expect(requests).toEqual([
-    { method: "POST", body: { provider: "sydecar" } },
-    { method: "POST", body: { provider: "sydecar" } },
-  ]);
-  expect(downloads).toEqual([]);
-  await page.mouse.move(0, 0);
-  await expect(workspace).toHaveScreenshot("agreement-security-recheck.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  await noOverflow(page);
-});
+    await expect(
+      workspace.getByRole("link", { name: "View source progress" }),
+    ).toHaveAttribute("href", "/holdings/sources");
+    expect(requests).toEqual([
+      { method: "POST", body: { provider: "sydecar" } },
+      { method: "POST", body: { provider: "sydecar" } },
+    ]);
+    expect(downloads).toEqual([]);
+    await page.mouse.move(0, 0);
+    await expect(workspace).toHaveScreenshot("agreement-security-recheck.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+    await noOverflow(page);
+  },
+);

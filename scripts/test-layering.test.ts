@@ -38,17 +38,17 @@ const inventory = z
   })
   .parse(JSON.parse(readFileSync(".tugling/pilot-cases.json", "utf8")));
 
-function verifyCoverage(current: typeof inventory) {
+function verifyCoverage(current: typeof inventory, coverage = manifest) {
   const excluded = new Set(current.exclusions.map((entry) => entry.id));
-  const retired = manifest.migrations.flatMap(
+  const retired = coverage.migrations.flatMap(
     (entry) => entry.retiredBrowserCases,
   );
   if (
-    new Set(retired).size !== manifest.retiredBrowserCaseCount ||
-    retired.length !== manifest.retiredBrowserCaseCount
+    new Set(retired).size !== coverage.retiredBrowserCaseCount ||
+    retired.length !== coverage.retiredBrowserCaseCount
   )
     throw new Error("Every retired browser case requires one migration record");
-  for (const entry of manifest.migrations) {
+  for (const entry of coverage.migrations) {
     for (const id of entry.unitCases)
       if (!current.vitest.includes(id) || excluded.has(id))
         throw new Error(`Missing executable replacement: ${id}`);
@@ -59,8 +59,8 @@ function verifyCoverage(current: typeof inventory) {
       if (current.playwright.includes(id))
         throw new Error(`Retired case duplicated: ${id}`);
   }
-  for (const id of manifest.addedBrowserCases)
-    if (!current.playwright.includes(id))
+  for (const id of coverage.addedBrowserCases)
+    if (!current.playwright.includes(id) && !retired.includes(id))
       throw new Error(`Missing replacement browser identity: ${id}`);
 }
 
@@ -92,6 +92,13 @@ test("every migrated policy keeps executable replacements and real browser/PDF b
 });
 
 test("coverage accounting rejects missing or excluded replacement and browser cases", () => {
+  // An added project registration can leave only through a reviewed retirement.
+  expect(() =>
+    verifyCoverage(inventory, {
+      ...manifest,
+      addedBrowserCases: [...manifest.addedBrowserCases, "unaccounted project"],
+    }),
+  ).toThrow("Missing replacement browser identity");
   for (const id of [
     manifest.requiredPdfFlow,
     manifest.requiredProviderDocumentFlow,

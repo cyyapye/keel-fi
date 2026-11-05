@@ -16,7 +16,6 @@ export function assertBrowserSnapshotRenderer(
 
 export const BROWSER_TEST_LANES = {
   mocked: [
-    "ui-catalogue.visual.spec.ts",
     "automatic-investment-review.visual.spec.ts",
     "company-names.visual.spec.ts",
     "holdings-detail.visual.spec.ts",
@@ -33,7 +32,6 @@ export const BROWSER_TEST_LANES = {
     "portfolio-watch.visual.spec.ts",
     "provider-portfolio-mac-agent.spec.ts",
     "provider-reconnect-access.spec.ts",
-    "provider-session.spec.ts",
     "sydecar-session-renewal.spec.ts",
   ],
   "stateful-a": [
@@ -45,6 +43,8 @@ export const BROWSER_TEST_LANES = {
     "plan-actual-monitoring.visual.spec.ts",
     "purchase-details.visual.spec.ts",
     "provider-browser-lifecycle.spec.ts",
+    "provider-session.spec.ts",
+    "ui-catalogue.visual.spec.ts",
     "provider-legal-documents.spec.ts",
   ],
   "stateful-b": [
@@ -52,7 +52,6 @@ export const BROWSER_TEST_LANES = {
     "manual-holdings.spec.ts",
     "obligations.visual.spec.ts",
     "overview-links.visual.spec.ts",
-    "plan-inputs.visual.spec.ts",
     "portfolio-baseline.visual.spec.ts",
     "portfolio-dashboard.visual.spec.ts",
     "position-links.visual.spec.ts",
@@ -81,7 +80,7 @@ export const BROWSER_TEST_EXECUTION = {
     frontend: "production",
     server: "mocked",
     webPort: 31_034,
-    workers: 4,
+    workers: 1,
   },
   "stateful-development": {
     apiPort: 32_035,
@@ -117,12 +116,7 @@ export const BROWSER_TEST_EXECUTION = {
 
 export const BROWSER_TEST_SCHEDULE = {
   mocked: [],
-  "mocked-development": [
-    "mocked",
-    "stateful-development",
-    "stateful-a",
-    "stateful-b",
-  ],
+  "mocked-development": ["mocked"],
   "stateful-development": [],
   "stateful-a": [],
   "stateful-b": [],
@@ -202,6 +196,8 @@ export function discoverBrowserSpecFiles(directory: string): string[] {
 
 export function validateMockedBrowserSpecs(e2eDirectory: string): void {
   const mocked = new Set<string>([
+    // The catalogue uses the production server and rejects every unhandled API.
+    "ui-catalogue.visual.spec.ts",
     ...BROWSER_TEST_LANES.mocked,
     ...BROWSER_TEST_LANES["mocked-development"],
   ]);

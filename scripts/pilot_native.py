@@ -147,9 +147,7 @@ def validate_browser_execution(lanes, execution, schedule):
 
     expected_schedule = {
         "mocked": [],
-        "mocked-development": [
-            "mocked", "stateful-development", "stateful-a", "stateful-b"
-        ],
+        "mocked-development": ["mocked"],
         "stateful-development": [],
         "stateful-a": [],
         "stateful-b": [],
@@ -167,9 +165,8 @@ def validate_browser_execution(lanes, execution, schedule):
     for lane in BROWSER_LANES:
         config = execution[lane]
         expected_server, expected_frontend = expected[lane]
-        expected_workers = 4 if lane == "mocked-development" else 1
         if (config["server"], config["frontend"], config["workers"]) != (
-                expected_server, expected_frontend, expected_workers):
+                expected_server, expected_frontend, 1):
             raise ValueError(f"{lane} browser lane exceeds its reviewed resource budget")
         lane_ports = [config["webPort"]]
         if expected_server == "stateful":

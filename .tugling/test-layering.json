@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 175,
+  "retiredBrowserCaseCount": 326,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -144,10 +144,9 @@
         "scripts/sydecar-refresh-observation.test.ts :: rejects private category materialized diagnostics"
       ],
       "browserCases": [
-        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies dns refresh failures without logging credentials",
-        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies invalid refresh failures without logging credentials"
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies dns refresh failures without logging credentials"
       ],
-      "assertions": "All eight HTTP/category/body/transport outcomes, exact sanitized log payloads and request counts; added ownership/body-size/out-of-order holdouts."
+      "assertions": "The unit observer checks eight HTTP, category, body and transport outcomes, sanitized payloads and request counts. The browser retains real DNS failure and revoked-refresh detection. The separate invalid-response browser fixture was retired."
     },
     {
       "id": "renewal-expiry",
@@ -205,11 +204,9 @@
         "scripts/position-link-suggestion.test.ts :: suggestion rejects same observation time among 120 unrelated positions"
       ],
       "browserCases": [
-        "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
-        "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
-        "e2e/position-links.visual.spec.ts :: mobile-chromium :: suggests a unique retained historical source without accepting missing account or company identity"
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
       ],
-      "assertions": "Eight ordinary and four historical identity holdouts, ambiguity, relationship inference and reviewed-survivor priority among 120 unrelated records. Keep form binding, manual choice, no automatic save, missing-identity warning and screenshot."
+      "assertions": "The suggestion unit owner checks unrelated and historical identities among 120 positions, ambiguity and reviewed-survivor priority. Mobile still confirms or reverses a link explicitly. The retained-historical-identity warning and its exact image retire."
     },
     {
       "id": "local-date-formatting",
@@ -222,9 +219,9 @@
         "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'Asia/Singapore'"
       ],
       "browserCases": [
-        "e2e/purchase-details.visual.spec.ts :: chromium :: local history in America/Los_Angeles > converts saved instants while preserving source calendar dates"
+        "e2e/purchase-details.visual.spec.ts :: chromium :: one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields"
       ],
-      "assertions": "All prior instants, DST fold, UTC date crossing and fixed source dates through real Node Intl; browser keeps timezone selection, displayed text and datetime attributes."
+      "assertions": "Real Intl tests exercise prior instants, daylight-saving fold, UTC crossing and fixed source dates in Pacific and Singapore time zones. The ordinary timeline is mounted; explicit Pacific DOM text and datetime-attribute comparison was retired."
     },
     {
       "id": "google-authorization",
@@ -241,10 +238,9 @@
         "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK success result with least privilege and no export request"
       ],
       "browserCases": [
-        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_closed",
-        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns denied"
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: creates a Google Sheet from selected records and columns and prevents unchanged resubmission"
       ],
-      "assertions": "The SDK unit tests cover every outcome, exact message, least-privilege scope, gesture timing and no fetch. Desktop popup closure and mobile denial exercise both real callback channels, preserve export choices and CSV availability, and assert zero export writes."
+      "assertions": "The Google SDK unit tests cover every callback outcome, exact message, least-privilege scope, gesture timing and no fetch. Mobile browser coverage keeps successful provider handoff and unchanged resubmission protection. Choice persistence and CSV availability after provider denial or popup closure retire."
     },
     {
       "id": "holdings-search",
@@ -268,9 +264,9 @@
         "packages/domain/src/legal-entities.test.ts :: legal entity contracts > rejects ambiguous or out-of-range ownership text"
       ],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: reviews company evidence and keeps ownership drafts across independent saves"
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
       ],
-      "assertions": "Exact invalid ownership values 101, -1, 1.12345 and abc remain in the production parser test; UI retains invalid-to-valid draft behavior and independent saves."
+      "assertions": "The production parser checks 101, -1, 1.12345 and abc. The desktop ownership review validates and saves the K-1 form. An interleaved ownership draft surviving an independent company save retires."
     },
     {
       "id": "agreement-page-input",
@@ -279,10 +275,9 @@
         "packages/domain/src/legal-entities.test.ts :: legal entity contracts > accepts a user-entered name with only a document and page, without weakening extracted choices"
       ],
       "browserCases": [
-        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason",
-        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: validates manual other_structure entry without requiring an excerpt or reason"
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
       ],
-      "assertions": "Blank/zero, fractional and >150 page bounds remain in the schema; UI retains disabled invalid submission, correction, optional excerpt and both review forms."
+      "assertions": "The schema checks blank, zero, fractional and out-of-bound page numbers. Desktop manual missing-name input exercises invalid to valid correction, optional excerpt and save. The mobile structure-specific manual-entry sequence retires."
     },
     {
       "id": "production-provider-document-boundary",
@@ -309,10 +304,9 @@
         "apps/web/src/InvestmentHoldings.test.tsx :: renders a manual Fund estimate without treating contributed cash as basis or return"
       ],
       "browserCases": [
-        "e2e/manual-holdings.visual.spec.ts :: chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel",
         "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel"
       ],
-      "assertions": "The component renders the selected estimate in the manual Fund row, while contributed cash supplies neither basis nor return. Both viewports display the same unallocated Fund row before opening its editor."
+      "assertions": "The component renders a selected manual Fund estimate without treating cash as basis or return. Mobile opens its editor from the unallocated Fund inventory row."
     },
     {
       "id": "reviewed-history-inventory-row",
@@ -324,9 +318,9 @@
         "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment"
       ],
       "browserCases": [
-        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
-      "assertions": "The real exposure component prints the singular position count and its legal holding action, without forcing multiple positions into the same identity. Mobile exercises 14 reviewed history positions, loaded source/account readback without fake institutions, the retained source boundary and focus after Back."
+      "assertions": "The real exposure component prints the singular position count and matching legal holding action. Both ordinary Holdings widths retain detail navigation. The fourteen-history-position and fake-account browser fixture was retired."
     },
     {
       "id": "sydecar-desktop-profile-lifecycle",
@@ -361,10 +355,10 @@
       ],
       "browserCases": [
         "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
-        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar recognizes a dedicated sign-in page before its form loads",
-        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio recognizes a dedicated sign-in page before its form loads"
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar distinguishes sign-in from missing, responsive, or delayed portfolio controls",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio distinguishes sign-in from missing, responsive, or delayed portfolio controls"
       ],
-      "assertions": "The real desktop browser retains both providers\u2019 dedicated sign-in checks before the form loads and the complete Tokenfolio hosted Auth0 route, origin, visibility, same-form and provider boundaries. Both projects retain the full MFA, optional enrollment and responsive readiness checks. The existing unit owners verify the normal Chrome setup launches for each provider."
+      "assertions": "Both providers still recognize a dedicated login page before the form loads on desktop. Real Chromium checks hosted Auth0, origin spoofing, the visible MFA boundary and responsive portfolio readiness. Standalone placeholder and hidden-copy variations were retired."
     },
     {
       "id": "routine-baseline-refresh-projects",
@@ -378,12 +372,9 @@
         "packages/database/src/holding-imports.test.ts :: exception-based source updates > refreshes the established FI baseline from automatically accepted cash without changing planning choices"
       ],
       "browserCases": [
-        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine cash changes without a baseline review",
-        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine private changes without a baseline review",
-        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine public changes without a baseline review",
-        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: automatically refreshes routine private changes without a baseline review"
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine private changes without a baseline review"
       ],
-      "assertions": "Desktop exercises public, private and cash changes. Mobile exercises the shared pending and settled views with private changes. Each case holds the real refresh POST, observes the pending status, releases the response and verifies dismissal, one refresh, zero confirmation requests and no horizontal overflow. Both private screenshots remain. The API and database cases cover source-specific refresh policy."
+      "assertions": "Desktop retries a temporary failed read and explicitly confirms the initial baseline. A held private refresh POST exercises pending, dismissal, no redundant review and exactly one refresh. Domain, API and D1 distinguish automatic public/cash feeds and source-specific exceptions; mobile owns overlap, rejection, preserved draft and exception-at-a-time acceptance. Both widths keep the bounded 120-source list. Secondary responsive screenshots, separate cash/public pending sessions and the error appearance retire."
     },
     {
       "id": "manual-cash-save-reload-duplicate",
@@ -428,11 +419,10 @@
       "browserCases": [
         "e2e/manual-holdings.spec.ts :: chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
         "e2e/manual-holdings.spec.ts :: mobile-chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
-        "e2e/manual-holdings.spec.ts :: chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
         "e2e/manual-holdings.spec.ts :: mobile-chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
-        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps a Fund company grouping distinct from unknown allocation"
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel"
       ],
-      "assertions": "A Direct record persists, reloads with unknown financial facts, and reopens through unassigned Holdings. The Fund form sends the reviewed identity. SPV zero cash remains distinct from an estimate. All three kinds persist with their exact kind and null opened date."
+      "assertions": "An unassigned Direct holding persists and reopens on both widths with unknown amounts. Mobile persists an SPV with explicit zero cash separately from its estimate. D1 exercises all three kinds and the Fund allocation. The separate mounted Fund company-selection submission was retired."
     },
     {
       "id": "manual-candidate-queue-observer",
@@ -488,10 +478,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/app-recovery.visual.spec.ts :: chromium :: recovers from login HTML without displaying internal errors",
         "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: recovers from render exception without displaying internal errors"
       ],
-      "assertions": "Desktop login-HTML and mobile render-exception fixtures retain the same mounted root recovery, private error suppression and successful reload through the actual API read. Other failure modes retain both rendered viewports."
+      "assertions": "The mobile render exception checks private error suppression and a real reload through Holdings. Desktop still tests rejected main and portfolio imports and recovery. The login-HTML variant was retired."
     },
     {
       "id": "browser-minimal-holdings-import-projects",
@@ -503,12 +492,11 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/holdings-import.visual.spec.ts :: chromium :: keeps invalid AngelList agent responses out of user-facing copy",
-        "e2e/holdings-import.visual.spec.ts :: chromium :: tokenfolio disables reconnect while a page-failure retry is being queued",
-        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: automatically processes an older pending import without opening its review",
-        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: sydecar disables reconnect while a page-failure retry is being queued"
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: requests an AngelList update from the phone-safe Holdings flow",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: imports provider templates without asking to approve clear positions"
       ],
-      "assertions": "Mobile checks older pending import processing and overflow. Desktop checks invalid agent response sanitization. One real pending retry for each provider on opposite viewports checks its route, disabled reconnect, zero premature dispatch and eventual queued status."
+      "assertions": "The source screen still exercises real provider reconnect controls and a mounted unverified/error distinction. Pending-provider-retry buttons, malformed AngelList response display and automatic processing of an older pending import lose dedicated mounted fixtures."
     },
     {
       "id": "browser-minimal-investment-holdings-projects",
@@ -520,12 +508,11 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps a same-label disconnected Item when it has a reviewed account",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view",
         "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders",
-        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: automatically retries an old interrupted brokerage check once",
-        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: opens a new Item flow for a disconnected brokerage"
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: explains connection recovery for Holdings and recovers on reload"
       ],
-      "assertions": "The retained components check due sync once across revisit, interrupted-sync recovery once, the new-item connection flow and same-label disconnected reviewed account. These API and display contracts each run once across the two projects. Both native 1000-item timing and geometry owners execute."
+      "assertions": "A mounted source list dispatches one due check across revisits. The discarded interrupted-sync, same-label disconnected account and new-Item UI fixtures no longer run. Both browser projects exercise their 1000-holding budgets."
     },
     {
       "id": "browser-minimal-ui-catalogue-projects",
@@ -535,10 +522,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/ui-catalogue.visual.spec.ts :: chromium :: quiet buttons keep action spacing and textareas use the filled surface",
-        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: quiet buttons keep action spacing and textareas use the filled surface"
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: choices preserve mixed selection, keyboard semantics and label targets"
       ],
-      "assertions": "The actual catalogue Button remains disabled with opacity 0.4 on both projects in an existing forms case. Blinded design evaluation can still generate its controlled stimuli on both viewports through explicit invocation."
+      "assertions": "The ordinary catalogue still exercises a disabled control and real keyboard selection. Exact disabled opacity and the full decorative gallery are no longer required browser checks. The opt-in blinded design capture remains available."
     },
     {
       "id": "review-pending-in-historical-closure",
@@ -548,10 +534,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: saves historical closure details, keeps failed drafts, and moves only ended participation into history",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: saves historical closure details, keeps failed drafts, and moves only ended participation into history"
+        "e2e/investment-review.visual.spec.ts :: chromium :: saves historical closure details, keeps failed drafts, and moves only ended participation into history"
       ],
-      "assertions": "The desktop historical journey first confirms the default Current record, observes its disabled pending button, checks one POST without ownership cargo, and reopens the unchanged form. Both devices exercise historical closure failure, acceptance and readback."
+      "assertions": "The desktop historical journey confirms the default Current record, its disabled pending button, one POST without ownership cargo and its reopened form. Desktop retains historical closure failure, acceptance and readback."
     },
     {
       "id": "first-company-review-device",
@@ -560,9 +545,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: keeps first-company assignment in Holdings instead of offering a second legal form"
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
       ],
-      "assertions": "The retained desktop review opens the exact position link and checks the distinct company and Fund form branches."
+      "assertions": "Review progress requires an accepted company mapping and mobile corrects a conflict from agreement evidence. The first-assignment Holdings link and distinct company/Fund forms retire from browser coverage."
     },
     {
       "id": "saved-review-queue-device",
@@ -571,11 +556,10 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates after a saved review leaves the queue and hides arrows for its only remaining item",
-        "e2e/investment-review.visual.spec.ts :: chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history"
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history",
+        "e2e/investment-review.visual.spec.ts :: chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history"
       ],
-      "assertions": "The retained mobile journey saves a candidate, navigates through the saved entry, checks one and zero remaining arrows and follows direct saved URLs. Mobile owns backward wrap and narrow button geometry. Desktop owns forward wrap, reload, back/forward history and keyboard focus. Both widths retain the queue navigation image and visible controls across section changes."
+      "assertions": "Mobile owns backward wrap and narrow controls. Desktop owns forward wrap, reload, back/forward history and keyboard focus. Both retain the queue navigation image. The one/zero-arrow and direct saved-item URLs after a review leaves the queue retire."
     },
     {
       "id": "legacy-investment-link-device",
@@ -584,10 +568,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: preserves investment deep links by opening the existing Holdings position",
         "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task"
       ],
-      "assertions": "The retained desktop legacy tab replaces its history entry with the exact holdings position and returns Back to legal entities. The separate desktop 120-source automatic resolver keeps the generated-position link covered."
+      "assertions": "The desktop 120-source automatic resolver follows a generated position link. The route parser verifies investment/tab round trips. Direct legacy tab URL replacement and Back-stack chaining retire."
     },
     {
       "id": "watch-history-order-device",
@@ -624,13 +607,11 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: preserves a current single-company Fund grouping when only the name changes",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: retains a rejected identity draft and requires reopening a stale revision",
         "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: restores drafts only within the authenticated household scope",
-        "e2e/manual-holdings.visual.spec.ts :: chromium :: finds a committed uncertain save without sending another POST",
-        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps company mappings unchanged when a mapped Direct holding is changed to Fund",
-        "e2e/manual-holdings.visual.spec.ts :: chromium :: preserves multiple current company groupings when only the legal name changes"
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: finds a committed uncertain save without sending another POST"
       ],
-      "assertions": "One mounted form checks a recovered submission once, isolates restored drafts by authenticated household, and sends exact mapping IDs and unchanged groupings on multi-company, single-company and changed-kind corrections. Both devices still exercise editor layout and calendars."
+      "assertions": "A mounted form retains submitted-save recovery and authenticated-household draft isolation. Real D1 identity flows and repository tests cover financial writes and mapping revisions. The distinct same-/multi-company and corrected-kind payload fixtures were retired. Both widths check type-control stability; desktop checks both calendar triggers, bounds, errors and focus."
     },
     {
       "id": "manual-matrix-purchase-details-visual",
@@ -644,11 +625,11 @@
         "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'Asia/Singapore'"
       ],
       "browserCases": [
-        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: editing an existing partial investment preserves its recorded scope",
-        "e2e/purchase-details.visual.spec.ts :: chromium :: local history in America/Los_Angeles > converts saved instants while preserving source calendar dates",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: investment fee percentages preserve unknown refund dates and failed drafts",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields",
         "e2e/purchase-details.visual.spec.ts :: chromium :: source conflicts recover with current prices while preserving user input"
       ],
-      "assertions": "A mounted valuation form explicitly adopts the new source price after a conflict. A partial purchase edit preserves both scope flags. Native Pacific browser history shows local time and the original calendar date."
+      "assertions": "A mounted valuation form adopts a current source after conflict. The domain and repository own partial purchase values and explicit scope; native Intl tests own Pacific conversion. Standalone partial-edit UI replay and Pacific browser date/time attribute assertions are retired."
     },
     {
       "id": "sparse-entity-profile-facts",
@@ -661,10 +642,9 @@
       ],
       "browserCases": [
         "e2e/legal-entities.visual.spec.ts :: chromium :: reads the complete saved entity profile and refreshes it after edits",
-        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reads the complete saved entity profile and refreshes it after edits",
         "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps historical ownership and an explicit structure clear with incomplete details"
       ],
-      "assertions": "The actual profile renders 0% and its one known jurisdiction without inventing an owner, tax classification or optional detail. Populated desktop/mobile profiles keep layout, edit and readback proof."
+      "assertions": "The actual sparse profile component renders 0% and the known jurisdiction while omitting absent fields. The populated desktop profile keeps layout, edit and readback proof. Mobile keeps historical long-owner rendering."
     },
     {
       "id": "historical-entity-profile-desktop",
@@ -676,10 +656,9 @@
       ],
       "browserCases": [
         "e2e/legal-entities.visual.spec.ts :: chromium :: reads the complete saved entity profile and refreshes it after edits",
-        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reads the complete saved entity profile and refreshes it after edits",
         "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps historical ownership and an explicit structure clear with incomplete details"
       ],
-      "assertions": "A historical trust retains its recorded type, owner, date and Historical label. Clearing the owner omits ownership and keeps the historical status. The mobile browser still checks the long owner, wrapping, overflow and reloaded state."
+      "assertions": "A historical trust retains recorded type, owner, date and Historical label. Clearing the owner omits ownership and keeps the historical status. Mobile checks the long owner, wrapping, overflow and reloaded state. Desktop retains the normal profile edit."
     },
     {
       "id": "automatic-resolve-desktop",
@@ -705,9 +684,9 @@
         "scripts/automatic-investment-review-d1-cost.test.ts :: bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1"
       ],
       "browserCases": [
-        "e2e/automatic-investment-review.visual.spec.ts :: mobile-chromium :: keeps the inventory accessible after a failed automatic review without background retries"
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task"
       ],
-      "assertions": "Mobile keeps the inventory accessible through a failed automatic batch, counts the pre-retry resolver call and observes the second call after a click. The client/proxy/auth/D1 test separately enforces no hidden retries against an unavailable database."
+      "assertions": "The client/proxy/auth/D1 test checks bounded calls during unavailable storage. Desktop exercises the ordinary 120-record resolver. The failed mobile retry banner, button, focus and recovery feedback retire."
     },
     {
       "id": "review-existing-entity-desktop",
@@ -718,9 +697,9 @@
         "packages/database/src/legal-entities.test.ts :: legal entity repository > rejects an unrelated saved entity for a found name and guards a rename during linking"
       ],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: distinguishes an earlier company mapping from agreement evidence and never preselects a saved entity"
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
       ],
-      "assertions": "Desktop retains the earlier mapping without presenting it as agreement evidence. The real entity selector starts unselected, excludes unrelated names and enables explicit linking only after selection. The repository rejects unrelated targets and renames during linking."
+      "assertions": "The progress logic reopens company review on contradictory agreement evidence. Mobile corrects the actual conflict and the repository rejects unrelated targets and racing renames. The existing-selector empty state and earlier-mapping copy retire."
     },
     {
       "id": "review-company-conflict-mobile",
@@ -731,11 +710,9 @@
         "packages/database/src/investment-review.test.ts :: connected investment review > links an exact agreement citation to an existing portfolio company without creating a duplicate"
       ],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: reviews company evidence and keeps ownership drafts across independent saves",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: reviews company evidence and keeps ownership drafts across independent saves"
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
       ],
-      "assertions": "Mobile searches the real 120-choice company picker with case and accent folding, keyboard selection and Escape focus return. The journey rejects, retries, reloads and verifies the exact company and agreement. The repository verifies an existing-company document receipt and keeps one company. The ordinary wide company and independent ownership-save layout remains covered."
+      "assertions": "Mobile searches 120 companies with case and accent folding, uses keyboard selection and Escape focus return, rejects, retries and reloads the corrected company and agreement. The repository retains the existing-company document receipt. The wide interleaved ownership/company draft retires."
     },
     {
       "id": "review-cancelled-investment-mobile",
@@ -746,12 +723,9 @@
         "packages/database/src/investment-review.test.ts :: connected investment review > splits a cancelled agreement into a separate investment without copying money or dissolving the entity"
       ],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: opens the supported entity name after moving a different investment's agreement",
-        "e2e/investment-review.visual.spec.ts :: chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: creates a separate cancelled investment with selected agreements, not copied amounts",
         "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection"
       ],
-      "assertions": "Mobile retains the selected-agreement create flow and checks an explicit cancelled child without copying money. The repository creates the separate child and checks null contributions, agreement ownership and preserved parent state. The wide reassignment owner checks preservation of an independent unsaved draft. Both widths still retain saved document destinations and reload."
+      "assertions": "D1 creates the separate cancelled child, checking null contributions, agreement ownership, export and preserved parent state. Mobile still assigns documents and reads saved destinations after reload. Cancelled-child create UI and cross-section draft preservation retire."
     },
     {
       "id": "review-amount-save-desktop",
@@ -761,11 +735,9 @@
       ],
       "browserCases": [
         "e2e/investment-review.visual.spec.ts :: chromium :: corrects investment amounts with review, reload, second save, rejection and source reset",
-        "e2e/investment-review.visual.spec.ts :: chromium :: shows reviewed facts before editing and keeps optional ownership out of completion",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: corrects investment amounts with review, reload, second save, rejection and source reset",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows reviewed facts before editing and keeps optional ownership out of completion"
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: uses responsive section navigation, keeps focus rings visible, and leaves unsourced terms blank"
       ],
-      "assertions": "Both devices retain the form, entered amount and no premature write through the review screen. Desktop saves, reloads, rejects a second correction, retries and resets to the source amount. The repository checks successive accepted corrections, source updates, reset and preserved evidence."
+      "assertions": "Desktop retains the form, entered amount, review before submission, reload, rejected second correction, retry and source reset. D1 checks successive corrections, source updates and preserved evidence. The mobile rendering of the amount editor retires."
     },
     {
       "id": "review-event-save-mobile",
@@ -774,10 +746,9 @@
         "packages/database/src/investment-review.test.ts :: records a continuing SPV conversion atomically without changing contributions cash or valuation"
       ],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: records a continuing SPV conversion, retains rejected evidence and amends conditional rights",
         "e2e/investment-review.visual.spec.ts :: mobile-chromium :: records a continuing SPV conversion, retains rejected evidence and amends conditional rights"
       ],
-      "assertions": "Both devices review the extracted conversion terms. Mobile rejects, saves, reloads and amends the event with its predecessor while preserving the SPV interest. The repository verifies the append-only conversion record, status and conditional units while retaining contribution, cash and valuation."
+      "assertions": "Mobile reviews extracted conversion terms, rejects, saves, reloads and amends the event with its predecessor. D1 checks append-only status and conditional units while retaining contribution, cash and valuation. The wide event-review rendering retires."
     },
     {
       "id": "import-template-provider-device-sampling",
@@ -806,10 +777,9 @@
       ],
       "browserCases": [
         "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: shows a two-color portfolio snapshot on Overview",
-        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: shows a two-color portfolio snapshot on Overview",
         "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: preserves supported DPI when current private values cannot support TVPI"
       ],
-      "assertions": "The incomplete summary preserves eligible return and supported DPI when TVPI lacks reviewed after-carry value. The mobile basis explains the differing coverage; the normal dashboard and its basis remain on both widths."
+      "assertions": "The incomplete summary preserves eligible return and supported DPI when TVPI lacks reviewed after-carry value. Mobile opens the differing coverage basis. Desktop retains the ordinary supported dashboard and basis."
     },
     {
       "id": "no-prior-portfolio-movers",
@@ -821,10 +791,9 @@
         "packages/domain/src/portfolio-dashboard.test.ts :: createPortfolioDashboardSnapshot > keeps exposure, access, mover, and unknown-value math explicit"
       ],
       "browserCases": [
-        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: keeps empty performance unavailable and recovers from a snapshot failure",
         "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: keeps empty performance unavailable and recovers from a snapshot failure"
       ],
-      "assertions": "A recovered valued portfolio without historical comparisons shows two compact empty movers and no invented changes. Its read count, overflow and hierarchy remain in both projects. The full empty-performance images include every pixel of the former mover crops."
+      "assertions": "A recovered valued portfolio without historical comparisons shows compact empty movers and no invented changes. The mobile error/empty route retains read count, overflow and hierarchy; wide images retire."
     },
     {
       "id": "portfolio-noncash-drilldown-device",
@@ -833,10 +802,9 @@
         "packages/domain/src/portfolio-dashboard.test.ts :: createPortfolioDashboardSnapshot > keeps exposure, access, mover, and unknown-value math explicit"
       ],
       "browserCases": [
-        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: drills each portfolio chart into its corresponding Holdings detail without arrows",
         "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: drills each portfolio chart into its corresponding Holdings detail without arrows"
       ],
-      "assertions": "Cash opens by keyboard on both widths. Public market opens on desktop. Private paper and other liquid open on mobile. Every key, focused heading and selected row still has an actual navigation owner."
+      "assertions": "Mobile opens cash by keyboard and the other three access categories by pointer, checking the focused heading, selected row and Back navigation. Desktop owns ordinary supported chart and basis rendering."
     },
     {
       "id": "legal-not-found-desktop",
@@ -862,9 +830,9 @@
         "packages/database/src/legal-entities.test.ts :: legal entity repository > resolves other_structure from a clean agreement while rejecting unscanned documents and representative choices"
       ],
       "browserCases": [
-        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: validates manual other_structure entry without requiring an excerpt or reason"
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
       ],
-      "assertions": "Mobile requires an explicit manual choice and entity type, validates inputs and the exact supporting document, creates the entity, reloads the classification and preserves the compartment qualification. Normal structure party/review and legal-name choice screens retain both widths. Exact wide spacing for the manually entered structure form is retired."
+      "assertions": "Desktop retains manual missing-name entry with the exact supporting document. Mobile retains party and type review for a structure. D1 tests each reviewed compartment type and source-bound entry. The complete manual other_structure create flow and qualification rendering retire."
     },
     {
       "id": "legal-structure-link-desktop",
@@ -875,9 +843,9 @@
         "packages/database/src/legal-entities.test.ts :: legal entity repository > links a resolved name only to the exact household entity and protects its current name"
       ],
       "browserCases": [
-        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: links a reviewed structure to an exact existing non-Other entity"
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity"
       ],
-      "assertions": "Desktop selects the exact existing non-Other entity, submits its ID and document_structure kind, and reloads the linked source without creating a new record. D1 rejects an unrelated name, protects household boundaries and optimistic versioning. Mobile retains the form, party roles and manual classification in separate cases."
+      "assertions": "Mobile links an exact existing entity after a stale resolution; the dedicated structure page retains party roles and a reviewed type. D1 tests exact identity, household scope, optimistic versions and reclassified targets. The desktop structure-specific existing-link checkbox and reload retire."
     },
     {
       "id": "legal-profile-invalid-mobile",
@@ -888,9 +856,9 @@
         "packages/domain/src/legal-entities.test.ts :: legal entity contracts > rejects ambiguous or out-of-range ownership text"
       ],
       "browserCases": [
-        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: gates manual creation and editing on all profile fields without browser validation pop-ups"
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
       ],
-      "assertions": "Mobile tests the actual create/edit forms, Enter, no native popups, disabled invalid EIN or ownership, and zero POST/PATCH requests. Domain rejects ambiguous ownership and out-of-range percentages. Desktop retains actual EIN gating during entity creation."
+      "assertions": "The domain rejects ambiguous ownership and out-of-range percentages. Desktop retains actual EIN gating during entity creation. Dedicated mobile create/edit Enter, native popup and zero-write coverage retires."
     },
     {
       "id": "legal-stale-resolution-mobile",
@@ -953,9 +921,9 @@
         "packages/domain/src/legal-entities.test.ts :: legal entity contracts > requires a correction reason and validates an optional exact-name excerpt"
       ],
       "browserCases": [
-        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: supports a document-backed correction for a legacy conflict with no saved choices"
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: compares exact alternatives without preselecting and saves a reviewed entity"
       ],
-      "assertions": "Mobile retains empty legacy choices, requires an explicit documented correction reason, accepts an optional matching excerpt, submits the reason and exact legal name, and checks the saved review. The domain enforces the reason and matching optional excerpt. The ordinary wide agreement form keeps the same stacked fields and side-by-side actions. The exact wide arrangement of two populated textareas is retired."
+      "assertions": "The repository records the document-backed legacy correction from a source with no extracted choices. The domain requires a correction reason and validates optional exact excerpt. The desktop ordinary exact-choice flow remains. Legacy correction textareas and their browser submit/readback retire."
     },
     {
       "id": "compact-holdings-summary-mobile",
@@ -965,9 +933,9 @@
       "unitCases": [],
       "browserCases": [
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view",
-        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps the exposure summary below the heading with compact sorting"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
-      "assertions": "The mobile mixed-holdings journey checks the same five-exposure summary, sort accessible name, size, row geometry, focus, totals and ordering. The 1053px breakpoint retains its dedicated screenshot. The full mobile exposure screenshot contains the former compact crop on both platforms, with lower sensitivity to isolated pixel changes."
+      "assertions": "The ordinary mixed-holdings browser journeys check summary, sorting, focus, totals and ordering. The separate intermediate-width sort geometry fixture and screenshot were retired."
     },
     {
       "id": "tokenfolio-delayed-fields",
@@ -1070,9 +1038,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: shared controls expose disabled states and styled keyboard tabs"
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: choices preserve mixed selection, keyboard semantics and label targets"
       ],
-      "assertions": "Mobile drives all four disabled control types, exact dim opacity, keyboard tab focus, 44px target and no overflow. Desktop foundation tabs still check focus versus selection and activate the History panel. The exact wide standalone default tab crop is retired."
+      "assertions": "Mobile tests a disabled checkbox, mixed-state keyboard input and its 44-pixel label target. Desktop foundation tabs distinguish focus and selection and activate the History panel. The dedicated gallery checks of four disabled control types and their exact opacity were retired."
     },
     {
       "id": "legal-owner-only-device",
@@ -1083,10 +1051,9 @@
         "packages/domain/src/legal-entities.test.ts :: legal entity contracts > keeps company-only holdings out of legal triage without hiding evidence or exceptions"
       ],
       "browserCases": [
-        "e2e/legal-entities.visual.spec.ts :: chromium :: owner-only source groupings do not become legal identity tasks",
-        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage"
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage"
       ],
-      "assertions": "Desktop enters the actual owner-only triage, checks the evidence-backed trust stays reviewable, verifies absent profile fields and the earlier saved owner. Mobile keeps the rendered two-source triage geometry. The domain guard rejects using owner or holding labels as legal-name evidence."
+      "assertions": "The domain rejects unsupported owner/holding names as legal-identity evidence. Desktop retains company-only triage and mobile retains a compact inventory and separately checks a historical entity. The owner-only trust/earlier-saved-owner browser variant retires."
     },
     {
       "id": "legal-paging-by-mode",
@@ -1112,10 +1079,9 @@
         "apps/api/src/legal-entity-export.test.ts :: legal entity CSV export > applies historical, type, and needs-review scope independently"
       ],
       "browserCases": [
-        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage",
-        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage"
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage"
       ],
-      "assertions": "Both widths keep the two actionable records and the existing tested triage image. Desktop searches and navigates only eligible tasks, opens the selected company-only source directly, shows missing document guidance and sends zero writes. The export unit requests the source and legal-name columns for three company-only holding positions: each label remains present, each legal name stays empty and reported zero stays distinct from missing cash."
+      "assertions": "Desktop keeps the two actionable tasks and triage image, navigates only eligible tasks, opens the direct company-only source, shows missing-document guidance and verifies zero writes. The export unit preserves three company-only labels, empty legal names and reported zero distinctly from missing cash. The mobile duplicate triage image retires."
     },
     {
       "id": "purchase-unknown-fees-narrow",
@@ -1126,9 +1092,9 @@
         "apps/web/src/position-capital-summary.test.ts :: position capital display > keeps incomplete-fee totals distinct from estimated net totals"
       ],
       "browserCases": [
-        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: returns use complete fee estimates without treating unknown fees as zero"
+        "e2e/purchase-details.visual.spec.ts :: chromium :: holding summary pairs value and return and keeps fees in Investment"
       ],
-      "assertions": "The initial estimated percentage calculation, explicit unknown-fee save, withheld returns and exact retained cash are all asserted on mobile. Both ordinary summary layouts with known fees remain."
+      "assertions": "Known fees render in both ordinary summary layouts; the mobile investment form checks fee percentages, unknown refund dates and failed drafts. Real component tests withhold returns for unknown refund inclusion. The special estimated-percentage-to-unknown transition loses browser coverage."
     },
     {
       "id": "purchase-acquisition-draft-wide",
@@ -1139,9 +1105,9 @@
         "packages/database/src/position-purchases.test.ts :: persists optional details, reads them through holdings, versions edits and rejects stale or foreign writes"
       ],
       "browserCases": [
-        "e2e/purchase-details.visual.spec.ts :: chromium :: new acquisitions can be removed without discarding other investment edits"
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: investment fee percentages preserve unknown refund dates and failed drafts"
       ],
-      "assertions": "Desktop retains real Add/Remove, returned focus, changed cash input and Cancel leaving stored gross cash untouched. Normal investment editors still render on both screens."
+      "assertions": "The mounted mobile purchase-fee form retains failed draft input. Domain and persistence tests protect optional lots and saved purchase economics. The dedicated Add/Remove lot focus and Cancel-with-modified-cash sequence was retired."
     },
     {
       "id": "purchase-same-day-history-wide",
@@ -1152,9 +1118,9 @@
         "packages/database/src/position-purchases.test.ts :: persists optional details, reads them through holdings, versions edits and rejects stale or foreign writes"
       ],
       "browserCases": [
-        "e2e/purchase-details.visual.spec.ts :: chromium :: saved history distinguishes same-day changes and avoids a duplicate current valuation"
+        "e2e/purchase-details.visual.spec.ts :: chromium :: one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields"
       ],
-      "assertions": "Desktop retains two real saves, exact receipt instants, ordered history, rendered date-only source, no duplicate current facts, link disclosure and sole changed valuation amount. Mobile retains unified investment/link history and Pacific or UTC conversion according to the dedicated timezone tests."
+      "assertions": "The mounted timeline still verifies unlink, failed decisions and unchanged-field omission. Lower-level timing and history tests check local calendar semantics and distinct changed amounts. The specific two-saves-same-day UI and duplicate-current-row assertions were retired."
     },
     {
       "id": "purchase-valuation-sources-wide",
@@ -1165,9 +1131,9 @@
         "packages/database/src/price-proxies.test.ts :: uses the saved reviewed date instead of an undated import, follows accepted imports, and preserves independent records"
       ],
       "browserCases": [
-        "e2e/purchase-details.visual.spec.ts :: chromium :: sources restore GP facts and estimates without duplicate forms or acknowledgments"
+        "e2e/purchase-details.visual.spec.ts :: chromium :: source conflicts recover with current prices while preserving user input"
       ],
-      "assertions": "Desktop selects the actual source, saves the proxy, saves an estimate associated with exact Watch evidence, switches back to the GP record and checks its total and price. Mobile retains ordinary and cross-class valuation controls."
+      "assertions": "Mounted valuation cases check ordinary choices, cross-class failures, conflicts and source prices. The separate GP/proxy/Watch/GP sequence and its exact final render were retired."
     },
     {
       "id": "purchase-rejected-fees-narrow",
@@ -1192,9 +1158,9 @@
         "packages/database/src/price-proxies.test.ts :: explains distinct missing input and compatibility failures"
       ],
       "browserCases": [
-        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: missing price dates name the source problem without blaming saved shares"
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: cross-class proxies disclose estimated shares, retain failed drafts and persist the selected method"
       ],
-      "assertions": "Mobile renders the actual missing-source-date error, checks the disabled Save and distinguishes missing price date from missing share dates. Wide still renders normal proxy choice and blocked cross-class choice."
+      "assertions": "The domain rejects unsupported source facts and preserves a proxy without inventing its mark date. Mobile still mounts the cross-class proxy. The distinct missing-date message and disabled-save fixture was retired."
     },
     {
       "id": "manual-fund-grouping-wide",
@@ -1205,9 +1171,9 @@
         "packages/database/src/manual-holdings.test.ts :: creates an honest unknown-money fund_interest and reuses its dated valuation editor"
       ],
       "browserCases": [
-        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps a Fund company grouping distinct from unknown allocation"
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel"
       ],
-      "assertions": "Desktop submits the actual Fund, selected company id and exact revision; cash stays null and valuation stays unknown. Both screen sizes retain the type-control position and layout tests."
+      "assertions": "D1 exercises explicit Fund company association without inventing its allocation. Both widths check stationary type controls and normal validation. The case that inspected the exact Fund/company submission on desktop was retired."
     },
     {
       "id": "manual-identity-history-narrow",
@@ -1218,9 +1184,9 @@
         "packages/database/src/manual-holdings.test.ts :: records actual prior and new company groupings in chronological identity history"
       ],
       "browserCases": [
-        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: shows manual creation and only actual identity corrections in normal History"
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits"
       ],
-      "assertions": "Mobile checks two genuine identity corrections, the initial paid cash, and no spurious Company or Cleared field when the same company IDs reorder. Both widths retain ordinary history at other fixtures."
+      "assertions": "D1 records prior/current company grouping in chronological identity history; mobile edits an SPV identity and reads it back. The manual Fund reordered-grouping timeline renderer fixture was retired."
     },
     {
       "id": "retained-position-source-mobile",
@@ -1233,10 +1199,9 @@
         "scripts/position-link-suggestion.test.ts :: retained history rejects mismatched identity: {\"sourceProvider\":\"sydecar\"}"
       ],
       "browserCases": [
-        "e2e/position-links.visual.spec.ts :: mobile-chromium :: suggests a unique retained historical source without accepting missing account or company identity",
-        "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing"
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
       ],
-      "assertions": "Mobile renders the unique suggestion among 120 unrelated positions, requires the missing-account warning, disabled Apply and zero writes, then reloads wrong-provider and ambiguous candidates with no Apply. Both widths still compare ordinary historical rename forms. The wide missing-identity warning and facts layout loses its exact image."
+      "assertions": "Candidate units exercise 120 unrelated positions, exact retained historical identity, missing account, wrong provider and ambiguous candidates. Mobile keeps a normal duplicate/replacement explicit-save and reversal journey. Retained historical-source warning and historical rename card rendering retire."
     },
     {
       "id": "public-company-ambiguous-mobile",
@@ -1247,10 +1212,9 @@
         "apps/api/src/app-company-identity.test.ts :: authenticates company identity reads and writes, validates boundaries and returns stale conflicts"
       ],
       "browserCases": [
-        "e2e/company-names.visual.spec.ts :: mobile-chromium :: shows an unresolved issuer match without presenting a second grouping form",
         "e2e/company-names.visual.spec.ts :: chromium :: reviews an issuer link before grouping a public holding"
       ],
-      "assertions": "Mobile keeps the ambiguous issuer heading, absence of Approve, exactly one manual company picker and no second review form. The wide and narrow recommended issuer views remain, and desktop retains stale recommendation refresh, correction and readback. The standalone desktop ambiguous issuer image is retired."
+      "assertions": "The domain keeps conflicting issuers unresolved. Desktop retains the ordinary recommended issuer, stale recommendation refresh, correction and readback. The ambiguous mobile picker, absent Approve button and form count retire."
     },
     {
       "id": "source-quota-pause-mobile",
@@ -1284,10 +1248,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: shows one Robinhood exception entry point",
         "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review"
       ],
-      "assertions": "Mobile shows two waiting items and precisely one review action, omits the duplicate pending-import card, and retains the narrow exception screenshot. The ordinary wide automatic Robinhood card and actual private exception review remain. The wide single-exception crop loses independent pixel sensitivity."
+      "assertions": "Mobile still connects Robinhood and exercises isolated pending exceptions. Desktop checks automatic updates and exception-only review. The single-action/two-waiting-items fixture loses its dedicated exact card count and pixels."
     },
     {
       "id": "angellist-reconnect-clock-desktop",
@@ -1314,13 +1277,12 @@
       ],
       "browserCases": [
         "e2e/overview-links.visual.spec.ts :: mobile-chromium :: keeps the masthead static when only one goal is active",
-        "e2e/goals.visual.spec.ts :: chromium :: keeps saved goals compact and templates creation-only",
         "e2e/goals.visual.spec.ts :: mobile-chromium :: keeps saved goals compact and templates creation-only"
       ],
       "unitCases": [
         "apps/api/src/app.test.ts :: Keel API > validates and records a new immutable goal version"
       ],
-      "assertions": "With one seeded goal the mobile test waits for its actual heading before asserting the carousel, chooser and duplicate section are absent. It follows the real navigation to Goals, starts a draft, reselects the existing record and checks the restored field. Both widths retain the normal multi-goal editor, selector and overview. The eliminated desktop single-record cross-section had no reference image."
+      "assertions": "Mobile waits for the sole goal, asserts no carousel, chooser or duplicate section, creates a draft and restores the existing goal. Mobile also owns the multi-goal editor. Both widths retain the standard overview."
     },
     {
       "id": "planning-empty-obligations-mobile",
@@ -1328,13 +1290,12 @@
         "e2e/obligations.visual.spec.ts :: chromium :: shows a compact empty state before obligations are accepted"
       ],
       "browserCases": [
-        "e2e/obligations.visual.spec.ts :: mobile-chromium :: shows a compact empty state before obligations are accepted",
-        "e2e/obligations.visual.spec.ts :: chromium :: reviews obligations and preserves unknown and stale states"
+        "e2e/obligations.visual.spec.ts :: mobile-chromium :: reviews obligations and preserves unknown and stale states"
       ],
       "unitCases": [
         "apps/api/src/app-liabilities.test.ts :: liabilities API > stages manual fallback before applying an explicit treatment"
       ],
-      "assertions": "Mobile retains the synthetic empty account read, compact zero-total explanation without an icon, absence of horizontal overflow and the narrow empty-obligations image. The ordinary obligations summary and proposal review remain on both devices. The separate wide empty-state line arrangement is retired."
+      "assertions": "Mobile exercises rejected and accepted proposal review, stale data and uncertain dates. Wide obligation geometry and the unused-portfolio empty-state pixels, zero-total copy and icon arrangement retire; the DB preserves unknown values and explicit review."
     },
     {
       "id": "planning-baseline-retry-mobile",
@@ -1342,14 +1303,13 @@
         "e2e/portfolio-baseline.visual.spec.ts :: chromium :: retries an unavailable planning baseline"
       ],
       "browserCases": [
-        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: retries an unavailable planning baseline",
         "e2e/portfolio-baseline.visual.spec.ts :: chromium :: sets the initial FI baseline while checking only manual cash"
       ],
       "unitCases": [
         "apps/api/src/app.test.ts :: Keel API > loads the reviewed-holdings portfolio baseline state",
         "apps/api/src/app.test.ts :: Keel API > rejects stale portfolio baseline confirmation without retrying"
       ],
-      "assertions": "Mobile requires the unavailable headline, reason, safe retry action and no overflow. Explicit retry must perform exactly one new read, remove the error, and restore the ordinary baseline. Ready and overlap states retain both widths; the wide position of Try again loses an exact image comparison."
+      "assertions": "Desktop requires the temporary-unavailable explanation and safe retry. One new read restores the ordinary baseline before confirmation. The mobile error image and narrow initial-baseline arrangement retire; mobile still owns overlap and source exception review."
     },
     {
       "id": "planning-disconnect-disclosure-mobile",
@@ -1358,12 +1318,12 @@
       ],
       "browserCases": [
         "e2e/observed-cash-flow.visual.spec.ts :: mobile-chromium :: confirms the shared bank deletion boundary before disconnect",
-        "e2e/observed-cash-flow.visual.spec.ts :: chromium :: reviews observed burn and prepares the existing runway plan"
+        "e2e/observed-cash-flow.visual.spec.ts :: mobile-chromium :: reviews observed burn and prepares the existing runway plan"
       ],
       "unitCases": [
         "apps/api/src/app-cash-accounts.test.ts :: cash account API > blocks disconnect before Plaid while a cash-flow review is waiting"
       ],
-      "assertions": "Mobile opens the shared-bank disconnect warning, verifies the destructive confirmation action and no horizontal overflow, and fails on any DELETE triggered by disclosure alone. The API independently blocks deletion before Plaid during a pending review. Wide observed-cash review stays in the suite; the exact wide warning and adjacent confirmation buttons are retired."
+      "assertions": "Mobile opens the warning, verifies its destructive action and overflow, and rejects DELETE on disclosure alone. The API independently blocks deletion before Plaid during pending review. Mobile also owns observed cash review; its wide state images retire."
     },
     {
       "id": "agreement-ownership-rendered-evidence",
@@ -1375,10 +1335,9 @@
         "apps/web/src/OwnershipReview.test.tsx :: renders a dated ownership observation with its exact document and one percentage"
       ],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft"
+        "e2e/investment-review.visual.spec.ts :: chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft"
       ],
-      "assertions": "Production OwnershipReview renders a recorded percentage, its effective date, the correct agreement and its cited page once. The real investment review loads the persisted agreement context and retains independent frozen agreement and K-1 screenshots and document-overflow checks on both widths."
+      "assertions": "The OwnershipReview component renders one recorded percentage, its effective date and exact document/page. Desktop investment review checks saved agreement and K-1 context with locked images. The duplicate narrow versions retire."
     },
     {
       "id": "blocked-agreement-reason-component",
@@ -1390,10 +1349,9 @@
         "apps/web/src/AgreementEvidence.test.tsx :: explains each blocked agreement without exposing a download or an assignment"
       ],
       "browserCases": [
-        "e2e/agreement-security.visual.spec.ts :: chromium :: offers a targeted retry for legacy and incomplete checks, and explains a busy source",
         "e2e/agreement-security.visual.spec.ts :: mobile-chromium :: offers a targeted retry for legacy and incomplete checks, and explains a busy source"
       ],
-      "assertions": "Production AgreementEvidence distinguishes limits, encryption and malware, offers recheck, and withholds download and assignment. Real malware and retry journeys preserve the source-to-evidence wiring, unavailable and busy retry handling, zero downloads, threat/recheck reference pictures, and overflow checks on both widths."
+      "assertions": "The production component distinguishes limits, encryption and malware and withholds download and assignment. The mobile source flow checks targeted recheck, busy state, download prevention, and threat and recheck reference images. Wide warning pixels were retired."
     },
     {
       "id": "holdings-mounted-projection-mobile",
@@ -1413,9 +1371,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/investment-holdings.visual.spec.ts :: chromium :: lets a failed brokerage check be retried"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders"
       ],
-      "assertions": "Desktop enters Sources, clicks Try now, counts one manual POST, observes the recovered account and checks overflow. Mobile separately covers automatic and reconnect outcomes. Mobile loses the independent manual failure-to-success replay."
+      "assertions": "Desktop checks one due automatic sync; mobile checks failure recovery on reload. The Plaid API exercises cooldown and retryable failed connection admission. The exact manual Try now button and one manual POST after failure were retired."
     },
     {
       "id": "reviewed-history-account-mobile",
@@ -1426,9 +1384,9 @@
         "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment"
       ],
       "browserCases": [
-        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts"
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
-      "assertions": "Mobile waits for actual investment-connections read completion before ruling out invented accounts, expands all 14 legal positions, rejects the retired predecessor, and verifies selection and restored focus. The real rendering unit retains the singular legal position label."
+      "assertions": "The real exposure component retains the singular count and legal action. Mounted normal inventory still checks navigation and focus. The history-only account fixture with fourteen results and explicit absence of fake institutions was retired."
     },
     {
       "id": "holdings-server-retry-desktop",
@@ -1492,7 +1450,7 @@
         "e2e/holdings-detail.visual.spec.ts :: chromium :: leads with the investment and opens a truthful holding detail",
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
-      "assertions": "Both widths accept and read back a position valuation. Desktop continues to a genuinely locked SPV and a public brokerage position and checks absent fabricated performance, the optional source, and the reported share count. The narrow expanded brokerage source and locked-position tail are retired. Narrow NVDA detail and the Portfolio Watch source boundary remain."
+      "assertions": "Both widths open normal position detail and restore Back focus. Desktop accepts and reads back fee/carry terms. Mobile accepts and reads back a sourced position valuation and its aggregate effect. The dedicated locked-position and public brokerage detail tails, expanded supporting-detail images, and carry-only third-position tour were retired."
     },
     {
       "id": "watch-failed-empty-in-saved-history",
@@ -1503,10 +1461,9 @@
         "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > projects timeouts without writes and rejects a late completion after explicit recovery"
       ],
       "browserCases": [
-        "e2e/portfolio-watch.visual.spec.ts :: chromium :: keeps failed monitoring and an empty news inbox consistent with shared UI",
         "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload"
       ],
-      "assertions": "Both projects still render the exact failed-monitoring image, limited empty-state copy and layout, open read news and navigate to Coverage. The mobile owner also requires a failed run after a prior success, a successful scan without updates, a freshly reloaded timeout, all five saved history rows, the frozen timeout image and the no-eligible-sources response. The previous duplicate reload of the same successful response and the second independent failure screen are retired."
+      "assertions": "Mobile checks the 320px failed-monitoring layout, last success and attempt, read news, coverage, the later successful no-update state, freshly reloaded timeout, all five history rows and no eligible sources. The wide failed-state image retires."
     },
     {
       "id": "unstyled-entry-recovery-mobile",
@@ -1515,11 +1472,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: keeps a readable recovery action when scripts and styles are unavailable",
-        "e2e/app-recovery.visual.spec.ts :: chromium :: offers recovery even when the entry script never starts",
         "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: offers recovery even when the entry script never starts"
       ],
-      "assertions": "The narrow browser blocks real scripts and styles, requires the static recovery heading and link, and rejects an offscreen link or a document wider than the device. Desktop and mobile still exercise the styled startup fallback, keyboard focus, original images, real reload and hydrated Holdings readback. The unstyled 1280px viewport is retired, so a future wide-only raw fallback difference is no longer observed independently."
+      "assertions": "Mobile still exercises the styled static startup fallback, keyboard focus, a real reload and the hydrated Holdings read. Both unstyled viewport samples and the wide styled fallback comparison were retired. Missing CSS together with unavailable scripts no longer has a dedicated browser fixture."
     },
     {
       "id": "review-moving-assignment-cross-section",
@@ -1530,11 +1485,10 @@
         "packages/database/src/investment-review.test.ts :: connected investment review > splits a cancelled agreement into a separate investment without copying money or dissolving the entity"
       ],
       "browserCases": [
-        "e2e/investment-review.visual.spec.ts :: chromium :: opens the supported entity name after moving a different investment's agreement",
-        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: creates a separate cancelled investment with selected agreements, not copied amounts",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection",
         "e2e/investment-review.visual.spec.ts :: mobile-chromium :: uses responsive section navigation, keeps focus rings visible, and leaves unsourced terms blank"
       ],
-      "assertions": "Desktop retains exact selected document ID, refreshed source name, a 12.5% unsaved ownership draft and the 25-row manual inventory before and after reassignment. Mobile keeps the separate cancelled-child create without copied amounts and responsive review section navigation. The exact one-combined-mobile-journey observation retires."
+      "assertions": "Mobile retains document assignment and readback after reload, rejected drafts and responsive section navigation. The repository reads successive assignments without losing the first decision. The moved agreement and unsaved ownership draft through a combined cross-section navigation sequence retire."
     },
     {
       "id": "holdings-section-history-and-link-size",
@@ -1560,6 +1514,1027 @@
         "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: sydecar distinguishes sign-in from missing, responsive, or delayed portfolio controls"
       ],
       "assertions": "Desktop retains the full sign-in and unsupported-page error/classification matrix. Narrow reconnects still reject foreign origins, distinguish CSS-hidden controls from a live portfolio, wait for delayed mounting, refuse credentials over mounted holdings, and retain every previously checked optional or incomplete MFA state over a mounted Tokenfolio portfolio. Narrow-only passkey labels and blocking dialogs, their CSS-hidden equivalents and a visible optional Add passkey control are covered. The duplicated mobile classifications for unsupported pages without a mounted portfolio are retired. The managed interactive caller only asks whether a portfolio is ready at that width."
+    },
+    {
+      "id": "ui-catalogue-user-value",
+      "retiredBrowserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: featured carousel uses homepage presentation and the index remains current",
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: form failures are borderless, concise and preserve the editable draft",
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: quiet buttons keep action spacing and textareas use the filled surface",
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: reading facts stay concise and statistics have readable separation",
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: record groups keep identities, values and actions readable",
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: section navigation preserves the active panel when its container narrows",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: chart points expose values by pointer and keyboard",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: featured carousel uses homepage presentation and the index remains current",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: foundations distinguish selection from keyboard focus",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: quiet buttons keep action spacing and textareas use the filled surface",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: reading facts stay concise and statistics have readable separation",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: record groups keep identities, values and actions readable",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: section navigation preserves the active panel when its container narrows",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: shared controls expose disabled states and styled keyboard tabs"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: chart points expose values by pointer and keyboard",
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: foundations distinguish selection from keyboard focus",
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: manual collections retain rows on failure and expose a terminal state",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: automatic collections stop after failure and keep automatic appends from stealing focus",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: choices preserve mixed selection, keyboard semantics and label targets",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: form failures are borderless, concise and preserve the editable draft"
+      ],
+      "assertions": "The contributor catalogue keeps keyboard tab selection, mobile mixed choices and form retry, real paging and chart keyboard/pointer access. Retired pixels include decorative samples, reading layouts, quiet buttons, the gallery carousel, index freshness and duplicate device renderings."
+    },
+    {
+      "id": "navigation-user-value",
+      "retiredBrowserCases": [
+        "e2e/navigation.visual.spec.ts :: chromium :: keeps portfolio loading concise",
+        "e2e/navigation.visual.spec.ts :: chromium :: paints the Holdings route before the full application loads",
+        "e2e/navigation.visual.spec.ts :: mobile-chromium :: keeps portfolio loading concise"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/navigation.visual.spec.ts :: chromium :: keeps primary navigation legible and keyboard accessible",
+        "e2e/navigation.visual.spec.ts :: mobile-chromium :: keeps primary navigation legible and keyboard accessible",
+        "e2e/navigation.visual.spec.ts :: mobile-chromium :: paints the Holdings route before the full application loads"
+      ],
+      "assertions": "The desktop sidebar and mobile menu still navigate to Goals using the real shell. Mobile still paints the Holdings entry before hydration. Separate portfolio loading copy, desktop transitional pixels and the contributor catalogue navigation and history tour were retired."
+    },
+    {
+      "id": "app-recovery-user-value",
+      "retiredBrowserCases": [
+        "e2e/app-recovery.visual.spec.ts :: chromium :: offers recovery even when the entry script never starts",
+        "e2e/app-recovery.visual.spec.ts :: chromium :: recovers from login HTML without displaying internal errors",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: keeps a readable recovery action when scripts and styles are unavailable",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: keeps the screen and navigation when a delayed portfolio component fails",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: recovers from a failed main application without retrying on tab resume"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/app-recovery.visual.spec.ts :: chromium :: keeps the screen and navigation when a delayed portfolio component fails",
+        "e2e/app-recovery.visual.spec.ts :: chromium :: recovers from a failed main application without retrying on tab resume",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: offers recovery even when the entry script never starts",
+        "e2e/app-recovery.visual.spec.ts :: mobile-chromium :: recovers from render exception without displaying internal errors"
+      ],
+      "assertions": "Mobile exercises styled raw-entry failure, an actual reload, and render-error privacy. Desktop tests a rejected application import, manual retry, tab resume and a delayed portfolio import with navigation. The separate login-HTML import variant, joint missing styles and scripts, and alternate-width pixels were retired."
+    },
+    {
+      "id": "agreement-security-user-value",
+      "retiredBrowserCases": [
+        "e2e/agreement-security.visual.spec.ts :: chromium :: offers a targeted retry for legacy and incomplete checks, and explains a busy source"
+      ],
+      "unitCases": [
+        "apps/web/src/AgreementEvidence.test.tsx :: explains each blocked agreement without exposing a download or an assignment"
+      ],
+      "browserCases": [
+        "e2e/agreement-security.visual.spec.ts :: mobile-chromium :: offers a targeted retry for legacy and incomplete checks, and explains a busy source"
+      ],
+      "assertions": "The narrow warning still blocks downloads and exercises recheck. The separate wide warning geometry is retired. Component checks cover distinct scan outcomes and the native PDF boundary owns the scanner."
+    },
+    {
+      "id": "provider-reconnect-access-user-value",
+      "retiredBrowserCases": [
+        "e2e/provider-reconnect-access.spec.ts :: chromium :: connects and paints the generated viewer through the authenticated gateway",
+        "e2e/provider-reconnect-access.spec.ts :: chromium :: opens the reconnect interstitial through one explicit same-origin POST",
+        "e2e/provider-reconnect-access.spec.ts :: mobile-chromium :: a passive reconnect GET does not consume a link when scripts are disabled"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-reconnect-access.spec.ts :: chromium :: a passive reconnect GET does not consume a link when scripts are disabled",
+        "e2e/provider-reconnect-access.spec.ts :: mobile-chromium :: connects and paints the generated viewer through the authenticated gateway",
+        "e2e/provider-reconnect-access.spec.ts :: mobile-chromium :: opens the reconnect interstitial through one explicit same-origin POST"
+      ],
+      "assertions": "Mobile tests active same-origin POST and real authenticated viewer paint. Desktop tests that a no-script passive GET preserves the one-time link. Identical transport flows no longer run at the other width."
+    },
+    {
+      "id": "provider-legal-documents-user-value",
+      "retiredBrowserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar uses an exact reconciled legacy page only after central controls finish",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: legacy Tokenfolio detail pages are checked and restored without guessing an external platform match",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: Sydecar uses an exact reconciled legacy page only after central controls finish",
+        "e2e/provider-legal-documents.spec.ts :: mobile-chromium :: legacy Tokenfolio detail pages are checked and restored without guessing an external platform match"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar associates same-label investments by source IDs and reads their linked memos",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar central Documents association fails closed for duplicate position labels",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: Sydecar indexes one central Documents page across 120 rows and opens only the exact position agreements",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: does not read a document drawer belonging to a different source investment ID",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: inaccessible or untrusted document locations become explicit gaps",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
+        "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs"
+      ],
+      "assertions": "Both integrations still exercise real popups, original PDF bytes and an untrusted URL, and Sydecar checks 120 holdings with bounded detail opens. Separate legacy-page restoration and reconciled Sydecar fallback tours, including their excluded mobile registrations, were retired."
+    },
+    {
+      "id": "provider-portfolio-mac-agent-user-value",
+      "retiredBrowserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio waits for all holdings after document return before continuing and reconciling",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar recognizes a dedicated sign-in page before its form loads",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio recognizes a dedicated sign-in page before its form loads",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: Tokenfolio waits for all holdings after document return before continuing and reconciling"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: Tokenfolio waits for each drawer URL to open and clear before associating agreements",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures and reconciles the supported Tokenfolio page contract",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures the visible funded Sydecar position and leaves value unreported",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: fails closed for an unknown Tokenfolio active-row status",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: fails closed when the Tokenfolio visible count does not reconcile",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: keeps equal-amount Sydecar rows distinct by row and destination",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: sydecar distinguishes sign-in from missing, responsive, or delayed portfolio controls",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: tokenfolio distinguishes sign-in from missing, responsive, or delayed portfolio controls",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: sydecar distinguishes sign-in from missing, responsive, or delayed portfolio controls",
+        "e2e/provider-portfolio-mac-agent.spec.ts :: mobile-chromium :: tokenfolio distinguishes sign-in from missing, responsive, or delayed portfolio controls"
+      ],
+      "assertions": "Retained provider classification checks include the dedicated sign-in route before its form appears, refusal to accept third-party origins, MFA and genuine portfolio readiness. Retired separate sign-in-placeholder variations and a delayed row-render after returning from document capture. Count mismatch, stale associations and distinct equal-valued holdings retain browser coverage."
+    },
+    {
+      "id": "sydecar-session-renewal-user-value",
+      "retiredBrowserCases": [
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies invalid refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies dns refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar identifies invalid refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar loses a twelve-hour refresh session despite closing Chrome",
+        "e2e/sydecar-session-renewal.spec.ts :: mobile-chromium :: Sydecar page ownership preserves Keel setup and bounded agreement popups"
+      ],
+      "unitCases": [
+        "scripts/sydecar-refresh-observation.test.ts :: Sydecar identifies invalid refresh failures without logging credentials"
+      ],
+      "browserCases": [
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar identifies dns refresh failures without logging credentials",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal fails closed at its provider-request admission bound",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar renewal verifies expiry through the production tsx runner",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: Sydecar survives the next daily capture with bounded renewal",
+        "e2e/sydecar-session-renewal.spec.ts :: chromium :: a working Sydecar access token does not prove a refresh token survived another login"
+      ],
+      "assertions": "The production runner, daily renewal across real browser restarts, revoked refresh under a warm session, real transport interruption and bounded request attempts still run. Standalone twelve-hour idle expiry, abandoned-tab plus popup collisions, and a separate rejected-HTTP-event browser matrix are retired. Unit classification covers rejected refresh responses."
+    },
+    {
+      "id": "browser-value-portfolio-watch",
+      "retiredBrowserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps Portfolio Watch visually sparse and decision-oriented",
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: keeps a financing review focused on reported company terms",
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: reconciles financing reports before creating a version-safe proposal",
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: keeps failed monitoring and an empty news inbox consistent with shared UI"
+      ],
+      "browserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: keeps Portfolio Watch visually sparse and decision-oriented",
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps a financing review focused on reported company terms",
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: reconciles financing reports before creating a version-safe proposal",
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload"
+      ],
+      "unitCases": [
+        "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > admits racing scans once, persists signals before success, and reloads the household projection",
+        "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > projects timeouts without writes and rejects a late completion after explicit recovery",
+        "packages/database/src/portfolio-watch.test.ts :: Portfolio Watch financing fact persistence > creates an append-only proposal against exact signal and scenario versions"
+      ],
+      "assertions": "Desktop owns scan progress, source activity, signal tabs and exact-version reconciliation. Mobile owns financing consent, scenario navigation, failed checks, last success, timeout and all five saved history rows after reload. The independent missing-website confirmation and both 120-company layouts survive. The opposite-device pixels and focus positions for those four variants retire."
+    },
+    {
+      "id": "browser-value-portfolio-baseline",
+      "retiredBrowserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: sets the initial FI baseline while checking only manual cash",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: keeps a possible overlap behind an explicit baseline decision",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: updates routine sources and reviews only one exception at a time",
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: automatically refreshes routine private changes without a baseline review",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine public changes without a baseline review",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine cash changes without a baseline review",
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: retries an unavailable planning baseline"
+      ],
+      "browserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: sets the initial FI baseline while checking only manual cash",
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: keeps a possible overlap behind an explicit baseline decision",
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: updates routine sources and reviews only one exception at a time",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: automatically refreshes routine private changes without a baseline review"
+      ],
+      "unitCases": [
+        "packages/database/src/holding-imports.test.ts :: reviewed portfolio baseline persistence > projects one delta from 120 reviewed positions within a fixed read budget",
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > refreshes the established FI baseline from automatically accepted cash without changing planning choices",
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > applies clear holdings and refreshes the baseline alongside isolated exceptions",
+        "packages/database/src/holding-imports.test.ts :: reviewed portfolio baseline persistence > refreshes 120 sources around exceptions, retains their values, and resolves only the selected source",
+        "apps/api/src/app.test.ts :: Keel API > rejects stale portfolio baseline confirmation without retrying"
+      ],
+      "assertions": "Desktop retries a temporary failed read and explicitly confirms the initial baseline. A held private refresh POST exercises pending, dismissal, no redundant review and exactly one refresh. Domain, API and D1 distinguish automatic public/cash feeds and source-specific exceptions; mobile owns overlap, rejection, preserved draft and exception-at-a-time acceptance. Both widths keep the bounded 120-source list. Secondary responsive screenshots, separate cash/public pending sessions and the error appearance retire."
+    },
+    {
+      "id": "browser-value-portfolio-dashboard",
+      "retiredBrowserCases": [
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: shows a two-color portfolio snapshot on Overview",
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: keeps empty performance unavailable and recovers from a snapshot failure",
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: drills each portfolio chart into its corresponding Holdings detail without arrows"
+      ],
+      "browserCases": [
+        "e2e/portfolio-dashboard.visual.spec.ts :: chromium :: shows a two-color portfolio snapshot on Overview",
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: keeps empty performance unavailable and recovers from a snapshot failure",
+        "e2e/portfolio-dashboard.visual.spec.ts :: mobile-chromium :: drills each portfolio chart into its corresponding Holdings detail without arrows"
+      ],
+      "unitCases": [
+        "packages/domain/src/portfolio-dashboard.test.ts :: current-holdings portfolio performance > distinguishes known zero cash returned from unavailable paid-in capital",
+        "packages/domain/src/portfolio-dashboard.test.ts :: current-holdings portfolio performance > withholds TVPI for missing value evidence while preserving supported DPI",
+        "packages/domain/src/portfolio-dashboard.test.ts :: current-holdings portfolio performance > weights summed capital and keeps paid-in multiples separate from net-capital return"
+      ],
+      "assertions": "Desktop renders supported metrics and their basis. Narrow screens own partial DPI, explicit empty and failed reads, retry, and all four access-filter destinations with return navigation, keyboard activation of cash and focused headings for every key. Opposite-width captures of those states and wide keyboard drilldown geometry retire."
+    },
+    {
+      "id": "browser-value-goals",
+      "retiredBrowserCases": [
+        "e2e/goals.visual.spec.ts :: chromium :: keeps saved goals compact and templates creation-only"
+      ],
+      "browserCases": [
+        "e2e/goals.visual.spec.ts :: mobile-chromium :: keeps saved goals compact and templates creation-only"
+      ],
+      "unitCases": [
+        "apps/api/src/app.test.ts :: Keel API > validates and records a new immutable goal version"
+      ],
+      "assertions": "Mobile owns saved-goal selection, keyboard-operated templates, pending primary choice and save; primary views still read the stored goal. Wide selector, template, editor and pending-primary pixels retire."
+    },
+    {
+      "id": "browser-value-obligations",
+      "retiredBrowserCases": [
+        "e2e/obligations.visual.spec.ts :: chromium :: reviews obligations and preserves unknown and stale states",
+        "e2e/obligations.visual.spec.ts :: mobile-chromium :: shows a compact empty state before obligations are accepted"
+      ],
+      "browserCases": [
+        "e2e/obligations.visual.spec.ts :: mobile-chromium :: reviews obligations and preserves unknown and stale states"
+      ],
+      "unitCases": [
+        "packages/database/src/liabilities.test.ts :: reviewed liabilities > keeps missing provider values unknown until a reviewer accepts them",
+        "packages/database/src/liabilities.test.ts :: reviewed liabilities > keeps provider facts proposed until every obligation is reviewed"
+      ],
+      "assertions": "Mobile exercises rejected and accepted proposal review, stale data and uncertain dates. Wide obligation geometry and the unused-portfolio empty-state pixels, zero-total copy and icon arrangement retire; the DB preserves unknown values and explicit review."
+    },
+    {
+      "id": "browser-value-cash-accounts",
+      "retiredBrowserCases": [
+        "e2e/cash-accounts.visual.spec.ts :: mobile-chromium :: shows only cash exceptions and preserves failed decisions"
+      ],
+      "browserCases": [
+        "e2e/cash-accounts.visual.spec.ts :: chromium :: shows only cash exceptions and preserves failed decisions"
+      ],
+      "unitCases": [
+        "apps/api/src/app-cash-accounts.test.ts :: cash account API > applies only a complete, validated cash review",
+        "apps/api/src/app-cash-accounts.test.ts :: cash account API > records an explicit account identity review and returns current state",
+        "apps/api/src/app-cash-accounts.test.ts :: cash account API > loads Holdings without calling Plaid when the automatic guard skips refresh"
+      ],
+      "assertions": "Desktop owns failed cash review, preserving selections, successful accept/reload, identity conflicts and selection. Server guard and accepted account state retain API coverage. Narrow arrangements of these cards and the future-date cooldown copy retire."
+    },
+    {
+      "id": "browser-value-plan-actual-monitoring",
+      "retiredBrowserCases": [
+        "e2e/plan-actual-monitoring.visual.spec.ts :: chromium :: keeps material plan drift actionable without changing the plan"
+      ],
+      "browserCases": [
+        "e2e/plan-actual-monitoring.visual.spec.ts :: mobile-chromium :: keeps material plan drift actionable without changing the plan"
+      ],
+      "unitCases": [
+        "packages/domain/src/plan-actual-monitoring.test.ts :: plan-versus-actual monitoring policy > returns a clear no-action state below every deterministic threshold",
+        "apps/api/src/app-plan-actual-monitoring.test.ts :: plan-versus-actual monitoring API > records only a validated exact-source seven-day reminder",
+        "packages/database/src/plan-actual-monitoring.test.ts :: plan-versus-actual monitoring persistence > returns an explicit limited no-action state when actual sources are not enabled"
+      ],
+      "assertions": "Mobile owns opening drift, deferred-return focus, unchanged accepted plan and limited state. The healthy monitoring summary geometry and the wide action panels lose their image checks; policy owns clear/limited, source-specific reasons and thresholds."
+    },
+    {
+      "id": "browser-value-plan-inputs",
+      "retiredBrowserCases": [
+        "e2e/plan-inputs.visual.spec.ts :: chromium :: keeps current and draft runway plan inputs clear",
+        "e2e/plan-inputs.visual.spec.ts :: mobile-chromium :: keeps current and draft runway plan inputs clear"
+      ],
+      "browserCases": [
+        "e2e/private-alpha.spec.ts :: chromium :: loads the database-backed dashboard and primary views",
+        "e2e/observed-cash-flow.visual.spec.ts :: mobile-chromium :: reviews observed burn and prepares the existing runway plan"
+      ],
+      "unitCases": [
+        "packages/domain/src/index.test.ts :: deterministic financial calculations > previews runway plan inputs with integer-only money arithmetic",
+        "packages/database/src/plan-inputs.test.ts :: plan input persistence > loads the accepted FI plan and appends a matching forecast version",
+        "packages/database/src/plan-inputs.test.ts :: plan input persistence > rejects stale and no-op saves without creating redundant versions"
+      ],
+      "assertions": "The database-backed primary-views journey loads the current plan, edits and reads back the accepted save. Mobile observed cash flow prepares burn changes, edits the protected floor, and checks the integer runway preview before save. Exact isolated scenario summary and current/draft editor pixels on both widths retire."
+    },
+    {
+      "id": "browser-value-observed-cash-flow",
+      "retiredBrowserCases": [
+        "e2e/observed-cash-flow.visual.spec.ts :: chromium :: reviews observed burn and prepares the existing runway plan"
+      ],
+      "browserCases": [
+        "e2e/observed-cash-flow.visual.spec.ts :: mobile-chromium :: reviews observed burn and prepares the existing runway plan"
+      ],
+      "unitCases": [
+        "packages/database/src/cash-flow.test.ts :: reviewed observed cash flow > requires cost confirmation, aggregates three complete months, and reuses plan save",
+        "packages/domain/src/index.test.ts :: deterministic financial calculations > proposes observed burn with debt already in the plan preserved"
+      ],
+      "assertions": "Mobile retains category treatment, proposed burn, an unsaved draft, edited cash floor and the disconnect disclosure. The wide cash review and prepared draft pixels retire."
+    },
+    {
+      "id": "editor-value-import-responsive",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: connects Robinhood through Investments and isolates exceptions",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: keeps unverified sign-ins and page-reading failures separate",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: shows only unresolved private positions and safely retries their decisions",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: orders sources by liquidity and groups private investment setup",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: shows automatic Robinhood checks with exception-only review"
+      ],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: connects Robinhood through Investments and isolates exceptions",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: shows only unresolved private positions and safely retries their decisions",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: orders sources by liquidity and groups private investment setup",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review"
+      ],
+      "unitCases": [
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > applies clear rows while keeping only duplicate rows for review, and retries exception decisions safely",
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > opens reconnect for one retained connection without replacing its credential"
+      ],
+      "assertions": "Connecting an institution, safely deciding exceptions, private setup and automatic checks each run in one browser viewport. Each loses its second layout comparison. The provider CSV path still runs on both widths."
+    },
+    {
+      "id": "editor-value-import-secondary-state",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: keeps invalid AngelList agent responses out of user-facing copy",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: shows clear health and repair actions for portfolio agents",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: tokenfolio disables reconnect while a page-failure retry is being queued",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: automatically processes an older pending import without opening its review",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: shows clear health and repair actions for portfolio agents",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: shows one Robinhood exception entry point",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: sydecar disables reconnect while a page-failure retry is being queued"
+      ],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: shows automatic Robinhood checks with exception-only review",
+        "e2e/holdings-import.visual.spec.ts :: chromium :: imports provider templates without asking to approve clear positions",
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: requests an AngelList update from the phone-safe Holdings flow"
+      ],
+      "unitCases": [
+        "packages/database/src/holding-imports.test.ts :: exception-based source updates > automatically accepts a clear private import and converges on repeated and concurrent deliveries",
+        "packages/database/src/provider-portfolio-agent.test.ts :: Sydecar session renewal admission > gives already queued captures and reconnects priority over maintenance",
+        "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > auto-applies clear Robinhood rows and quarantines only ambiguous changes"
+      ],
+      "assertions": "The ordinary provider status, reconnect handoff, upload and automatic Robinhood paths retain mounted coverage. Persistence checks import replay, isolation and lease admission. Exact invalid-payload display, old pending auto-submit on opening, compact exception count, health-card arrangement and disabled reconnect during an in-flight retry lose dedicated browser coverage."
+    },
+    {
+      "id": "editor-value-holdings-responsive",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: groups reviewed public stock with separate SPVs and keeps their value bases",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: searches holdings by SPV and hidden cash while preserving totals and return navigation",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: shows compact empty exposure and account states"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: groups reviewed public stock with separate SPVs and keeps their value bases",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: searches holdings by SPV and hidden cash while preserving totals and return navigation",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: shows compact empty exposure and account states"
+      ],
+      "unitCases": [
+        "packages/database/src/exposures.test.ts :: canonical exposure resolution and aggregation > groups reviewed SPVs and leaves unknown fund allocations on the position"
+      ],
+      "assertions": "Mobile owns grouped public/private value, desktop owns hidden-cash search/return and empty account/exposure panels. Both viewport widths retain normal overview and bounded thousand-position searches. The secondary states lose checks at their other widths."
+    },
+    {
+      "id": "editor-value-holdings-pagination",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps the exposure summary below the heading with compact sorting",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: progressively renders long exposure lists",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: progressively renders long exposure lists"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: searches all 1000 holdings before pagination with zero additional projection reads",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
+      ],
+      "unitCases": [],
+      "assertions": "Ordinary sorting retains its accessible control and ordered results. Larger browser journeys cover bounded pagination and search (one thousand holdings on both viewports). The separate 25-exposure replay and dedicated 1053px sort geometry and pixels are retired."
+    },
+    {
+      "id": "editor-value-brokerage-recovery",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps a same-label disconnected Item when it has a reviewed account",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: lets a failed brokerage check be retried",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: automatically retries an old interrupted brokerage check once",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: opens a new Item flow for a disconnected brokerage"
+      ],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: runs one due brokerage check after Holdings renders",
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: explains connection recovery for Holdings and recovers on reload",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: operates multiple institutions from one exposure-first holdings view"
+      ],
+      "unitCases": [
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > checks ready and retryable failed connections admitted by the automatic cooldown",
+        "apps/api/src/plaid-investments-sync.test.ts :: Plaid Investments sync > opens reconnect for one retained connection without replacing its credential",
+        "packages/database/src/exposures.test.ts :: canonical exposure resolution and aggregation > keeps reconnect history append-only while projecting only the unique current position",
+        "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment"
+      ],
+      "assertions": "Sources retains one due automatic sync and recovery on reload; ordinary real mounted portfolio navigation remains. API and database tests own cooldown, credential identity and historical projection. Exact interrupted-autoretry and failed-then-manual retry controls, same-label account card, new Item click and the fourteen-position history-only layout lose their browser fixtures."
+    },
+    {
+      "id": "editor-value-manual-money-widths",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.spec.ts :: chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: shows contributed cash beside an estimate without inventing fees, capital or return, and preserves a later purchase date"
+      ],
+      "browserCases": [
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
+        "e2e/manual-holdings.spec.ts :: chromium :: shows contributed cash beside an estimate without inventing fees, capital or return, and preserves a later purchase date"
+      ],
+      "unitCases": [
+        "packages/database/src/manual-holdings.test.ts :: does not turn known cash into a current valuation and retains an explicit zero",
+        "packages/database/src/manual-holdings.test.ts :: keeps cash paid, valuation and unknown net capital/distributions distinct"
+      ],
+      "assertions": "One real D1 transaction each checks zero cash versus an estimate on mobile and paid cash versus capital, return and dates on desktop. Unassigned Direct still creates and reopens on both. Secondary financial write/readback flows lose a duplicate width."
+    },
+    {
+      "id": "editor-value-manual-editor-widths",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: checks an uncertain save and retries the same submission only after a reliable no-match",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: searches more than 120 long owner and company labels with a bounded option list",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: retains a rejected identity draft and requires reopening a stale revision",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: uses the shared calendars with bounds, keyboard focus and field errors"
+      ],
+      "browserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: checks an uncertain save and retries the same submission only after a reliable no-match",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: searches more than 120 long owner and company labels with a bounded option list",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: retains a rejected identity draft and requires reopening a stale revision",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: uses the shared calendars with bounds, keyboard focus and field errors"
+      ],
+      "unitCases": [
+        "apps/api/src/app-manual-holdings.test.ts :: manual holdings API > reports known conflicts distinctly from an uncertain server result",
+        "apps/api/src/app-manual-holdings.test.ts :: manual holdings API > requires explicit identity and mapping revisions for later edits"
+      ],
+      "assertions": "The shared calendar keyboard, bound, submission and field-error path runs on desktop. The real mobile D1 flow still picks a date. Mobile owns the large select and cancel-focus; desktop owns stale identity; mobile owns explicit retry after no match. Both widths still check stationary type selection and ordinary validation. Individual secondary checks lose their opposite-width replay."
+    },
+    {
+      "id": "editor-value-manual-identity-variants",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps a Fund company grouping distinct from unknown allocation",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps company mappings unchanged when a mapped Direct holding is changed to Fund",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: preserves multiple current company groupings when only the legal name changes",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: preserves a current single-company Fund grouping when only the name changes",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: shows manual creation and only actual identity corrections in normal History"
+      ],
+      "browserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: retains a rejected identity draft and requires reopening a stale revision",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel"
+      ],
+      "unitCases": [
+        "packages/database/src/manual-holdings.test.ts :: keeps a fund's selected underlying company allocation unknown",
+        "packages/database/src/manual-holdings.test.ts :: preserves two reviewed company mappings through an unrelated identity edit",
+        "packages/database/src/manual-holdings.test.ts :: preserves a reviewed partial fund_interest allocation through a name-only correction",
+        "packages/database/src/manual-holdings.test.ts :: versions the same-company mapping when correcting Direct to Fund",
+        "packages/database/src/manual-holdings.test.ts :: records actual prior and new company groupings in chronological identity history"
+      ],
+      "assertions": "D1 owns preserved mappings, versions, funding allocation and chronological corrections. The live stale-edit control, saved identity and ordinary Fund row remain. Exact unchanged multi- or single-company editor payloads, Direct-to-Fund UI correction, Fund company selection and reordered-company timeline row lose independent browser fixtures."
+    },
+    {
+      "id": "editor-value-purchase-widths",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: cross-class proxies disclose estimated shares, retain failed drafts and persist the selected method",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: valuation choices compare both amounts and preserve investment shares after save"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: cross-class proxies disclose estimated shares, retain failed drafts and persist the selected method",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: valuation choices compare both amounts and preserve investment shares after save"
+      ],
+      "unitCases": [
+        "packages/domain/src/position-purchases.test.ts :: purchase economics > requires matching class and current reviewed source revision for every lot",
+        "apps/web/src/holding-history-summary.test.ts :: shows only changed fields and preserves cleared values"
+      ],
+      "assertions": "One viewport owns each mounted cross-class proxy, stale/rejected timeline decision and normal valuation choice. The main holding summary stays on both widths. Duplicating each editor transaction and intermediate image at the other width is retired."
+    },
+    {
+      "id": "editor-value-purchase-optional-edits",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: after carry totals remain selectable and known unpaid costs remain visible",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: new acquisitions can be removed without discarding other investment edits",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: after carry totals remain selectable and known unpaid costs remain visible",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: editing an existing partial investment preserves its recorded scope",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: returns use complete fee estimates without treating unknown fees as zero"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: holding summary pairs value and return and keeps fees in Investment",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: investment fee percentages preserve unknown refund dates and failed drafts",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: cross-class proxies disclose estimated shares, retain failed drafts and persist the selected method"
+      ],
+      "unitCases": [
+        "packages/database/src/position-purchases.test.ts :: binds carry classification to the current reported mark while preserving unknown dates and annual fees",
+        "packages/database/src/position-purchases.test.ts :: persists allocation refunds and rate estimates without converting them into accepted net capital",
+        "packages/domain/src/position-purchases.test.ts :: purchase economics > saves partial optional data but does not invent fees or share exposure",
+        "apps/web/src/InvestmentHoldings.test.tsx :: withholds returns from holding and exposure summaries when refund inclusion is unknown"
+      ],
+      "assertions": "The ordinary summary still renders on both widths and the mounted investment fee form exercises errors. Domain/persistence and real component tests own partials, fee uncertainty and supported returns. The add/remove-lot focus, partial-edit scope, carry-only selection, unpaid-costs view and exact percentage-to-unknown-fee browser transitions are surrendered."
+    },
+    {
+      "id": "editor-value-purchase-history-sources",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: local history in America/Los_Angeles > converts saved instants while preserving source calendar dates",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: saved history distinguishes same-day changes and avoids a duplicate current valuation",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: sources restore GP facts and estimates without duplicate forms or acknowledgments",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: missing price dates name the source problem without blaming saved shares"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: source conflicts recover with current prices while preserving user input",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: cross-class proxies disclose estimated shares, retain failed drafts and persist the selected method"
+      ],
+      "unitCases": [
+        "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'America/Los_Angeles'",
+        "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'Asia/Singapore'",
+        "apps/web/src/holding-history-summary.test.ts :: identifies the changed amount rather than repeating the saved day",
+        "packages/domain/src/position-purchases.test.ts :: records an explicit proxy without inventing class or mark date",
+        "packages/domain/src/position-value.test.ts :: position value evidence > accepts a sourced GP mark without manufacturing a link"
+      ],
+      "assertions": "Real Intl owns local/fixed dates; the timeline retains unlink and stale decision display. Valuation retains conflict recovery and rejected proxy/accepted method. Exact Pacific browser time/datetime attributes, same-day receipt order, complete GP-to-estimate round-trip and missing-price-date error copy lose standalone fixtures."
+    },
+    {
+      "id": "user-value-automatic-investment-review-preserves-investment-deep",
+      "retiredBrowserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: preserves investment deep links by opening the existing Holdings position"
+      ],
+      "unitCases": [
+        "apps/web/src/legal-entity-navigation.test.ts :: entity review navigation > round-trips an investment and each tab without interpreting a provider label as an ID"
+      ],
+      "browserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task"
+      ],
+      "assertions": "The 120-record journey follows a generated position link. The route round-trip checks investment and tab parameters. Retired the legacy redirect URL and browser Back-stack replacement."
+    },
+    {
+      "id": "user-value-automatic-investment-review-keeps-the-inventory-accessible",
+      "retiredBrowserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: mobile-chromium :: keeps the inventory accessible after a failed automatic review without background retries"
+      ],
+      "unitCases": [
+        "scripts/automatic-investment-review-d1-cost.test.ts :: bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1"
+      ],
+      "browserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task"
+      ],
+      "assertions": "D1 integration exercises unavailable backend and bounded retries. The real normal resolver remains. Mobile recovery controls, focus and feedback on this rare failure lose direct browser coverage."
+    },
+    {
+      "id": "user-value-company-names-reviews-generic-duplicate",
+      "retiredBrowserCases": [
+        "e2e/company-names.visual.spec.ts :: chromium :: reviews generic duplicate names, preserves a rejected draft and finds saved aliases after reload"
+      ],
+      "unitCases": [
+        "packages/database/src/company-identity.test.ts :: groups companies only after review, reuses arbitrary aliases and flattens later regrouping"
+      ],
+      "browserCases": [
+        "e2e/company-names.visual.spec.ts :: mobile-chromium :: reviews generic duplicate names, preserves a rejected draft and finds saved aliases after reload"
+      ],
+      "assertions": "Mobile still reviews, rejects, saves, reloads and finds aliases. Retired the independent wide layout and mouse journey."
+    },
+    {
+      "id": "user-value-company-names-reviews-an-issuer-link",
+      "retiredBrowserCases": [
+        "e2e/company-names.visual.spec.ts :: mobile-chromium :: reviews an issuer link before grouping a public holding"
+      ],
+      "unitCases": [
+        "apps/api/src/app-public-company-match.test.ts :: authenticates issuer recommendations and approval and rejects stale or invalid decisions"
+      ],
+      "browserCases": [
+        "e2e/company-names.visual.spec.ts :: chromium :: reviews an issuer link before grouping a public holding"
+      ],
+      "assertions": "Desktop retains stale recommendations, explicit approval and reloaded grouping. Retired the narrow recommended-issuer rendering."
+    },
+    {
+      "id": "user-value-company-names-shows-an-unresolved-issuer",
+      "retiredBrowserCases": [
+        "e2e/company-names.visual.spec.ts :: mobile-chromium :: shows an unresolved issuer match without presenting a second grouping form"
+      ],
+      "unitCases": [
+        "packages/domain/src/public-company-links.test.ts :: keeps conflicting issuer identities unresolved and supports bounded company catalogs",
+        "apps/api/src/app-public-company-match.test.ts :: authenticates issuer recommendations and approval and rejects stale or invalid decisions"
+      ],
+      "browserCases": [
+        "e2e/company-names.visual.spec.ts :: chromium :: reviews an issuer link before grouping a public holding"
+      ],
+      "assertions": "Domain keeps ambiguous evidence unresolved, desktop retains explicit issuer approval. Retired the separate ambiguous mobile picker layout and absence of a second form."
+    },
+    {
+      "id": "user-value-investment-review-distinguishes-an-earlier-company",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: distinguishes an earlier company mapping from agreement evidence and never preselects a saved entity"
+      ],
+      "unitCases": [
+        "apps/web/src/investment-review-progress.test.ts :: review progress and source-only suggestions > reopens company review when agreement evidence contradicts a saved mapping",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > rejects an unrelated saved entity for a found name and guards a rename during linking"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
+      ],
+      "assertions": "Mobile verifies an explicit corrected company from conflicting agreement evidence. The pre-existing-company selector starting blank and filtering unrelated entities in the same scenario lose direct coverage."
+    },
+    {
+      "id": "user-value-investment-review-keeps-first-company-assignment",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: keeps first-company assignment in Holdings instead of offering a second legal form"
+      ],
+      "unitCases": [
+        "apps/web/src/investment-review-progress.test.ts :: review progress and source-only suggestions > requires a reviewed company mapping, not a company label"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
+      ],
+      "assertions": "Review progress demands a recorded mapping. Retired first assignment opening a holding and distinguishing its missing-company form from the Fund form."
+    },
+    {
+      "id": "user-value-investment-review-opens-the-supported-entity",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: opens the supported entity name after moving a different investment's agreement"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: reads back successive document assignments without dropping the first decision"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection"
+      ],
+      "assertions": "The real document-assignment form retains saved destinations and rejected drafts. Retired cross-section navigation after moving an agreement with a simultaneous unsaved ownership draft."
+    },
+    {
+      "id": "user-value-investment-review-records-a-continuing-spv",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: records a continuing SPV conversion, retains rejected evidence and amends conditional rights"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: records a continuing SPV conversion atomically without changing contributions cash or valuation"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: records a continuing SPV conversion, retains rejected evidence and amends conditional rights"
+      ],
+      "assertions": "Mobile retains rejected, accepted, reloaded and amended event terms. Retired the second wide presentation of the conversion review."
+    },
+    {
+      "id": "user-value-investment-review-reviews-company-evidence",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: reviews company evidence and keeps ownership drafts across independent saves",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: reviews company evidence and keeps ownership drafts across independent saves"
+      ],
+      "unitCases": [
+        "apps/web/src/OwnershipReview.test.tsx :: renders a dated ownership observation with its exact document and one percentage",
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > rejects ambiguous or out-of-range ownership text"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
+      ],
+      "assertions": "Real conflict correction, saved ownership form and parser coverage survive separately. Retired simultaneous unsaved ownership and company drafts across independent section saves and matching pixels."
+    },
+    {
+      "id": "user-value-investment-review-shows-reviewed-facts",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: shows reviewed facts before editing and keeps optional ownership out of completion",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows reviewed facts before editing and keeps optional ownership out of completion"
+      ],
+      "unitCases": [
+        "apps/web/src/investment-review-progress.test.ts :: review progress and source-only suggestions > marks reviewed status complete without an ownership percentage or invented financial terms",
+        "packages/domain/src/investment-review.test.ts :: connected investment review > can confirm participation while ownership remains unreported"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: uses responsive section navigation, keeps focus rings visible, and leaves unsourced terms blank"
+      ],
+      "assertions": "Review progress retains explicit completed state without invented financial data. Retired the read-only reviewed-facts gallery and prompts for entering edit on both viewports."
+    },
+    {
+      "id": "user-value-investment-review-shows-saved-document",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: reads back successive document assignments without dropping the first decision"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection"
+      ],
+      "assertions": "Mobile retains exact destination, prior assignments after reload and rejected selection. Retired the wide rendering and interaction duplicate."
+    },
+    {
+      "id": "user-value-investment-review-uses-responsive-section",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: uses responsive section navigation, keeps focus rings visible, and leaves unsourced terms blank"
+      ],
+      "unitCases": [
+        "apps/web/src/investment-review-progress.test.ts :: review progress and source-only suggestions > does not turn source defaults or tab visits into completed reviews"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: uses responsive section navigation, keeps focus rings visible, and leaves unsourced terms blank"
+      ],
+      "assertions": "Mobile exercises natural navigation, visible focus and blank unsourced terms. Retired the wide version of these section tabs and focus pixels."
+    },
+    {
+      "id": "user-value-investment-review-corrects-investment-amounts",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: corrects investment amounts with review, reload, second save, rejection and source reset"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: records successive amount corrections, survives source updates, and resets without changing evidence"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: corrects investment amounts with review, reload, second save, rejection and source reset"
+      ],
+      "assertions": "Desktop retains review, rejection, reload, successive correction and source reset. Retired mobile rendering of the review and first-stage fields."
+    },
+    {
+      "id": "user-value-investment-review-creates-a-separate-cancelled",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: creates a separate cancelled investment with selected agreements, not copied amounts"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: connected investment review > splits a cancelled agreement into a separate investment without copying money or dissolving the entity",
+        "packages/database/src/investment-review.test.ts :: exports a separate cancelled investment and its company proof without inventing money"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection"
+      ],
+      "assertions": "Repository creates the separate child with null money and isolated agreement ownership. Retired the cancelled-child mobile creation dialog and success navigation."
+    },
+    {
+      "id": "user-value-investment-review-keeps-k-1",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: connected investment review > preserves K-1 profit, loss and capital shares and amendments without filling missing shares"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: keeps K-1 shares optional, validates them separately, and retains a rejected draft"
+      ],
+      "assertions": "Desktop retains separate optional tax-year shares, failed draft and saved agreement-backed ownership. Retired the mobile replication of this flow."
+    },
+    {
+      "id": "user-value-investment-review-navigates-after-a-saved",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates after a saved review leaves the queue and hides arrows for its only remaining item"
+      ],
+      "unitCases": [
+        "apps/web/src/legal-entity-navigation.test.ts :: entity review navigation > returns malformed and missing targets to the list and defaults unknown tabs"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history"
+      ],
+      "assertions": "Browser queue still wraps, reloads and navigates real history. Retired singleton/empty arrows and direct saved-item navigation after changing the queue."
+    },
+    {
+      "id": "user-value-investment-review-saves-historical-closure",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: saves historical closure details, keeps failed drafts, and moves only ended participation into history"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: reads historical closure back, excludes its value once, and preserves documents, distributions, snapshots and its replacement"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: saves historical closure details, keeps failed drafts, and moves only ended participation into history"
+      ],
+      "assertions": "Desktop retains closure failure/retry, Current pending guard, successful save and history. Retired small-screen closure rendering."
+    },
+    {
+      "id": "user-value-legal-entities-creates-a-google-sheet",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: creates a Google Sheet from selected records and columns and prevents unchanged resubmission"
+      ],
+      "unitCases": [
+        "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > sends a complete 120-row sheet in one request with literal strings and no sharing change"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: creates a Google Sheet from selected records and columns and prevents unchanged resubmission"
+      ],
+      "assertions": "Mobile creates the sheet from selected records and guards duplicate submission. Retired wide provider-success rendering."
+    },
+    {
+      "id": "user-value-legal-entities-owner-only-source-groupings",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: owner-only source groupings do not become legal identity tasks"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > keeps company-only holdings out of legal triage without hiding evidence or exceptions"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage"
+      ],
+      "assertions": "Domain classifies sources, and surviving legal triage and historical trust render alternate evidence. Retired the owner-only saved-owner/trust combination."
+    },
+    {
+      "id": "user-value-legal-entities-preserves-export-choices",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: preserves export choices when Google authorization returns popup_closed",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: preserves export choices when Google authorization returns denied"
+      ],
+      "unitCases": [
+        "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK denied result with least privilege and no export request",
+        "apps/web/src/google-sheets-export.test.ts :: Google Sheets export > handles the Google SDK popup_closed result with least privilege and no export request"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: creates a Google Sheet from selected records and columns and prevents unchanged resubmission"
+      ],
+      "assertions": "The Google adapter checks the exact callback and forbids an export. Mobile retains one provider handoff. Retired UI choice persistence and visible CSV fallback through each denial/closed-popup callback."
+    },
+    {
+      "id": "user-value-legal-entities-retains-a-new-legal-entity",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: retains a new legal entity draft when the save loses its connection",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: retains a new legal entity draft when the save loses its connection"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > appends reviewed profile versions and rejects stale edits"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reads the complete saved entity profile and refreshes it after edits"
+      ],
+      "assertions": "The existing-profile save and reload remains. Retired uncertain network failure on a new-entity create and the exact preserved draft/copy."
+    },
+    {
+      "id": "user-value-legal-entities-starts-with-compact",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: starts with compact triage and a visible entity inventory"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > prioritizes actionable document review, conflicts, found names, then waiting sources"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: starts with compact triage and a visible entity inventory"
+      ],
+      "assertions": "Mobile retains compact triage, inventory and narrow batch details. Retired wide initial compact layout."
+    },
+    {
+      "id": "user-value-legal-entities-keeps-company-only-holding",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > keeps company-only holdings out of legal triage without hiding evidence or exceptions"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage"
+      ],
+      "assertions": "Desktop retains the two actionable tasks, read-only direct company-only source and absence of financial writes. Retired mobile triage images for that fixture."
+    },
+    {
+      "id": "user-value-legal-entities-keeps-export-above",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps export above 140 entities and preserves choices through collapse and failures"
+      ],
+      "unitCases": [
+        "apps/api/src/app-legal-entities.test.ts :: legal entity API > exports every selected row from the authenticated projection as a table"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: keeps export above 140 entities and preserves choices through collapse and failures"
+      ],
+      "assertions": "Desktop keeps export above a 140-item list, selection persistence and failures. Retired the narrow positioning/failure permutation; mobile retains provider success and automatic observation."
+    },
+    {
+      "id": "user-value-legal-entities-reads-the-complete-saved",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reads the complete saved entity profile and refreshes it after edits"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > appends reviewed profile versions and rejects stale edits"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reads the complete saved entity profile and refreshes it after edits"
+      ],
+      "assertions": "Desktop retains all saved profile fields and reloaded edits. Historical long-owner mobile and absent-field component proof remain. Retired mobile full-profile image/editor walk."
+    },
+    {
+      "id": "user-value-legal-entities-reviews-legal-entities-and-exports",
+      "retiredBrowserCases": [
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: reviews legal entities and exports selected counsel fields"
+      ],
+      "unitCases": [
+        "apps/api/src/app-legal-entities.test.ts :: legal entity API > records exact source decisions and returns a non-retained CSV"
+      ],
+      "browserCases": [
+        "e2e/legal-entities.visual.spec.ts :: chromium :: reviews legal entities and exports selected counsel fields"
+      ],
+      "assertions": "Desktop retains selected counsel export, document secured/404 display and editor save. Mobile retains independent provider export and search. Retired narrow counsel/CSV/error rendering."
+    },
+    {
+      "id": "user-value-legal-name-resolution-links-a-reviewed-structure",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: links a reviewed structure to an exact existing non-Other entity"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > fences a structure target reclassified from llc between review validation and commit",
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > links a resolved name only to the exact household entity and protects its current name"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: keeps a stale resolution unsaved, reloads evidence, then links the exact existing entity"
+      ],
+      "assertions": "Mobile stale link and live source-party structure review remain; D1 fences current type/identity. Retired desktop linking an existing non-Other structure on the exact structure entry screen."
+    },
+    {
+      "id": "user-value-legal-name-resolution-reviews-source-parties",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: reviews source parties on the dedicated page without offering the representative as the invested name"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > resolves other_structure from a clean agreement while rejecting unscanned documents and representative choices"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: reviews source parties on the dedicated page without offering the representative as the invested name"
+      ],
+      "assertions": "Mobile keeps representative/party selection and explicitly reviewed entity type. Retired wide structure-review images."
+    },
+    {
+      "id": "user-value-legal-name-resolution-compares-exact-alternatives",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: compares exact alternatives without preselecting and saves a reviewed entity"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > saves a name choice with original evidence, survives later observations, and rejects duplicate review"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: compares exact alternatives without preselecting and saves a reviewed entity"
+      ],
+      "assertions": "Desktop retains no preselection, exact source alternatives, explicit choice and save. Retired the narrow exact-alternatives rendering."
+    },
+    {
+      "id": "user-value-legal-name-resolution-gates-manual-creation",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: gates manual creation and editing on all profile fields without browser validation pop-ups"
+      ],
+      "unitCases": [
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > rejects ambiguous or out-of-range ownership text"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
+      ],
+      "assertions": "Domain rejects invalid ownership; the desktop missing-name form validates source input and the profile editor still gates EIN. Retired simultaneous manual create/edit invalid-field matrix including native tooltip suppression and Enter."
+    },
+    {
+      "id": "user-value-legal-name-resolution-supports-a-document-backed",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: supports a document-backed correction for a legacy conflict with no saved choices"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > records an explicitly document-backed correction when legacy extraction has no choices",
+        "packages/domain/src/legal-entities.test.ts :: legal entity contracts > requires a correction reason and validates an optional exact-name excerpt"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: compares exact alternatives without preselecting and saves a reviewed entity"
+      ],
+      "assertions": "The repository records an evidenced correction when legacy extraction lacks choices. Retired the legacy correction reason/excerpt flow in a browser."
+    },
+    {
+      "id": "user-value-legal-name-resolution-validates-manual-other-structure",
+      "retiredBrowserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: validates manual other_structure entry without requiring an excerpt or reason"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > resolves other_structure from a clean agreement while rejecting unscanned documents and representative choices"
+      ],
+      "browserCases": [
+        "e2e/legal-name-resolution.visual.spec.ts :: chromium :: validates manual name_not_found entry without requiring an excerpt or reason"
+      ],
+      "assertions": "The missing-name manual entry still binds the exact document/page and source parties retain a rendered structure review. Retired the parallel manual structure-name create sequence and qualification pixels."
+    },
+    {
+      "id": "user-value-position-links-review-duplicate-sources",
+      "retiredBrowserCases": [
+        "e2e/position-links.visual.spec.ts :: chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
+      ],
+      "unitCases": [
+        "packages/database/src/position-links.test.ts :: counts each investment once, retains distinct same-company SPVs, follows syncs and reverses without deleting history"
+      ],
+      "browserCases": [
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
+      ],
+      "assertions": "Mobile retains duplicate/replacement selection, explicit confirmation, failed draft, readback and reversal. Retired desktop hover affordances and wide popup pixels."
+    },
+    {
+      "id": "user-value-position-links-reviews-historical-company-rename",
+      "retiredBrowserCases": [
+        "e2e/position-links.visual.spec.ts :: chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing",
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: reviews historical company rename from a pending card, keeps the existing identity and reverses without typing"
+      ],
+      "unitCases": [
+        "packages/database/src/position-links.test.ts :: counts each investment once, retains distinct same-company SPVs, follows syncs and reverses without deleting history",
+        "scripts/position-link-suggestion.test.ts :: retained history suggests the current account without inventing missing identity"
+      ],
+      "browserCases": [
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
+      ],
+      "assertions": "D1 retains identity, reversible history and single-counting. Mobile still reviews a replacement and unlink. Retired historical rename card, suggestion-to-approval and alias history on both screens."
+    },
+    {
+      "id": "user-value-position-links-suggests-a-unique-retained",
+      "retiredBrowserCases": [
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: suggests a unique retained historical source without accepting missing account or company identity"
+      ],
+      "unitCases": [
+        "scripts/position-link-suggestion.test.ts :: retained history suggests the current account without inventing missing identity",
+        "scripts/position-link-suggestion.test.ts :: suggestion rejects missing account among 120 unrelated positions",
+        "scripts/position-link-suggestion.test.ts :: only a unique pair is suggested, without mutating records or accepting a link"
+      ],
+      "browserCases": [
+        "e2e/position-links.visual.spec.ts :: mobile-chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention"
+      ],
+      "assertions": "Candidate selection and missing identity are tested below the browser. Retired the retained historical-source suggestion card, disabled Apply/warning and narrow rendering."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

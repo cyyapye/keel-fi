@@ -1096,3 +1096,41 @@ the Vitest worker. The elapsed deadline also bounds waiting and stalled work.
 The test requires exactly 2,880 reads, 2,880 writes, the expected charges, 45
 retained entries and a ledger within the byte limit. The exclusive preflight and
 complete native gate retain their 120- and 900-second limits.
+
+### Browser cases retained for user workflows
+
+The
+[297-case control](https://github.com/cyyapye/keel-fi/actions/runs/42046476487)
+passed on the original Linux runner in 850.017 seconds. Its browser phase took
+518.309 seconds. This review retires 144 executions and seven previously
+excluded project registrations. The new inventory has 153 required browser
+executions, 15 explicit browser exclusions and 169 Linux reference images.
+Retired executions accounted for 760.276 summed worker-seconds in the control.
+Wall time must be measured again because the workers overlap.
+
+- Holdings retains both ordinary layouts, real financial writes and reloads,
+  unknown amounts versus zero, the shared date picker, stationary investment
+  type controls and 1,000-holding limits. Duplicate fee and valuation
+  renderings, uncommon import recovery combinations and secondary history tours
+  are retired.
+- Investment and legal review retain source identity, accepted changes, conflict
+  recovery, keyboard navigation and export. Historical rename-card permutations,
+  independent draft interactions and separate cancellation screens lose their
+  dedicated browser checks.
+- Planning retains the real plan save and reset, baseline confirmation, version
+  checks, keyboard drilldowns and bounded layouts at 120 companies or sources.
+  The standalone illustrated plan editor and empty Obligations view are retired.
+- Provider tests retain both original PDF capture flows, untrusted URL
+  rejection, source matching, session restart, renewal and the authenticated
+  viewer. Legacy page restoration, a specific abandoned-tab and popup collision,
+  and duplicate sign-in placeholders lose their individual checks.
+- Navigation and recovery keep keyboard access, real reload and narrow screen
+  handling. Required catalogue checks exercise selection, validation, collection
+  loading and chart navigation. Decorative galleries, exact wide warning pixels
+  and the combined missing-scripts-and-styles startup fixture are retired.
+
+The layering manifest records each retirement and the remaining executable
+owners. Three stateful shards still use independent seeded profiles. A fourth
+worker runs the two mocked batches consecutively, freeing the second batch from
+waiting for all three databases. All five reports count toward browser wall
+time.

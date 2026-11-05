@@ -8,7 +8,6 @@ import {
   emptyInvestmentHoldingsView,
   investmentHoldingsViewFor,
   multiInstitutionInvestmentHoldingsView,
-  reconciledReviewedHistoryInvestmentHoldingsView,
 } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
@@ -36,14 +35,14 @@ async function openHoldingSources(page: Page) {
 
 const holdingsView = multiInstitutionInvestmentHoldingsView();
 
-const paginatedHoldings: Holding[] = Array.from({ length: 25 }, (_, index) => ({
-  id: `position_paginated_${String(index + 1).padStart(2, "0")}`,
+const searchHolding: Holding = {
+  id: "position_paginated_01",
   companyId: null,
-  positionName: `Demo Security ${String(index + 1).padStart(2, "0")}`,
-  exposureName: `Demo Exposure ${String(index + 1).padStart(2, "0")}`,
+  positionName: "Demo Security 01",
+  exposureName: "Demo Exposure 01",
   ownerLabel: "Demo Brokerage",
   positionKind: "direct",
-  administratorNavMinor: (index + 1) * 10_000,
+  administratorNavMinor: 10_000,
   administratorNavState: "reported",
   externalMarkMinor: null,
   underwritingValueMinor: null,
@@ -54,12 +53,10 @@ const paginatedHoldings: Holding[] = Array.from({ length: 25 }, (_, index) => ({
   effectiveDate: "2026-08-16",
   retrievedAt: "2026-08-16T12:00:00.000Z",
   confidencePpm: null,
-  ticker: `DMO${index + 1}`,
+  ticker: "DMO1",
   quantityMicros: 1_000_000,
   costBasisMinor: null,
-}));
-
-const paginatedHoldingsView = investmentHoldingsViewFor(paginatedHoldings);
+};
 
 const alphaFixture = {
   dashboard: {
@@ -437,143 +434,148 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("groups reviewed public stock with separate SPVs and keeps their value bases", async ({
-  page,
-  isMobile,
-}) => {
-  const syntheticHolding = (
-    id: string,
-    name: string,
-    valueMinor: number | null,
-    ticker: string | null,
-  ): Holding => ({
-    id,
-    companyId: ticker === null ? "company_northstar" : null,
-    positionName: name,
-    exposureName: "Northstar Robotics",
-    ownerLabel: ticker === null ? "Synthetic SPV" : "Demo Brokerage",
-    positionKind: ticker === null ? "spv_interest" : "direct",
-    administratorNavMinor: valueMinor,
-    administratorNavState: valueMinor === null ? "not_set" : "reported",
-    externalMarkMinor: null,
-    underwritingValueMinor: null,
-    scenarioValueMinor: null,
-    usableLiquidityMinor: null,
-    sourceStatus: "verified",
-    sourceLabel: ticker === null ? "Synthetic manager" : "Plaid Investments",
-    effectiveDate: "2026-08-15",
-    retrievedAt: "2026-08-15T12:00:00.000Z",
-    confidencePpm: null,
-    ticker,
-    quantityMicros: ticker === null ? null : 100_000_000,
-    investedMinor: ticker === null ? 2_000_000 : 1_500_000,
-    committedMinor: ticker === null ? 2_000_000 : 1_500_000,
-    costBasisMinor: ticker === null ? null : 1_500_000,
-  });
-  const holdings = [
-    syntheticHolding(
-      "position_nstr_public",
-      "Northstar Class A",
-      1_600_000,
-      "NSTR",
-    ),
-    syntheticHolding("position_nstr_spv_a", "Northstar SPV A", 2_000_000, null),
-    syntheticHolding("position_nstr_spv_b", "Northstar SPV B", null, null),
-  ];
-  const view = investmentHoldingsViewFor(holdings);
-  const publicId = view.exposureView.exposures.find(
-    (group) => group.exposure.exposureKind === "public_instrument",
-  )!.exposure.id;
-  const companyId = view.exposureView.exposures.find(
-    (group) => group.exposure.exposureKind === "private_company",
-  )!.exposure.id;
-  const linkedView: InvestmentHoldingsView = {
-    ...view,
-    exposureView: {
-      ...view.exposureView,
-      publicCompanyLinks: [
-        { publicExposureId: publicId, companyExposureId: companyId },
-      ],
-    },
-  };
-  await routeHoldingsPage(page, {
-    householdName: "Demo Household",
-    holdings,
-    investmentHoldings: linkedView,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.goto("/holdings");
-  await expect(page.locator(".exposure-group")).toHaveCount(1);
-  const group = page.locator(".exposure-group");
-  await expect(group).toContainText("Northstar Robotics");
-  await expect(group).toContainText("3 positions");
-  await group.locator('[data-slot="collapsible-trigger"]').click();
-  await expect(group).toContainText("NSTR");
-  await expect(group).toContainText("Northstar SPV A");
-  await expect(group).toContainText("Northstar SPV B");
-  await expect(group).toContainText("1 estimate");
-  await expect(group).toContainText("$56k");
-  await expect(
-    group.getByRole("link", {
-      name: /Group with company|Review company link/u,
-    }),
-  ).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await captureDesignReview(page, "review-mixed-company.png");
-  await expect(group).toHaveScreenshot("public-private-company-group.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  if (!isMobile) return;
-  const incompleteHoldings = holdings.map((holding) =>
-    holding.id === "position_nstr_spv_b"
-      ? { ...holding, administratorNavState: "locked" as const }
-      : holding,
-  );
-  const incompleteView = investmentHoldingsViewFor(incompleteHoldings);
-  await routeHoldingsPage(page, {
-    householdName: "Demo Household",
-    holdings: incompleteHoldings,
-    investmentHoldings: {
-      ...incompleteView,
+test(
+  "groups reviewed public stock with separate SPVs and keeps their value bases",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const syntheticHolding = (
+      id: string,
+      name: string,
+      valueMinor: number | null,
+      ticker: string | null,
+    ): Holding => ({
+      id,
+      companyId: ticker === null ? "company_northstar" : null,
+      positionName: name,
+      exposureName: "Northstar Robotics",
+      ownerLabel: ticker === null ? "Synthetic SPV" : "Demo Brokerage",
+      positionKind: ticker === null ? "spv_interest" : "direct",
+      administratorNavMinor: valueMinor,
+      administratorNavState: valueMinor === null ? "not_set" : "reported",
+      externalMarkMinor: null,
+      underwritingValueMinor: null,
+      scenarioValueMinor: null,
+      usableLiquidityMinor: null,
+      sourceStatus: "verified",
+      sourceLabel: ticker === null ? "Synthetic manager" : "Plaid Investments",
+      effectiveDate: "2026-08-15",
+      retrievedAt: "2026-08-15T12:00:00.000Z",
+      confidencePpm: null,
+      ticker,
+      quantityMicros: ticker === null ? null : 100_000_000,
+      investedMinor: ticker === null ? 2_000_000 : 1_500_000,
+      committedMinor: ticker === null ? 2_000_000 : 1_500_000,
+      costBasisMinor: ticker === null ? null : 1_500_000,
+    });
+    const holdings = [
+      syntheticHolding(
+        "position_nstr_public",
+        "Northstar Class A",
+        1_600_000,
+        "NSTR",
+      ),
+      syntheticHolding(
+        "position_nstr_spv_a",
+        "Northstar SPV A",
+        2_000_000,
+        null,
+      ),
+      syntheticHolding("position_nstr_spv_b", "Northstar SPV B", null, null),
+    ];
+    const view = investmentHoldingsViewFor(holdings);
+    const publicId = view.exposureView.exposures.find(
+      (group) => group.exposure.exposureKind === "public_instrument",
+    )!.exposure.id;
+    const companyId = view.exposureView.exposures.find(
+      (group) => group.exposure.exposureKind === "private_company",
+    )!.exposure.id;
+    const linkedView: InvestmentHoldingsView = {
+      ...view,
       exposureView: {
-        ...incompleteView.exposureView,
-        publicCompanyLinks: linkedView.exposureView.publicCompanyLinks,
+        ...view.exposureView,
+        publicCompanyLinks: [
+          { publicExposureId: publicId, companyExposureId: companyId },
+        ],
       },
-    },
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.reload();
-  await expect(group.locator(".exposure-group__value")).toHaveText(
-    "Known value$36k1 value unavailable",
-  );
-  await group.locator('[data-slot="collapsible-trigger"]').click();
-  await expect(group.getByText("Locked", { exact: true })).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await expect(group).toHaveScreenshot("public-private-known-subtotal.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  await group
-    .getByRole("button", { name: "View NSTR holding details" })
-    .click();
-  const linkedGrouping = page.getByRole("group", {
-    name: "Company grouping",
-    exact: true,
-  });
-  await expect(linkedGrouping).toContainText("Applies to this security.");
-  await expect(
-    linkedGrouping.getByRole("link", {
-      name: "Review company link",
+    };
+    await routeHoldingsPage(page, {
+      householdName: "Demo Household",
+      holdings,
+      investmentHoldings: linkedView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    });
+    await page.goto("/holdings");
+    await expect(page.locator(".exposure-group")).toHaveCount(1);
+    const group = page.locator(".exposure-group");
+    await expect(group).toContainText("Northstar Robotics");
+    await expect(group).toContainText("3 positions");
+    await group.locator('[data-slot="collapsible-trigger"]').click();
+    await expect(group).toContainText("NSTR");
+    await expect(group).toContainText("Northstar SPV A");
+    await expect(group).toContainText("Northstar SPV B");
+    await expect(group).toContainText("1 estimate");
+    await expect(group).toContainText("$56k");
+    await expect(
+      group.getByRole("link", {
+        name: /Group with company|Review company link/u,
+      }),
+    ).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await captureDesignReview(page, "review-mixed-company.png");
+    await expect(group).toHaveScreenshot("public-private-company-group.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+    const incompleteHoldings = holdings.map((holding) =>
+      holding.id === "position_nstr_spv_b"
+        ? { ...holding, administratorNavState: "locked" as const }
+        : holding,
+    );
+    const incompleteView = investmentHoldingsViewFor(incompleteHoldings);
+    await routeHoldingsPage(page, {
+      householdName: "Demo Household",
+      holdings: incompleteHoldings,
+      investmentHoldings: {
+        ...incompleteView,
+        exposureView: {
+          ...incompleteView.exposureView,
+          publicCompanyLinks: linkedView.exposureView.publicCompanyLinks,
+        },
+      },
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    });
+    await page.reload();
+    await expect(group.locator(".exposure-group__value")).toHaveText(
+      "Known value$36k1 value unavailable",
+    );
+    await group.locator('[data-slot="collapsible-trigger"]').click();
+    await expect(group.getByText("Locked", { exact: true })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expect(group).toHaveScreenshot("public-private-known-subtotal.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+    await group
+      .getByRole("button", { name: "View NSTR holding details" })
+      .click();
+    const linkedGrouping = page.getByRole("group", {
+      name: "Company grouping",
       exact: true,
-    }),
-  ).toHaveAttribute(
-    "href",
-    `/holdings/entities?companies=1&public=${encodeURIComponent(publicId)}&returnPosition=position_nstr_public`,
-  );
-});
+    });
+    await expect(linkedGrouping).toContainText("Applies to this security.");
+    await expect(
+      linkedGrouping.getByRole("link", {
+        name: "Review company link",
+        exact: true,
+      }),
+    ).toHaveAttribute(
+      "href",
+      `/holdings/entities?companies=1&public=${encodeURIComponent(publicId)}&returnPosition=position_nstr_public`,
+    );
+  },
+);
 
 test(
   "shows the Holdings shell while one read-only projection loads",
@@ -651,114 +653,121 @@ test(
   },
 );
 
-test("shows compact empty exposure and account states", async ({ page }) => {
-  const emptyAlphaFixture = { ...alphaFixture, holdings: [] };
-  const emptyConnectionStatus = {
-    ...statuses[0]!,
-    connectionId: "77777777-7777-4777-8777-777777777777",
-    institutionKey: "ins_demo_empty",
-    institutionLabel: "Demo Empty Brokerage",
-    lastSyncedAt: null,
-    latestAdjudication: null,
-  };
-  const emptyConnectionState = {
-    version: 1 as const,
-    configured: true,
-    connections: [emptyConnectionStatus],
-    errorCode: null,
-  };
+test(
+  "shows compact empty exposure and account states",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const emptyAlphaFixture = { ...alphaFixture, holdings: [] };
+    const emptyConnectionStatus = {
+      ...statuses[0]!,
+      connectionId: "77777777-7777-4777-8777-777777777777",
+      institutionKey: "ins_demo_empty",
+      institutionLabel: "Demo Empty Brokerage",
+      lastSyncedAt: null,
+      latestAdjudication: null,
+    };
+    const emptyConnectionState = {
+      version: 1 as const,
+      configured: true,
+      connections: [emptyConnectionStatus],
+      errorCode: null,
+    };
 
-  await page.unroute("**/api/alpha");
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: emptyAlphaFixture });
-  });
-  await page.unroute("**/api/holdings-page");
-  await routeHoldingsPage(page, {
-    householdName: emptyAlphaFixture.dashboard.householdName,
-    holdings: [],
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.unroute("**/api/investment-holdings");
-  await page.route("**/api/investment-holdings", async (route) => {
-    await route.fulfill({ json: emptyInvestmentHoldingsView });
-  });
-  await page.unroute("**/api/investment-connections");
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({ json: emptyConnectionState });
-  });
-  await page.unroute("**/api/investment-connections/auto-sync");
-  await page.route("**/api/investment-connections/auto-sync", async (route) => {
-    expect(route.request().method()).toBe("POST");
-    await route.fulfill({ json: emptyConnectionState });
-  });
-  await page.unroute("**/api/cash-accounts");
-  await page.route("**/api/cash-accounts", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "disconnected",
-        connections: [],
-        acceptedAccounts: [],
-        pendingProposals: [],
-        errorCode: null,
-      },
+    await page.unroute("**/api/alpha");
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: emptyAlphaFixture });
     });
-  });
+    await page.unroute("**/api/holdings-page");
+    await routeHoldingsPage(page, {
+      householdName: emptyAlphaFixture.dashboard.householdName,
+      holdings: [],
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    });
+    await page.unroute("**/api/investment-holdings");
+    await page.route("**/api/investment-holdings", async (route) => {
+      await route.fulfill({ json: emptyInvestmentHoldingsView });
+    });
+    await page.unroute("**/api/investment-connections");
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({ json: emptyConnectionState });
+    });
+    await page.unroute("**/api/investment-connections/auto-sync");
+    await page.route(
+      "**/api/investment-connections/auto-sync",
+      async (route) => {
+        expect(route.request().method()).toBe("POST");
+        await route.fulfill({ json: emptyConnectionState });
+      },
+    );
+    await page.unroute("**/api/cash-accounts");
+    await page.route("**/api/cash-accounts", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          status: "disconnected",
+          connections: [],
+          acceptedAccounts: [],
+          pendingProposals: [],
+          errorCode: null,
+        },
+      });
+    });
 
-  await page.goto("/holdings");
-  const exposureView = page.locator(".investment-views");
-  await expect(
-    exposureView.getByRole("heading", {
-      level: 3,
-      name: "Your holdings, in one place",
-    }),
-  ).toBeVisible();
-  await expect(
-    exposureView.locator('[data-slot="empty-state"] > span'),
-  ).toHaveCount(0);
-  await expect(
-    exposureView.getByRole("link", { name: "Manage sources" }),
-  ).toHaveAttribute("href", "/holdings/sources");
-  await expectNoHorizontalOverflow(page);
-  await captureDesignReview(page, "review-empty-holdings.png");
-  await expect(exposureView).toHaveScreenshot(
-    "investment-holdings-empty-exposures.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+    await page.goto("/holdings");
+    const exposureView = page.locator(".investment-views");
+    await expect(
+      exposureView.getByRole("heading", {
+        level: 3,
+        name: "Your holdings, in one place",
+      }),
+    ).toBeVisible();
+    await expect(
+      exposureView.locator('[data-slot="empty-state"] > span'),
+    ).toHaveCount(0);
+    await expect(
+      exposureView.getByRole("link", { name: "Manage sources" }),
+    ).toHaveAttribute("href", "/holdings/sources");
+    await expectNoHorizontalOverflow(page);
+    await captureDesignReview(page, "review-empty-holdings.png");
+    await expect(exposureView).toHaveScreenshot(
+      "investment-holdings-empty-exposures.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
 
-  await openHoldingSources(page);
-  const emptyInstitution = page
-    .locator(".investment-institution")
-    .filter({ hasText: "Demo Empty Brokerage" });
-  await emptyInstitution.locator(".investment-institution__trigger").click();
-  await expect(
-    emptyInstitution.getByRole("heading", {
-      level: 4,
-      name: "No reviewed accounts yet.",
-    }),
-  ).toBeVisible();
-  await expect(
-    emptyInstitution.locator('[data-slot="empty-state"] > span'),
-  ).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await expect(emptyInstitution).toHaveScreenshot(
-    "investment-holdings-empty-accounts.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-});
+    await openHoldingSources(page);
+    const emptyInstitution = page
+      .locator(".investment-institution")
+      .filter({ hasText: "Demo Empty Brokerage" });
+    await emptyInstitution.locator(".investment-institution__trigger").click();
+    await expect(
+      emptyInstitution.getByRole("heading", {
+        level: 4,
+        name: "No reviewed accounts yet.",
+      }),
+    ).toBeVisible();
+    await expect(
+      emptyInstitution.locator('[data-slot="empty-state"] > span'),
+    ).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await expect(emptyInstitution).toHaveScreenshot(
+      "investment-holdings-empty-accounts.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
+  },
+);
 
 test("operates multiple institutions from one exposure-first holdings view", async ({
   page,
@@ -1627,320 +1636,6 @@ test(
 );
 
 test(
-  "lets a failed brokerage check be retried",
-  { tag: "@desktop-only" },
-  async ({ page }) => {
-    const robinhood = statuses[0]!;
-    const interrupted = {
-      ...robinhood,
-      status: "needs_attention" as const,
-      lastSyncedAt: new Date().toISOString(),
-      latestRunStatus: "failed" as const,
-      errorCode: "unexpected_failure" as const,
-    };
-    await page.unroute("**/api/investment-connections");
-    await page.route("**/api/investment-connections", async (route) => {
-      await route.fulfill({
-        json: {
-          version: 1,
-          configured: true,
-          connections: [interrupted],
-          errorCode: null,
-        },
-      });
-    });
-    let manualSyncs = 0;
-    await page.route(
-      `**/api/investment-connections/${robinhood.connectionId}/sync`,
-      async (route) => {
-        expect(route.request().method()).toBe("POST");
-        manualSyncs += 1;
-        await route.fulfill({ json: robinhood });
-      },
-    );
-
-    await page.goto("/holdings/sources");
-    const robinhoodCard = page
-      .locator(".investment-institution")
-      .filter({ hasText: "Robinhood" });
-    const failedStatus = robinhoodCard.getByText("Check failed", {
-      exact: true,
-    });
-    await expect(failedStatus).toBeVisible();
-    await expect(failedStatus).toHaveCSS("text-decoration-line", "none");
-    await expect(
-      robinhoodCard.getByText("We’ll try again later.", { exact: true }),
-    ).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    const retry = robinhoodCard.getByRole("button", { name: "Try now" });
-    await expect(retry).toBeEnabled();
-    await retry.click();
-    await expect(
-      robinhoodCard.getByText("Up to date", { exact: true }),
-    ).toBeVisible();
-    expect(manualSyncs).toBe(1);
-  },
-);
-
-test(
-  "automatically retries an old interrupted brokerage check once",
-  { tag: "@mobile-only" },
-  async ({ page }, testInfo) => {
-    const robinhood = statuses[0]!;
-    const failed = {
-      ...robinhood,
-      status: "needs_attention" as const,
-      lastSyncedAt: null,
-      latestRunStatus: "failed" as const,
-      errorCode: "unexpected_failure" as const,
-    };
-    let automaticRequestCount = 0;
-    await page.unroute("**/api/investment-connections");
-    await page.route("**/api/investment-connections", async (route) => {
-      await route.fulfill({
-        json: {
-          version: 1,
-          configured: true,
-          connections: [failed],
-          errorCode: null,
-        },
-      });
-    });
-    await page.unroute("**/api/investment-connections/auto-sync");
-    await page.route(
-      "**/api/investment-connections/auto-sync",
-      async (route) => {
-        automaticRequestCount += 1;
-        await route.fulfill({
-          json: {
-            version: 1,
-            configured: true,
-            connections: [robinhood],
-            errorCode: null,
-          },
-        });
-      },
-    );
-
-    await page.goto("/");
-    const mobile = testInfo.project.name === "mobile-chromium";
-    await navigateToScreen(page, mobile, /Holdings/);
-    await openHoldingSources(page);
-    const robinhoodCard = page
-      .locator(".investment-institution")
-      .filter({ hasText: "Robinhood" });
-    await expect(
-      robinhoodCard.getByText("Up to date", { exact: true }),
-    ).toBeVisible();
-    await expect.poll(() => automaticRequestCount).toBe(1);
-  },
-);
-
-test(
-  "opens a new Item flow for a disconnected brokerage",
-  { tag: "@mobile-only" },
-  async ({ page }, testInfo) => {
-    let linkTokenRequests = 0;
-    await page.addInitScript(() => {
-      Object.assign(window, {
-        Plaid: {
-          create: ({ onExit }: { onExit: () => void }) => ({
-            destroy: () => undefined,
-            open: () => window.setTimeout(onExit, 0),
-          }),
-        },
-      });
-    });
-    await page.route(
-      "**/api/investment-connections/link-token",
-      async (route) => {
-        linkTokenRequests += 1;
-        await route.fulfill({
-          json: {
-            linkToken: "link-synthetic-disconnected",
-            expiration: "2026-08-18T12:30:00.000Z",
-          },
-        });
-      },
-    );
-
-    await page.goto("/");
-    const mobile = testInfo.project.name === "mobile-chromium";
-    await navigateToScreen(page, mobile, /Holdings/);
-    await openHoldingSources(page);
-    const disconnectedCard = page.locator(".investment-institution").filter({
-      hasText: "Synthetic Former Brokerage",
-    });
-    const connectAgain = disconnectedCard.getByRole("button", {
-      name: "Connect again",
-    });
-
-    await connectAgain.click();
-
-    await expect.poll(() => linkTokenRequests).toBe(1);
-    await expect(connectAgain).toBeEnabled();
-  },
-);
-
-test(
-  "keeps a same-label disconnected Item when it has a reviewed account",
-  { tag: "@desktop-only" },
-  async ({ page }, testInfo) => {
-    await page.unroute("**/api/investment-connections");
-    await page.route("**/api/investment-connections", async (route) => {
-      await route.fulfill({
-        json: {
-          version: 1,
-          configured: true,
-          connections: statuses.map((status) =>
-            status.connectionId === "33333333-3333-4333-8333-333333333333"
-              ? {
-                  ...status,
-                  institutionKey: "ins_fidelity_legacy",
-                  status: "disconnected" as const,
-                }
-              : status,
-          ),
-          errorCode: null,
-        },
-      });
-    });
-
-    await page.goto("/");
-    const mobile = testInfo.project.name === "mobile-chromium";
-    await navigateToScreen(page, mobile, /Holdings/);
-    await openHoldingSources(page);
-
-    const fidelityCards = page
-      .locator(".investment-institution")
-      .filter({ hasText: "Fidelity" });
-    await expect(fidelityCards).toHaveCount(2);
-    const disconnectedFidelity = fidelityCards.filter({
-      hasText: "Disconnected",
-    });
-    await expect(disconnectedFidelity).toContainText("1 reviewed account");
-    await expect(
-      disconnectedFidelity.getByRole("button", { name: "Connect again" }),
-    ).toBeVisible();
-  },
-);
-
-test(
-  "keeps reviewed history in exposures without showing fake brokerage accounts",
-  { tag: "@mobile-only" },
-  async ({ page }) => {
-    const reviewedHistoryView =
-      reconciledReviewedHistoryInvestmentHoldingsView();
-    const reviewedAlphaHoldings = alphaHoldingsFrom(reviewedHistoryView);
-    const retainedPredecessor = {
-      ...reviewedAlphaHoldings[0]!,
-      id: "position_reviewed_history_retained_predecessor",
-      positionName: "Demo Pharmacy retired predecessor",
-      administratorNavMinor: 123_456,
-    };
-    await page.unroute("**/api/alpha");
-    await page.route("**/api/alpha", async (route) => {
-      await route.fulfill({
-        json: {
-          ...alphaFixture,
-          holdings: [...reviewedAlphaHoldings, retainedPredecessor],
-        },
-      });
-    });
-    await page.unroute("**/api/investment-connections");
-    await page.route("**/api/investment-connections", async (route) => {
-      await route.fulfill({
-        json: {
-          version: 1,
-          configured: true,
-          connections: [],
-          errorCode: null,
-        },
-      });
-    });
-    await page.unroute("**/api/investment-holdings");
-    await page.route("**/api/investment-holdings", async (route) => {
-      await route.fulfill({ json: reviewedHistoryView });
-    });
-    await routeHoldingsPage(page, {
-      householdName: alphaFixture.dashboard.householdName,
-      holdings: reviewedAlphaHoldings,
-      investmentHoldings: reviewedHistoryView,
-      acceptedCashAccounts,
-      pendingImports: [],
-    });
-
-    const [connectionResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          new URL(response.url()).pathname === "/api/investment-connections" &&
-          response.ok(),
-      ),
-      page.goto("/holdings"),
-    ]);
-    expect(await connectionResponse.finished()).toBeNull();
-    await openHoldingSources(page);
-
-    const accounts = page.locator(".investment-institutions");
-    await expect(accounts).toBeVisible();
-    await expect(
-      accounts.getByText("Checking investment institutions…"),
-    ).toBeHidden();
-    await expect(accounts.locator(".investment-institution")).toHaveCount(0);
-    await expect(accounts).not.toContainText("AngelList reviewed history");
-    await expect(accounts).not.toContainText("Original account details");
-    await expectNoHorizontalOverflow(page);
-    await page
-      .getByRole("navigation", { name: "Holdings sections" })
-      .getByRole("link", { name: "Holdings", exact: true })
-      .click();
-
-    const exposureView = page.locator(".investment-views");
-    await expect(exposureView.getByRole("tab")).toHaveCount(0);
-    await expect(
-      exposureView.locator(".investment-views__total"),
-    ).toContainText("1 exposure");
-    await expect(
-      exposureView.locator(".investment-views__total"),
-    ).toContainText("14 legal positions");
-    const exposure = page.locator(".exposure-group").filter({
-      has: page.getByText("Demo Pharmacy", { exact: true }),
-    });
-    await expect(page.locator(".exposure-group")).toHaveCount(1);
-    await expect(exposure).toContainText("14 positions");
-    await exposure.locator(".exposure-group__summary").click();
-    await expect(
-      exposure.locator(".exposure-group__positions article"),
-    ).toHaveCount(14);
-    await expect(exposure).toContainText("Demo Pharmacy SPV 01");
-    await expect(exposure).toContainText("Demo Pharmacy SPV 14");
-    await expect(exposureView).not.toContainText(
-      "Demo Pharmacy retired predecessor",
-    );
-    await expect(exposure).not.toContainText("Demo Family holding");
-    await expect(exposure).not.toContainText("AngelList reviewed history");
-    const positionActions = exposure.getByRole("button", {
-      name: /View Demo Pharmacy SPV \d+ holding details/,
-    });
-    await expect(positionActions).toHaveCount(14);
-    await expectNoHorizontalOverflow(page);
-
-    const firstPositionAction = positionActions.first();
-    await firstPositionAction.click();
-    await expect(
-      page.getByRole("heading", {
-        level: 2,
-        name: "Demo Pharmacy",
-        exact: true,
-      }),
-    ).toBeFocused();
-    await expect(page.getByText(/Demo Pharmacy SPV 01 ·/)).toBeVisible();
-    await page.getByRole("button", { name: "Back to holdings" }).click();
-    await expect(firstPositionAction).toBeFocused();
-  },
-);
-
-test(
   "keeps failed canonical holdings out of view and retries",
   { tag: captureDesignVariants ? [] : "@desktop-only" },
   async ({ page, isMobile }) => {
@@ -2010,188 +1705,125 @@ test(
   },
 );
 
-test("progressively renders long exposure lists", async ({ page }) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "IntersectionObserver", {
-      configurable: true,
-      value: undefined,
-    });
-  });
-  await page.unroute("**/api/alpha");
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        holdings: paginatedHoldings,
-      },
-    });
-  });
-  await page.unroute("**/api/investment-holdings");
-  await page.route("**/api/investment-holdings", async (route) => {
-    await route.fulfill({ json: paginatedHoldingsView });
-  });
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: paginatedHoldings,
-    investmentHoldings: paginatedHoldingsView,
-    acceptedCashAccounts,
-    pendingImports: [],
-  });
-
-  await page.goto("/holdings");
-
-  const exposureView = page.locator(".investment-views");
-  await expect(exposureView.locator(".exposure-group")).toHaveCount(12);
-  await expect(exposureView.locator(".exposure-pagination")).toContainText(
-    "Showing 12 of 25 exposures",
-  );
-  const lowestExposureName = exposureView
-    .locator(".exposure-group__summary")
-    .getByText("DMO1", { exact: true });
-  await expect(lowestExposureName).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  const captureStyle = await page.addStyleTag({
-    content: ".topbar, .mobile-nav { display: none !important; }",
-  });
-  await expect(exposureView).toHaveScreenshot(
-    "investment-holdings-paginated-exposures.png",
-    {
+test(
+  "searches holdings by SPV and hidden cash while preserving totals and return navigation",
+  { tag: "@desktop-only" },
+  async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const reviewsLoaded = page.waitForResponse(
+      "**/api/private-exposure-reviews",
+    );
+    await page.goto("/holdings");
+    await reviewsLoaded;
+    const search = page.getByRole("searchbox", { name: "Search holdings" });
+    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    const total = (await page
+      .locator(".investment-views__total")
+      .textContent())!;
+    const cashTotal = (await page
+      .locator(".cash-holdings__total")
+      .textContent())!;
+    await captureDesignReview(page, "review-overview.png");
+    const requests: string[] = [];
+    const recordRequest = (request: Request) => {
+      if (new URL(request.url()).pathname.startsWith("/api/"))
+        requests.push(request.url());
+    };
+    page.on("request", recordRequest);
+    await search.fill("  BEACON, spv ");
+    const group = page.locator(".exposure-group");
+    await expect(group).toHaveCount(1);
+    await expect(group).toContainText("Beacon Robotics");
+    await expect(group).toContainText("1 matching position · 2 total");
+    await expect(
+      group.locator(".exposure-group__positions article"),
+    ).toHaveCount(1);
+    await expect(group.locator(".exposure-group__value")).toHaveText("$120k");
+    await expect(page.locator(".investment-views__total")).toHaveText(total);
+    await expect(group.locator("mark").first()).toHaveText("Beacon");
+    expect(requests).toEqual([]);
+    page.off("request", recordRequest);
+    await expectNoHorizontalOverflow(page);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await captureDesignReview(page, "review-search-match.png");
+    await expect(page).toHaveScreenshot("investment-holdings-search-spv.png", {
       animations: "disabled",
       caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await captureStyle.evaluate((style) => {
-    style.parentNode?.removeChild(style);
-  });
-  await exposureView
-    .getByRole("button", { name: "Load more exposures" })
-    .click();
-  await expect(exposureView.locator(".exposure-group")).toHaveCount(24);
-  await expect(exposureView.locator(".exposure-pagination")).toContainText(
-    "Showing 24 of 25 exposures",
-  );
-  await exposureView
-    .getByRole("button", { name: "Load more exposures" })
-    .click();
-  await expect(exposureView.locator(".exposure-group")).toHaveCount(25);
-  await expect(lowestExposureName).toBeVisible();
-  await expect(exposureView.locator(".exposure-pagination")).toHaveCount(0);
-});
-
-test("searches holdings by SPV and hidden cash while preserving totals and return navigation", async ({
-  page,
-}, testInfo) => {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  const reviewsLoaded = page.waitForResponse("**/api/private-exposure-reviews");
-  await page.goto("/holdings");
-  await reviewsLoaded;
-  const search = page.getByRole("searchbox", { name: "Search holdings" });
-  await expect(page.locator(".exposure-group")).toHaveCount(5);
-  const total = (await page.locator(".investment-views__total").textContent())!;
-  const cashTotal = (await page
-    .locator(".cash-holdings__total")
-    .textContent())!;
-  await captureDesignReview(page, "review-overview.png");
-  const requests: string[] = [];
-  const recordRequest = (request: Request) => {
-    if (new URL(request.url()).pathname.startsWith("/api/"))
-      requests.push(request.url());
-  };
-  page.on("request", recordRequest);
-  await search.fill("  BEACON, spv ");
-  const group = page.locator(".exposure-group");
-  await expect(group).toHaveCount(1);
-  await expect(group).toContainText("Beacon Robotics");
-  await expect(group).toContainText("1 matching position · 2 total");
-  await expect(group.locator(".exposure-group__positions article")).toHaveCount(
-    1,
-  );
-  await expect(group.locator(".exposure-group__value")).toHaveText("$120k");
-  await expect(page.locator(".investment-views__total")).toHaveText(total);
-  await expect(group.locator("mark").first()).toHaveText("Beacon");
-  expect(requests).toEqual([]);
-  page.off("request", recordRequest);
-  await expectNoHorizontalOverflow(page);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await captureDesignReview(page, "review-search-match.png");
-  await expect(page).toHaveScreenshot("investment-holdings-search-spv.png", {
-    animations: "disabled",
-    caret: "hide",
-    fullPage: true,
-  });
-  await group
-    .getByRole("button", { name: "View Synthetic Beacon SPV holding details" })
-    .click();
-  await page
-    .getByRole("button", { name: "Back to holdings", exact: true })
-    .click();
-  await expect(search).toHaveValue("  BEACON, spv ");
-  await expect(
-    group.getByRole("button", {
-      name: "View Synthetic Beacon SPV holding details",
-    }),
-  ).toBeFocused();
-  await search.fill("nvidia");
-  await expect(page.locator(".exposure-group")).toHaveCount(1);
-  await expect(page.locator(".exposure-group")).toContainText("NVDA");
-  await expect(page.locator(".exposure-group")).toContainText(
-    "NVIDIA common stock",
-  );
-  await search.fill("Travel cash");
-  await expect(
-    page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
-  ).toBeVisible();
-  await expect(page.locator(".cash-holdings__total")).toHaveText(cashTotal);
-  await search.fill("no-such-synthetic-holding");
-  await expect(
-    page.getByRole("heading", { name: "No matching holdings" }),
-  ).toBeVisible();
-  await expect(page.locator(".holdings-search [role=status]")).toHaveText(
-    "0 results",
-  );
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await captureDesignReview(page, "review-search-empty.png");
-  // The previous full-page SPV comparison owns the desktop navigation. Compare
-  // the empty result and page header without rechecking the sticky sidebar.
-  if (testInfo.project.name === "chromium") {
-    const main = page.getByRole("main");
-    expect(await main.boundingBox()).toEqual({
-      x: 224,
-      y: 0,
-      width: 1056,
-      height: 720,
+      fullPage: true,
     });
-    await expect(main).toHaveScreenshot(
-      "investment-holdings-search-empty.png",
-      {
-        animations: "disabled",
-        caret: "hide",
-      },
+    await group
+      .getByRole("button", {
+        name: "View Synthetic Beacon SPV holding details",
+      })
+      .click();
+    await page
+      .getByRole("button", { name: "Back to holdings", exact: true })
+      .click();
+    await expect(search).toHaveValue("  BEACON, spv ");
+    await expect(
+      group.getByRole("button", {
+        name: "View Synthetic Beacon SPV holding details",
+      }),
+    ).toBeFocused();
+    await search.fill("nvidia");
+    await expect(page.locator(".exposure-group")).toHaveCount(1);
+    await expect(page.locator(".exposure-group")).toContainText("NVDA");
+    await expect(page.locator(".exposure-group")).toContainText(
+      "NVIDIA common stock",
     );
-  } else {
-    await expect(page).toHaveScreenshot(
-      "investment-holdings-search-empty.png",
-      {
-        animations: "disabled",
-        caret: "hide",
-        fullPage: true,
-      },
+    await search.fill("Travel cash");
+    await expect(
+      page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator(".cash-holdings__total")).toHaveText(cashTotal);
+    await search.fill("no-such-synthetic-holding");
+    await expect(
+      page.getByRole("heading", { name: "No matching holdings" }),
+    ).toBeVisible();
+    await expect(page.locator(".holdings-search [role=status]")).toHaveText(
+      "0 results",
     );
-  }
-  await search.press("Escape");
-  await expect(search).toHaveValue("");
-  await expect(search).toBeFocused();
-  await expect(page.locator(".exposure-group")).toHaveCount(5);
-  await expect(page.locator(".investment-views__total")).toHaveText(total);
-  await expect(
-    page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
-  ).toHaveCount(0);
-  expect(errors).toEqual([]);
-});
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await captureDesignReview(page, "review-search-empty.png");
+    // The previous full-page SPV comparison owns the desktop navigation. Compare
+    // the empty result and page header without rechecking the sticky sidebar.
+    if (testInfo.project.name === "chromium") {
+      const main = page.getByRole("main");
+      expect(await main.boundingBox()).toEqual({
+        x: 224,
+        y: 0,
+        width: 1056,
+        height: 720,
+      });
+      await expect(main).toHaveScreenshot(
+        "investment-holdings-search-empty.png",
+        {
+          animations: "disabled",
+          caret: "hide",
+        },
+      );
+    } else {
+      await expect(page).toHaveScreenshot(
+        "investment-holdings-search-empty.png",
+        {
+          animations: "disabled",
+          caret: "hide",
+          fullPage: true,
+        },
+      );
+    }
+    await search.press("Escape");
+    await expect(search).toHaveValue("");
+    await expect(search).toBeFocused();
+    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await expect(page.locator(".investment-views__total")).toHaveText(total);
+    await expect(
+      page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
+    ).toHaveCount(0);
+    expect(errors).toEqual([]);
+  },
+);
 
 // The 120/1,000 search matrix runs in collection-search.test.ts. Keep the
 // larger browser case for DOM bounds, projection reads, highlights and p95.
@@ -2206,7 +1838,7 @@ for (const size of [1_000]) {
       }),
     );
     const scaleHoldings = Array.from({ length: size }, (_, index) => ({
-      ...paginatedHoldings[0]!,
+      ...searchHolding,
       id: `position_search_${index}`,
       positionName:
         index === 0 ? "Café Nebula Series A" : `Demo Security ${index}`,
@@ -2314,7 +1946,7 @@ test(
       }),
     );
     const positions = Array.from({ length: 120 }, (_, index) => ({
-      ...paginatedHoldings[0]!,
+      ...searchHolding,
       id: `position_search_group_${index}`,
       companyId: "company_search_nebula",
       positionName: `Demo Nebula SPV ${String(index).padStart(3, "0")}`,
@@ -2354,30 +1986,6 @@ test(
       page.locator(".exposure-group__positions article"),
     ).toHaveCount(50);
     await expect(target).toBeFocused();
-  },
-);
-
-test(
-  "keeps the exposure summary below the heading with compact sorting",
-  { tag: "@desktop-only" },
-  async ({ page }) => {
-    await page.setViewportSize({ width: 1053, height: 954 });
-    await page.goto("/holdings");
-    const summary = page.locator(".investment-views__total");
-    await expect(summary).toContainText("5 exposures");
-    await expectExposureSummaryLayout(page);
-    await expect(
-      page.getByRole("button", {
-        name: /^Sort exposures and positions by value/u,
-      }),
-    ).toHaveAccessibleName(
-      "Sort exposures and positions by value, highest first. Switch to lowest first.",
-    );
-    await expectNoHorizontalOverflow(page);
-    await expect(page.locator(".investment-views__controls")).toHaveScreenshot(
-      "holdings-compact-summary.png",
-      { animations: "disabled", caret: "hide" },
-    );
   },
 );
 

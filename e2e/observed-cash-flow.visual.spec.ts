@@ -116,68 +116,32 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("reviews observed burn and prepares the existing runway plan", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
-  let reviewed = false;
+test(
+  "reviews observed burn and prepares the existing runway plan",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = await alphaResponse.json();
+    let reviewed = false;
 
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/plan-inputs", async (route) => {
-    await route.fulfill({ json: planState });
-  });
-  await page.route("**/api/cash-flow", async (route) => {
-    const reviewedProposal = {
-      ...baseProposal,
-      status: "ready_for_plan" as const,
-      categories: categories.map((category) => ({
-        ...category,
-        reviewedTreatment:
-          category.category === "GENERAL_SERVICES"
-            ? ("business" as const)
-            : category.defaultTreatment,
-      })),
-      comparison: {
-        observedHouseholdMonthlyMinor: 3_000_000,
-        observedBusinessMonthlyMinor: 1_500_000,
-        proposedHouseholdBurnMonthlyMinor: 3_200_000,
-        proposedBusinessBurnMonthlyMinor: 1_500_000,
-        householdChangeMinor: 350_000,
-        businessChangeMinor: 250_000,
-        totalChangeMinor: 600_000,
-        currentRunwayMonths: 42,
-        proposedRunwayMonths: 36,
-        material: true,
-      },
-      planSuggestion: {
-        proposalId: "cash_flow_proposal_demo",
-        householdBurnMonthlyMinor: 3_200_000,
-        businessBurnMonthlyMinor: 1_500_000,
-        changeNote: "Observed cash flow review: Reviewed demo categories.",
-      },
-    };
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "review_required",
-        latestOutcome: "proposal_ready",
-        connections: [connection],
-        pendingProposals: [reviewed ? reviewedProposal : baseProposal],
-        errorCode: null,
-      },
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
     });
-  });
-  await page.route("**/api/cash-flow-proposals/*/review", async (route) => {
-    reviewed = true;
-    await route.fulfill({
-      status: 201,
-      json: {
-        proposalId: "cash_flow_proposal_demo",
+    await page.route("**/api/plan-inputs", async (route) => {
+      await route.fulfill({ json: planState });
+    });
+    await page.route("**/api/cash-flow", async (route) => {
+      const reviewedProposal = {
+        ...baseProposal,
+        status: "ready_for_plan" as const,
+        categories: categories.map((category) => ({
+          ...category,
+          reviewedTreatment:
+            category.category === "GENERAL_SERVICES"
+              ? ("business" as const)
+              : category.defaultTreatment,
+        })),
         comparison: {
           observedHouseholdMonthlyMinor: 3_000_000,
           observedBusinessMonthlyMinor: 1_500_000,
@@ -196,50 +160,95 @@ test("reviews observed burn and prepares the existing runway plan", async ({
           businessBurnMonthlyMinor: 1_500_000,
           changeNote: "Observed cash flow review: Reviewed demo categories.",
         },
-      },
+      };
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          status: "review_required",
+          latestOutcome: "proposal_ready",
+          connections: [connection],
+          pendingProposals: [reviewed ? reviewedProposal : baseProposal],
+          errorCode: null,
+        },
+      });
     });
-  });
+    await page.route("**/api/cash-flow-proposals/*/review", async (route) => {
+      reviewed = true;
+      await route.fulfill({
+        status: 201,
+        json: {
+          proposalId: "cash_flow_proposal_demo",
+          comparison: {
+            observedHouseholdMonthlyMinor: 3_000_000,
+            observedBusinessMonthlyMinor: 1_500_000,
+            proposedHouseholdBurnMonthlyMinor: 3_200_000,
+            proposedBusinessBurnMonthlyMinor: 1_500_000,
+            householdChangeMinor: 350_000,
+            businessChangeMinor: 250_000,
+            totalChangeMinor: 600_000,
+            currentRunwayMonths: 42,
+            proposedRunwayMonths: 36,
+            material: true,
+          },
+          planSuggestion: {
+            proposalId: "cash_flow_proposal_demo",
+            householdBurnMonthlyMinor: 3_200_000,
+            businessBurnMonthlyMinor: 1_500_000,
+            changeNote: "Observed cash flow review: Reviewed demo categories.",
+          },
+        },
+      });
+    });
 
-  await page.goto("/scenarios");
-  await page.addStyleTag({
-    content:
-      ".topbar { position: absolute !important; visibility: hidden !important; }",
-  });
-  const review = page.locator(".cash-flow-review");
-  await expect(
-    review.getByRole("heading", { name: "Compare burn" }),
-  ).toBeVisible();
-  await expect(review.getByText("Review needed")).toBeVisible();
-  await expect(review.getByText("36 mo", { exact: true })).toBeVisible();
-  await review
-    .getByRole("combobox", { name: "General services treatment" })
-    .click();
-  await page.getByRole("option", { name: "Business burn" }).click();
-  await expect(review).toHaveScreenshot("observed-cash-flow-review.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+    await page.goto("/scenarios");
+    await page.addStyleTag({
+      content:
+        ".topbar { position: absolute !important; visibility: hidden !important; }",
+    });
+    const review = page.locator(".cash-flow-review");
+    await expect(
+      review.getByRole("heading", { name: "Compare burn" }),
+    ).toBeVisible();
+    await expect(review.getByText("Review needed")).toBeVisible();
+    await expect(review.getByText("36 mo", { exact: true })).toBeVisible();
+    await review
+      .getByRole("combobox", { name: "General services treatment" })
+      .click();
+    await page.getByRole("option", { name: "Business burn" }).click();
+    await expect(review).toHaveScreenshot("observed-cash-flow-review.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
 
-  await review.getByRole("button", { name: "Prepare plan draft" }).click();
-  await expect(review.getByText("Plan draft ready")).toBeVisible();
-  const editor = page.locator(".plan-inputs-editor");
-  await expect(editor.getByText("Unsaved draft")).toBeVisible();
-  await expect(
-    editor.getByRole("textbox", { name: /Household burn/ }),
-  ).toHaveValue("32,000");
-  await expect(
-    editor.getByRole("textbox", { name: /Business burn/ }),
-  ).toHaveValue("15,000");
-  await expect(editor).toHaveScreenshot("plan-inputs-from-cash-flow.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await expectNoHorizontalOverflow(page);
-});
+    await review.getByRole("button", { name: "Prepare plan draft" }).click();
+    await expect(review.getByText("Plan draft ready")).toBeVisible();
+    const editor = page.locator(".plan-inputs-editor");
+    await expect(editor.getByText("Unsaved draft")).toBeVisible();
+    await expect(
+      editor.getByRole("textbox", { name: /Household burn/ }),
+    ).toHaveValue("32,000");
+    await expect(
+      editor.getByRole("textbox", { name: /Business burn/ }),
+    ).toHaveValue("15,000");
+    await expect(editor).toHaveScreenshot("plan-inputs-from-cash-flow.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+    await expectNoHorizontalOverflow(page);
+    await editor
+      .getByRole("textbox", { name: /Protected cash floor/ })
+      .fill("150000");
+    await expect(
+      editor.getByRole("button", { name: "Save plan" }),
+    ).toBeEnabled();
+    await expect(editor.getByText("35 months", { exact: true })).toBeVisible();
+  },
+);
 
 test(
   "confirms the shared bank deletion boundary before disconnect",
