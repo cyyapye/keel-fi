@@ -128,73 +128,77 @@ async function readResponse(response: Response | null, positionId: string) {
   return holding!;
 }
 
-test("retains an uncertain holding draft through database quota exhaustion without replay", async ({
-  page,
-}, testInfo) => {
-  const name = `Synthetic quota draft ${testInfo.project.name}`;
-  const retryAfterSeconds = 3_600;
-  const retryAt = new Date("2026-11-02T00:00:00.000Z");
-  // Timers and Date must both advance past the server's reset.
-  await page.clock.setSystemTime(new Date("2026-11-01T18:45:00.000Z"));
-  await start(page, "Direct", name);
-  const attempts = await page.evaluateHandle(() => {
-    const endpoint = new URL("/api/manual-holdings", location.href).href;
-    const count = { value: 0 };
-    const send = window.fetch.bind(window);
-    window.fetch = (input, init) => {
-      const url = input instanceof Request ? input.url : input;
-      const method =
-        init?.method ?? (input instanceof Request ? input.method : "GET");
-      if (
-        method.toUpperCase() === "POST" &&
-        new URL(url, location.href).href === endpoint
-      ) {
-        count.value++;
-      }
-      return send(input, init);
-    };
-    return count;
-  });
-  let submissions = 0;
-  const message =
-    "Database capacity is temporarily unavailable. Check for this holding before trying again.";
-  await page.route("**/api/manual-holdings", async (route) => {
-    expect(route.request().method()).toBe("POST");
-    submissions++;
-    await route.fulfill({
-      status: 503,
-      contentType: "application/json",
-      headers: { "Retry-After": String(retryAfterSeconds) },
-      body: JSON.stringify({
-        error: message,
-        code: "d1_quota_exhausted",
-        retryAt: retryAt.toISOString(),
-        outcome: "unknown",
-      }),
+test(
+  "retains an uncertain holding draft through database quota exhaustion without replay",
+  { tag: "@desktop-only" },
+  async ({ page }, testInfo) => {
+    const name = `Synthetic quota draft ${testInfo.project.name}`;
+    const retryAfterSeconds = 3_600;
+    const retryAt = new Date("2026-11-02T00:00:00.000Z");
+    // Timers and Date must both advance past the server's reset.
+    await page.clock.setSystemTime(new Date("2026-11-01T18:45:00.000Z"));
+    await start(page, "Direct", name);
+    const attempts = await page.evaluateHandle(() => {
+      const endpoint = new URL("/api/manual-holdings", location.href).href;
+      const count = { value: 0 };
+      const send = window.fetch.bind(window);
+      window.fetch = (input, init) => {
+        const url = input instanceof Request ? input.url : input;
+        const method =
+          init?.method ?? (input instanceof Request ? input.method : "GET");
+        if (
+          method.toUpperCase() === "POST" &&
+          new URL(url, location.href).href === endpoint
+        ) {
+          count.value++;
+        }
+        return send(input, init);
+      };
+      return count;
     });
-  });
-  await page.getByRole("button", { name: "Save holding", exact: true }).click();
-  await expect(page.getByText(message, { exact: true })).toBeVisible();
-  await page.clock.fastForward(retryAfterSeconds * 1_000);
-  const now = await page.evaluate(() => Date.now());
-  await page.clock.fastForward(retryAt.getTime() - now + 1);
-  expect(await attempts.evaluate((count) => count.value)).toBe(1);
-  await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
-    name,
-  );
-  await expect(
-    page.getByLabel("Owner or account name", { exact: true }),
-  ).toHaveValue("Synthetic manual owner");
-  expect(submissions).toBe(1);
-  await expect(page).toHaveURL(/\/holdings\/new$/u);
-  await testInfo.attach("database-quota-retained-draft", {
-    body: await page.screenshot({
-      path: testInfo.outputPath("database-quota-retained-draft.png"),
-      fullPage: true,
-    }),
-    contentType: "image/png",
-  });
-});
+    let submissions = 0;
+    const message =
+      "Database capacity is temporarily unavailable. Check for this holding before trying again.";
+    await page.route("**/api/manual-holdings", async (route) => {
+      expect(route.request().method()).toBe("POST");
+      submissions++;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        headers: { "Retry-After": String(retryAfterSeconds) },
+        body: JSON.stringify({
+          error: message,
+          code: "d1_quota_exhausted",
+          retryAt: retryAt.toISOString(),
+          outcome: "unknown",
+        }),
+      });
+    });
+    await page
+      .getByRole("button", { name: "Save holding", exact: true })
+      .click();
+    await expect(page.getByText(message, { exact: true })).toBeVisible();
+    await page.clock.fastForward(retryAfterSeconds * 1_000);
+    const now = await page.evaluate(() => Date.now());
+    await page.clock.fastForward(retryAt.getTime() - now + 1);
+    expect(await attempts.evaluate((count) => count.value)).toBe(1);
+    await expect(
+      page.getByLabel("Investment name", { exact: true }),
+    ).toHaveValue(name);
+    await expect(
+      page.getByLabel("Owner or account name", { exact: true }),
+    ).toHaveValue("Synthetic manual owner");
+    expect(submissions).toBe(1);
+    await expect(page).toHaveURL(/\/holdings\/new$/u);
+    await testInfo.attach("database-quota-retained-draft", {
+      body: await page.screenshot({
+        path: testInfo.outputPath("database-quota-retained-draft.png"),
+        fullPage: true,
+      }),
+      contentType: "image/png",
+    });
+  },
+);
 
 test("persists and reopens an unassigned Direct holding with unknown financial facts", async ({
   page,
@@ -660,112 +664,118 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
   await expect(detail.locator("[aria-label^='Return ']")).toHaveCount(0);
 });
 
-test("uses the latest saved partial contribution cash through edits and clearing", async ({
-  page,
-}, testInfo) => {
-  const name = `Synthetic editable manual cash ${testInfo.project.name}`;
-  await start(page, "SPV", name);
-  await page
-    .getByRole("button", {
-      name: "Add investment or valuation details",
-      exact: true,
-    })
-    .click();
-  await page.getByLabel("Cash paid · USD", { exact: true }).fill("25,000");
-  await page
-    .getByLabel("Estimated value · USD", { exact: true })
-    .fill("30,000");
-  await chooseValuationDate(page);
-  await select(page, "Carry treatment", "Before carry");
-  const [createdRequest, positionId] = await Promise.all([
-    page.waitForRequest(holdingsRequest),
-    save(page),
-  ]);
-  const summary = page.locator(".spv-holding");
-  await expect(
-    summary.getByRole("group", { name: "Cash paid", exact: true }),
-  ).toContainText("$25,000.00");
-  const created = await readResponse(
-    await createdRequest.response(),
-    positionId,
-  );
-  expect(created.purchaseContext?.receipt?.details.cashCoversPosition).toBe(
-    false,
-  );
-  const valuation = created.purchaseContext?.receipt?.details.valuation;
-  const purchaseSaves: Request[] = [];
-  page.on("request", (request) => {
-    if (
-      request.method() === "POST" &&
-      new URL(request.url()).pathname ===
-        `/api/investment-positions/${positionId}/purchases`
-    )
-      purchaseSaves.push(request);
-  });
-  for (const [value, expectedCash] of [
-    ["26000", 2_600_000],
-    ["", null],
-  ] as const) {
+test(
+  "uses the latest saved partial contribution cash through edits and clearing",
+  { tag: "@mobile-only" },
+  async ({ page }, testInfo) => {
+    const name = `Synthetic editable manual cash ${testInfo.project.name}`;
+    await start(page, "SPV", name);
     await page
-      .getByRole("button", { name: "Edit investment", exact: true })
-      .click();
-    await page.getByLabel("Cash paid · $", { exact: true }).fill(value);
-    await summary
-      .locator(".holding-investment")
-      .getByRole("button", { name: "Save", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", {
-        name:
-          expectedCash === null ? "Add investment details" : "Edit investment",
+      .getByRole("button", {
+        name: "Add investment or valuation details",
         exact: true,
-      }),
-    ).toBeVisible();
-    const [reloadedRequest] = await Promise.all([
+      })
+      .click();
+    await page.getByLabel("Cash paid · USD", { exact: true }).fill("25,000");
+    await page
+      .getByLabel("Estimated value · USD", { exact: true })
+      .fill("30,000");
+    await chooseValuationDate(page);
+    await select(page, "Carry treatment", "Before carry");
+    const [createdRequest, positionId] = await Promise.all([
       page.waitForRequest(holdingsRequest),
-      page.reload(),
+      save(page),
     ]);
-    const current = await readResponse(
-      await reloadedRequest.response(),
+    const summary = page.locator(".spv-holding");
+    await expect(
+      summary.getByRole("group", { name: "Cash paid", exact: true }),
+    ).toContainText("$25,000.00");
+    const created = await readResponse(
+      await createdRequest.response(),
       positionId,
     );
-    expect(current.purchaseContext?.receipt?.details.cashCoversPosition).toBe(
+    expect(created.purchaseContext?.receipt?.details.cashCoversPosition).toBe(
       false,
     );
-    expect(
-      current.purchaseContext?.receipt?.details.lots[0]?.grossCashMinor,
-    ).toBe(expectedCash);
-    expect(current.purchaseContext?.receipt?.details.valuation).toEqual(
-      valuation,
-    );
-    expect(current.realizedValueMinor).toBeNull();
-    expect(current.administratorNavMinor).toBeNull();
-    const lot = current.purchaseContext!.receipt!.details.lots[0]!;
-    expect(purchaseCapital(lot).netCapitalMinor).toBeNull();
-    expect(purchaseFeeSummary(lot)).toBeNull();
-    if (expectedCash === null) {
+    const valuation = created.purchaseContext?.receipt?.details.valuation;
+    const purchaseSaves: Request[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname ===
+          `/api/investment-positions/${positionId}/purchases`
+      )
+        purchaseSaves.push(request);
+    });
+    for (const [value, expectedCash] of [
+      ["26000", 2_600_000],
+      ["", null],
+    ] as const) {
+      await page
+        .getByRole("button", { name: "Edit investment", exact: true })
+        .click();
+      await page.getByLabel("Cash paid · $", { exact: true }).fill(value);
+      await summary
+        .locator(".holding-investment")
+        .getByRole("button", { name: "Save", exact: true })
+        .click();
       await expect(
-        summary.getByRole("group", { name: "Cash paid", exact: true }),
-      ).toHaveCount(0);
+        page.getByRole("button", {
+          name:
+            expectedCash === null
+              ? "Add investment details"
+              : "Edit investment",
+          exact: true,
+        }),
+      ).toBeVisible();
+      const [reloadedRequest] = await Promise.all([
+        page.waitForRequest(holdingsRequest),
+        page.reload(),
+      ]);
+      const current = await readResponse(
+        await reloadedRequest.response(),
+        positionId,
+      );
+      expect(current.purchaseContext?.receipt?.details.cashCoversPosition).toBe(
+        false,
+      );
+      expect(
+        current.purchaseContext?.receipt?.details.lots[0]?.grossCashMinor,
+      ).toBe(expectedCash);
+      expect(current.purchaseContext?.receipt?.details.valuation).toEqual(
+        valuation,
+      );
+      expect(current.realizedValueMinor).toBeNull();
+      expect(current.administratorNavMinor).toBeNull();
+      const lot = current.purchaseContext!.receipt!.details.lots[0]!;
+      expect(purchaseCapital(lot).netCapitalMinor).toBeNull();
+      expect(purchaseFeeSummary(lot)).toBeNull();
+      if (expectedCash === null) {
+        await expect(
+          summary.getByRole("group", { name: "Cash paid", exact: true }),
+        ).toHaveCount(0);
+        await expect(
+          summary.getByText("$25,000.00", { exact: true }),
+        ).toHaveCount(0);
+        await expect(
+          summary.getByText("$26,000.00", { exact: true }),
+        ).toHaveCount(0);
+        await expect(summary.getByText("$0.00", { exact: true })).toHaveCount(
+          0,
+        );
+      } else {
+        await expect(
+          summary.getByRole("group", { name: "Cash paid", exact: true }),
+        ).toContainText("$26,000.00");
+        await expect(
+          summary.getByText("$25,000.00", { exact: true }),
+        ).toHaveCount(0);
+      }
       await expect(
-        summary.getByText("$25,000.00", { exact: true }),
-      ).toHaveCount(0);
-      await expect(
-        summary.getByText("$26,000.00", { exact: true }),
-      ).toHaveCount(0);
-      await expect(summary.getByText("$0.00", { exact: true })).toHaveCount(0);
-    } else {
-      await expect(
-        summary.getByRole("group", { name: "Cash paid", exact: true }),
-      ).toContainText("$26,000.00");
-      await expect(
-        summary.getByText("$25,000.00", { exact: true }),
-      ).toHaveCount(0);
+        summary.getByText("$30,000.00", { exact: true }).first(),
+      ).toBeVisible();
+      await expect(summary.locator("[aria-label^='Return ']")).toHaveCount(0);
     }
-    await expect(
-      summary.getByText("$30,000.00", { exact: true }).first(),
-    ).toBeVisible();
-    await expect(summary.locator("[aria-label^='Return ']")).toHaveCount(0);
-  }
-  expect(purchaseSaves).toHaveLength(2);
-});
+    expect(purchaseSaves).toHaveLength(2);
+  },
+);

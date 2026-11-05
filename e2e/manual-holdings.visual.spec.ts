@@ -177,24 +177,40 @@ test("keeps type controls stationary across project-owned viewport and disclosur
 }, testInfo) => {
   await routeOverviewReads(page);
   const widths = testInfo.project.use.isMobile ? [412] : [838, 1280];
+  const radios = page.getByRole("radiogroup", {
+    name: "Investment type",
+    exact: true,
+  });
+  const positions = () =>
+    radios.getByRole("radio").evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        return { x: box.x + window.scrollX, y: box.y + window.scrollY };
+      }),
+    );
+  const transitions = [
+    ["Direct", "SPV", "ArrowRight"],
+    ["SPV", "Fund", "ArrowRight"],
+    ["Fund", "Direct", "ArrowRight"],
+    ["Direct", "Fund", "ArrowLeft"],
+    ["Fund", "SPV", "ArrowLeft"],
+    ["SPV", "Direct", "ArrowLeft"],
+  ] as const;
+  const cash = page.getByLabel("Cash paid · USD", { exact: true });
+  const estimate = page.getByLabel("Estimated value · USD", { exact: true });
+  const expand = page.getByRole("button", {
+    name: "Add investment or valuation details",
+    exact: true,
+  });
   for (const width of widths) {
-    for (const detailsOpen of [false, true]) {
+    await page.setViewportSize({ width, height: 978 });
+    await setup(page);
+    await fillIdentity(page);
+    await expand.click();
+    await cash.fill("125.50");
+    await estimate.fill("150");
+    for (const detailsOpen of [true, false]) {
       await test.step(`${width}px with details ${detailsOpen ? "open" : "closed"}`, async () => {
-        await page.setViewportSize({ width, height: 978 });
-        await setup(page);
-        await fillIdentity(page);
-        await page
-          .getByRole("button", {
-            name: "Add investment or valuation details",
-            exact: true,
-          })
-          .click();
-        await page
-          .getByLabel("Cash paid · USD", { exact: true })
-          .fill("125.50");
-        await page
-          .getByLabel("Estimated value · USD", { exact: true })
-          .fill("150");
         if (!detailsOpen) {
           await page
             .getByRole("button", {
@@ -202,46 +218,24 @@ test("keeps type controls stationary across project-owned viewport and disclosur
               exact: true,
             })
             .click();
-          await expect(
-            page.getByLabel("Cash paid · USD", { exact: true }),
-          ).not.toBeVisible();
+          await expect(cash).not.toBeVisible();
         }
-        const radios = page.getByRole("radiogroup", {
-          name: "Investment type",
-          exact: true,
-        });
-        const initial = await radios
-          .getByRole("radio")
-          .evaluateAll((elements) =>
-            elements.map((element) => {
-              const box = element.getBoundingClientRect();
-              return { x: box.x + window.scrollX, y: box.y + window.scrollY };
-            }),
-          );
-        const transitions = [
-          ["Direct", "SPV", "ArrowRight"],
-          ["SPV", "Fund", "ArrowRight"],
-          ["Fund", "Direct", "ArrowRight"],
-          ["Direct", "Fund", "ArrowLeft"],
-          ["Fund", "SPV", "ArrowLeft"],
-          ["SPV", "Direct", "ArrowLeft"],
-        ] as const;
-        for (const [from, to, key] of transitions) {
-          await page.getByRole("radio", { name: from, exact: true }).focus();
+        await radios
+          .getByRole("radio", { name: "Direct", exact: true })
+          .check();
+        const initial = await positions();
+        expect(initial).toHaveLength(3);
+        for (const [from, to, key] of width === 838 && detailsOpen
+          ? transitions
+          : transitions.slice(0, 2)) {
+          await radios.getByRole("radio", { name: from, exact: true }).focus();
           await page.keyboard.press(key);
-          const selected = page.getByRole("radio", { name: to, exact: true });
+          const selected = radios.getByRole("radio", { name: to, exact: true });
           await expect(selected).toBeChecked();
           await expect(selected).toBeFocused();
-          const positions = await radios
-            .getByRole("radio")
-            .evaluateAll((elements) =>
-              elements.map((element) => {
-                const box = element.getBoundingClientRect();
-                return { x: box.x + window.scrollX, y: box.y + window.scrollY };
-              }),
-            );
-          expect(positions).toHaveLength(initial.length);
-          for (const [index, position] of positions.entries()) {
+          const current = await positions();
+          expect(current).toHaveLength(initial.length);
+          for (const [index, position] of current.entries()) {
             expect(
               Math.abs(position.x - initial[index]!.x),
               `${from} to ${to} moves radio ${index} horizontally`,
@@ -260,24 +254,13 @@ test("keeps type controls stationary across project-owned viewport and disclosur
             page.getByRole("combobox", { name: "Held by", exact: true }),
           ).toContainText("Demo Family LLC");
         }
-        if (!detailsOpen) {
-          await page
-            .getByRole("button", {
-              name: "Add investment or valuation details",
-              exact: true,
-            })
-            .click();
-        }
-        await expect(
-          page.getByLabel("Cash paid · USD", { exact: true }),
-        ).toHaveValue("125.50");
-        await expect(
-          page.getByLabel("Estimated value · USD", { exact: true }),
-        ).toHaveValue("150");
-        await page.getByRole("button", { name: "Cancel", exact: true }).click();
-        await expect(page).toHaveURL(/\/holdings$/u);
+        if (!detailsOpen) await expand.click();
+        await expect(cash).toHaveValue("125.50");
+        await expect(estimate).toHaveValue("150");
       });
     }
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page).toHaveURL(/\/holdings$/u);
   }
 });
 
@@ -620,41 +603,45 @@ test("checks an uncertain save and retries the same submission only after a reli
   await expect(page.getByText("$0", { exact: true })).toHaveCount(0);
 });
 
-test("finds a committed uncertain save without sending another POST", async ({
-  page,
-}) => {
-  const fixture = await setup(page);
-  await fillIdentity(page);
-  let submissionId = "";
-  let posts = 0;
-  await page.route("**/api/manual-holdings", async (route) => {
-    submissionId = ManualHoldingInputSchema.parse(
-      route.request().postDataJSON(),
-    ).submissionId;
-    posts += 1;
-    fixture.accept();
-    await route.abort("failed");
-  });
-  await page.route("**/api/manual-holdings/submissions/*", (route) =>
-    route.fulfill({
-      json: {
-        receipt: {
-          submissionId,
-          positionId,
-          snapshotId: "manual-snapshot",
-          purchaseReceiptId: "manual-receipt",
-          identityVersion: 1,
+test(
+  "finds a committed uncertain save without sending another POST",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const fixture = await setup(page);
+    await fillIdentity(page);
+    let submissionId = "";
+    let posts = 0;
+    await page.route("**/api/manual-holdings", async (route) => {
+      submissionId = ManualHoldingInputSchema.parse(
+        route.request().postDataJSON(),
+      ).submissionId;
+      posts += 1;
+      fixture.accept();
+      await route.abort("failed");
+    });
+    await page.route("**/api/manual-holdings/submissions/*", (route) =>
+      route.fulfill({
+        json: {
+          receipt: {
+            submissionId,
+            positionId,
+            snapshotId: "manual-snapshot",
+            purchaseReceiptId: "manual-receipt",
+            identityVersion: 1,
+          },
         },
-      },
-    }),
-  );
-  await page.getByRole("button", { name: "Save holding", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Check holdings", exact: true })
-    .click();
-  await expect(page).toHaveURL(new RegExp(`position=${positionId}`));
-  expect(posts).toBe(1);
-});
+      }),
+    );
+    await page
+      .getByRole("button", { name: "Save holding", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Check holdings", exact: true })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`position=${positionId}`));
+    expect(posts).toBe(1);
+  },
+);
 
 test("retains a rejected identity draft and requires reopening a stale revision", async ({
   page,
@@ -719,34 +706,36 @@ test("retains a rejected identity draft and requires reopening a stale revision"
   );
 });
 
-test("restores drafts only within the authenticated household scope", async ({
-  page,
-}) => {
-  await setup(page);
-  await fillIdentity(page);
-  let householdScope = "synthetic-other-household";
-  await page.route("**/api/manual-holdings/options", (route) =>
-    route.fulfill({ json: { ...options, householdScope } }),
-  );
-  await page.reload();
-  await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
-    "",
-  );
-  await expect(
-    page.getByRole("radio", { name: "Direct", exact: true }),
-  ).not.toBeChecked();
-  await expect(
-    page.getByRole("button", { name: "Save holding", exact: true }),
-  ).toBeDisabled();
-  householdScope = options.householdScope;
-  await page.reload();
-  await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
-    "Synthetic Orchard Direct",
-  );
-  await expect(
-    page.getByRole("radio", { name: "Direct", exact: true }),
-  ).toBeChecked();
-});
+test(
+  "restores drafts only within the authenticated household scope",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await setup(page);
+    await fillIdentity(page);
+    let householdScope = "synthetic-other-household";
+    await page.route("**/api/manual-holdings/options", (route) =>
+      route.fulfill({ json: { ...options, householdScope } }),
+    );
+    await page.reload();
+    await expect(
+      page.getByLabel("Investment name", { exact: true }),
+    ).toHaveValue("");
+    await expect(
+      page.getByRole("radio", { name: "Direct", exact: true }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByRole("button", { name: "Save holding", exact: true }),
+    ).toBeDisabled();
+    householdScope = options.householdScope;
+    await page.reload();
+    await expect(
+      page.getByLabel("Investment name", { exact: true }),
+    ).toHaveValue("Synthetic Orchard Direct");
+    await expect(
+      page.getByRole("radio", { name: "Direct", exact: true }),
+    ).toBeChecked();
+  },
+);
 
 test("searches more than 120 long owner and company labels with a bounded option list", async ({
   page,
@@ -924,64 +913,68 @@ test("keeps a Fund company grouping distinct from unknown allocation", async ({
   await expect.poll(() => posted).toBe(true);
 });
 
-test("preserves multiple current company groupings when only the legal name changes", async ({
-  page,
-}) => {
-  const fixture = await setup(page, () => {
-    const current = holding();
-    return HoldingSchema.parse({
-      ...current,
-      companyId: null,
-      manualContext: {
-        ...current.manualContext,
-        companyMappingIds: ["synthetic-mapping-one", "synthetic-mapping-two"],
-      },
-    });
-  });
-  fixture.accept();
-  await page.goto(`/holdings?position=${positionId}`);
-  await page
-    .getByRole("button", { name: "Edit holding details", exact: true })
-    .click();
-  await expect(
-    page.getByRole("combobox", { name: "Company · optional", exact: true }),
-  ).toContainText("Keep current company groupings");
-  await page
-    .getByLabel("Investment name", { exact: true })
-    .fill("Synthetic revised legal name");
-  let posted = false;
-  await page.route(
-    `**/api/manual-holdings/${positionId}/identity`,
-    async (route) => {
-      const input = ManualHoldingIdentityInputSchema.parse(
-        route.request().postDataJSON(),
-      );
-      expect(input.expectedMappingIds).toEqual([
-        "synthetic-mapping-one",
-        "synthetic-mapping-two",
-      ]);
-      expect(input.company).toEqual({ mode: "unchanged" });
-      posted = true;
-      await route.fulfill({
-        status: 400,
-        json: { error: "Synthetic identity rejected for readback." },
+test(
+  "preserves multiple current company groupings when only the legal name changes",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const fixture = await setup(page, () => {
+      const current = holding();
+      return HoldingSchema.parse({
+        ...current,
+        companyId: null,
+        manualContext: {
+          ...current.manualContext,
+          companyMappingIds: ["synthetic-mapping-one", "synthetic-mapping-two"],
+        },
       });
-    },
-  );
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect.poll(() => posted).toBe(true);
-  await expect(
-    page.getByText("Synthetic identity rejected for readback.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
-    "Synthetic revised legal name",
-  );
-  await expect(
-    page.getByRole("combobox", { name: "Company · optional", exact: true }),
-  ).toContainText("Keep current company groupings");
-});
+    });
+    fixture.accept();
+    await page.goto(`/holdings?position=${positionId}`);
+    await page
+      .getByRole("button", { name: "Edit holding details", exact: true })
+      .click();
+    await expect(
+      page.getByRole("combobox", { name: "Company · optional", exact: true }),
+    ).toContainText("Keep current company groupings");
+    await page
+      .getByLabel("Investment name", { exact: true })
+      .fill("Synthetic revised legal name");
+    let posted = false;
+    await page.route(
+      `**/api/manual-holdings/${positionId}/identity`,
+      async (route) => {
+        const input = ManualHoldingIdentityInputSchema.parse(
+          route.request().postDataJSON(),
+        );
+        expect(input.expectedMappingIds).toEqual([
+          "synthetic-mapping-one",
+          "synthetic-mapping-two",
+        ]);
+        expect(input.company).toEqual({ mode: "unchanged" });
+        posted = true;
+        await route.fulfill({
+          status: 400,
+          json: { error: "Synthetic identity rejected for readback." },
+        });
+      },
+    );
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect.poll(() => posted).toBe(true);
+    await expect(
+      page.getByText("Synthetic identity rejected for readback.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByLabel("Investment name", { exact: true }),
+    ).toHaveValue("Synthetic revised legal name");
+    await expect(
+      page.getByRole("combobox", { name: "Company · optional", exact: true }),
+    ).toContainText("Keep current company groupings");
+  },
+);
 
 test("shows manual creation and only actual identity corrections in normal History", async ({
   page,
@@ -1103,93 +1096,101 @@ test("shows manual creation and only actual identity corrections in normal Histo
   );
 });
 
-test("preserves a current single-company Fund grouping when only the name changes", async ({
-  page,
-}) => {
-  const fixture = await setup(page, () => {
-    const current = holding();
-    return HoldingSchema.parse({
-      ...current,
-      companyId: "demo-company",
-      positionKind: "fund_interest",
-      manualContext: {
-        ...current.manualContext,
-        companyMappingIds: ["synthetic-fund-partial-400000-mapping"],
-      },
-    });
-  });
-  fixture.accept();
-  await page.goto(`/holdings?position=${positionId}`);
-  await page
-    .getByRole("button", { name: "Edit holding details", exact: true })
-    .click();
-  await expect(
-    page.getByRole("combobox", { name: "Company · optional", exact: true }),
-  ).toContainText("Juniper Works");
-  await page
-    .getByLabel("Fund name", { exact: true })
-    .fill("Synthetic renamed Fund");
-  let posted = false;
-  await page.route(
-    `**/api/manual-holdings/${positionId}/identity`,
-    async (route) => {
-      const input = ManualHoldingIdentityInputSchema.parse(
-        route.request().postDataJSON(),
-      );
-      expect(input.expectedMappingIds).toEqual([
-        "synthetic-fund-partial-400000-mapping",
-      ]);
-      expect(input.company).toEqual({ mode: "unchanged" });
-      posted = true;
-      await route.fulfill({
-        status: 400,
-        json: { error: "Synthetic identity rejected for readback." },
+test(
+  "preserves a current single-company Fund grouping when only the name changes",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const fixture = await setup(page, () => {
+      const current = holding();
+      return HoldingSchema.parse({
+        ...current,
+        companyId: "demo-company",
+        positionKind: "fund_interest",
+        manualContext: {
+          ...current.manualContext,
+          companyMappingIds: ["synthetic-fund-partial-400000-mapping"],
+        },
       });
-    },
-  );
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect.poll(() => posted).toBe(true);
-});
+    });
+    fixture.accept();
+    await page.goto(`/holdings?position=${positionId}`);
+    await page
+      .getByRole("button", { name: "Edit holding details", exact: true })
+      .click();
+    await expect(
+      page.getByRole("combobox", { name: "Company · optional", exact: true }),
+    ).toContainText("Juniper Works");
+    await page
+      .getByLabel("Fund name", { exact: true })
+      .fill("Synthetic renamed Fund");
+    let posted = false;
+    await page.route(
+      `**/api/manual-holdings/${positionId}/identity`,
+      async (route) => {
+        const input = ManualHoldingIdentityInputSchema.parse(
+          route.request().postDataJSON(),
+        );
+        expect(input.expectedMappingIds).toEqual([
+          "synthetic-fund-partial-400000-mapping",
+        ]);
+        expect(input.company).toEqual({ mode: "unchanged" });
+        posted = true;
+        await route.fulfill({
+          status: 400,
+          json: { error: "Synthetic identity rejected for readback." },
+        });
+      },
+    );
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect.poll(() => posted).toBe(true);
+  },
+);
 
-test("keeps company mappings unchanged when a mapped Direct holding is changed to Fund", async ({
-  page,
-}) => {
-  const fixture = await registerManualHoldingRoutes(page, () => {
-    const current = holding();
-    return HoldingSchema.parse({
-      ...current,
-      companyId: "demo-company",
-      manualContext: {
-        ...current.manualContext,
-        companyMappingIds: ["synthetic-direct-company-mapping"],
-      },
-    });
-  });
-  fixture.accept();
-  await page.goto(`/holdings?position=${positionId}`);
-  await page
-    .getByRole("button", { name: "Edit holding details", exact: true })
-    .click();
-  await page.getByRole("radio", { name: "Fund", exact: true }).check();
-  let posted = false;
-  await page.route(
-    `**/api/manual-holdings/${positionId}/identity`,
-    async (route) => {
-      const input = ManualHoldingIdentityInputSchema.parse(
-        route.request().postDataJSON(),
-      );
-      expect(input.kind).toBe("fund_interest");
-      expect(input.company).toEqual({ mode: "unchanged" });
-      expect(input.expectedMappingIds).toEqual([
-        "synthetic-direct-company-mapping",
-      ]);
-      posted = true;
-      await route.fulfill({
-        status: 400,
-        json: { error: "Synthetic identity rejected for readback." },
+test(
+  "keeps company mappings unchanged when a mapped Direct holding is changed to Fund",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const fixture = await registerManualHoldingRoutes(page, () => {
+      const current = holding();
+      return HoldingSchema.parse({
+        ...current,
+        companyId: "demo-company",
+        manualContext: {
+          ...current.manualContext,
+          companyMappingIds: ["synthetic-direct-company-mapping"],
+        },
       });
-    },
-  );
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect.poll(() => posted).toBe(true);
-});
+    });
+    fixture.accept();
+    await page.goto(`/holdings?position=${positionId}`);
+    await page
+      .getByRole("button", { name: "Edit holding details", exact: true })
+      .click();
+    await page.getByRole("radio", { name: "Fund", exact: true }).check();
+    let posted = false;
+    await page.route(
+      `**/api/manual-holdings/${positionId}/identity`,
+      async (route) => {
+        const input = ManualHoldingIdentityInputSchema.parse(
+          route.request().postDataJSON(),
+        );
+        expect(input.kind).toBe("fund_interest");
+        expect(input.company).toEqual({ mode: "unchanged" });
+        expect(input.expectedMappingIds).toEqual([
+          "synthetic-direct-company-mapping",
+        ]);
+        posted = true;
+        await route.fulfill({
+          status: 400,
+          json: { error: "Synthetic identity rejected for readback." },
+        });
+      },
+    );
+    await page
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect.poll(() => posted).toBe(true);
+  },
+);

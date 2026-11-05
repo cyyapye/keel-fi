@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 89,
+  "retiredBrowserCaseCount": 99,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -393,10 +393,9 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/manual-holdings.spec.ts :: chromium :: uses the latest saved partial contribution cash through edits and clearing",
         "e2e/manual-holdings.spec.ts :: mobile-chromium :: uses the latest saved partial contribution cash through edits and clearing"
       ],
-      "assertions": "The retained real API/D1 case covers initial cash, edited minor units, null after clearing, no stale or invented zero cash, cashCoversPosition=false, and reload/readback. It now observes exactly two purchases POSTs. Valuation and null capital/fees/returns checks remain. Both original and retained cases reject stale initial cash and duplicate save dispatch; no screenshot is retired."
+      "assertions": "The retained real API/D1 case covers initial cash, edited minor units, null after clearing, no stale or invented zero cash, cashCoversPosition=false, and reload/readback. It now observes exactly two purchases POSTs. Valuation and null capital/fees/returns checks remain. Both original and retained cases reject stale initial cash and duplicate save dispatch; no screenshot is retired. The retained real partial-cash correction journey runs on mobile."
     },
     {
       "id": "unknown-refund-rendered-returns",
@@ -602,6 +601,56 @@
         "e2e/portfolio-watch.visual.spec.ts :: chromium :: puts pending updates first and searches the full history before paging"
       ],
       "assertions": "The retained desktop Watch list orders 125 mixed-status records, searches across page boundaries, checks the page limit and reloads after an accepted update. Responsive list coverage remains in the other Watch journeys."
+    },
+    {
+      "id": "manual-matrix-manual-holdings-real",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.spec.ts :: chromium :: uses the latest saved partial contribution cash through edits and clearing",
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: retains an uncertain holding draft through database quota exhaustion without replay"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/manual-holdings.spec.ts :: mobile-chromium :: uses the latest saved partial contribution cash through edits and clearing",
+        "e2e/manual-holdings.spec.ts :: chromium :: retains an uncertain holding draft through database quota exhaustion without replay"
+      ],
+      "assertions": "A quota-uncertain POST retains its draft without replay. A real mobile SPV cash edit and clear each save once and survive a reload without stale or invented zero values. Other real create and edit journeys retain mobile control geometry."
+    },
+    {
+      "id": "manual-matrix-manual-holdings-visual",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: preserves a current single-company Fund grouping when only the name changes",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: restores drafts only within the authenticated household scope",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: finds a committed uncertain save without sending another POST",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: keeps company mappings unchanged when a mapped Direct holding is changed to Fund",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: preserves multiple current company groupings when only the legal name changes"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: preserves a current single-company Fund grouping when only the name changes",
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: restores drafts only within the authenticated household scope",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: finds a committed uncertain save without sending another POST",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps company mappings unchanged when a mapped Direct holding is changed to Fund",
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: preserves multiple current company groupings when only the legal name changes"
+      ],
+      "assertions": "One mounted form checks a recovered submission once, isolates restored drafts by authenticated household, and sends exact mapping IDs and unchanged groupings on multi-company, single-company and changed-kind corrections. Both devices still exercise editor layout and calendars."
+    },
+    {
+      "id": "manual-matrix-purchase-details-visual",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: editing an existing partial investment preserves its recorded scope",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: local history in America/Los_Angeles > converts saved instants while preserving source calendar dates",
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: source conflicts recover with current prices while preserving user input"
+      ],
+      "unitCases": [
+        "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'America/Los_Angeles'",
+        "apps/web/src/format.test.ts :: holding evidence precision > formats local instants and fixed source calendar dates in 'Asia/Singapore'"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: editing an existing partial investment preserves its recorded scope",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: local history in America/Los_Angeles > converts saved instants while preserving source calendar dates",
+        "e2e/purchase-details.visual.spec.ts :: chromium :: source conflicts recover with current prices while preserving user input"
+      ],
+      "assertions": "A mounted valuation form explicitly adopts the new source price after a conflict. A partial purchase edit preserves both scope flags. Native Pacific browser history shows local time and the original calendar date."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

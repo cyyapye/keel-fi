@@ -801,81 +801,89 @@ test("after carry totals remain selectable and known unpaid costs remain visible
   await screenshot(page, "valuation-after-carry-choice.png");
 });
 
-test("source conflicts recover with current prices while preserving user input", async ({
-  page,
-}) => {
-  const state = await setup(page, (r) => {
-    r.details.lots[0]!.quantityDetails = {
-      status: "estimated",
-      derivation: "Synthetic net allocation divided by entry price",
-      evidence: "Synthetic subscription",
-      shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
-    };
-    r.details.valuation!.records[0]!.shareBasis = {
-      key: "issuer-original",
-      unitsPerOriginal: 1,
-    };
-  });
-  await page.getByRole("button", { name: "Edit valuation" }).click();
-  await select(page, "Source", "Tokenfolio · Other SPV");
-  state.reject(true);
-  state.refreshPrice();
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Reload sources" }),
-  ).toBeVisible();
-  state.reject(false);
-  await page.getByRole("button", { name: "Reload sources" }).click();
-  await page.getByRole("button", { name: "Use updated price" }).click();
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Edit valuation", exact: true }),
-  ).toBeVisible();
-  expect(
-    state.receipt().details.valuation!.records.find((r) => r.origin === "proxy")
-      ?.priceMicros,
-  ).toBe(211_000_000);
-});
+test(
+  "source conflicts recover with current prices while preserving user input",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const state = await setup(page, (r) => {
+      r.details.lots[0]!.quantityDetails = {
+        status: "estimated",
+        derivation: "Synthetic net allocation divided by entry price",
+        evidence: "Synthetic subscription",
+        shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+      };
+      r.details.valuation!.records[0]!.shareBasis = {
+        key: "issuer-original",
+        unitsPerOriginal: 1,
+      };
+    });
+    await page.getByRole("button", { name: "Edit valuation" }).click();
+    await select(page, "Source", "Tokenfolio · Other SPV");
+    state.reject(true);
+    state.refreshPrice();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Reload sources" }),
+    ).toBeVisible();
+    state.reject(false);
+    await page.getByRole("button", { name: "Reload sources" }).click();
+    await page.getByRole("button", { name: "Use updated price" }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Edit valuation", exact: true }),
+    ).toBeVisible();
+    expect(
+      state
+        .receipt()
+        .details.valuation!.records.find((r) => r.origin === "proxy")
+        ?.priceMicros,
+    ).toBe(211_000_000);
+  },
+);
 
-test("editing an existing partial investment preserves its recorded scope", async ({
-  page,
-}) => {
-  const state = await setup(page, (receipt) => {
-    receipt.details.coversPosition = false;
-    receipt.details.cashCoversPosition = false;
-    receipt.details.investmentTerms!.annualManagementFeePpm = 20_000;
-    receipt.details.lots[0]!.fees = receipt.details.lots[0]!.fees!.filter(
-      (f) => f.kind !== "management",
-    );
-  });
-  await page.getByRole("button", { name: "Edit investment" }).click();
-  await page
-    .getByRole("textbox", { name: "Carry · %", exact: true })
-    .fill("14");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await page.getByRole("button", { name: "Edit investment" }).click();
-  await expect(
-    page.getByRole("textbox", { name: "Carry · %", exact: true }),
-  ).toHaveValue("14");
-  expect(state.receipt().details.coversPosition).toBe(false);
-  expect(state.receipt().details.cashCoversPosition).toBe(false);
-  expect(
-    state.receipt().details.lots[0]!.fees!.some((f) => f.kind === "management"),
-  ).toBe(false);
-  await select(page, "Management fee entry", "Annual percentage");
-  await expect(
-    page.getByRole("textbox", {
-      name: "Management fee · % / year",
-      exact: true,
-    }),
-  ).toHaveValue("2");
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await page.getByRole("button", { name: "Edit valuation" }).click();
-  await select(page, "Source", "Tokenfolio · Other SPV");
-  await expect(
-    page.getByRole("button", { name: "Save", exact: true }),
-  ).toBeDisabled();
-});
+test(
+  "editing an existing partial investment preserves its recorded scope",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const state = await setup(page, (receipt) => {
+      receipt.details.coversPosition = false;
+      receipt.details.cashCoversPosition = false;
+      receipt.details.investmentTerms!.annualManagementFeePpm = 20_000;
+      receipt.details.lots[0]!.fees = receipt.details.lots[0]!.fees!.filter(
+        (f) => f.kind !== "management",
+      );
+    });
+    await page.getByRole("button", { name: "Edit investment" }).click();
+    await page
+      .getByRole("textbox", { name: "Carry · %", exact: true })
+      .fill("14");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Edit investment" }).click();
+    await expect(
+      page.getByRole("textbox", { name: "Carry · %", exact: true }),
+    ).toHaveValue("14");
+    expect(state.receipt().details.coversPosition).toBe(false);
+    expect(state.receipt().details.cashCoversPosition).toBe(false);
+    expect(
+      state
+        .receipt()
+        .details.lots[0]!.fees!.some((f) => f.kind === "management"),
+    ).toBe(false);
+    await select(page, "Management fee entry", "Annual percentage");
+    await expect(
+      page.getByRole("textbox", {
+        name: "Management fee · % / year",
+        exact: true,
+      }),
+    ).toHaveValue("2");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.getByRole("button", { name: "Edit valuation" }).click();
+    await select(page, "Source", "Tokenfolio · Other SPV");
+    await expect(
+      page.getByRole("button", { name: "Save", exact: true }),
+    ).toBeDisabled();
+  },
+);
 
 // The full timezone/DST matrix lives in format.test.ts; retain actual browser
 // timezone selection, displayed history, datetime attributes and source dates.
@@ -888,42 +896,44 @@ for (const scenario of [
 ]) {
   test.describe(`local history in ${scenario.zone}`, () => {
     test.use({ timezoneId: scenario.zone });
-    test("converts saved instants while preserving source calendar dates", async ({
-      page,
-    }) => {
-      const state = await setup(page);
-      const receipts = scenario.times.map((acceptedAt, index) => ({
-        ...state.receipt(),
-        id: `local-${index}`,
-        acceptedAt,
-      }));
-      await page.route(
-        "**/api/investment-positions/synthetic-holding/history",
-        (route) =>
-          route.fulfill({
-            json: {
-              entries: receipts.map((receipt) => ({
-                kind: "investment",
-                receipt,
-                previous: receipt,
-              })),
-              next: null,
-            },
-          }),
-      );
-      await expect(page.locator(".holding-value-summary")).toContainText(
-        "Sep 30, 2026",
-      );
-      await page
-        .getByRole("button", { name: "Sources & history", exact: true })
-        .click();
-      const entries = page.locator(
-        ".holding-receipt-history .holding-history-entry time",
-      );
-      await expect(entries).toHaveText(scenario.expected);
-      for (const [index, instant] of scenario.times.entries())
-        await expect(entries.nth(index)).toHaveAttribute("datetime", instant);
-    });
+    test(
+      "converts saved instants while preserving source calendar dates",
+      { tag: "@desktop-only" },
+      async ({ page }) => {
+        const state = await setup(page);
+        const receipts = scenario.times.map((acceptedAt, index) => ({
+          ...state.receipt(),
+          id: `local-${index}`,
+          acceptedAt,
+        }));
+        await page.route(
+          "**/api/investment-positions/synthetic-holding/history",
+          (route) =>
+            route.fulfill({
+              json: {
+                entries: receipts.map((receipt) => ({
+                  kind: "investment",
+                  receipt,
+                  previous: receipt,
+                })),
+                next: null,
+              },
+            }),
+        );
+        await expect(page.locator(".holding-value-summary")).toContainText(
+          "Sep 30, 2026",
+        );
+        await page
+          .getByRole("button", { name: "Sources & history", exact: true })
+          .click();
+        const entries = page.locator(
+          ".holding-receipt-history .holding-history-entry time",
+        );
+        await expect(entries).toHaveText(scenario.expected);
+        for (const [index, instant] of scenario.times.entries())
+          await expect(entries.nth(index)).toHaveAttribute("datetime", instant);
+      },
+    );
   });
 }
 
