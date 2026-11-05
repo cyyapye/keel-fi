@@ -157,9 +157,6 @@ test("foundations distinguish selection from keyboard focus", async ({
   page,
 }) => {
   await page.goto("/ui/#foundations");
-  await expect(
-    page.getByRole("button", { name: /New components/ }),
-  ).toHaveCount(0);
   const tabs = page.getByRole("tablist", { name: "Foundation tabs" });
   const profile = tabs.getByRole("tab", { name: "Profile", exact: true });
   const history = tabs.getByRole("tab", { name: "History", exact: true });
@@ -168,6 +165,9 @@ test("foundations distinguish selection from keyboard focus", async ({
   await expect(history).toBeFocused();
   await expect(history).toHaveAttribute("aria-selected", "false");
   await expect(profile).toHaveAttribute("aria-selected", "true");
+  await expect(
+    page.getByRole("button", { name: /New components/, includeHidden: true }),
+  ).toHaveCount(0);
   await expect(history).toHaveCSS("outline-style", "solid");
   await expect(history).toHaveCSS("box-shadow", "none");
   await expect(
@@ -648,6 +648,12 @@ test("featured carousel uses homepage presentation and the index remains current
     name: "Source examples",
     exact: true,
   });
+  await expect(
+    carousel.getByRole("button", {
+      name: "Show Formation certificate",
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-current", "true");
   await expect(
     carousel.getByRole("button", { name: /Previous slide|Next slide/ }),
   ).toHaveCount(0);

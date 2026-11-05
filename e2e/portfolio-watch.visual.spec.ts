@@ -1483,9 +1483,8 @@ test("reconciles financing reports before creating a version-safe proposal", asy
     await route.fulfill({ json: proposal, status: 201 });
   });
 
-  await page.goto("/");
   const mobile = testInfo.project.name === "mobile-chromium";
-  await navigateToScreen(page, mobile, /Evidence/);
+  await page.goto("/evidence");
 
   const groups = page.locator(".signal-reconciliation-group");
   await expect(groups).toHaveCount(2);
