@@ -1,9 +1,5 @@
 import { expect, test, type Page } from "./api-mocked-test";
-import type { Request } from "@playwright/test";
-import {
-  ManualHoldingIdentityInputSchema,
-  ManualHoldingInputSchema,
-} from "../packages/domain/src/manual-holdings";
+import { ManualHoldingInputSchema } from "../packages/domain/src/manual-holdings";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import {
   holding,
@@ -439,6 +435,7 @@ test(
 
 test("keeps identity required and financial facts optional with inline errors", async ({
   page,
+  isMobile,
 }) => {
   await setup(page);
   await expect(
@@ -478,6 +475,7 @@ test("keeps identity required and financial facts optional with inline errors", 
     page.getByRole("button", { name: "Save holding", exact: true }),
   ).toBeDisabled();
   await capture(page, "manual-holding-invalid.png");
+  if (!isMobile) return;
   await page.getByLabel("Cash paid · USD", { exact: true }).fill("");
   await page
     .getByLabel("Estimated value · USD", { exact: true })
@@ -529,7 +527,7 @@ test("keeps identity required and financial facts optional with inline errors", 
 test(
   "checks an uncertain save and retries the same submission only after a reliable no-match",
   { tag: "@mobile-only" },
-  async ({ page, isMobile }) => {
+  async ({ page }) => {
     const fixture = await setup(page);
     await fillIdentity(page);
     const submissions: string[] = [];
@@ -580,7 +578,6 @@ test(
     ).toBeVisible();
     expect(submissions).toHaveLength(1);
     await capture(page, "manual-holding-unconfirmed.png");
-    if (!isMobile) return;
     await page.reload();
     await expect(
       page.getByLabel("Investment name", { exact: true }),
@@ -665,74 +662,6 @@ test(
 );
 
 test(
-  "retains a rejected identity draft and requires reopening a stale revision",
-  { tag: "@desktop-only" },
-  async ({ page, isMobile }) => {
-    const fixture = await setup(page);
-    fixture.accept();
-    await page.goto(`/holdings?position=${positionId}`);
-    await page
-      .getByRole("button", { name: "Edit holding details", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "Save changes", exact: true }),
-    ).toBeDisabled();
-    await page
-      .getByLabel("Investment name", { exact: true })
-      .fill("Synthetic revised legal name");
-    await capture(page, "manual-holding-identity-edit.png");
-    if (!isMobile) return;
-    let posts = 0;
-    await page.route(
-      `**/api/manual-holdings/${positionId}/identity`,
-      async (route) => {
-        const input = ManualHoldingIdentityInputSchema.parse(
-          route.request().postDataJSON(),
-        );
-        expect(input.expectedVersion).toBe(1);
-        expect(input.expectedMappingIds).toEqual([]);
-        posts += 1;
-        await route.fulfill({
-          status: 409,
-          json: { code: "stale", error: "The company grouping changed." },
-        });
-      },
-    );
-    await page
-      .getByRole("button", { name: "Save changes", exact: true })
-      .click();
-    await expect(
-      page.getByText(/Cancel and reopen holding details/u),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Save changes", exact: true }),
-    ).toBeDisabled();
-    await expect(
-      page.getByLabel("Investment name", { exact: true }),
-    ).toHaveValue("Synthetic revised legal name");
-    await capture(page, "manual-holding-identity-stale.png");
-    await page.reload();
-    await page
-      .getByRole("button", { name: "Edit holding details", exact: true })
-      .click();
-    await expect(
-      page.getByRole("button", { name: "Save changes", exact: true }),
-    ).toBeDisabled();
-    await expect(
-      page.getByLabel("Investment name", { exact: true }),
-    ).toHaveValue("Synthetic revised legal name");
-    expect(posts).toBe(1);
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Edit holding details", exact: true })
-      .click();
-    await expect(
-      page.getByLabel("Investment name", { exact: true }),
-    ).toHaveValue("Synthetic Orchard Direct");
-  },
-);
-
-test(
   "restores drafts only within the authenticated household scope",
   { tag: "@mobile-only" },
   async ({ page }) => {
@@ -760,108 +689,6 @@ test(
     await expect(
       page.getByRole("radio", { name: "Direct", exact: true }),
     ).toBeChecked();
-  },
-);
-
-test(
-  "searches more than 120 long owner and company labels with a bounded option list",
-  { tag: "@mobile-only" },
-  async ({ page }) => {
-    await setup(page);
-    const containers = Array.from({ length: 125 }, (_, index) => ({
-      id: `synthetic-owner-${index}`,
-      label: `Synthetic owner ${index} with a deliberately long legal account label for responsive selection`,
-      version: 9,
-    }));
-    const companies = Array.from({ length: 125 }, (_, index) => ({
-      id: `synthetic-company-${index}`,
-      name: `Synthetic company ${index} with a deliberately long organization name for responsive selection`,
-      revision: "synthetic-company-revision",
-    }));
-    const reads = new Set<Request>();
-    const abortedReads = new Set<Request>();
-    page.on("requestfailed", (request) => {
-      if (
-        request.url().endsWith("/api/manual-holdings/options") &&
-        request.failure()?.errorText === "net::ERR_ABORTED"
-      )
-        abortedReads.add(request);
-    });
-    await page.route("**/api/manual-holdings/options", (route) => {
-      reads.add(route.request());
-      return route.fulfill({
-        json: {
-          householdScope: options.householdScope,
-          containers,
-          legalEntities: [],
-          companies,
-        },
-      });
-    });
-    await page.reload();
-    await page.getByRole("combobox", { name: "Held by", exact: true }).click();
-    await expect(page.getByRole("option")).toHaveCount(100);
-    await expect(
-      page.getByText(
-        "Showing the first 100 matches. Keep typing to narrow the list.",
-        { exact: true },
-      ),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("option", {
-        name: "Add an owner or account…",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await page
-      .getByRole("combobox", {
-        name: "Search owners and accounts",
-        exact: true,
-      })
-      .fill("owner 124");
-    await expect(page.getByRole("option")).toHaveCount(1);
-    await page
-      .getByRole("option", { name: containers[124]!.label, exact: true })
-      .click();
-    await page
-      .getByRole("combobox", { name: "Company · optional", exact: true })
-      .click();
-    await expect(page.getByRole("option")).toHaveCount(100);
-    await page
-      .getByRole("combobox", { name: "Search companies", exact: true })
-      .fill("no synthetic match");
-    await expect(
-      page.getByText("No matching companies.", { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole("option")).toHaveCount(0);
-    await page
-      .getByRole("combobox", { name: "Search companies", exact: true })
-      .fill("company 124");
-    await expect(page.getByRole("option")).toHaveCount(1);
-    await page
-      .getByRole("option", { name: companies[124]!.name, exact: true })
-      .click();
-    await page
-      .getByLabel("Investment name", { exact: true })
-      .fill("Synthetic long-label investment");
-    await page.getByRole("radio", { name: "Direct", exact: true }).check();
-    await expect(
-      page.getByRole("button", { name: "Save holding", exact: true }),
-    ).toBeEnabled();
-    // Development StrictMode may abort its first mount probe. The working
-    // editor still consumes one options response, independent of item count.
-    expect(reads.size).toBeLessThanOrEqual(2);
-    expect(
-      [...reads].filter((request) => abortedReads.has(request)),
-    ).toHaveLength(reads.size - 1);
-    expect(
-      [...reads].filter((request) => !abortedReads.has(request)),
-    ).toHaveLength(1);
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= window.innerWidth,
-      ),
-    ).toBe(true);
   },
 );
 

@@ -887,89 +887,6 @@ test(
 );
 
 test(
-  "puts pending updates first and searches the full history before paging",
-  { tag: "@desktop-only" },
-  async ({ page }) => {
-    const alpha = (await (
-      await page.request.get("/api/alpha")
-    ).json()) as Record<string, unknown>;
-    const observations = Array.from({ length: 125 }, (_, index) => ({
-      ...portfolioWatchFixture.observations[0]!,
-      id: `attention-${index}`,
-      evidenceEventId: `attention-event-${index}`,
-      companyName:
-        index === 124 ? "Distant Synthetic Company" : "Harbor Health Systems",
-      evidenceStatus:
-        index >= 122
-          ? "pending_review"
-          : index % 3 === 0
-            ? "accepted"
-            : index % 3 === 1
-              ? "rejected"
-              : "scenario_only",
-      sourceTitle: `Synthetic update ${index}`,
-      retrievedAt:
-        index === 124
-          ? "2026-07-01T06:02:00.000-07:00"
-          : index >= 122
-            ? "2026-07-01T12:00:00.000Z"
-            : "2026-08-02T12:00:00.000Z",
-    }));
-    await page.route("**/api/alpha", (route) =>
-      route.fulfill({
-        json: {
-          ...alpha,
-          signalReconciliations: [],
-          portfolioWatch: { ...portfolioWatchFixture, observations },
-        },
-      }),
-    );
-    await page.goto("/watch");
-    await expect(page.getByRole("tab", { name: "Updates" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    const cards = page.locator(".watch-news-row");
-    await page
-      .getByRole("button", { name: "Decisions (3)", exact: true })
-      .click();
-    await expect(cards).toHaveCount(3);
-    await expect(cards.first()).toContainText("Synthetic update 124");
-    await expect(
-      page.getByRole("heading", { name: "Decisions needed" }),
-    ).toBeVisible();
-    await page
-      .getByRole("button", { name: "All updates", exact: true })
-      .click();
-    await expect(cards).toHaveCount(20);
-    await expect(cards.first()).toContainText("Synthetic update 124");
-    await page
-      .getByRole("button", { name: "Next updates", exact: true })
-      .click();
-    await expect(cards.first()).not.toContainText("Synthetic update 124");
-    await page
-      .getByRole("searchbox", { name: "Search companies" })
-      .fill("distant synthetic");
-    await expect(cards).toHaveCount(1);
-    await expect(cards.first()).toContainText("Synthetic update 124");
-    await page
-      .getByRole("button", { name: "Decisions (1)", exact: true })
-      .click();
-    await expect(cards).toHaveCount(1);
-    // Reading an update and accepting its financial evidence remain separate.
-    observations[124]!.evidenceStatus = "accepted";
-    await page.reload();
-    await page
-      .getByRole("button", { name: "Decisions (2)", exact: true })
-      .click();
-    await expect(
-      page.getByRole("heading", { name: "Decisions needed" }),
-    ).toBeVisible();
-    await expect(cards).toHaveCount(2);
-  },
-);
-
-test(
   "keeps a financing review focused on reported company terms",
   { tag: "@mobile-only" },
   async ({ page }, testInfo) => {
@@ -1589,16 +1506,6 @@ test(
         "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
       readAt: null as string | null,
     };
-    const legacy = {
-      ...financing,
-      id: "synthetic-legacy-range",
-      evidenceEventId: portfolioWatchFixture.observations[0]!.evidenceEventId,
-      sourceTitle: "Synthetic prior holding range",
-      financingFacts: null,
-      readAt: "2026-08-02T12:30:00.000Z",
-      readVersion: 1,
-    };
-    const additionalNews: (typeof legacy)[] = [];
     const evidenceInbox = [...alpha.evidenceInbox];
     await page.route("**/api/alpha", (route) =>
       route.fulfill({
@@ -1608,7 +1515,7 @@ test(
           evidenceInbox,
           portfolioWatch: {
             ...portfolioWatchFixture,
-            observations: [news, financing, ...additionalNews],
+            observations: [news, financing],
           },
         },
       }),
@@ -1674,42 +1581,17 @@ test(
     fail = false;
     await row.getByRole("button", { name: "Mark read", exact: true }).click();
     await expect(row).toHaveCount(0);
-    await test.step(
-      "Show the legacy estimate after its Details disclosure",
-      async () => {
-        additionalNews.push(legacy);
-        await page.reload();
-        await page.getByRole("tab", { name: "Updates", exact: true }).click();
-        await page
-          .getByRole("heading", { name: "Portfolio Watch", exact: true })
-          .waitFor();
-        await expect(
-          page.getByRole("button", { name: "Unread (1)", exact: true }),
-        ).toBeVisible();
-        await expect(row).toHaveCount(0);
-        await page
-          .getByRole("button", { name: "All updates", exact: true })
-          .click();
-        await expect(
-          row.getByRole("button", { name: "Mark unread", exact: true }),
-        ).toBeVisible();
-        const rangeRow = page.getByRole("article", {
-          name: legacy.sourceTitle,
-          exact: true,
-        });
-        await expect(page.getByText("Estimated range")).toHaveCount(0);
-        await rangeRow
-          .getByRole("button", { name: "Details", exact: true })
-          .click();
-        await expect(rangeRow.getByText("Estimated range")).toBeVisible();
-        await expect(rangeRow.getByText("$930k – $1.4M")).toBeVisible();
-        await expect(page.getByText("Reported financing")).toHaveCount(0);
-        await rangeRow
-          .getByRole("button", { name: "Details", exact: true })
-          .click();
-      },
-      { timeout: 30_000 },
-    );
+    await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Unread (1)", exact: true }),
+    ).toBeVisible();
+    await expect(row).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "All updates", exact: true })
+      .click();
+    await expect(
+      row.getByRole("button", { name: "Mark unread", exact: true }),
+    ).toBeVisible();
     expect(evidenceWrites).toBe(0);
     await page
       .getByRole("button", { name: "Review decision", exact: true })
@@ -1747,82 +1629,5 @@ test(
       },
       { timeout: 30_000 },
     );
-  },
-);
-
-test(
-  "confirms a missing website while keeping source verification pending",
-  { tag: "@desktop-only" },
-  async ({ page }) => {
-    let activity = structuredClone(watchActivityFixture);
-    await page.route("**/api/watch/activity**", (route) =>
-      route.fulfill({ json: activity }),
-    );
-    let submitted: Record<string, string> | undefined;
-    await page.route(
-      "**/api/watch/targets/watch_northstar/website",
-      async (route) => {
-        submitted = route.request().postDataJSON();
-        expect(submitted?.companyName).toBe("Northstar Robotics");
-        activity = {
-          ...activity,
-          companies: activity.companies.map((company) =>
-            company.id === "watch_northstar"
-              ? {
-                  ...company,
-                  officialHost: "northstar-robotics.example",
-                  sources: [
-                    {
-                      ...watchSourceFixture,
-                      id: "source_new",
-                      targetId: company.id,
-                      url: "https://northstar-robotics.example/",
-                      status: "discovered",
-                      lastAttemptAt: null,
-                      lastCompletedAt: null,
-                      lastSuccessAt: null,
-                      outcome: null,
-                      signalCount: 0,
-                    },
-                  ],
-                }
-              : company,
-          ),
-        } as typeof activity;
-        await route.fulfill({
-          json: {
-            decisionId: submitted!.decisionId,
-            officialHost: "northstar-robotics.example",
-            decidedAt: "2026-08-02T12:00:00.000Z",
-          },
-        });
-      },
-    );
-    await page.goto("/watch");
-    await page.getByRole("tab", { name: "Coverage", exact: true }).click();
-    const company = page.getByTestId("watch-target-watch_northstar");
-    await company.click();
-    await expect(
-      page.getByRole("button", { name: "Confirm website", exact: true }),
-    ).toBeDisabled();
-    await page
-      .getByLabel("Official website URL", { exact: true })
-      .fill("https://northstar-robotics.example/");
-    await page
-      .getByLabel("Why this is the same company", { exact: true })
-      .fill(
-        "The website identifies Northstar Robotics and its robotics business.",
-      );
-    await page
-      .getByRole("button", { name: "Confirm website", exact: true })
-      .click();
-    await expect(company).toContainText("Waiting for first completed check");
-    await expect(
-      page.getByText("Last successful read: None recorded", { exact: true }),
-    ).toBeVisible();
-    await page.reload();
-    await page.getByRole("tab", { name: "Coverage", exact: true }).click();
-    await expect(company).toContainText("Waiting for first completed check");
-    expect(submitted?.rationale).toContain("Northstar Robotics");
   },
 );

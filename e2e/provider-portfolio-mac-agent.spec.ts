@@ -44,45 +44,49 @@ for (const [provider, origin, control] of [
       route.fulfill({ body: html, contentType: "text/html" }),
     );
 
-    await page.route("https://unrelated.example/**", (route) =>
-      route.fulfill({
-        body: '<input type="password"><button>Sign in with a passkey</button>',
-        contentType: "text/html",
-      }),
-    );
-    await page.goto("https://unrelated.example/login");
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
-
-    await page.goto(`${origin}/portfolio`);
     if (!isMobile) {
-      // This placeholder and login link have the same DOM at both widths.
+      await page.route("https://unrelated.example/**", (route) =>
+        route.fulfill({
+          body: '<input type="password"><button>Sign in with a passkey</button>',
+          contentType: "text/html",
+        }),
+      );
+      await page.goto("https://unrelated.example/login");
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("page_not_supported");
+
+      await page.goto(`${origin}/portfolio`);
       await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
       await expect(
         requireProviderPageReady(page, provider, 100),
       ).rejects.toThrow("page_not_supported");
 
-      // A login link in a signed-in page must not count as a login form.
       html = '<a href="/login">Sign in</a><p>Temporarily unavailable</p>';
       await page.reload();
       await expect(
         requireProviderPageReady(page, provider, 100),
       ).rejects.toThrow("page_not_supported");
+
+      for (const form of [
+        '<input type="password"><button>Sign in</button>',
+        '<input autocomplete="one-time-code"><button>Verify</button>',
+        '<input type="email"><button>Sign in</button>',
+      ]) {
+        html = form;
+        await page.reload();
+        await expect(
+          requireProviderPageReady(page, provider, 100),
+        ).rejects.toThrow("provider_sign_in_required");
+      }
     }
 
-    for (const form of [
-      '<input type="password"><button>Sign in</button>',
-      '<input autocomplete="one-time-code"><button>Verify</button>',
-      '<input type="email"><button>Sign in</button>',
-      `${control}<input type="password"><button>Sign in</button>`,
-    ]) {
-      html = form;
-      await page.reload();
-      await expect(
-        requireProviderPageReady(page, provider, 100),
-      ).rejects.toThrow("provider_sign_in_required");
-    }
+    // A real sign-in prompt takes priority over mounted holdings at both widths.
+    html = `${control}<input type="password"><button>Sign in</button>`;
+    await page.goto(`${origin}/portfolio`);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "provider_sign_in_required",
+    );
 
     if (isMobile) {
       // The remote desktop can resize to its viewer before saved-session verification.

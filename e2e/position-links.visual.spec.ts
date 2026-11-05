@@ -311,11 +311,6 @@ test(
     ).toHaveCount(0);
     await expect(section.getByRole("checkbox")).toHaveCount(0);
     await expect(section.getByRole("alert")).toHaveCount(0);
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await expect(page).toHaveScreenshot("position-replacement-review.png", {
-      animations: "disabled",
-      fullPage: true,
-    });
     await section.getByRole("button", { name: "Apply link" }).click();
     await expect(section.getByText(/Historical · replaced/)).toBeVisible();
     await page.reload();
@@ -420,9 +415,6 @@ test(
       name: "About unlinking Demo Orbit Aerospace source",
       exact: true,
     });
-    // Settle the anchor's viewport position before keyboard activation. Opening
-    // during focus scrolling can leave different subpixel popup text rendering.
-    await sourcedInfo.scrollIntoViewIfNeeded();
     await sourcedInfo.press("Space");
     const sourcedPopup = page.getByRole("dialog", {
       name: "About unlinking Demo Orbit Aerospace source",
@@ -432,12 +424,6 @@ test(
       "This link will stop supplying reported value.",
     );
     await expect(sourcedPopup).toContainText("Records and history are kept.");
-    await captureInformationPopup(
-      page,
-      sourcedPopup,
-      sourcedInfo,
-      "position-unlink-sourced-info.png",
-    );
     // An outside tap dismisses the supplementary explanation without a write.
     await section
       .getByRole("heading", { name: "Linked investment records", exact: true })

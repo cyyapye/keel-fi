@@ -1160,3 +1160,34 @@ Mobile owns the full goal swipe and edit journey. Ordinary CSV export still
 checks the selected fields, and real API tests verify shape, scope and order.
 Retired states include the wide post-swipe images and the export panel's
 collapse and error behavior above a 140-entity list.
+
+The
+[145-case Linux run](https://github.com/cyyapye/keel-fi/actions/runs/42059207881)
+passed on its first attempt. Browsers took 313.098 seconds and the complete gate
+took 867.117 seconds. The four worker slots finished within 12 seconds of each
+other. The next review retires 17 executions distributed across those slots.
+They accounted for 148.838 summed worker-seconds in that run. The candidate has
+128 required browser executions, 15 explicit browser exclusions and 129 Linux
+reference images.
+
+- The production Watch sorter now runs against 125 observations in a unit test.
+  Ranking by attention, absolute timestamps and searching beyond the first page
+  are covered. Removing priority or slicing before search failed the new test.
+  The separate mounted paging tour and missing-website form submission retire.
+  D1 still checks household identity, recorded approval and verification state.
+- Ordinary provider tests keep foreign-origin rejection on desktop and a sign-in
+  challenge over mounted holdings at both widths. The real five-start Sydecar
+  renewal stays intact. Reusing one live browser for several renewals left two
+  pages open where the test required one. Localized portfolio-chunk failure and
+  the legacy estimate disclosure in the news tour lose dedicated browser checks.
+- Purchase and review keep real financial writes, stale correction, explicit
+  consent, document access and reloads. A candidate that dropped cross-class
+  consent from the request failed the retained case. Historical closure and SPV
+  amendment permutations give up dedicated editor pixels. D1 still verifies
+  history preservation at 120 positions.
+- One real SPV contribution journey now covers its cash and estimate, later
+  purchase date, edited cash and clearing. Mobile retains the unknown Direct
+  holding save and readback. Desktop can still produce the design capture.
+  Position replacement, unlink, failed drafts, reopen and keyboard return remain
+  covered. Secondary history, alternate workspace exits and duplicate
+  legal-search and Overview interactions retire.

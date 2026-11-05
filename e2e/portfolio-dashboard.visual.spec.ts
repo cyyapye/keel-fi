@@ -392,63 +392,21 @@ test(
 );
 
 test(
-  "preserves supported DPI when current private values cannot support TVPI",
-  { tag: "@mobile-only" },
-  async ({ page }) => {
-    const view = performanceHoldingsView();
-    for (const position of view.exposureView.positions) {
-      if (position.reviewedInvestment?.terms.reportedValueReview) {
-        position.reviewedInvestment.terms.reportedValueReview.carryStatus =
-          "unknown";
-      }
-    }
-    await page.route("**/api/investment-holdings", (route) =>
-      route.fulfill({ json: view }),
-    );
-    await page.goto("/");
-    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-    const metrics = snapshot.locator(".portfolio-snapshot__metrics");
-    await expect(metrics).toContainText("+25.0%");
-    await expect(metrics).toContainText("5 of 12 holdings");
-    await expect(
-      metrics
-        .locator("[data-slot='data-item']")
-        .filter({ hasText: "Private TVPI" }),
-    ).toContainText("—");
-    await expect(metrics).toContainText("0.20×");
-    await expect(metrics).not.toContainText("0.00×");
-    await expectNoHorizontalOverflow(page);
-    await page.addStyleTag({
-      content: ".topbar { visibility: hidden !important; }",
-    });
-    await expect(snapshot).toHaveScreenshot(
-      "portfolio-performance-incomplete.png",
-      { animations: "disabled" },
-    );
-    await snapshot.getByRole("button", { name: "Performance basis" }).click();
-    await expect(snapshot).toContainText(
-      "TVPI and DPI cover different holdings",
-    );
-    await expectNoHorizontalOverflow(page);
-    await expect(
-      snapshot.locator(".portfolio-snapshot__basis"),
-    ).toHaveScreenshot("portfolio-performance-basis-incomplete.png", {
-      animations: "disabled",
-    });
-  },
-);
-
-test(
   "keeps empty performance unavailable and recovers from a snapshot failure",
   { tag: "@mobile-only" },
   async ({ page }) => {
+    const recovered = performanceHoldingsView(unchangedHoldingsView);
+    for (const position of recovered.exposureView.positions) {
+      const review = position.reviewedInvestment?.terms.reportedValueReview;
+      if (review) review.carryStatus = "unknown";
+    }
     let fail = true;
     await page.route("**/api/investment-holdings", async (route) => {
       holdingsRequestCount += 1;
       await route.fulfill(
         fail
           ? { status: 503, json: { error: "unavailable" } }
-          : { json: performanceHoldingsView(unchangedHoldingsView) },
+          : { json: recovered },
       );
     });
     await page.goto("/");
@@ -465,7 +423,21 @@ test(
     );
     fail = false;
     await snapshot.getByRole("button", { name: "Try again" }).click();
-    await expect(snapshot).toContainText("+76.8%");
+    const recoveredMetrics = snapshot.locator(".portfolio-snapshot__metrics");
+    await expect(recoveredMetrics).toContainText("+25.0%");
+    await expect(recoveredMetrics).toContainText("5 of 12 holdings");
+    await expect(
+      recoveredMetrics
+        .locator("[data-slot='data-item']")
+        .filter({ hasText: "Private TVPI" }),
+    ).toContainText("—");
+    await expect(recoveredMetrics).toContainText("0.20×");
+    await expect(recoveredMetrics).not.toContainText("0.00×");
+    await snapshot.getByRole("button", { name: "Performance basis" }).click();
+    await expect(snapshot).toContainText(
+      "TVPI and DPI cover different holdings",
+    );
+
     expect(holdingsRequestCount).toBe(2);
     expect(baselineRequestCount).toBe(2);
     const movers = snapshot.locator(".portfolio-movers");

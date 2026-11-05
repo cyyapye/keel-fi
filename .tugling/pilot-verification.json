@@ -237,6 +237,7 @@
         "scripts/sydecar-session-expiry.test.ts",
         "scripts/position-link-suggestion.test.ts",
         "apps/web/src/collection-search.test.ts",
+        "apps/web/src/portfolio-watch-format.test.ts",
         "scripts/ui-design-review.test.ts",
         "scripts/ui-design-review.ts",
         "scripts/watchdog-removal.test.ts",

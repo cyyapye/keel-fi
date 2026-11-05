@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./api-mocked-test";
 import type { PositionEconomicsTerms } from "../packages/domain/src/position-economics";
 import type { PositionValueAdjustment } from "../packages/domain/src/position-value";
@@ -34,6 +35,168 @@ async function expectNoHorizontalOverflow(page: Page) {
     scroll: document.documentElement.scrollWidth,
   }));
   expect(widths.scroll).toBe(widths.client);
+}
+
+async function checkOverviewAndAssignMatch(
+  page: Page,
+  harborExposure: Locator,
+  harborAction: Locator,
+) {
+  const northstarExposure = page.locator(".exposure-group").filter({
+    has: page.getByText("Northstar Robotics", { exact: true }),
+  });
+  const publicExposure = page.locator(".exposure-group").filter({
+    has: page.locator(
+      '.exposure-group__summary strong[title="Synthetic Public Company"]',
+    ),
+  });
+  await northstarExposure.locator(".exposure-group__summary").click();
+  await publicExposure.locator(".exposure-group__summary").click();
+  await expect(
+    harborExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("%");
+  await expect(
+    harborExposure.locator(".exposure-group__performance"),
+  ).toHaveCount(0);
+  await expect(
+    publicExposure.locator(".exposure-group__summary"),
+  ).toContainText("Basis $183k · +30% total return");
+  await expect(publicExposure.locator(".exposure-group__quote")).toHaveText(
+    "$190.4/share · Aug 10, 2026",
+  );
+  await expect(publicExposure.getByText(/\$190\.4\/share/u)).toHaveCount(1);
+  await expect(
+    publicExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Cost basis");
+  await expect(
+    publicExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Return");
+  await expect(
+    harborExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Cost basis");
+  await expect(
+    harborExposure.locator(".exposure-group__summary"),
+  ).not.toContainText("Return");
+  expect(
+    await page.locator(".exposure-group__performance").evaluateAll((elements) =>
+      elements.map((element) => {
+        const styles = window.getComputedStyle(element);
+        return {
+          fitsWidth: element.scrollWidth <= element.clientWidth,
+          fitsThreeLines:
+            element.getBoundingClientRect().height <=
+            Number.parseFloat(styles.lineHeight) * 3 + 1,
+        };
+      }),
+    ),
+  ).toEqual([
+    { fitsWidth: true, fitsThreeLines: true },
+    { fitsWidth: true, fitsThreeLines: true },
+  ]);
+  await expect(
+    northstarExposure.locator(".exposure-group__summary"),
+  ).toContainText("Basis $400k · +200% total return");
+
+  await expect(harborAction).toHaveAttribute("data-slot", "text-link");
+  await expect(
+    harborAction.getByText("Details", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Beacon Demo SPV", { exact: true }),
+  ).toBeVisible();
+  await expect(harborExposure).not.toContainText("Demo Family LLC");
+  await expect(
+    page.getByRole("button", {
+      name: "View Seed preferred holding details",
+    }),
+  ).toHaveText("Details");
+  await expect(
+    page.getByRole("heading", { name: "Company holdings" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Administrator-reported value as of the source date."),
+  ).toHaveCount(0);
+  await expect(page.getByText("Verified")).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(page.locator(".screen-stack")).toHaveScreenshot(
+    "holdings-overview.png",
+    {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    },
+  );
+
+  await page.reload();
+  await expect(page).toHaveURL(/\/holdings$/u);
+  await page.addStyleTag({
+    content: `
+      .topbar,
+      .mobile-nav {
+        visibility: hidden !important;
+      }
+    `,
+  });
+  await expect(harborExposure).toContainText("2 positions");
+  await harborExposure.locator(".exposure-group__summary").click();
+  await expect(harborExposure.getByText("Beacon Demo SPV")).toBeVisible();
+  await expect(harborExposure.getByText("Summit Demo SPV")).toBeVisible();
+  await expect(
+    page.locator(".exposure-group").filter({
+      has: page.getByText("Lattice Grove Energy", { exact: true }),
+    }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
+  ).toBeVisible();
+  await expect(page.locator(".unallocated-positions__status")).toContainText(
+    "Company unresolved",
+  );
+  const chooseCompany = page.getByRole("button", {
+    name: "Choose company for Ridge Demo SPV",
+  });
+  await expect(chooseCompany).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await page.getByRole("button", { name: "Assign 1 exact match" }).click();
+  await expect(
+    page.getByText(
+      "1 position now groups under 1 company. Legal positions and values stayed unchanged.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.locator(".exposure-group").filter({
+      has: page.getByText("Lattice Grove Energy", { exact: true }),
+    }),
+  ).toHaveCount(1);
+  await expect(
+    page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
+  ).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      if (await harborAction.isVisible()) {
+        return true;
+      }
+      const isOpen =
+        (await harborExposure
+          .locator(".exposure-group__summary")
+          .getAttribute("aria-expanded")) === "true";
+      if (!isOpen) {
+        await harborExposure.locator(".exposure-group__summary").click();
+      }
+      return harborAction.isVisible();
+    })
+    .toBe(true);
+  await expect(harborAction).toBeVisible();
 }
 
 test("leads with the investment and opens a truthful holding detail", async ({
@@ -332,169 +495,18 @@ test("leads with the investment and opens a truthful holding detail", async ({
   const harborExposure = page.locator(".exposure-group").filter({
     has: page.getByText("Harbor Health Systems", { exact: true }),
   });
-  const northstarExposure = page.locator(".exposure-group").filter({
-    has: page.getByText("Northstar Robotics", { exact: true }),
-  });
-  const publicExposure = page.locator(".exposure-group").filter({
-    has: page.locator(
-      '.exposure-group__summary strong[title="Synthetic Public Company"]',
-    ),
-  });
-  await harborExposure.locator(".exposure-group__summary").click();
-  await northstarExposure.locator(".exposure-group__summary").click();
-  await publicExposure.locator(".exposure-group__summary").click();
-  await expect(
-    harborExposure.locator(".exposure-group__summary"),
-  ).not.toContainText("%");
-  await expect(
-    harborExposure.locator(".exposure-group__performance"),
-  ).toHaveCount(0);
-  await expect(
-    publicExposure.locator(".exposure-group__summary"),
-  ).toContainText("Basis $183k · +30% total return");
-  await expect(publicExposure.locator(".exposure-group__quote")).toHaveText(
-    "$190.4/share · Aug 10, 2026",
-  );
-  await expect(publicExposure.getByText(/\$190\.4\/share/u)).toHaveCount(1);
-  await expect(
-    publicExposure.locator(".exposure-group__summary"),
-  ).not.toContainText("Cost basis");
-  await expect(
-    publicExposure.locator(".exposure-group__summary"),
-  ).not.toContainText("Return");
-  await expect(
-    harborExposure.locator(".exposure-group__summary"),
-  ).not.toContainText("Cost basis");
-  await expect(
-    harborExposure.locator(".exposure-group__summary"),
-  ).not.toContainText("Return");
-  expect(
-    await page.locator(".exposure-group__performance").evaluateAll((elements) =>
-      elements.map((element) => {
-        const styles = window.getComputedStyle(element);
-        return {
-          fitsWidth: element.scrollWidth <= element.clientWidth,
-          fitsThreeLines:
-            element.getBoundingClientRect().height <=
-            Number.parseFloat(styles.lineHeight) * 3 + 1,
-        };
-      }),
-    ),
-  ).toEqual([
-    { fitsWidth: true, fitsThreeLines: true },
-    { fitsWidth: true, fitsThreeLines: true },
-  ]);
-  await expect(
-    northstarExposure.locator(".exposure-group__summary"),
-  ).toContainText("Basis $400k · +200% total return");
   const harborAction = page.getByRole("button", {
     name: "View Beacon Demo SPV holding details",
   });
-  await expect(harborAction).toHaveAttribute("data-slot", "text-link");
-  await expect(
-    harborAction.getByText("Details", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Beacon Demo SPV", { exact: true }),
-  ).toBeVisible();
-  await expect(harborExposure).not.toContainText("Demo Family LLC");
-  await expect(
-    page.getByRole("button", {
-      name: "View Seed preferred holding details",
-    }),
-  ).toHaveText("Details");
-  await expect(
-    page.getByRole("heading", { name: "Company holdings" }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Administrator-reported value as of the source date."),
-  ).toHaveCount(0);
-  await expect(page.getByText("Verified")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-  });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-overview.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
-
-  await page.reload();
-  await expect(page).toHaveURL(/\/holdings$/u);
-  await page.addStyleTag({
-    content: `
-      .topbar,
-      .mobile-nav {
-        visibility: hidden !important;
-      }
-    `,
-  });
-  await expect(harborExposure).toContainText("2 positions");
   await harborExposure.locator(".exposure-group__summary").click();
-  await expect(harborExposure.getByText("Beacon Demo SPV")).toBeVisible();
-  await expect(harborExposure.getByText("Summit Demo SPV")).toBeVisible();
-  await expect(
-    page.locator(".exposure-group").filter({
-      has: page.getByText("Lattice Grove Energy", { exact: true }),
-    }),
-  ).toHaveCount(0);
-  await expect(
-    page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
-  ).toBeVisible();
-  await expect(page.locator(".unallocated-positions__status")).toContainText(
-    "Company unresolved",
-  );
-  const chooseCompany = page.getByRole("button", {
-    name: "Choose company for Ridge Demo SPV",
-  });
-  await expect(chooseCompany).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await page.getByRole("button", { name: "Assign 1 exact match" }).click();
-  await expect(
-    page.getByText(
-      "1 position now groups under 1 company. Legal positions and values stayed unchanged.",
-    ),
-  ).toBeVisible();
-  await expect(
-    page.locator(".exposure-group").filter({
-      has: page.getByText("Lattice Grove Energy", { exact: true }),
-    }),
-  ).toHaveCount(1);
-  await expect(
-    page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
-  ).toHaveCount(0);
-  const reopenedHarborAction = harborExposure.getByRole("button", {
-    name: "View Beacon Demo SPV holding details",
-  });
-  await expect
-    .poll(async () => {
-      if (await reopenedHarborAction.isVisible()) {
-        return true;
-      }
-      const isOpen =
-        (await harborExposure
-          .locator(".exposure-group__summary")
-          .getAttribute("aria-expanded")) === "true";
-      if (!isOpen) {
-        await harborExposure.locator(".exposure-group__summary").click();
-      }
-      return reopenedHarborAction.isVisible();
-    })
-    .toBe(true);
-  await expect(reopenedHarborAction).toBeVisible();
-
-  await reopenedHarborAction.click();
+  if (mobile) {
+    await page.addStyleTag({
+      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+  } else {
+    await checkOverviewAndAssignMatch(page, harborExposure, harborAction);
+  }
+  await harborAction.click();
   const detailHeading = page.getByRole("heading", {
     level: 2,
     name: "Harbor Health Systems",
