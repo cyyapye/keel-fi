@@ -18,10 +18,19 @@ import {
 
 async function setup(
   page: Page,
-  conflict = false,
-  backgroundCount = 0,
-  netImported = false,
-  purchaseFlow = false,
+  {
+    conflict = false,
+    backgroundCount = 0,
+    netImported = false,
+    purchaseFlow = false,
+    entry = "review",
+  }: {
+    conflict?: boolean;
+    backgroundCount?: number;
+    netImported?: boolean;
+    purchaseFlow?: boolean;
+    entry?: "inventory" | "review";
+  } = {},
 ) {
   const doc = {
     id: "11111111-1111-4111-8111-111111111111",
@@ -196,18 +205,24 @@ async function setup(
       { id: "position_demo_growth_v", label: "Demo Growth V LLC" },
     ],
   });
-  await page.goto("/holdings/entities");
-  await page.getByRole("button", { name: /^Needs your review/u }).click();
-  expect(fixture.reads()).toBe(0);
-  const row = page.locator(".legal-entity-candidate").filter({
-    has: page.getByRole("heading", { name: /^Demo Growth IV(?: LLC)?$/u }),
-  });
-  await row
-    .getByRole("button", {
-      name: conflict ? "Resolve name" : "Review details",
-      exact: true,
-    })
-    .click();
+  if (entry === "inventory") {
+    await page.goto("/holdings/entities");
+    await page.getByRole("button", { name: /^Needs your review/u }).click();
+    expect(fixture.reads()).toBe(0);
+    const row = page.locator(".legal-entity-candidate").filter({
+      has: page.getByRole("heading", { name: /^Demo Growth IV(?: LLC)?$/u }),
+    });
+    await row
+      .getByRole("button", {
+        name: conflict ? "Resolve name" : "Review details",
+        exact: true,
+      })
+      .click();
+  } else {
+    await page.goto(
+      "/holdings/entities?review=holding_position%3Aposition_demo_growth_iv&tab=identity",
+    );
+  }
   const review = page.getByRole("region", {
     name: "Investment review",
     exact: true,
@@ -279,7 +294,10 @@ test("keeps first-company assignment in Holdings instead of offering a second le
 test("navigates both ways through pending reviews, including wrapping, reload and browser history", async ({
   page,
 }, testInfo) => {
-  const { inventory, row, snapshotStyle } = await setup(page, false, 3);
+  const { inventory, row, snapshotStyle } = await setup(page, {
+    backgroundCount: 3,
+    entry: "inventory",
+  });
   await snapshotStyle.evaluate((style) => {
     style.parentNode?.removeChild(style);
   });
@@ -365,7 +383,10 @@ test("navigates both ways through pending reviews, including wrapping, reload an
 test("navigates after a saved review leaves the queue and hides arrows for its only remaining item", async ({
   page,
 }) => {
-  const { inventory, row } = await setup(page, false, 3);
+  const { inventory, row } = await setup(page, {
+    backgroundCount: 3,
+    entry: "inventory",
+  });
   for (const candidate of inventory.candidates.slice(1))
     await routeInvestmentReview(page, candidate);
   await page.route("**/api/legal-entities", async (route) => {
@@ -453,7 +474,11 @@ test("opens the supported entity name after moving a different investment's agre
       configurable: true,
     });
   });
-  const { review, row, source, context } = await setup(page, true, 40);
+  const { review, row, source, context } = await setup(page, {
+    conflict: true,
+    backgroundCount: 40,
+    entry: "inventory",
+  });
   await expect(page.locator(".legal-entity-candidate")).toHaveCount(25);
   await selectReviewSection(page, "Ownership");
   await review
@@ -1147,10 +1172,9 @@ test("uses responsive section navigation, keeps focus rings visible, and leaves 
 test("shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection", async ({
   page,
 }) => {
-  const { review, writes, context, rejectWrites, source } = await setup(
-    page,
-    true,
-  );
+  const { review, writes, context, rejectWrites, source } = await setup(page, {
+    conflict: true,
+  });
   await selectReviewSection(page, "Documents");
   let first = review.getByRole("article", {
     name: "demo-growth-subscription.pdf",

@@ -593,12 +593,7 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
   await page.route("**/api/watch/activity**", async (route) =>
     route.fulfill({ json: PortfolioWatchActivitySchema.parse(state) }),
   );
-  await page.goto("/");
-  await navigateToScreen(
-    page,
-    testInfo.project.name === "mobile-chromium",
-    /Watch/,
-  );
+  await page.goto("/watch");
   const summary = page.getByTestId("portfolio-watch-control");
   await expect(summary).toContainText("No new updates from those sources");
   // A successful check is not full portfolio coverage when companies lack sources.
@@ -606,11 +601,6 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
     "Monitoring limited",
   );
   await page.reload();
-  await navigateToScreen(
-    page,
-    testInfo.project.name === "mobile-chromium",
-    /Watch/,
-  );
   await expect(summary).toContainText("Last attempt Aug 2, 2026");
   state = {
     ...state,
@@ -649,11 +639,6 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
     ],
   };
   await page.reload();
-  await navigateToScreen(
-    page,
-    testInfo.project.name === "mobile-chromium",
-    /Watch/,
-  );
   await expect(summary).toContainText(
     "0 of 3 pages and feeds read · 3 unavailable",
   );
@@ -694,11 +679,6 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
     ],
   };
   await page.reload();
-  await navigateToScreen(
-    page,
-    testInfo.project.name === "mobile-chromium",
-    /Watch/,
-  );
   await expect(summary).toContainText("This check did not finish");
   await expect(summary.locator(".watch-check-title")).toHaveText(
     "Last check timed out",
@@ -730,7 +710,7 @@ test("keeps empty, failed and timed-out checks distinct and restores saved histo
 
 test("bounds the company list and recovers an activity read failure", async ({
   page,
-}, testInfo) => {
+}) => {
   const companies = Array.from({ length: 120 }, (_, index) => ({
     id: `synthetic-company-${index}`,
     officialHost: `synthetic-company-${index}.example`,
@@ -783,12 +763,7 @@ test("bounds the company list and recovers an activity read failure", async ({
       oldSearchSettled = true;
     } else await response;
   });
-  await page.goto("/");
-  await navigateToScreen(
-    page,
-    testInfo.project.name === "mobile-chromium",
-    /Watch/,
-  );
+  await page.goto("/watch");
   await expect(
     page.getByText("Couldn’t load source activity. Try again."),
   ).toBeVisible();
@@ -872,7 +847,7 @@ test("bounds the company list and recovers an activity read failure", async ({
 
 test("puts pending updates first and searches the full history before paging", async ({
   page,
-}, testInfo) => {
+}) => {
   const alpha = (await (await page.request.get("/api/alpha")).json()) as Record<
     string,
     unknown
@@ -909,11 +884,6 @@ test("puts pending updates first and searches the full history before paging", a
     }),
   );
   await page.goto("/watch");
-  await navigateToScreen(
-    page,
-    testInfo.project.name === "mobile-chromium",
-    /Watch/,
-  );
   await expect(page.getByRole("tab", { name: "Updates" })).toHaveAttribute(
     "aria-selected",
     "true",
