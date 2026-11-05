@@ -14,6 +14,9 @@ import {
   purchaseFeeSummary,
 } from "../packages/domain/src/position-purchases";
 
+const captureDesignReview = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
+const captureStyle = ".topbar, .mobile-nav { visibility: hidden !important; }";
+
 test.use({ timezoneId: "UTC" });
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-11-01T18:45:00.000Z"));
@@ -190,13 +193,15 @@ test(
     ).toHaveValue("Synthetic manual owner");
     expect(submissions).toBe(1);
     await expect(page).toHaveURL(/\/holdings\/new$/u);
-    await testInfo.attach("database-quota-retained-draft", {
-      body: await page.screenshot({
-        path: testInfo.outputPath("database-quota-retained-draft.png"),
-        fullPage: true,
-      }),
-      contentType: "image/png",
-    });
+    if (captureDesignReview) {
+      await testInfo.attach("database-quota-retained-draft", {
+        body: await page.screenshot({
+          path: testInfo.outputPath("database-quota-retained-draft.png"),
+          fullPage: true,
+        }),
+        contentType: "image/png",
+      });
+    }
   },
 );
 
@@ -272,16 +277,16 @@ test("persists and reopens an unassigned Direct holding with unknown financial f
       }),
     },
   ]);
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await testInfo.attach("manual-unknown-financial-facts", {
-    body: await page.locator(".spv-holding").screenshot({
-      path: testInfo.outputPath("manual-unknown-financial-facts.png"),
-      animations: "disabled",
-    }),
-    contentType: "image/png",
-  });
+  if (captureDesignReview) {
+    await testInfo.attach("manual-unknown-financial-facts", {
+      body: await page.locator(".spv-holding").screenshot({
+        path: testInfo.outputPath("manual-unknown-financial-facts.png"),
+        animations: "disabled",
+        style: captureStyle,
+      }),
+      contentType: "image/png",
+    });
+  }
   await page
     .getByRole("button", { name: "Add investment details", exact: true })
     .click();
@@ -484,13 +489,13 @@ test("keeps explicit zero cash separate from a dated estimate through valuation 
       locator: history.getByRole("button", { name: /Holding created/u }),
     },
   ]);
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await history.screenshot({
-    path: testInfo.outputPath("manual-identity-history.png"),
-    animations: "disabled",
-  });
+  if (captureDesignReview) {
+    await history.screenshot({
+      path: testInfo.outputPath("manual-identity-history.png"),
+      animations: "disabled",
+      style: captureStyle,
+    });
+  }
 });
 
 test("shows contributed cash beside an estimate without inventing fees, capital or return, and preserves a later purchase date", async ({
@@ -563,16 +568,16 @@ test("shows contributed cash beside an estimate without inventing fees, capital 
       }),
     },
   ]);
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await testInfo.attach("manual-cash-and-estimate", {
-    body: await detail.screenshot({
-      path: testInfo.outputPath("manual-cash-and-estimate.png"),
-      animations: "disabled",
-    }),
-    contentType: "image/png",
-  });
+  if (captureDesignReview) {
+    await testInfo.attach("manual-cash-and-estimate", {
+      body: await detail.screenshot({
+        path: testInfo.outputPath("manual-cash-and-estimate.png"),
+        animations: "disabled",
+        style: captureStyle,
+      }),
+      contentType: "image/png",
+    });
+  }
   const created = await readResponse(
     await createdRequest.response(),
     positionId,

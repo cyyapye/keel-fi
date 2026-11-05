@@ -606,6 +606,7 @@ test("starts with compact triage and a visible entity inventory", async ({
   page,
   isMobile,
 }, testInfo) => {
+  const captureDesignReview = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
   if (isMobile) await page.setViewportSize({ width: 393, height: 680 });
   await page.clock.setFixedTime(new Date("2026-09-01T12:00:00.000Z"));
   await routeHoldingsPage(page, {
@@ -647,7 +648,11 @@ test("starts with compact triage and a visible entity inventory", async ({
   // Scope must be legible before optional detail is opened.
   await expect(summary).toContainText("2 sources remain outside this batch.");
   await expect(page.getByText("Needs review", { exact: true })).toHaveCount(0);
-  await page.screenshot({ path: testInfo.outputPath("initial-viewport.png") });
+  if (captureDesignReview) {
+    await page.screenshot({
+      path: testInfo.outputPath("initial-viewport.png"),
+    });
+  }
   await expect(batchAction).toBeInViewport({ ratio: 1 });
   const details = page.getByRole("button", { name: "Batch details" });
   expect((await details.boundingBox())?.height).toBeGreaterThanOrEqual(44);
@@ -667,9 +672,11 @@ test("starts with compact triage and a visible entity inventory", async ({
   await expect(page.locator(".legal-entity-exact-batch")).toHaveScreenshot(
     "legal-entities-batch-details.png",
   );
-  await page.screenshot({
-    path: testInfo.outputPath("batch-details-viewport.png"),
-  });
+  if (captureDesignReview) {
+    await page.screenshot({
+      path: testInfo.outputPath("batch-details-viewport.png"),
+    });
+  }
   if (isMobile) {
     await details.click();
     await page.setViewportSize({ width: 320, height: 680 });
