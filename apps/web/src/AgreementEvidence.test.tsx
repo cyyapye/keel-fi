@@ -45,16 +45,10 @@ test("explains each blocked agreement without exposing a download or an assignme
     const blocked = render(document);
     expect(blocked).toContain(document.fileName);
     expect(blocked).toContain(explanation);
-    const actions = actionLabels(blocked);
-    expect(
-      actions.filter((label) => label.includes("Recheck agreement")),
-    ).toHaveLength(1);
-    expect(actions.some((label) => label.includes(document.fileName))).toBe(
-      false,
-    );
-    expect(actions.some((label) => label.includes("Review details"))).toBe(
-      false,
-    );
+    expect(actionLabels(blocked).sort()).toEqual([
+      "Recheck agreement",
+      "Source evidence",
+    ]);
 
     const cleared = render({
       ...document,
