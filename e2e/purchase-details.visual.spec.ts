@@ -311,6 +311,7 @@ test("holding summary pairs value and return and keeps fees in Investment", asyn
 
 test("valuation choices compare both amounts and preserve investment shares after save", async ({
   page,
+  isMobile,
 }) => {
   const state = await setup(page, (r) => {
     r.details.valuation!.records[0]!.totalMinor = 1_748_000;
@@ -344,6 +345,7 @@ test("valuation choices compare both amounts and preserve investment shares afte
   expect(state.receipt().details.lots[0]!.remainingSharesMicros).toBe(
     84_400_000,
   );
+  if (isMobile) return;
   await page.reload();
   await page.getByRole("button", { name: "Edit valuation" }).click();
   await expect(
@@ -377,136 +379,144 @@ test("valuation choices compare both amounts and preserve investment shares afte
   );
 });
 
-test("returns use complete fee estimates without treating unknown fees as zero", async ({
-  page,
-}) => {
-  await setup(page, (r) => {
-    const lot = r.details.lots[0]!;
-    lot.netCapitalMinor = null;
-    lot.upfrontDeductionsMinor = null;
-    for (const fee of lot.fees!) {
-      fee.method = "percentage";
-      fee.paidMinor = null;
-    }
-  });
-  await expect(
-    page.getByRole("group", { name: "Invested capital" }),
-  ).toContainText("Estimated net invested$8,440.00");
-  await expect(
-    page.getByRole("group", {
-      name: "Reported value · Before carry",
-      exact: true,
-    }),
-  ).toContainText("+100.00%");
-  await expect(
-    page.getByRole("group", {
-      name: "Estimated value · After carry",
-      exact: true,
-    }),
-  ).toContainText("+85.99%");
-  await page.getByRole("button", { name: "Calculation", exact: true }).click();
-  await expect(page.locator(".holding-calculation")).toContainText(
-    "Estimated net capital$8,440.00",
-  );
-  await page.getByRole("button", { name: "Edit investment" }).click();
-  await select(page, "Upfront fees", "Some fees are unknown");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.locator(".holding-value-return")).toHaveCount(0);
-  await expect(
-    page.getByRole("group", { name: "Invested capital" }),
-  ).toContainText("Cash retained · includes fees$9,000.00");
-  await screenshot(page, "investment-retained-cash.png");
-});
-
-test("new acquisitions can be removed without discarding other investment edits", async ({
-  page,
-}) => {
-  const state = await setup(page);
-  await page.getByRole("button", { name: "Edit investment" }).click();
-  await page
-    .getByRole("textbox", { name: "Cash paid · $", exact: true })
-    .fill("11000");
-  await page
-    .getByRole("button", { name: "Add acquisition", exact: true })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Acquisition 2", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Remove acquisition 1", exact: true }),
-  ).toHaveCount(0);
-  await screenshot(page, "acquisition-draft.png");
-  await page
-    .getByRole("button", { name: "Remove acquisition 2", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Add acquisition", exact: true }),
-  ).toBeFocused();
-  await expect(
-    page.getByRole("textbox", { name: "Cash paid · $", exact: true }),
-  ).toHaveValue("11000");
-  await expect(page.locator(".holding-acquisition")).toHaveCount(1);
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  expect(state.receipt().details.lots[0]!.grossCashMinor).toBe(1_000_000);
-});
-
-test("saved history distinguishes same-day changes and avoids a duplicate current valuation", async ({
-  page,
-}) => {
-  await setup(page);
-  for (const value of ["18000", "19000"]) {
-    await page.getByRole("button", { name: "Edit valuation" }).click();
-    await page
-      .getByRole("textbox", { name: "Position total · $", exact: true })
-      .fill(value);
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+test(
+  "returns use complete fee estimates without treating unknown fees as zero",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await setup(page, (r) => {
+      const lot = r.details.lots[0]!;
+      lot.netCapitalMinor = null;
+      lot.upfrontDeductionsMinor = null;
+      for (const fee of lot.fees!) {
+        fee.method = "percentage";
+        fee.paidMinor = null;
+      }
+    });
     await expect(
-      page.getByRole("button", { name: "Edit valuation" }),
+      page.getByRole("group", { name: "Invested capital" }),
+    ).toContainText("Estimated net invested$8,440.00");
+    await expect(
+      page.getByRole("group", {
+        name: "Reported value · Before carry",
+        exact: true,
+      }),
+    ).toContainText("+100.00%");
+    await expect(
+      page.getByRole("group", {
+        name: "Estimated value · After carry",
+        exact: true,
+      }),
+    ).toContainText("+85.99%");
+    await page
+      .getByRole("button", { name: "Calculation", exact: true })
+      .click();
+    await expect(page.locator(".holding-calculation")).toContainText(
+      "Estimated net capital$8,440.00",
+    );
+    await page.getByRole("button", { name: "Edit investment" }).click();
+    await select(page, "Upfront fees", "Some fees are unknown");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.locator(".holding-value-return")).toHaveCount(0);
+    await expect(
+      page.getByRole("group", { name: "Invested capital" }),
+    ).toContainText("Cash retained · includes fees$9,000.00");
+    await screenshot(page, "investment-retained-cash.png");
+  },
+);
+
+test(
+  "new acquisitions can be removed without discarding other investment edits",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const state = await setup(page);
+    await page.getByRole("button", { name: "Edit investment" }).click();
+    await page
+      .getByRole("textbox", { name: "Cash paid · $", exact: true })
+      .fill("11000");
+    await page
+      .getByRole("button", { name: "Add acquisition", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Acquisition 2", exact: true }),
     ).toBeVisible();
-  }
-  await page
-    .getByRole("button", { name: "Sources & history", exact: true })
-    .click();
-  const history = page.locator(".holding-receipt-history");
-  await expect(history).toContainText(
-    "Valuation · Synthetic GP $19,000.00 · before carry",
-  );
-  await expect(history).toContainText(
-    "Valuation · Synthetic GP $18,000.00 · before carry",
-  );
-  await expect(history.locator("time")).toHaveText([
-    "Oct 1, 2026, 12:00 PM",
-    "Oct 1, 2026, 12:00 PM",
-    "Oct 1, 2026, 12:00 PM",
-  ]);
-  await expect(history.locator("time").first()).toHaveAttribute(
-    "datetime",
-    "2026-10-01T12:00:02.000Z",
-  );
-  await expect(page.locator(".holding-history > div > p")).toHaveText(
-    "Synthetic GP · Sep 30, 2026",
-  );
-  await expect(page.locator(".holding-history > div > .data-list")).toHaveCount(
-    0,
-  );
-  await expect(
-    page.getByRole("heading", {
+    await expect(
+      page.getByRole("button", { name: "Remove acquisition 1", exact: true }),
+    ).toHaveCount(0);
+    await screenshot(page, "acquisition-draft.png");
+    await page
+      .getByRole("button", { name: "Remove acquisition 2", exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Add acquisition", exact: true }),
+    ).toBeFocused();
+    await expect(
+      page.getByRole("textbox", { name: "Cash paid · $", exact: true }),
+    ).toHaveValue("11000");
+    await expect(page.locator(".holding-acquisition")).toHaveCount(1);
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(state.receipt().details.lots[0]!.grossCashMinor).toBe(1_000_000);
+  },
+);
+
+test(
+  "saved history distinguishes same-day changes and avoids a duplicate current valuation",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await setup(page);
+    for (const value of ["18000", "19000"]) {
+      await page.getByRole("button", { name: "Edit valuation" }).click();
+      await page
+        .getByRole("textbox", { name: "Position total · $", exact: true })
+        .fill(value);
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(
+        page.getByRole("button", { name: "Edit valuation" }),
+      ).toBeVisible();
+    }
+    await page
+      .getByRole("button", { name: "Sources & history", exact: true })
+      .click();
+    const history = page.locator(".holding-receipt-history");
+    await expect(history).toContainText(
+      "Valuation · Synthetic GP $19,000.00 · before carry",
+    );
+    await expect(history).toContainText(
+      "Valuation · Synthetic GP $18,000.00 · before carry",
+    );
+    await expect(history.locator("time")).toHaveText([
+      "Oct 1, 2026, 12:00 PM",
+      "Oct 1, 2026, 12:00 PM",
+      "Oct 1, 2026, 12:00 PM",
+    ]);
+    await expect(history.locator("time").first()).toHaveAttribute(
+      "datetime",
+      "2026-10-01T12:00:02.000Z",
+    );
+    await expect(page.locator(".holding-history > div > p")).toHaveText(
+      "Synthetic GP · Sep 30, 2026",
+    );
+    await expect(
+      page.locator(".holding-history > div > .data-list"),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", {
+        name: "Linked investment records",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const disclosure = page.getByRole("button", {
       name: "Linked investment records",
       exact: true,
-    }),
-  ).toBeVisible();
-  const disclosure = page.getByRole("button", {
-    name: "Linked investment records",
-    exact: true,
-  });
-  await expect(disclosure).toHaveAttribute("aria-expanded", "false");
-  const newest = history.locator('[data-slot="collapsible"]').first();
-  await newest.getByRole("button").click();
-  await expect(newest).toContainText("$18,000.00 → $19,000.00");
-  await expect(newest).not.toContainText("Cash paid");
-  await expect(newest).not.toContainText("Shares");
-  await screenshot(page, "holding-history.png");
-});
+    });
+    await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    const newest = history.locator('[data-slot="collapsible"]').first();
+    await newest.getByRole("button").click();
+    await expect(newest).toContainText("$18,000.00 → $19,000.00");
+    await expect(newest).not.toContainText("Cash paid");
+    await expect(newest).not.toContainText("Shares");
+    await screenshot(page, "holding-history.png");
+  },
+);
 
 test("one timeline refreshes after unlink, keeps failed decisions unapplied and omits unchanged investment fields", async ({
   page,
@@ -656,109 +666,117 @@ test("one timeline refreshes after unlink, keeps failed decisions unapplied and 
   await screenshot(page, "holding-unified-history.png");
 });
 
-test("sources restore GP facts and estimates without duplicate forms or acknowledgments", async ({
-  page,
-}) => {
-  const state = await setup(page, (r) => {
-    r.details.lots[0]!.quantityDetails = {
-      status: "estimated",
-      derivation: "Synthetic net allocation divided by entry price",
-      evidence: "Synthetic subscription",
-      shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
-    };
-    r.details.valuation!.records[0]!.shareBasis = {
-      key: "issuer-original",
-      unitsPerOriginal: 1,
-    };
-  });
-  await page.getByRole("button", { name: "Edit valuation" }).click();
-  await select(page, "Source", "Tokenfolio · Other SPV");
-  await expect(
-    page.getByRole("textbox", { name: "Position total · $" }),
-  ).toHaveCount(0);
-  await expect(page.getByRole("checkbox")).toHaveCount(0);
-  await expect(
-    page.getByRole("form", { name: "Edit valuation" }),
-  ).toContainText("$17,724.00");
-  await screenshot(page, "valuation-proxy.png");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    page.getByRole("group", { name: "Tokenfolio price proxy · Before carry" }),
-  ).toContainText("$17,724.00");
-  await page.getByRole("button", { name: "Edit valuation" }).click();
-  await select(page, "Source", "My estimate");
-  await page.getByRole("textbox", { name: "Position total · $" }).fill("18000");
-  await page
-    .getByRole("button", { name: "Source details", exact: true })
-    .click();
-  await select(
-    page,
-    "Portfolio Watch evidence",
-    "Synthetic Cedar funding update",
-  );
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await page.getByRole("button", { name: "Edit valuation" }).click();
-  expect(
-    state.receipt().details.valuation!.records.find((r) => r.id === "mine")
-      ?.watchEvidenceId,
-  ).toBe("watch");
-  await select(page, "Source", "Synthetic GP");
-  await expect(
-    page.getByRole("textbox", { name: "Position total · $" }),
-  ).toHaveValue("16880");
-  await expect(
-    page.getByRole("textbox", { name: "Share price · $" }),
-  ).toHaveValue("200");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    page.getByRole("group", { name: "Reported value · Before carry" }),
-  ).toContainText("+100.00%");
-});
+test(
+  "sources restore GP facts and estimates without duplicate forms or acknowledgments",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const state = await setup(page, (r) => {
+      r.details.lots[0]!.quantityDetails = {
+        status: "estimated",
+        derivation: "Synthetic net allocation divided by entry price",
+        evidence: "Synthetic subscription",
+        shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+      };
+      r.details.valuation!.records[0]!.shareBasis = {
+        key: "issuer-original",
+        unitsPerOriginal: 1,
+      };
+    });
+    await page.getByRole("button", { name: "Edit valuation" }).click();
+    await select(page, "Source", "Tokenfolio · Other SPV");
+    await expect(
+      page.getByRole("textbox", { name: "Position total · $" }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+    await expect(
+      page.getByRole("form", { name: "Edit valuation" }),
+    ).toContainText("$17,724.00");
+    await screenshot(page, "valuation-proxy.png");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("group", {
+        name: "Tokenfolio price proxy · Before carry",
+      }),
+    ).toContainText("$17,724.00");
+    await page.getByRole("button", { name: "Edit valuation" }).click();
+    await select(page, "Source", "My estimate");
+    await page
+      .getByRole("textbox", { name: "Position total · $" })
+      .fill("18000");
+    await page
+      .getByRole("button", { name: "Source details", exact: true })
+      .click();
+    await select(
+      page,
+      "Portfolio Watch evidence",
+      "Synthetic Cedar funding update",
+    );
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Edit valuation" }).click();
+    expect(
+      state.receipt().details.valuation!.records.find((r) => r.id === "mine")
+        ?.watchEvidenceId,
+    ).toBe("watch");
+    await select(page, "Source", "Synthetic GP");
+    await expect(
+      page.getByRole("textbox", { name: "Position total · $" }),
+    ).toHaveValue("16880");
+    await expect(
+      page.getByRole("textbox", { name: "Share price · $" }),
+    ).toHaveValue("200");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("group", { name: "Reported value · Before carry" }),
+    ).toContainText("+100.00%");
+  },
+);
 
-test("investment fee percentages preserve unknown refund dates and failed drafts", async ({
-  page,
-}) => {
-  const state = await setup(page);
-  await page.getByRole("button", { name: "Edit investment" }).click();
-  await select(page, "Management fee entry", "Annual percentage");
-  await expect(
-    page.getByRole("textbox", { name: "Prepaid years", exact: true }),
-  ).toHaveValue("2");
-  await page
-    .getByRole("textbox", { name: "Management fee · % / year", exact: true })
-    .fill("3");
-  state.reject(true);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    page.getByText("Investment could not be saved.", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("textbox", {
-      name: "Management fee · % / year",
-      exact: true,
-    }),
-  ).toHaveValue("3");
-  await screenshot(page, "investment-fee-error.png");
-  state.reject(false);
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Edit investment", exact: true }),
-  ).toBeVisible();
-  expect(
-    state.receipt().details.lots[0]!.fees!.find((f) => f.id === "management"),
-  ).toMatchObject({
-    method: "percentage",
-    ratePpm: 30000,
-    prepaidMonths: 24,
-    basis: "retained",
-  });
-  expect(
-    state.receipt().details.lots[0]!.capitalReturn!.effectiveDate,
-  ).toBeNull();
-  expect(state.receipt().details.valuation!.records[0]!.totalMinor).toBe(
-    1688000,
-  );
-});
+test(
+  "investment fee percentages preserve unknown refund dates and failed drafts",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const state = await setup(page);
+    await page.getByRole("button", { name: "Edit investment" }).click();
+    await select(page, "Management fee entry", "Annual percentage");
+    await expect(
+      page.getByRole("textbox", { name: "Prepaid years", exact: true }),
+    ).toHaveValue("2");
+    await page
+      .getByRole("textbox", { name: "Management fee · % / year", exact: true })
+      .fill("3");
+    state.reject(true);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByText("Investment could not be saved.", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("textbox", {
+        name: "Management fee · % / year",
+        exact: true,
+      }),
+    ).toHaveValue("3");
+    await screenshot(page, "investment-fee-error.png");
+    state.reject(false);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Edit investment", exact: true }),
+    ).toBeVisible();
+    expect(
+      state.receipt().details.lots[0]!.fees!.find((f) => f.id === "management"),
+    ).toMatchObject({
+      method: "percentage",
+      ratePpm: 30000,
+      prepaidMonths: 24,
+      basis: "retained",
+    });
+    expect(
+      state.receipt().details.lots[0]!.capitalReturn!.effectiveDate,
+    ).toBeNull();
+    expect(state.receipt().details.valuation!.records[0]!.totalMinor).toBe(
+      1688000,
+    );
+  },
+);
 
 test("after carry totals remain selectable and known unpaid costs remain visible", async ({
   page,
@@ -939,6 +957,7 @@ for (const scenario of [
 
 test("cross-class proxies disclose estimated shares, retain failed drafts and persist the selected method", async ({
   page,
+  isMobile,
 }) => {
   const state = await setup(
     page,
@@ -965,6 +984,7 @@ test("cross-class proxies disclose estimated shares, retain failed drafts and pe
     page.getByRole("form", { name: "Edit valuation" }),
   ).toContainText("Explicitly accept it as an indicative cross-class proxy");
   await screenshot(page, "valuation-proxy-cross-class.png");
+  if (!isMobile) return;
   await select(
     page,
     "Different share class",
@@ -1033,36 +1053,38 @@ test("cross-class proxies disclose estimated shares, retain failed drafts and pe
   await screenshot(page, "investment-quantity-provenance.png");
 });
 
-test("missing price dates name the source problem without blaming saved shares", async ({
-  page,
-}) => {
-  await setup(
-    page,
-    (r) => {
-      r.details.lots[0]!.quantityDetails = {
-        status: "estimated",
-        derivation: "Synthetic allocation",
-        evidence: null,
-        shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
-      };
-      r.details.valuation!.records[0]!.shareBasis = {
-        key: "issuer-original",
-        unitsPerOriginal: 1,
-      };
-    },
-    [],
-    { priceDate: null },
-  );
-  await page.getByRole("button", { name: "Edit valuation" }).click();
-  await select(page, "Source", "Tokenfolio · Other SPV");
-  await expect(
-    page.getByRole("button", { name: "Save", exact: true }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("form", { name: "Edit valuation" }),
-  ).toContainText("The source price has no date.");
-  await expect(
-    page.getByRole("form", { name: "Edit valuation" }),
-  ).not.toContainText("needs dated shares");
-  await screenshot(page, "valuation-proxy-missing-date.png");
-});
+test(
+  "missing price dates name the source problem without blaming saved shares",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await setup(
+      page,
+      (r) => {
+        r.details.lots[0]!.quantityDetails = {
+          status: "estimated",
+          derivation: "Synthetic allocation",
+          evidence: null,
+          shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+        };
+        r.details.valuation!.records[0]!.shareBasis = {
+          key: "issuer-original",
+          unitsPerOriginal: 1,
+        };
+      },
+      [],
+      { priceDate: null },
+    );
+    await page.getByRole("button", { name: "Edit valuation" }).click();
+    await select(page, "Source", "Tokenfolio · Other SPV");
+    await expect(
+      page.getByRole("button", { name: "Save", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("form", { name: "Edit valuation" }),
+    ).toContainText("The source price has no date.");
+    await expect(
+      page.getByRole("form", { name: "Edit valuation" }),
+    ).not.toContainText("needs dated shares");
+    await screenshot(page, "valuation-proxy-missing-date.png");
+  },
+);

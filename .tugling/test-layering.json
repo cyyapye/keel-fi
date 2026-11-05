@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 140,
+  "retiredBrowserCaseCount": 148,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -432,8 +432,7 @@
         "e2e/manual-holdings.spec.ts :: mobile-chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
         "e2e/manual-holdings.spec.ts :: chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
         "e2e/manual-holdings.spec.ts :: mobile-chromium :: keeps explicit zero cash separate from a dated estimate through valuation and identity edits",
-        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps a Fund company grouping distinct from unknown allocation",
-        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: keeps a Fund company grouping distinct from unknown allocation"
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps a Fund company grouping distinct from unknown allocation"
       ],
       "assertions": "A Direct record persists, reloads with unknown financial facts, and reopens through unassigned Holdings. The Fund form sends the reviewed identity. SPV zero cash remains distinct from an estimate. All three kinds persist with their exact kind and null opened date."
     },
@@ -1120,6 +1119,111 @@
         "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage"
       ],
       "assertions": "Both widths keep the two actionable records and the existing tested triage image. Desktop searches and navigates only eligible tasks, opens the selected company-only source directly, shows missing document guidance and sends zero writes. The export unit requests the source and legal-name columns for three company-only holding positions: each label remains present, each legal name stays empty and reported zero stays distinct from missing cash."
+    },
+    {
+      "id": "purchase-unknown-fees-narrow",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: returns use complete fee estimates without treating unknown fees as zero"
+      ],
+      "unitCases": [
+        "apps/web/src/position-capital-summary.test.ts :: position capital display > keeps incomplete-fee totals distinct from estimated net totals"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: returns use complete fee estimates without treating unknown fees as zero"
+      ],
+      "assertions": "The initial estimated percentage calculation, explicit unknown-fee save, withheld returns and exact retained cash are all asserted on mobile. Both ordinary summary layouts with known fees remain."
+    },
+    {
+      "id": "purchase-acquisition-draft-wide",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: new acquisitions can be removed without discarding other investment edits"
+      ],
+      "unitCases": [
+        "packages/database/src/position-purchases.test.ts :: persists optional details, reads them through holdings, versions edits and rejects stale or foreign writes"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: new acquisitions can be removed without discarding other investment edits"
+      ],
+      "assertions": "Desktop retains real Add/Remove, returned focus, changed cash input and Cancel leaving stored gross cash untouched. Normal investment editors still render on both screens."
+    },
+    {
+      "id": "purchase-same-day-history-wide",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: saved history distinguishes same-day changes and avoids a duplicate current valuation"
+      ],
+      "unitCases": [
+        "packages/database/src/position-purchases.test.ts :: persists optional details, reads them through holdings, versions edits and rejects stale or foreign writes"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: saved history distinguishes same-day changes and avoids a duplicate current valuation"
+      ],
+      "assertions": "Desktop retains two real saves, exact receipt instants, ordered history, rendered date-only source, no duplicate current facts, link disclosure and sole changed valuation amount. Mobile retains unified investment/link history and Pacific or UTC conversion according to the dedicated timezone tests."
+    },
+    {
+      "id": "purchase-valuation-sources-wide",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: sources restore GP facts and estimates without duplicate forms or acknowledgments"
+      ],
+      "unitCases": [
+        "packages/database/src/price-proxies.test.ts :: uses the saved reviewed date instead of an undated import, follows accepted imports, and preserves independent records"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: sources restore GP facts and estimates without duplicate forms or acknowledgments"
+      ],
+      "assertions": "Desktop selects the actual source, saves the proxy, saves an estimate associated with exact Watch evidence, switches back to the GP record and checks its total and price. Mobile retains ordinary and cross-class valuation controls."
+    },
+    {
+      "id": "purchase-rejected-fees-narrow",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: investment fee percentages preserve unknown refund dates and failed drafts"
+      ],
+      "unitCases": [
+        "packages/domain/src/valuation-record.test.ts :: calculates prepaid fees with integer rates and months without compounding or inventing a basis",
+        "packages/database/src/position-purchases.test.ts :: binds carry classification to the current reported mark while preserving unknown dates and annual fees"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: investment fee percentages preserve unknown refund dates and failed drafts"
+      ],
+      "assertions": "Mobile changes annual fees, preserves a rejected draft, saves the 3% rate with 24 prepaid months and tests the existing unknown refund date and saved valuation. Standard investment/valuation inputs remain on both screens."
+    },
+    {
+      "id": "purchase-undated-proxy-narrow",
+      "retiredBrowserCases": [
+        "e2e/purchase-details.visual.spec.ts :: chromium :: missing price dates name the source problem without blaming saved shares"
+      ],
+      "unitCases": [
+        "packages/database/src/price-proxies.test.ts :: explains distinct missing input and compatibility failures"
+      ],
+      "browserCases": [
+        "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: missing price dates name the source problem without blaming saved shares"
+      ],
+      "assertions": "Mobile renders the actual missing-source-date error, checks the disabled Save and distinguishes missing price date from missing share dates. Wide still renders normal proxy choice and blocked cross-class choice."
+    },
+    {
+      "id": "manual-fund-grouping-wide",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: keeps a Fund company grouping distinct from unknown allocation"
+      ],
+      "unitCases": [
+        "packages/database/src/manual-holdings.test.ts :: creates an honest unknown-money fund_interest and reuses its dated valuation editor"
+      ],
+      "browserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: keeps a Fund company grouping distinct from unknown allocation"
+      ],
+      "assertions": "Desktop submits the actual Fund, selected company id and exact revision; cash stays null and valuation stays unknown. Both screen sizes retain the type-control position and layout tests."
+    },
+    {
+      "id": "manual-identity-history-narrow",
+      "retiredBrowserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: chromium :: shows manual creation and only actual identity corrections in normal History"
+      ],
+      "unitCases": [
+        "packages/database/src/manual-holdings.test.ts :: records actual prior and new company groupings in chronological identity history"
+      ],
+      "browserCases": [
+        "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: shows manual creation and only actual identity corrections in normal History"
+      ],
+      "assertions": "Mobile checks two genuine identity corrections, the initial paid cash, and no spurious Company or Cleared field when the same company IDs reorder. Both widths retain ordinary history at other fixtures."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

@@ -310,14 +310,16 @@ test("uses the shared calendars with bounds, keyboard focus and field errors", a
       exact: true,
     });
     await expect(calendar).toBeVisible();
-    await page.screenshot({
-      path: testInfo.outputPath(
-        name === "Investment date"
-          ? "manual-investment-calendar-open.png"
-          : "manual-valuation-calendar-open.png",
-      ),
-      animations: "disabled",
-    });
+    if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
+      await page.screenshot({
+        path: testInfo.outputPath(
+          name === "Investment date"
+            ? "manual-investment-calendar-open.png"
+            : "manual-valuation-calendar-open.png",
+        ),
+        animations: "disabled",
+      });
+    }
     await expect(
       calendar.getByRole("button", { name: "Next month", exact: true }),
     ).toBeDisabled();
@@ -514,6 +516,7 @@ test("keeps identity required and financial facts optional with inline errors", 
 
 test("checks an uncertain save and retries the same submission only after a reliable no-match", async ({
   page,
+  isMobile,
 }) => {
   const fixture = await setup(page);
   await fillIdentity(page);
@@ -563,6 +566,7 @@ test("checks an uncertain save and retries the same submission only after a reli
   ).toBeVisible();
   expect(submissions).toHaveLength(1);
   await capture(page, "manual-holding-unconfirmed.png");
+  if (!isMobile) return;
   await page.reload();
   await expect(page.getByLabel("Investment name", { exact: true })).toHaveValue(
     "Synthetic Orchard Direct",
@@ -645,6 +649,7 @@ test(
 
 test("retains a rejected identity draft and requires reopening a stale revision", async ({
   page,
+  isMobile,
 }) => {
   const fixture = await setup(page);
   fixture.accept();
@@ -659,6 +664,7 @@ test("retains a rejected identity draft and requires reopening a stale revision"
     .getByLabel("Investment name", { exact: true })
     .fill("Synthetic revised legal name");
   await capture(page, "manual-holding-identity-edit.png");
+  if (!isMobile) return;
   let posts = 0;
   await page.route(
     `**/api/manual-holdings/${positionId}/identity`,
@@ -874,44 +880,48 @@ test("opens the dedicated editor from empty and regular Holdings and restores tr
   ).toBeVisible();
 });
 
-test("keeps a Fund company grouping distinct from unknown allocation", async ({
-  page,
-}) => {
-  await setup(page);
-  await page.getByRole("radio", { name: "Fund", exact: true }).check();
-  await page
-    .getByLabel("Fund name", { exact: true })
-    .fill("Synthetic Orchard Fund");
-  await select(page, "Held by", "Demo Family LLC");
-  await select(page, "Company · optional", "Juniper Works");
-  await expect(
-    page.getByText("An underlying company. Fund allocation stays unknown.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await capture(page, "manual-holding-fund-company.png");
-  let posted = false;
-  await page.route("**/api/manual-holdings", async (route) => {
-    const input = ManualHoldingInputSchema.parse(
-      route.request().postDataJSON(),
-    );
-    expect(input.kind).toBe("fund_interest");
-    expect(input.company).toEqual({
-      mode: "existing",
-      companyId: "demo-company",
-      revision: "2026-10-01T12:00:00.000Z",
+test(
+  "keeps a Fund company grouping distinct from unknown allocation",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await setup(page);
+    await page.getByRole("radio", { name: "Fund", exact: true }).check();
+    await page
+      .getByLabel("Fund name", { exact: true })
+      .fill("Synthetic Orchard Fund");
+    await select(page, "Held by", "Demo Family LLC");
+    await select(page, "Company · optional", "Juniper Works");
+    await expect(
+      page.getByText("An underlying company. Fund allocation stays unknown.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await capture(page, "manual-holding-fund-company.png");
+    let posted = false;
+    await page.route("**/api/manual-holdings", async (route) => {
+      const input = ManualHoldingInputSchema.parse(
+        route.request().postDataJSON(),
+      );
+      expect(input.kind).toBe("fund_interest");
+      expect(input.company).toEqual({
+        mode: "existing",
+        companyId: "demo-company",
+        revision: "2026-10-01T12:00:00.000Z",
+      });
+      expect(input.cashPaidMinor).toBeNull();
+      expect(input.valuation).toEqual({ state: "unknown" });
+      posted = true;
+      await route.fulfill({
+        status: 400,
+        json: { error: "Synthetic request rejected for readback." },
+      });
     });
-    expect(input.cashPaidMinor).toBeNull();
-    expect(input.valuation).toEqual({ state: "unknown" });
-    posted = true;
-    await route.fulfill({
-      status: 400,
-      json: { error: "Synthetic request rejected for readback." },
-    });
-  });
-  await page.getByRole("button", { name: "Save holding", exact: true }).click();
-  await expect.poll(() => posted).toBe(true);
-});
+    await page
+      .getByRole("button", { name: "Save holding", exact: true })
+      .click();
+    await expect.poll(() => posted).toBe(true);
+  },
+);
 
 test(
   "preserves multiple current company groupings when only the legal name changes",
@@ -976,125 +986,131 @@ test(
   },
 );
 
-test("shows manual creation and only actual identity corrections in normal History", async ({
-  page,
-}) => {
-  const initialInvestment = receiptWithCash(2_500_000);
-  const initial = {
-    name: "Synthetic Orchard Direct",
-    kind: "direct",
-    ownerLabel: "Demo Family LLC",
-    companies: [],
-  };
-  const grouped = {
-    name: "Synthetic Orchard Fund",
-    kind: "fund_interest",
-    ownerLabel: "Demo Trust",
-    companies: [
-      { id: "company-one", name: "Juniper Works" },
-      { id: "company-two", name: "Synthetic Cedar" },
-    ],
-  };
-  const final = {
-    ...grouped,
-    name: "Synthetic Orchard Fund Revised",
-    companies: [...grouped.companies].reverse(),
-  };
-  const fixture = await registerManualHoldingRoutes(page, () =>
-    HoldingSchema.parse({
-      ...holding(),
-      positionName: final.name,
-      positionKind: final.kind,
-      ownerLabel: final.ownerLabel,
-      investedMinor: 2_500_000,
-      purchaseContext: {
-        snapshotId: "manual-snapshot",
-        currency: "USD",
-        openedOn: null,
-        receipt: initialInvestment,
-      },
-    }),
-  );
-  await page.route(
-    `**/api/investment-positions/${positionId}/history`,
-    (route) =>
-      route.fulfill({
-        json: {
-          entries: [
-            {
-              kind: "identity",
-              receipt: {
-                id: "identity-three",
-                acceptedAt: "2026-11-01T18:40:00.000Z",
-                value: final,
-              },
-              previous: grouped,
-            },
-            {
-              kind: "identity",
-              receipt: {
-                id: "identity-two",
-                acceptedAt: "2026-11-01T18:30:00.000Z",
-                value: grouped,
-              },
-              previous: initial,
-            },
-            {
-              kind: "identity",
-              receipt: {
-                id: "identity-one",
-                acceptedAt: "2026-11-01T18:20:00.000Z",
-                value: initial,
-                initialInvestment,
-              },
-              previous: null,
-            },
-          ],
-          next: null,
+test(
+  "shows manual creation and only actual identity corrections in normal History",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const initialInvestment = receiptWithCash(2_500_000);
+    const initial = {
+      name: "Synthetic Orchard Direct",
+      kind: "direct",
+      ownerLabel: "Demo Family LLC",
+      companies: [],
+    };
+    const grouped = {
+      name: "Synthetic Orchard Fund",
+      kind: "fund_interest",
+      ownerLabel: "Demo Trust",
+      companies: [
+        { id: "company-one", name: "Juniper Works" },
+        { id: "company-two", name: "Synthetic Cedar" },
+      ],
+    };
+    const final = {
+      ...grouped,
+      name: "Synthetic Orchard Fund Revised",
+      companies: [...grouped.companies].reverse(),
+    };
+    const fixture = await registerManualHoldingRoutes(page, () =>
+      HoldingSchema.parse({
+        ...holding(),
+        positionName: final.name,
+        positionKind: final.kind,
+        ownerLabel: final.ownerLabel,
+        investedMinor: 2_500_000,
+        purchaseContext: {
+          snapshotId: "manual-snapshot",
+          currency: "USD",
+          openedOn: null,
+          receipt: initialInvestment,
         },
       }),
-  );
-  await page.route("**/api/investment-position-links", (route) =>
-    route.fulfill({ json: { positions: [], links: [] } }),
-  );
-  fixture.accept();
-  await page.goto(`/holdings?position=${positionId}`);
-  await page
-    .getByRole("button", { name: "Sources & history", exact: true })
-    .click();
-  const history = page.locator(".holding-receipt-history");
-  await expect(
-    history.getByText("Holding created", { exact: true }),
-  ).toBeVisible();
-  const corrections = history.getByRole("button", {
-    name: /Holding details corrected/u,
-  });
-  await expect(corrections).toHaveCount(2);
-  await corrections.nth(0).click();
-  await corrections.nth(1).click();
-  await expect(history.getByText("Name", { exact: true })).toHaveCount(2);
-  await expect(
-    history.getByText("Investment type", { exact: true }),
-  ).toHaveCount(1);
-  await expect(history.getByText("Held by", { exact: true })).toHaveCount(1);
-  await expect(history.getByText("Company", { exact: true })).toHaveCount(1);
-  await expect(history).toContainText("Direct → Fund");
-  await expect(history).toContainText("Demo Family LLC → Demo Trust");
-  await expect(history).toContainText(
-    "Unassigned → Juniper Works, Synthetic Cedar",
-  );
-  await expect(history).not.toContainText("Cleared");
-  await history.getByRole("button", { name: /Holding created/u }).click();
-  await expect(history.getByText("Cash paid", { exact: true })).toHaveCount(1);
-  await expect(history.getByText("$25,000.00", { exact: true })).toBeVisible();
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await expect(page.locator(".holding-history")).toHaveScreenshot(
-    "manual-holding-identity-history.png",
-    { animations: "disabled" },
-  );
-});
+    );
+    await page.route(
+      `**/api/investment-positions/${positionId}/history`,
+      (route) =>
+        route.fulfill({
+          json: {
+            entries: [
+              {
+                kind: "identity",
+                receipt: {
+                  id: "identity-three",
+                  acceptedAt: "2026-11-01T18:40:00.000Z",
+                  value: final,
+                },
+                previous: grouped,
+              },
+              {
+                kind: "identity",
+                receipt: {
+                  id: "identity-two",
+                  acceptedAt: "2026-11-01T18:30:00.000Z",
+                  value: grouped,
+                },
+                previous: initial,
+              },
+              {
+                kind: "identity",
+                receipt: {
+                  id: "identity-one",
+                  acceptedAt: "2026-11-01T18:20:00.000Z",
+                  value: initial,
+                  initialInvestment,
+                },
+                previous: null,
+              },
+            ],
+            next: null,
+          },
+        }),
+    );
+    await page.route("**/api/investment-position-links", (route) =>
+      route.fulfill({ json: { positions: [], links: [] } }),
+    );
+    fixture.accept();
+    await page.goto(`/holdings?position=${positionId}`);
+    await page
+      .getByRole("button", { name: "Sources & history", exact: true })
+      .click();
+    const history = page.locator(".holding-receipt-history");
+    await expect(
+      history.getByText("Holding created", { exact: true }),
+    ).toBeVisible();
+    const corrections = history.getByRole("button", {
+      name: /Holding details corrected/u,
+    });
+    await expect(corrections).toHaveCount(2);
+    await corrections.nth(0).click();
+    await corrections.nth(1).click();
+    await expect(history.getByText("Name", { exact: true })).toHaveCount(2);
+    await expect(
+      history.getByText("Investment type", { exact: true }),
+    ).toHaveCount(1);
+    await expect(history.getByText("Held by", { exact: true })).toHaveCount(1);
+    await expect(history.getByText("Company", { exact: true })).toHaveCount(1);
+    await expect(history).toContainText("Direct → Fund");
+    await expect(history).toContainText("Demo Family LLC → Demo Trust");
+    await expect(history).toContainText(
+      "Unassigned → Juniper Works, Synthetic Cedar",
+    );
+    await expect(history).not.toContainText("Cleared");
+    await history.getByRole("button", { name: /Holding created/u }).click();
+    await expect(history.getByText("Cash paid", { exact: true })).toHaveCount(
+      1,
+    );
+    await expect(
+      history.getByText("$25,000.00", { exact: true }),
+    ).toBeVisible();
+    await page.addStyleTag({
+      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+    await expect(page.locator(".holding-history")).toHaveScreenshot(
+      "manual-holding-identity-history.png",
+      { animations: "disabled" },
+    );
+  },
+);
 
 test(
   "preserves a current single-company Fund grouping when only the name changes",
