@@ -207,7 +207,7 @@ for (const failure of ["login HTML", "render exception"] as const) {
               }
             : {
                 contentType: "text/javascript",
-                body: 'export function App() { throw new Error("Synthetic private error detail"); }',
+                body: 'export function App() { window.__keelRenderFaultReached = true; throw new Error("Synthetic private error detail"); }',
               },
         ),
       );
@@ -218,6 +218,12 @@ for (const failure of ["login HTML", "render exception"] as const) {
       await expect(
         page.getByText(/Synthetic (sign-in|private error)/u),
       ).toHaveCount(0);
+      if (failure === "render exception")
+        expect(
+          await page.evaluate(() =>
+            Reflect.get(window, "__keelRenderFaultReached"),
+          ),
+        ).toBe(true);
       expect(uncaught).toEqual([]);
       await page.unroute("**/src/App.tsx*");
       const recoveredData = waitForCompletedRead(page, "/api/alpha");
