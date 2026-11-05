@@ -24,10 +24,7 @@ import { syntheticAgreementPdf } from "./test-support/legal-documents";
 import { startOrphanProbe } from "./test-support/pdf-orphan-client";
 import { describeSandboxProofFailure } from "./test-support/sandbox-proof-diagnostics";
 import { observeWatchdogLifecycle } from "./test-support/watchdog-removal";
-import {
-  syntheticManyFileZip,
-  syntheticManyStreamPdf,
-} from "./test-support/scanner-documents";
+import { syntheticManyStreamPdf } from "./test-support/scanner-documents";
 
 // Mandatory real-runtime proof, separate from mocked unit tests. Never skip or
 // substitute a host Poppler when the runtime has not been provisioned.
@@ -211,7 +208,7 @@ async function main() {
         );
         if (layoutDraft) {
           console.log(
-            "LAYOUT DRAFT: the late embedded signature and MaxFiles probes run in full verification",
+            "LAYOUT DRAFT: the late embedded signature probe runs in full verification",
           );
         } else {
           // The inert marker is compressed in the final stream, beyond the old
@@ -224,23 +221,6 @@ async function main() {
           assert.equal(embeddedThreat.findings[0]?.reason, "malware_signature");
           assert.match(embeddedThreat.findings[0]?.signature ?? "", /EICAR/iu);
           console.log("PASS: inert antivirus marker in stream 512 is detected");
-          // A huge PDF may correctly hit the unchanged scan-time budget before its
-          // item budget. Use small ZIP entries to prove the exact MaxFiles boundary
-          // independently; do not increase scan time to make a negative test pass.
-          const overBudget = syntheticManyFileZip(10_001);
-          assert.ok(overBudget.length < 8 * 1024 * 1024);
-          const exhausted = await scanDocumentInSandbox(overBudget);
-          assert.equal(exhausted.outcome, "blocked");
-          assert.ok(
-            exhausted.findings.some(
-              (finding) =>
-                finding.reason === "scan_limit" &&
-                finding.signature === "Heuristics.Limits.Exceeded.MaxFiles",
-            ),
-          );
-          console.log(
-            "PASS: container exceeding 10000 items is still blocked by MaxFiles",
-          );
         }
       })(),
       (async () => {

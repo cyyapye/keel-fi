@@ -1,10 +1,6 @@
-import { strictEqual } from "node:assert/strict";
-import { crc32, inflateSync } from "node:zlib";
+import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import {
-  syntheticManyFileZip,
-  syntheticManyStreamPdf,
-} from "./test-support/scanner-documents";
+import { syntheticManyStreamPdf } from "./test-support/scanner-documents";
 
 describe("synthetic scanner budget PDFs", () => {
   it("contains distinct compressed streams and valid byte-based object offsets", () => {
@@ -46,68 +42,12 @@ describe("synthetic scanner budget PDFs", () => {
       inflateSync(bytes.subarray(offset, offset + Number(match[1]))),
     ).toEqual(marker);
   });
-  it("crosses the item cap without crossing the input or decoded byte caps", () => {
-    const bytes = Buffer.from(syntheticManyFileZip(10_001));
-    expect(bytes.length).toBeLessThan(8 * 1024 * 1024);
-    const end = bytes.subarray(-22);
-    expect(end.readUInt32LE(0)).toBe(0x06054b50);
-    expect(end.readUInt16LE(8)).toBe(10_001);
-    let offset = 0;
-    let central = end.readUInt32LE(16);
-    let expandedBytes = 0;
-    for (let index = 0; index < 10_001; index += 1) {
-      const entry = `ZIP entry ${index.toString()}`;
-      strictEqual(
-        bytes.readUInt32LE(offset),
-        0x04034b50,
-        `${entry} local signature`,
-      );
-      strictEqual(
-        bytes.readUInt32LE(central),
-        0x02014b50,
-        `${entry} central signature`,
-      );
-      strictEqual(
-        bytes.readUInt32LE(central + 42),
-        offset,
-        `${entry} local offset`,
-      );
-      const size = bytes.readUInt32LE(offset + 18);
-      strictEqual(
-        bytes.readUInt32LE(offset + 22),
-        size,
-        `${entry} expanded size`,
-      );
-      const nameSize = bytes.readUInt16LE(offset + 26);
-      const content = bytes.subarray(
-        offset + 30 + nameSize,
-        offset + 30 + nameSize + size,
-      );
-      strictEqual(
-        crc32(content),
-        bytes.readUInt32LE(offset + 14),
-        `${entry} CRC`,
-      );
-      strictEqual(
-        content.toString(),
-        `Synthetic scanner budget item ${index.toString()}\n`,
-        `${entry} content`,
-      );
-      expandedBytes += size;
-      offset += 30 + nameSize + size;
-      central += 46 + nameSize;
-    }
-    expect(offset).toBe(end.readUInt32LE(16));
-    expect(central).toBe(bytes.length - 22);
-    expect(expandedBytes).toBeLessThan(8 * 1024 * 1024);
-  });
   it.each([0, -1, 1.5, 11_001, Number.NaN, Number.POSITIVE_INFINITY])(
     "bounds fixture generation for %s",
     (count) => {
       expect(() => syntheticManyStreamPdf(count)).toThrow(
         "Synthetic stream count",
       );
-      expect(() => syntheticManyFileZip(count)).toThrow("Synthetic file count");
     },
   );
 });

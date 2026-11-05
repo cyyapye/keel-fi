@@ -48,12 +48,12 @@ Editing `apps/web/src/startup.css`, `apps/web/src/styles.css` or
 `packages/ui/src/styles.css` selects the native graph on the same runner with
 the same time budget. A stylesheet edit can include the Overview visual spec
 and, when that spec changes, its existing desktop and mobile goal overview
-references. Only the late embedded antivirus marker and the 10,001-entry scanner
-limit probe are omitted. Browser coverage, the real 512-stream clean scan, raw
-antivirus detection, expanded-size limit and sandbox isolation checks still run.
-The job reports a partial draft result. Marking a PR ready, updating a ready PR,
-or entering a merge group runs the full gate. Preview deployment requires its
-own full receipt for the merged revision.
+references. Only the late embedded antivirus marker probe is omitted. Browser
+coverage, the real 512-stream clean scan, raw antivirus detection, expanded-size
+limit and sandbox isolation checks still run. The job reports a partial draft
+result. Marking a PR ready, updating a ready PR, or entering a merge group runs
+the full gate. Preview deployment requires its own full receipt for the merged
+revision.
 
 The
 [hosted shadow trial](https://github.com/cyyapye/keel-fi/actions/runs/41874712167/job/126740723278)

@@ -84,7 +84,7 @@ def helper_command(helper, source, mode, receipt=None):
 
 
 def run_layout_draft(contract, source):
-    """Run the native graph with two scanner cases omitted; emit only a draft log."""
+    """Run the native graph without the late scanner marker; emit only a draft log."""
     revision = contract.clean_revision(ROOT)
     report = contract.validate_project(root=ROOT, config_path=Path(CONFIG),
                                        source_root=source, source_mode="pinned")
