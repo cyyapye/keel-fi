@@ -465,7 +465,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   );
 
   await page.reload();
-  await navigateToScreen(page, mobile, /Holdings/);
+  await expect(page).toHaveURL(/\/holdings$/u);
   await page.addStyleTag({
     content: `
       .topbar,
