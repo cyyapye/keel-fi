@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 102,
+  "retiredBrowserCaseCount": 107,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -586,10 +586,9 @@
       "unitCases": [],
       "browserCases": [
         "e2e/automatic-investment-review.visual.spec.ts :: chromium :: preserves investment deep links by opening the existing Holdings position",
-        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task",
-        "e2e/automatic-investment-review.visual.spec.ts :: mobile-chromium :: automatically resolves 120 legal records without making missing fees a review task"
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task"
       ],
-      "assertions": "The retained desktop legacy tab replaces its history entry with the exact holdings position and returns Back to legal entities. The separate 120-source automatic resolver still executes on both devices."
+      "assertions": "The retained desktop legacy tab replaces its history entry with the exact holdings position and returns Back to legal entities. The separate desktop 120-source automatic resolver keeps the generated-position link covered."
     },
     {
       "id": "watch-history-order-device",
@@ -682,6 +681,105 @@
         "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps historical ownership and an explicit structure clear with incomplete details"
       ],
       "assertions": "A historical trust retains its recorded type, owner, date and Historical label. Clearing the owner omits ownership and keeps the historical status. The mobile browser still checks the long owner, wrapping, overflow and reloaded state."
+    },
+    {
+      "id": "automatic-resolve-desktop",
+      "retiredBrowserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: mobile-chromium :: automatically resolves 120 legal records without making missing fees a review task"
+      ],
+      "unitCases": [
+        "packages/database/src/automatic-investment-review.test.ts :: exception-based investment review > retains a recorded exact-company policy without a new agreement citation or invented fees",
+        "packages/database/src/automatic-investment-review.test.ts :: exception-based investment review > resolves a bounded 120-position batch with fixed queries and no writes on an unchanged retry",
+        "scripts/automatic-investment-review-d1-cost.test.ts :: bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1"
+      ],
+      "browserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task"
+      ],
+      "assertions": "Desktop renders the 120 resolved records, opens the saved position, confirms missing fees do not create a legal or economics task, and checks one resolver call and no term writes. The repository and real client/D1 tests enforce 120 rows, fixed query/read budgets, zero unchanged writes and exact-company policy provenance."
+    },
+    {
+      "id": "automatic-retry-mobile",
+      "retiredBrowserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: keeps the inventory accessible after a failed automatic review without background retries"
+      ],
+      "unitCases": [
+        "scripts/automatic-investment-review-d1-cost.test.ts :: bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1"
+      ],
+      "browserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: mobile-chromium :: keeps the inventory accessible after a failed automatic review without background retries"
+      ],
+      "assertions": "Mobile keeps the inventory accessible through a failed automatic batch, counts the pre-retry resolver call and observes the second call after a click. The client/proxy/auth/D1 test separately enforces no hidden retries against an unavailable database."
+    },
+    {
+      "id": "review-existing-entity-desktop",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: distinguishes an earlier company mapping from agreement evidence and never preselects a saved entity"
+      ],
+      "unitCases": [
+        "packages/database/src/legal-entities.test.ts :: legal entity repository > rejects an unrelated saved entity for a found name and guards a rename during linking"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: distinguishes an earlier company mapping from agreement evidence and never preselects a saved entity"
+      ],
+      "assertions": "Desktop retains the earlier mapping without presenting it as agreement evidence. The real entity selector starts unselected, excludes unrelated names and enables explicit linking only after selection. The repository rejects unrelated targets and renames during linking."
+    },
+    {
+      "id": "review-company-conflict-mobile",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: connected investment review > links an exact agreement citation to an existing portfolio company without creating a duplicate"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: reviews company evidence and keeps ownership drafts across independent saves",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens a company conflict, preserves a failed correction and reads back the saved agreement choice",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: reviews company evidence and keeps ownership drafts across independent saves"
+      ],
+      "assertions": "Mobile searches the real 120-choice company picker with case and accent folding, keyboard selection and Escape focus return. The journey rejects, retries, reloads and verifies the exact company and agreement. The repository verifies an existing-company document receipt and keeps one company. The ordinary wide company and independent ownership-save layout remains covered."
+    },
+    {
+      "id": "review-cancelled-investment-mobile",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: creates a separate cancelled investment with selected agreements, not copied amounts"
+      ],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: connected investment review > splits a cancelled agreement into a separate investment without copying money or dissolving the entity"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: opens the supported entity name after moving a different investment's agreement",
+        "e2e/investment-review.visual.spec.ts :: chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: creates a separate cancelled investment with selected agreements, not copied amounts",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: opens the supported entity name after moving a different investment's agreement",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saved document destinations after reload, preserves earlier assignments, and retains a rejected selection"
+      ],
+      "assertions": "Mobile retains the selected-agreement create flow and checks an explicit cancelled child without copying money. The repository creates the separate child and checks null contributions, agreement ownership and preserved parent state. Real desktop and mobile agreement move and saved/reload journeys remain."
+    },
+    {
+      "id": "review-amount-save-desktop",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: records successive amount corrections, survives source updates, and resets without changing evidence"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: corrects investment amounts with review, reload, second save, rejection and source reset",
+        "e2e/investment-review.visual.spec.ts :: chromium :: shows reviewed facts before editing and keeps optional ownership out of completion",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: corrects investment amounts with review, reload, second save, rejection and source reset",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows reviewed facts before editing and keeps optional ownership out of completion"
+      ],
+      "assertions": "Both devices retain the form, entered amount and no premature write through the review screen. Desktop saves, reloads, rejects a second correction, retries and resets to the source amount. The repository checks successive accepted corrections, source updates, reset and preserved evidence."
+    },
+    {
+      "id": "review-event-save-mobile",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/database/src/investment-review.test.ts :: records a continuing SPV conversion atomically without changing contributions cash or valuation"
+      ],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: records a continuing SPV conversion, retains rejected evidence and amends conditional rights",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: records a continuing SPV conversion, retains rejected evidence and amends conditional rights"
+      ],
+      "assertions": "Both devices review the extracted conversion terms. Mobile rejects, saves, reloads and amends the event with its predecessor while preserving the SPV interest. The repository verifies the append-only conversion record, status and conditional units while retaining contribution, cash and valuation."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

@@ -222,54 +222,59 @@ async function setup(page: Page, { failed = false, sourceCount = 120 } = {}) {
   };
 }
 
-test("automatically resolves 120 legal records without making missing fees a review task", async ({
-  page,
-}) => {
-  const fixture = await setup(page);
-  await expect(
-    page.getByRole("heading", { name: /Needs your review/u }),
-  ).toHaveCount(0);
-  await expect(page.locator(".legal-entity-candidate")).toHaveCount(0);
-  await expect(page.locator(".legal-entity-row")).toHaveCount(25);
-  expect(fixture.inventory.entities).toHaveLength(120);
-  expect(fixture.resolves()).toBe(1);
-  expect(fixture.reads()).toBe(0);
-  await expect(page).toHaveScreenshot("automatic-investment-exceptions.png");
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  const row = page.locator(".legal-entity-row").filter({
-    has: page.getByRole("heading", {
-      name: "Synthetic Orchard 0 SPV LLC",
+test(
+  "automatically resolves 120 legal records without making missing fees a review task",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const fixture = await setup(page);
+    await expect(
+      page.getByRole("heading", { name: /Needs your review/u }),
+    ).toHaveCount(0);
+    await expect(page.locator(".legal-entity-candidate")).toHaveCount(0);
+    await expect(page.locator(".legal-entity-row")).toHaveCount(25);
+    expect(fixture.inventory.entities).toHaveLength(120);
+    expect(fixture.resolves()).toBe(1);
+    expect(fixture.reads()).toBe(0);
+    await expect(page).toHaveScreenshot("automatic-investment-exceptions.png");
+    await page.addStyleTag({
+      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+    const row = page.locator(".legal-entity-row").filter({
+      has: page.getByRole("heading", {
+        name: "Synthetic Orchard 0 SPV LLC",
+        exact: true,
+      }),
+    });
+    await row.getByRole("button").click();
+    const review = page.getByRole("region", {
+      name: "Investment review",
       exact: true,
-    }),
-  });
-  await row.getByRole("button").click();
-  const review = page.getByRole("region", {
-    name: "Investment review",
-    exact: true,
-  });
-  await expect(
-    review.getByText("Review complete", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    review.getByRole("tab", { name: "Investment", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    review.getByRole("button", { name: "Edit company", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "View position in Holdings", exact: true }),
-  ).toHaveAttribute("href", "/holdings?position=synthetic-auto-position-0");
-  await expect(
-    review.locator(".position-economics, .position-purchases"),
-  ).toHaveCount(0);
-  await expect(review).toHaveScreenshot(
-    "automatic-investment-missing-term.png",
-  );
-  expect(fixture.termWrites).toHaveLength(0);
-  expect(fixture.writes).toHaveLength(0);
-});
+    });
+    await expect(
+      review.getByText("Review complete", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      review.getByRole("tab", { name: "Investment", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      review.getByRole("button", { name: "Edit company", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", {
+        name: "View position in Holdings",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", "/holdings?position=synthetic-auto-position-0");
+    await expect(
+      review.locator(".position-economics, .position-purchases"),
+    ).toHaveCount(0);
+    await expect(review).toHaveScreenshot(
+      "automatic-investment-missing-term.png",
+    );
+    expect(fixture.termWrites).toHaveLength(0);
+    expect(fixture.writes).toHaveLength(0);
+  },
+);
 
 test(
   "preserves investment deep links by opening the existing Holdings position",
@@ -301,22 +306,24 @@ test(
   },
 );
 
-test("keeps the inventory accessible after a failed automatic review without background retries", async ({
-  page,
-}) => {
-  const fixture = await setup(page, { failed: true });
-  await expect(
-    page.getByText(
-      "Automatic review could not finish. Your saved records are available.",
-    ),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Add entity", exact: true }),
-  ).toBeVisible();
-  expect(fixture.resolves()).toBe(1);
-  await expect(page).toHaveScreenshot("automatic-investment-retry.png");
-  await page
-    .getByRole("button", { name: "Retry automatic review", exact: true })
-    .click();
-  await expect.poll(fixture.resolves).toBe(2);
-});
+test(
+  "keeps the inventory accessible after a failed automatic review without background retries",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const fixture = await setup(page, { failed: true });
+    await expect(
+      page.getByText(
+        "Automatic review could not finish. Your saved records are available.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Add entity", exact: true }),
+    ).toBeVisible();
+    expect(fixture.resolves()).toBe(1);
+    await expect(page).toHaveScreenshot("automatic-investment-retry.png");
+    await page
+      .getByRole("button", { name: "Retry automatic review", exact: true })
+      .click();
+    await expect.poll(fixture.resolves).toBe(2);
+  },
+);

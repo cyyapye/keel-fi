@@ -553,259 +553,267 @@ test("opens the supported entity name after moving a different investment's agre
   await expect(page.locator(".legal-entity-candidate")).toHaveCount(25);
 });
 
-test("distinguishes an earlier company mapping from agreement evidence and never preselects a saved entity", async ({
-  page,
-}) => {
-  const { context, inventory } = await setup(page);
-  context.companyChoices = [];
-  context.mappings = [
-    {
-      id: "mapping_demo_old",
-      companyId: "company_demo",
-      companyName: "Demo Legacy Company",
-      status: "active",
-      decisionSource: "review",
-      acceptedAt: "2026-08-01T12:00:00.000Z",
-    },
-  ];
-  const saved = {
-    id: "entity_demo_match",
-    versionId: "entity_demo_match_v1",
-    version: 1,
-    legalName: "Demo Growth IV LLC",
-    entityType: "llc" as const,
-    relationship: "investment_vehicle" as const,
-    currentOwner: null,
-    jurisdiction: null,
-    formedOn: null,
-    einLastFour: null,
-    ownershipInterestPpm: null,
-    interestStatus: "current" as const,
-    taxClassification: null,
-    notes: null,
-    recordedAt: "2026-09-01T12:00:00.000Z",
-    sources: [],
-  };
-  inventory.entities = [
-    {
-      ...saved,
-      id: "entity_demo_unrelated",
-      legalName: "Demo Unrelated Vehicle LLC",
-    },
-    saved,
-  ];
-  await page.reload(); // Direct links must reopen the same investment and tab.
-  const workspace = page.locator(".entity-review");
-  await expect(
-    workspace.getByText("Currently mapped to Demo Legacy Company", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(workspace.getByText(/Earlier reviewed mapping/)).toBeVisible();
-  await expect(
-    workspace.getByText(/No supporting company citation was extracted/),
-  ).toHaveCount(0);
-  await expect(
-    workspace.getByRole("button", { name: "Edit company", exact: true }),
-  ).toBeVisible();
-  await workspace
-    .getByRole("radio", { name: "Link existing entity", exact: true })
-    .check();
-  const picker = workspace.getByRole("combobox", {
-    name: "Existing legal entity",
-    exact: true,
-  });
-  await expect(picker).toContainText("Choose an entity");
-  await expect(
-    workspace.getByRole("button", { name: "Link entity", exact: true }),
-  ).toBeDisabled();
-  await picker.click();
-  await expect(
-    page.getByRole("option", {
-      name: "Demo Unrelated Vehicle LLC",
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await page
-    .getByRole("option", { name: "Demo Growth IV LLC", exact: true })
-    .click();
-  await expect(
-    workspace.getByRole("button", { name: "Link entity", exact: true }),
-  ).toBeEnabled();
-  await expect(workspace).toHaveScreenshot("investment-existing-link.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-});
-
-test("opens a company conflict, preserves a failed correction and reads back the saved agreement choice", async ({
-  page,
-}) => {
-  const { context, source, row, rejectWrites, writes, reads } =
-    await setup(page);
-  context.mappings = [
-    {
-      id: "mapping_demo_old",
-      companyId: "company_demo_old",
-      companyName: "Demo Legacy Company",
-      status: "active",
-      decisionSource: "review",
-      acceptedAt: "2026-08-01T12:00:00.000Z",
-    },
-  ];
-  context.companies = [
-    { id: "company_demo_old", legalName: "Demo Legacy Company" },
-    ...Array.from({ length: 120 }, (_, index) => ({
-      id: `company_demo_search_${index}`,
-      legalName: `Demo Search Company ${index}`,
-    })),
-    { id: "company_demo_canonical", legalName: "Demo Robotics" },
-  ];
-  const choice = context.companyChoices[0]!;
-  choice.quote =
-    "“Portfolio Investment”: The entity referred to as Demo Robotics Inc.";
-  context.documents[0]!.companyCitations = [
-    {
-      companyName: choice.companyName,
-      page: choice.page,
-      quote: choice.quote,
-      role: "portfolio_investment",
-    },
-  ];
-  context.automaticReview = {
-    id: "22222222-2222-4222-8222-222222222222",
-    policyVersion: "investment-review-auto-v1",
-    snapshotId: context.snapshotId!,
-    evaluatedAt: "2026-09-01T12:00:00.000Z",
-    resolved: ["participation", "documents"],
-    issues: [
+test(
+  "distinguishes an earlier company mapping from agreement evidence and never preselects a saved entity",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const { context, inventory } = await setup(page);
+    context.companyChoices = [];
+    context.mappings = [
       {
-        section: "company",
-        code: "conflicting",
-        message:
-          "An agreement names a different company from your saved mapping. Review the company link.",
+        id: "mapping_demo_old",
+        companyId: "company_demo",
+        companyName: "Demo Legacy Company",
+        status: "active",
+        decisionSource: "review",
+        acceptedAt: "2026-08-01T12:00:00.000Z",
       },
-    ],
-  };
-  source.automaticReview = context.automaticReview;
-  await page.reload();
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await expect(
-    row.getByRole("combobox", { name: "Company evidence", exact: true }),
-  ).toBeVisible();
-  await expect(
-    row.getByText(context.automaticReview.issues[0]!.message, { exact: true }),
-  ).toBeVisible();
-  await row
-    .getByRole("combobox", { name: "Company evidence", exact: true })
-    .click();
-  await page
-    .getByRole("option", { name: "Demo Robotics Inc. · page 2", exact: true })
-    .click();
-  await expect(row.getByText(choice.quote, { exact: true })).toBeVisible();
-  const companyPicker = row.getByRole("combobox", {
-    name: "Company",
-    exact: true,
-  });
-  await companyPicker.click();
-  const search = page.getByPlaceholder("Search companies…", { exact: true });
-  await expect(search).toBeFocused();
-  await expect(page.getByRole("option")).toHaveCount(100);
-  const readsBeforeSearch = reads();
-  await search.fill("no such synthetic company");
-  await expect(
-    page.getByText("No companies found. Clear search to add one.", {
+    ];
+    const saved = {
+      id: "entity_demo_match",
+      versionId: "entity_demo_match_v1",
+      version: 1,
+      legalName: "Demo Growth IV LLC",
+      entityType: "llc" as const,
+      relationship: "investment_vehicle" as const,
+      currentOwner: null,
+      jurisdiction: null,
+      formedOn: null,
+      einLastFour: null,
+      ownershipInterestPpm: null,
+      interestStatus: "current" as const,
+      taxClassification: null,
+      notes: null,
+      recordedAt: "2026-09-01T12:00:00.000Z",
+      sources: [],
+    };
+    inventory.entities = [
+      {
+        ...saved,
+        id: "entity_demo_unrelated",
+        legalName: "Demo Unrelated Vehicle LLC",
+      },
+      saved,
+    ];
+    await page.reload(); // Direct links must reopen the same investment and tab.
+    const workspace = page.locator(".entity-review");
+    await expect(
+      workspace.getByText("Currently mapped to Demo Legacy Company", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(workspace.getByText(/Earlier reviewed mapping/)).toBeVisible();
+    await expect(
+      workspace.getByText(/No supporting company citation was extracted/),
+    ).toHaveCount(0);
+    await expect(
+      workspace.getByRole("button", { name: "Edit company", exact: true }),
+    ).toBeVisible();
+    await workspace
+      .getByRole("radio", { name: "Link existing entity", exact: true })
+      .check();
+    const picker = workspace.getByRole("combobox", {
+      name: "Existing legal entity",
       exact: true,
-    }),
-  ).toBeVisible();
-  await expect(page.getByRole("option")).toHaveCount(0);
-  await search.press("Escape");
-  await expect(companyPicker).toBeFocused();
-  await expect(companyPicker).toContainText("Add a company");
-  await companyPicker.click();
-  await expect(search).toHaveValue("");
-  await search.fill("rÓbOtics");
-  await expect(page.getByRole("option")).toHaveCount(1);
-  await page.mouse.move(0, 0);
-  await expect(page.getByRole("listbox").locator("..")).toHaveScreenshot(
-    "investment-company-search.png",
-    { animations: "disabled", caret: "hide" },
-  );
-  await search.press("ArrowDown");
-  await search.press("Enter");
-  await expect(companyPicker).toContainText("Demo Robotics");
-  expect(reads()).toBe(readsBeforeSearch);
-  await page.mouse.move(0, 0);
-  await expect(row).toHaveScreenshot("investment-company-conflict.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  rejectWrites(true);
-  await row
-    .getByRole("button", { name: "Save company mapping", exact: true })
-    .click();
-  await expect(row.getByRole("alert")).toContainText(
-    "This investment changed. Reload details before saving.",
-  );
-  await expect(
-    row.getByRole("combobox", { name: "Company evidence", exact: true }),
-  ).toContainText("Demo Robotics Inc.");
-  await expect(companyPicker).toContainText("Demo Robotics");
-  rejectWrites(false);
-  await row
-    .getByRole("button", { name: "Save company mapping", exact: true })
-    .click();
-  await expect(
-    row.getByText("Currently mapped to Demo Robotics", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    row.getByRole("button", { name: "Edit company", exact: true }),
-  ).toBeVisible();
-  expect(writes).toHaveLength(2);
-  expect(writes[1]).toMatchObject({
-    basis: "document_link",
-    company: { mode: "existing", companyId: "company_demo_canonical" },
-    citation: choice,
-  });
-  await page.reload();
-  await expect(
-    row.getByText("Currently mapped to Demo Robotics", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    row.getByText(/An agreement names a different company/),
-  ).toHaveCount(0);
-  await row.getByRole("button", { name: "Edit company", exact: true }).click();
-  await expect(
-    row.getByRole("button", { name: "Save company mapping", exact: true }),
-  ).toBeDisabled();
-  await expect(companyPicker).toContainText("Demo Robotics");
-  await expect(
-    row.getByRole("combobox", { name: "Company evidence", exact: true }),
-  ).toContainText("Demo Robotics Inc.");
-  // A later explicit confirmation is a new decision and is read back independently.
-  await row
-    .getByRole("combobox", { name: "Company evidence", exact: true })
-    .click();
-  await page
-    .getByRole("option", { name: "Confirm a company yourself", exact: true })
-    .click();
-  await row
-    .getByRole("button", { name: "Save company mapping", exact: true })
-    .click();
-  await expect(
-    row.getByRole("button", { name: "Edit company", exact: true }),
-  ).toBeVisible();
-  expect(writes).toHaveLength(3);
-  await page.reload();
-  await expect(row.getByText(/Confirmed by you/)).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
-});
+    });
+    await expect(picker).toContainText("Choose an entity");
+    await expect(
+      workspace.getByRole("button", { name: "Link entity", exact: true }),
+    ).toBeDisabled();
+    await picker.click();
+    await expect(
+      page.getByRole("option", {
+        name: "Demo Unrelated Vehicle LLC",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("option", { name: "Demo Growth IV LLC", exact: true })
+      .click();
+    await expect(
+      workspace.getByRole("button", { name: "Link entity", exact: true }),
+    ).toBeEnabled();
+    await expect(workspace).toHaveScreenshot("investment-existing-link.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+  },
+);
+
+test(
+  "opens a company conflict, preserves a failed correction and reads back the saved agreement choice",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const { context, source, row, rejectWrites, writes, reads } =
+      await setup(page);
+    context.mappings = [
+      {
+        id: "mapping_demo_old",
+        companyId: "company_demo_old",
+        companyName: "Demo Legacy Company",
+        status: "active",
+        decisionSource: "review",
+        acceptedAt: "2026-08-01T12:00:00.000Z",
+      },
+    ];
+    context.companies = [
+      { id: "company_demo_old", legalName: "Demo Legacy Company" },
+      ...Array.from({ length: 120 }, (_, index) => ({
+        id: `company_demo_search_${index}`,
+        legalName: `Demo Search Company ${index}`,
+      })),
+      { id: "company_demo_canonical", legalName: "Demo Robotics" },
+    ];
+    const choice = context.companyChoices[0]!;
+    choice.quote =
+      "“Portfolio Investment”: The entity referred to as Demo Robotics Inc.";
+    context.documents[0]!.companyCitations = [
+      {
+        companyName: choice.companyName,
+        page: choice.page,
+        quote: choice.quote,
+        role: "portfolio_investment",
+      },
+    ];
+    context.automaticReview = {
+      id: "22222222-2222-4222-8222-222222222222",
+      policyVersion: "investment-review-auto-v1",
+      snapshotId: context.snapshotId!,
+      evaluatedAt: "2026-09-01T12:00:00.000Z",
+      resolved: ["participation", "documents"],
+      issues: [
+        {
+          section: "company",
+          code: "conflicting",
+          message:
+            "An agreement names a different company from your saved mapping. Review the company link.",
+        },
+      ],
+    };
+    source.automaticReview = context.automaticReview;
+    await page.reload();
+    await page.addStyleTag({
+      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+    await expect(
+      row.getByRole("combobox", { name: "Company evidence", exact: true }),
+    ).toBeVisible();
+    await expect(
+      row.getByText(context.automaticReview.issues[0]!.message, {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await row
+      .getByRole("combobox", { name: "Company evidence", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Demo Robotics Inc. · page 2", exact: true })
+      .click();
+    await expect(row.getByText(choice.quote, { exact: true })).toBeVisible();
+    const companyPicker = row.getByRole("combobox", {
+      name: "Company",
+      exact: true,
+    });
+    await companyPicker.click();
+    const search = page.getByPlaceholder("Search companies…", { exact: true });
+    await expect(search).toBeFocused();
+    await expect(page.getByRole("option")).toHaveCount(100);
+    const readsBeforeSearch = reads();
+    await search.fill("no such synthetic company");
+    await expect(
+      page.getByText("No companies found. Clear search to add one.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole("option")).toHaveCount(0);
+    await search.press("Escape");
+    await expect(companyPicker).toBeFocused();
+    await expect(companyPicker).toContainText("Add a company");
+    await companyPicker.click();
+    await expect(search).toHaveValue("");
+    await search.fill("rÓbOtics");
+    await expect(page.getByRole("option")).toHaveCount(1);
+    await page.mouse.move(0, 0);
+    await expect(page.getByRole("listbox").locator("..")).toHaveScreenshot(
+      "investment-company-search.png",
+      { animations: "disabled", caret: "hide" },
+    );
+    await search.press("ArrowDown");
+    await search.press("Enter");
+    await expect(companyPicker).toContainText("Demo Robotics");
+    expect(reads()).toBe(readsBeforeSearch);
+    await page.mouse.move(0, 0);
+    await expect(row).toHaveScreenshot("investment-company-conflict.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+    rejectWrites(true);
+    await row
+      .getByRole("button", { name: "Save company mapping", exact: true })
+      .click();
+    await expect(row.getByRole("alert")).toContainText(
+      "This investment changed. Reload details before saving.",
+    );
+    await expect(
+      row.getByRole("combobox", { name: "Company evidence", exact: true }),
+    ).toContainText("Demo Robotics Inc.");
+    await expect(companyPicker).toContainText("Demo Robotics");
+    rejectWrites(false);
+    await row
+      .getByRole("button", { name: "Save company mapping", exact: true })
+      .click();
+    await expect(
+      row.getByText("Currently mapped to Demo Robotics", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      row.getByRole("button", { name: "Edit company", exact: true }),
+    ).toBeVisible();
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toMatchObject({
+      basis: "document_link",
+      company: { mode: "existing", companyId: "company_demo_canonical" },
+      citation: choice,
+    });
+    await page.reload();
+    await expect(
+      row.getByText("Currently mapped to Demo Robotics", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      row.getByText(/An agreement names a different company/),
+    ).toHaveCount(0);
+    await row
+      .getByRole("button", { name: "Edit company", exact: true })
+      .click();
+    await expect(
+      row.getByRole("button", { name: "Save company mapping", exact: true }),
+    ).toBeDisabled();
+    await expect(companyPicker).toContainText("Demo Robotics");
+    await expect(
+      row.getByRole("combobox", { name: "Company evidence", exact: true }),
+    ).toContainText("Demo Robotics Inc.");
+    // A later explicit confirmation is a new decision and is read back independently.
+    await row
+      .getByRole("combobox", { name: "Company evidence", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Confirm a company yourself", exact: true })
+      .click();
+    await row
+      .getByRole("button", { name: "Save company mapping", exact: true })
+      .click();
+    await expect(
+      row.getByRole("button", { name: "Edit company", exact: true }),
+    ).toBeVisible();
+    expect(writes).toHaveLength(3);
+    await page.reload();
+    await expect(row.getByText(/Confirmed by you/)).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+  },
+);
 
 test("reviews company evidence and keeps ownership drafts across independent saves", async ({
   page,
@@ -985,84 +993,89 @@ test("keeps K-1 shares optional, validates them separately, and retains a reject
   ).toBe(false);
 });
 
-test("creates a separate cancelled investment with selected agreements, not copied amounts", async ({
-  page,
-}) => {
-  const { review } = await setup(page);
-  let submitted: unknown;
-  await page.route(
-    "**/api/investment-positions/*/related-investments",
-    async (route) => {
-      submitted = CreateDocumentInvestmentInputSchema.parse(
-        route.request().postDataJSON(),
-      );
-      return route.fulfill({
-        status: 201,
-        json: { positionId: "position_demo_cancelled" },
-      });
-    },
-  );
-  await selectReviewSection(page, "Documents");
-  await review
-    .getByRole("button", { name: "Change assignment", exact: true })
-    .click();
-  await review
-    .getByRole("checkbox", {
-      name: "demo-growth-subscription.pdf",
+test(
+  "creates a separate cancelled investment with selected agreements, not copied amounts",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const { review } = await setup(page);
+    let submitted: unknown;
+    await page.route(
+      "**/api/investment-positions/*/related-investments",
+      async (route) => {
+        submitted = CreateDocumentInvestmentInputSchema.parse(
+          route.request().postDataJSON(),
+        );
+        return route.fulfill({
+          status: 201,
+          json: { positionId: "position_demo_cancelled" },
+        });
+      },
+    );
+    await selectReviewSection(page, "Documents");
+    await review
+      .getByRole("button", { name: "Change assignment", exact: true })
+      .click();
+    await review
+      .getByRole("checkbox", {
+        name: "demo-growth-subscription.pdf",
+        exact: true,
+      })
+      .uncheck();
+    await expect(
+      review.getByRole("combobox", { name: "New investment’s status" }),
+    ).toHaveCount(0);
+    await review
+      .getByRole("combobox", { name: "These agreements belong to" })
+      .click();
+    await page
+      .getByRole("option", { name: "A separate investment", exact: true })
+      .click();
+    const button = review.getByRole("button", {
+      name: "Create separate investment",
       exact: true,
-    })
-    .uncheck();
-  await expect(
-    review.getByRole("combobox", { name: "New investment’s status" }),
-  ).toHaveCount(0);
-  await review
-    .getByRole("combobox", { name: "These agreements belong to" })
-    .click();
-  await page
-    .getByRole("option", { name: "A separate investment", exact: true })
-    .click();
-  const button = review.getByRole("button", {
-    name: "Create separate investment",
-    exact: true,
-  });
-  await expect(button).toBeDisabled();
-  await review
-    .getByRole("checkbox", {
-      name: "demo-growth-subscription.pdf",
-      exact: true,
-    })
-    .check();
-  await expect(
-    review.getByLabel("Investment label", { exact: true }),
-  ).toHaveValue("Demo Growth IV LLC");
-  await expect(
-    review.getByRole("combobox", { name: "New investment’s status" }),
-  ).toContainText("Not confirmed");
-  await review
-    .getByLabel("Investment label", { exact: true })
-    .fill("Demo Cancelled Vehicle");
-  await review
-    .getByRole("combobox", { name: "New investment’s status" })
-    .click();
-  await page.getByRole("option", { name: "Cancelled", exact: true }).click();
-  await expect(review).toHaveScreenshot("investment-document-assignment.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
-  await button.click();
-  await expect.poll(() => submitted).toBeTruthy();
-  expect(submitted).toMatchObject({
-    label: "Demo Cancelled Vehicle",
-    participationStatus: "cancelled",
-    documentIds: ["11111111-1111-4111-8111-111111111111"],
-  });
-  expect(submitted).not.toHaveProperty("committedMinor");
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
-});
+    });
+    await expect(button).toBeDisabled();
+    await review
+      .getByRole("checkbox", {
+        name: "demo-growth-subscription.pdf",
+        exact: true,
+      })
+      .check();
+    await expect(
+      review.getByLabel("Investment label", { exact: true }),
+    ).toHaveValue("Demo Growth IV LLC");
+    await expect(
+      review.getByRole("combobox", { name: "New investment’s status" }),
+    ).toContainText("Not confirmed");
+    await review
+      .getByLabel("Investment label", { exact: true })
+      .fill("Demo Cancelled Vehicle");
+    await review
+      .getByRole("combobox", { name: "New investment’s status" })
+      .click();
+    await page.getByRole("option", { name: "Cancelled", exact: true }).click();
+    await expect(review).toHaveScreenshot(
+      "investment-document-assignment.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+      },
+    );
+    await button.click();
+    await expect.poll(() => submitted).toBeTruthy();
+    expect(submitted).toMatchObject({
+      label: "Demo Cancelled Vehicle",
+      participationStatus: "cancelled",
+      documentIds: ["11111111-1111-4111-8111-111111111111"],
+    });
+    expect(submitted).not.toHaveProperty("committedMinor");
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > innerWidth,
+      ),
+    ).toBe(false);
+  },
+);
 
 test("uses responsive section navigation, keeps focus rings visible, and leaves unsourced terms blank", async ({
   page,
@@ -1684,6 +1697,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
   await expect(
     panel.locator('[aria-label="Investment amount correction"]'),
   ).toHaveScreenshot("investment-amount-correction-review.png");
+  if (isMobile) return;
   await panel.getByRole("button", { name: "Save amount", exact: true }).click();
   await expect(
     panel.locator(".investment-review__section").filter({
@@ -1744,7 +1758,6 @@ test("corrects investment amounts with review, reload, second save, rejection an
       }),
     }),
   ).toHaveScreenshot("investment-amount-corrected.png");
-  if (isMobile) return;
   await open();
   await panel
     .getByRole("button", { name: "Use source amount", exact: true })
@@ -1817,6 +1830,7 @@ The SPV received 88 closing warrant shares.`);
   await expect(section).toHaveScreenshot("investment-event-review.png", {
     animations: "disabled",
   });
+  if (!isMobile) return;
   fixture.rejectWrites(true);
   await section
     .getByRole("button", { name: "Save event", exact: true })
@@ -1840,7 +1854,6 @@ The SPV received 88 closing warrant shares.`);
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  if (!isMobile) return;
   await page.reload();
   await selectReviewSection(page, "Record actions");
   await expect(
