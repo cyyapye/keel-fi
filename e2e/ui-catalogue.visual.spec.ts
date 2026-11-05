@@ -1,17 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { Page, TestInfo } from "@playwright/test";
 import { expect, test } from "./api-mocked-test";
-import { buildUiCatalogue } from "../scripts/ui-catalogue";
-
-let html: string;
-test.beforeAll(async () => {
-  html = await buildUiCatalogue();
-});
-test.beforeEach(async ({ page }) => {
-  await page.route("**/keel-ui-catalogue.html", (route) =>
-    route.fulfill({ contentType: "text/html", body: html }),
-  );
-});
 
 if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
   test(
@@ -24,7 +13,7 @@ async function captureDesignVariants(
   { page }: { page: Page },
   testInfo: TestInfo,
 ) {
-  await page.goto("/keel-ui-catalogue.html#forms");
+  await page.goto("/ui/#forms");
   const actions = page.locator(".catalogue-example").filter({
     has: page.getByRole("heading", { name: "Buttons & links", exact: true }),
   });
@@ -51,7 +40,7 @@ async function captureDesignVariants(
     element.parentNode?.removeChild(element);
   });
 
-  await page.goto("/keel-ui-catalogue.html#display");
+  await page.goto("/ui/#display");
   const facts = page.locator(".catalogue-example").filter({
     has: page.getByRole("heading", {
       name: "Facts when labels add meaning",
@@ -96,7 +85,7 @@ const screenshotOptions = {
 test("record groups keep identities, values and actions readable", async ({
   page,
 }) => {
-  await page.goto("/keel-ui-catalogue.html#compositions");
+  await page.goto("/ui/#compositions");
   const example = page.getByRole("region", {
     name: "Alternating record rows",
     exact: true,
@@ -167,7 +156,7 @@ test("record groups keep identities, values and actions readable", async ({
 test("foundations distinguish selection from keyboard focus", async ({
   page,
 }) => {
-  await page.goto("/keel-ui-catalogue.html#foundations");
+  await page.goto("/ui/#foundations");
   await expect(
     page.getByRole("button", { name: /New components/ }),
   ).toHaveCount(0);
@@ -201,7 +190,7 @@ test("foundations distinguish selection from keyboard focus", async ({
 test("quiet buttons keep action spacing and textareas use the filled surface", async ({
   page,
 }) => {
-  await page.goto("/keel-ui-catalogue.html#forms");
+  await page.goto("/ui/#forms");
   const disabled = page
     .locator(".catalogue-example")
     .filter({
@@ -253,7 +242,7 @@ test("quiet buttons keep action spacing and textareas use the filled surface", a
   await expect(
     page.getByRole("heading", { name: "Component index", exact: true }),
   ).toBeVisible();
-  await page.goto("/keel-ui-catalogue.html#additions");
+  await page.goto("/ui/#additions");
   await expect(
     page.getByRole("heading", { name: "Forms & actions", exact: true }),
   ).toBeVisible();
@@ -262,7 +251,7 @@ test("quiet buttons keep action spacing and textareas use the filled surface", a
 test("section navigation preserves the active panel when its container narrows", async ({
   page,
 }, info) => {
-  await page.goto("/keel-ui-catalogue.html#interactions");
+  await page.goto("/ui/#interactions");
   const example = page.locator(".catalogue-example").filter({
     has: page.getByRole("heading", {
       name: "Tabs on narrow screens",
@@ -319,89 +308,98 @@ test("section navigation preserves the active panel when its container narrows",
   ).toBe(true);
 });
 
-test("shared controls expose disabled states and styled keyboard tabs", async ({
-  page,
-}) => {
-  await page.goto("/keel-ui-catalogue.html#interactions");
-  for (const name of [
-    "Unavailable while saving",
-    "Unavailable selection",
-    "Unavailable company selection",
-    "Unavailable date",
-  ]) {
-    const control = page.getByRole(
-      name.includes("selection") ? "combobox" : "button",
-      { name, exact: true },
-    );
-    await expect(control).toBeDisabled();
-    await expect(control).toHaveCSS("opacity", "0.4");
-  }
-  const tabs = page.getByRole("tablist", { name: "Record sections" });
-  const profile = tabs.getByRole("tab", { name: "Profile", exact: true });
-  await profile.focus();
-  await profile.press("ArrowRight");
-  await expect(
-    tabs.getByRole("tab", { name: "History", exact: true }),
-  ).toBeFocused();
-  await expect(
-    tabs.getByRole("tab", { name: "Unavailable", exact: true }),
-  ).toBeDisabled();
-  expect(
-    await profile.evaluate((el) => el.getBoundingClientRect().height),
-  ).toBeGreaterThanOrEqual(44);
-  await expect(tabs).toHaveScreenshot("shared-tabs.png", screenshotOptions);
-  expect(
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth <=
-        document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-});
+test(
+  "shared controls expose disabled states and styled keyboard tabs",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await page.goto("/ui/#interactions");
+    for (const name of [
+      "Unavailable while saving",
+      "Unavailable selection",
+      "Unavailable company selection",
+      "Unavailable date",
+    ]) {
+      const control = page.getByRole(
+        name.includes("selection") ? "combobox" : "button",
+        { name, exact: true },
+      );
+      await expect(control).toBeDisabled();
+      await expect(control).toHaveCSS("opacity", "0.4");
+    }
+    const tabs = page.getByRole("tablist", { name: "Record sections" });
+    const profile = tabs.getByRole("tab", { name: "Profile", exact: true });
+    await profile.focus();
+    await profile.press("ArrowRight");
+    await expect(
+      tabs.getByRole("tab", { name: "History", exact: true }),
+    ).toBeFocused();
+    await expect(
+      tabs.getByRole("tab", { name: "Unavailable", exact: true }),
+    ).toBeDisabled();
+    expect(
+      await profile.evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+    await expect(tabs).toHaveScreenshot("shared-tabs.png", screenshotOptions);
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+  },
+);
 
-test("choices preserve mixed selection, keyboard semantics and label targets", async ({
-  page,
-}) => {
-  await page.goto("/keel-ui-catalogue.html#forms");
-  const checkbox = page.getByRole("region", { name: "Checkbox", exact: true });
-  const all = checkbox.getByRole("checkbox", {
-    name: "All available columns",
-    exact: true,
-  });
-  await expect(all).toHaveAttribute("aria-checked", "mixed");
-  await all.press("Space");
-  await expect(checkbox.getByRole("status")).toHaveText("3 columns selected");
-  await all.press("Space");
-  await expect(checkbox.getByRole("alert")).toHaveText(
-    "Choose at least one column.",
-  );
-  await expect(
-    checkbox.getByRole("checkbox", { name: "Tax identifier", exact: true }),
-  ).toBeDisabled();
-  const target = checkbox.locator('[data-slot="checkbox-field"]').first();
-  expect(
-    await target.evaluate((el) => el.getBoundingClientRect().height),
-  ).toBeGreaterThanOrEqual(44);
-  const radio = page.getByRole("radio", {
-    name: "Formation certificate",
-    exact: true,
-  });
-  await radio.focus();
-  await radio.press("ArrowDown");
-  await expect(
-    page.getByRole("radio", { name: "Subscription agreement", exact: true }),
-  ).toBeChecked();
-  await checkbox.evaluate((el) => el.scrollIntoView({ block: "center" }));
-  await expect(checkbox).toHaveScreenshot(
-    "shared-checkbox-validation.png",
-    screenshotOptions,
-  );
-});
+test(
+  "choices preserve mixed selection, keyboard semantics and label targets",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await page.goto("/ui/#forms");
+    const checkbox = page.getByRole("region", {
+      name: "Checkbox",
+      exact: true,
+    });
+    const all = checkbox.getByRole("checkbox", {
+      name: "All available columns",
+      exact: true,
+    });
+    await expect(all).toHaveAttribute("aria-checked", "mixed");
+    await all.press("Space");
+    await expect(checkbox.getByRole("status")).toHaveText("3 columns selected");
+    await all.press("Space");
+    await expect(checkbox.getByRole("alert")).toHaveText(
+      "Choose at least one column.",
+    );
+    await expect(
+      checkbox.getByRole("checkbox", { name: "Tax identifier", exact: true }),
+    ).toBeDisabled();
+    const target = checkbox.locator('[data-slot="checkbox-field"]').first();
+    expect(
+      await target.evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
+    const radio = page.getByRole("radio", {
+      name: "Formation certificate",
+      exact: true,
+    });
+    await radio.focus();
+    await radio.press("ArrowDown");
+    await expect(
+      page.getByRole("radio", { name: "Subscription agreement", exact: true }),
+    ).toBeChecked();
+    await checkbox.evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await expect(checkbox).toHaveScreenshot(
+      "shared-checkbox-validation.png",
+      screenshotOptions,
+    );
+  },
+);
 
 test("form failures are borderless, concise and preserve the editable draft", async ({
   page,
+  isMobile,
 }) => {
-  await page.goto("/keel-ui-catalogue.html#forms");
+  await page.clock.install();
+  await page.goto("/ui/#forms");
   const refresh = page.getByRole("region", {
     name: "LoadingStatus & Spinner",
     exact: true,
@@ -431,6 +429,7 @@ test("form failures are borderless, concise and preserve the editable draft", as
   await form
     .getByRole("button", { name: "Save source name", exact: true })
     .click();
+  await page.clock.fastForward(1000);
   await expect(form.getByRole("alert")).toHaveText(
     "The source name could not be saved.",
   );
@@ -440,6 +439,7 @@ test("form failures are borderless, concise and preserve the editable draft", as
     screenshotOptions,
   );
   await form.getByRole("button", { name: "Retry save", exact: true }).click();
+  await page.clock.fastForward(1000);
   await expect(form.getByRole("status")).toHaveText(
     "Source name saved in this preview.",
   );
@@ -451,111 +451,121 @@ test("form failures are borderless, concise and preserve the editable draft", as
   await expect(input).toHaveAccessibleDescription(
     "Use the name printed on the document. Enter a source name.",
   );
+  if (isMobile) {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await refresh.getByRole("button", { name: "Loading", exact: true }).click();
+    await expect(refresh.getByRole("status")).toHaveText("Refreshing sources…");
+    await expect(refresh.locator('[data-slot="spinner"]')).toHaveCSS(
+      "animation-name",
+      "none",
+    );
+  }
 });
 
-test("manual collections retain rows on failure and expose a terminal state", async ({
-  page,
-}) => {
-  await page.goto("/keel-ui-catalogue.html#collection-loading");
-  const collection = page.getByRole("region", {
-    name: "CollectionFooter",
-    exact: true,
-  });
-  await collection
-    .getByRole("button", { name: "Load more records", exact: true })
-    .click();
-  await expect(collection.getByRole("alert")).toHaveText(
-    "More records could not be loaded.",
-  );
-  await expect(collection.getByRole("listitem")).toHaveCount(3);
-  await collection
-    .getByRole("button", { name: "Try loading again", exact: true })
-    .press("Enter");
-  await expect(collection.getByRole("listitem")).toHaveCount(5);
-  await expect(collection.locator('[data-record-index="3"]')).toBeFocused();
-  await collection
-    .getByRole("checkbox", { name: "Unknown total", exact: true })
-    .check();
-  await expect(collection.getByRole("status")).toHaveText("Showing 5 records");
-  await collection
-    .getByRole("button", { name: "Load more records", exact: true })
-    .click();
-  await expect(collection.getByRole("status")).toHaveText(
-    "All 7 records shown",
-  );
-  await expect(
-    collection.getByRole("button", { name: "Load more records", exact: true }),
-  ).toHaveCount(0);
-});
+test(
+  "manual collections retain rows on failure and expose a terminal state",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await page.clock.install();
+    await page.goto("/ui/#collection-loading");
+    const collection = page.getByRole("region", {
+      name: "CollectionFooter",
+      exact: true,
+    });
+    await collection
+      .getByRole("button", { name: "Load more records", exact: true })
+      .click();
+    await page.clock.fastForward(1000);
+    await expect(collection.getByRole("alert")).toHaveText(
+      "More records could not be loaded.",
+    );
+    await expect(collection.getByRole("listitem")).toHaveCount(3);
+    await collection
+      .getByRole("button", { name: "Try loading again", exact: true })
+      .press("Enter");
+    await page.clock.fastForward(1000);
+    await expect(collection.getByRole("listitem")).toHaveCount(5);
+    await expect(collection.locator('[data-record-index="3"]')).toBeFocused();
+    await collection
+      .getByRole("checkbox", { name: "Unknown total", exact: true })
+      .check();
+    await expect(collection.getByRole("status")).toHaveText(
+      "Showing 5 records",
+    );
+    await collection
+      .getByRole("button", { name: "Load more records", exact: true })
+      .click();
+    await page.clock.fastForward(1000);
+    await expect(collection.getByRole("status")).toHaveText(
+      "All 7 records shown",
+    );
+    await expect(
+      collection.getByRole("button", {
+        name: "Load more records",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  },
+);
 
-test("automatic collections stop after failure and keep automatic appends from stealing focus", async ({
-  page,
-}) => {
-  await page.goto("/keel-ui-catalogue.html#collection-loading");
-  const collection = page.getByRole("region", {
-    name: "Automatically loaded records",
-    exact: true,
-  });
-  await collection
-    .locator('[data-slot="collection-footer"]')
-    .scrollIntoViewIfNeeded();
-  await expect(collection.getByRole("alert")).toHaveText(
-    "More records could not be loaded.",
-  );
-  await page.clock.install();
-  await page.clock.runFor(2000);
-  await expect(collection.getByRole("listitem")).toHaveCount(5);
-  await expect(
-    collection.getByRole("button", { name: "Try loading again", exact: true }),
-  ).toBeEnabled();
-  await collection
-    .getByRole("button", { name: "Try loading again", exact: true })
-    .press("Enter");
-  await expect(
-    collection.getByRole("button", { name: "Loading…", exact: true }),
-  ).toBeDisabled();
-  await page.clock.runFor(700);
-  await expect(collection.getByRole("listitem")).toHaveCount(10);
-  await expect(collection.locator('[data-record-index="5"]')).toBeFocused();
-  await collection
-    .locator('[data-slot="collection-footer"]')
-    .scrollIntoViewIfNeeded();
-  await page.clock.runFor(700);
-  await expect(collection.getByRole("status")).toHaveText(
-    "All 15 records shown",
-  );
-  await expect(collection.locator('[data-record-index="5"]')).toBeFocused();
-  expect(
-    await collection.evaluate((el) => el.nextElementSibling === null),
-  ).toBe(true);
-  expect(
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth <=
-        document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
-});
-
-test("reduced motion disables the decorative spinner", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/keel-ui-catalogue.html#forms");
-  const refresh = page.getByRole("region", {
-    name: "LoadingStatus & Spinner",
-    exact: true,
-  });
-  await refresh.getByRole("button", { name: "Loading", exact: true }).click();
-  await expect(refresh.getByRole("status")).toHaveText("Refreshing sources…");
-  await expect(refresh.locator('[data-slot="spinner"]')).toHaveCSS(
-    "animation-name",
-    "none",
-  );
-});
+test(
+  "automatic collections stop after failure and keep automatic appends from stealing focus",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    await page.goto("/ui/#collection-loading");
+    const collection = page.getByRole("region", {
+      name: "Automatically loaded records",
+      exact: true,
+    });
+    await collection
+      .locator('[data-slot="collection-footer"]')
+      .scrollIntoViewIfNeeded();
+    await expect(collection.getByRole("alert")).toHaveText(
+      "More records could not be loaded.",
+    );
+    await page.clock.install();
+    await page.clock.runFor(2000);
+    await expect(collection.getByRole("listitem")).toHaveCount(5);
+    await expect(
+      collection.getByRole("button", {
+        name: "Try loading again",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await collection
+      .getByRole("button", { name: "Try loading again", exact: true })
+      .press("Enter");
+    await expect(
+      collection.getByRole("button", { name: "Loading…", exact: true }),
+    ).toBeDisabled();
+    await page.clock.runFor(700);
+    await expect(collection.getByRole("listitem")).toHaveCount(10);
+    await expect(collection.locator('[data-record-index="5"]')).toBeFocused();
+    await collection
+      .locator('[data-slot="collection-footer"]')
+      .scrollIntoViewIfNeeded();
+    await page.clock.runFor(700);
+    await expect(collection.getByRole("status")).toHaveText(
+      "All 15 records shown",
+    );
+    await expect(collection.locator('[data-record-index="5"]')).toBeFocused();
+    expect(
+      await collection.evaluate((el) => el.nextElementSibling === null),
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+  },
+);
 
 test("reading facts stay concise and statistics have readable separation", async ({
   page,
 }) => {
-  await page.goto("/keel-ui-catalogue.html#display");
+  await page.goto("/ui/#display");
   const facts = page.locator(".catalogue-example").filter({
     has: page.getByRole("heading", {
       name: "Facts when labels add meaning",
@@ -607,7 +617,7 @@ test("reading facts stay concise and statistics have readable separation", async
 });
 
 test("chart points expose values by pointer and keyboard", async ({ page }) => {
-  await page.goto("/keel-ui-catalogue.html#display");
+  await page.goto("/ui/#display");
   const chart = page.getByLabel(
     "Synthetic reviewed document counts: July 3, August 5, September 8, October 10.",
   );
@@ -633,7 +643,7 @@ test("chart points expose values by pointer and keyboard", async ({ page }) => {
 test("featured carousel uses homepage presentation and the index remains current", async ({
   page,
 }) => {
-  await page.goto("/keel-ui-catalogue.html#display");
+  await page.goto("/ui/#display");
   const carousel = page.getByRole("region", {
     name: "Source examples",
     exact: true,
@@ -686,7 +696,7 @@ test("featured carousel uses homepage presentation and the index remains current
   await expect(
     page.getByRole("heading", { name: "Carousel", exact: true }),
   ).toBeVisible();
-  await page.goto("/keel-ui-catalogue.html#audit");
+  await page.goto("/ui/#audit");
   await expect(
     page.getByRole("heading", { name: "Component index", exact: true }),
   ).toBeVisible();

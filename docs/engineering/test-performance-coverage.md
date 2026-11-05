@@ -941,3 +941,20 @@ The retained full images can be less sensitive to small changes in a formerly
 separate crop. A CSS defect confined to a retired width and state can also
 escape pixel comparison. Existing Linux references outside these reviewed
 retirements keep their original pixels and tolerances.
+
+The next provider and catalogue reviews reduce the required inventory to 335
+browser cases and 22 exclusions, with 398 Linux reference files. Five repeated
+provider captures now share the real two-row Tokenfolio and funded Sydecar
+journeys. Missing and reported quote dates, before- and after-split units,
+drawer timing, source association and central-only collection each retained a
+first-attempt positive and a rejecting control. The retired combinations include
+a delayed single funded row without a document collector and an interrupted
+drawer without a stale URL.
+
+The catalogue tests open the built page at `/ui/`. A missing asset failed this
+journey even though the original test-built response passed. Manual and
+automatic pagination keep separate keyboard, focus and observer checks. Mobile
+retains the reduced-motion spinner, mixed checkbox and disabled tabs. Retiring
+the wide checkbox and tab crops gives up the exact wide description wrap and
+desktop tab pixels. The desktop foundation still exercises keyboard focus and
+tab selection.

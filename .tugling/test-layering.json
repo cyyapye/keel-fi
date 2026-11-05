@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 129,
+  "retiredBrowserCaseCount": 135,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -1019,6 +1019,62 @@
         "e2e/provider-portfolio-mac-agent.spec.ts :: chromium :: captures and reconciles the supported Tokenfolio page contract"
       ],
       "assertions": "The same two real captures compare known and missing provider quote data on adjacent rows. Before-split and after-split inputs retain conversion factors 1 and 10, the explicit provider date differs from the capture date, and missing values stay null. The known-value row also exercises both missing and reported quote data."
+    },
+    {
+      "id": "catalogue-manual-pagination",
+      "retiredBrowserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: manual collections retain rows on failure and expose a terminal state"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: manual collections retain rows on failure and expose a terminal state"
+      ],
+      "assertions": "Desktop drives the real manual footer, checks failure retains the first three rows, retries with Enter, focuses the first appended row, shows an unknown total, and removes Load more at seven rows. Mobile automatic pagination retains its own native observer and focus checks."
+    },
+    {
+      "id": "catalogue-observed-pagination",
+      "retiredBrowserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: automatic collections stop after failure and keep automatic appends from stealing focus"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: automatic collections stop after failure and keep automatic appends from stealing focus"
+      ],
+      "assertions": "Mobile scroll triggers the real IntersectionObserver, stops at a failure, retries manually with keyboard focus, appends automatically without moving focus again, and checks the terminal page and viewport width."
+    },
+    {
+      "id": "catalogue-motion",
+      "retiredBrowserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: reduced motion disables the decorative spinner",
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: reduced motion disables the decorative spinner"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: form failures are borderless, concise and preserve the editable draft"
+      ],
+      "assertions": "The existing mobile form test switches to reduced-motion media after its normal screenshots, selects the loading state on the real feedback example, checks its accessible status and actual computed spinner animation."
+    },
+    {
+      "id": "catalogue-mixed-choices",
+      "retiredBrowserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: choices preserve mixed selection, keyboard semantics and label targets"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: choices preserve mixed selection, keyboard semantics and label targets"
+      ],
+      "assertions": "Mobile checks mixed state, Space-driven three/empty selection, disabled choice, 44px label target, radio ArrowDown and invalid layout. The wide standalone mixed-checkbox error image and layout are retired."
+    },
+    {
+      "id": "catalogue-disabled-controls",
+      "retiredBrowserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: chromium :: shared controls expose disabled states and styled keyboard tabs"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: shared controls expose disabled states and styled keyboard tabs"
+      ],
+      "assertions": "Mobile drives all four disabled control types, exact dim opacity, keyboard tab focus, 44px target and no overflow. Desktop foundation tabs still check focus versus selection and activate the History panel. The exact wide standalone default tab crop is retired."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
