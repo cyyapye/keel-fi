@@ -441,6 +441,8 @@ describe("shared D1 capacity owner", () => {
   });
 
   it("bounds a full virtual day of minute attempts without claiming unchanged freshness", async () => {
+    const startedAt = performance.now();
+    const initialCpu = process.cpuUsage();
     const store = new JsonStore();
     let completed = 0;
     for (let minute = 0; minute < 1440; minute++) {
@@ -458,6 +460,17 @@ describe("shared D1 capacity owner", () => {
         completed++;
       } catch (error) {
         expect(error).toBeInstanceOf(CapacityUnavailableError);
+      }
+      if ((minute + 1) % 360 === 0) {
+        const cpu = process.cpuUsage(initialCpu);
+        console.info(
+          JSON.stringify({
+            event: "capacity_virtual_day_progress",
+            attempts: minute + 1,
+            cpuMicros: cpu.user + cpu.system,
+            elapsedMs: Math.round(performance.now() - startedAt),
+          }),
+        );
       }
     }
     expect(completed).toBeGreaterThan(120);

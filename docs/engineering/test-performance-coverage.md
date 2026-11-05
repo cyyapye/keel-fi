@@ -1078,3 +1078,12 @@ the error classifications used after the saved session restores its capture
 viewport. The separate narrow error matrix for pages without a portfolio is
 retired. Mobile and desktop still run the authenticated viewer and passive-link
 checks.
+
+The
+[297-case ordinary attempt](https://github.com/cyyapye/keel-fi/actions/runs/41993345098/job/127130777520)
+stopped during the exclusive preflight. The capacity day hit its five-second
+deadline and the other 113 preflight tests passed. The
+[same-tree isolated browser run](https://github.com/cyyapye/keel-fi/actions/runs/41994250300)
+passed all 297 first attempts in 321.226 seconds. The capacity test now logs
+process CPU and elapsed time every 360 simulated minutes while exercising all
+1,440 production operations at the existing deadline.
