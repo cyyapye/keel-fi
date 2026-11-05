@@ -24,7 +24,7 @@ test("renders a dated ownership observation with its exact document and one perc
   const entries = markup.match(/<article\b[\s\S]*?<\/article>/gu) ?? [];
   expect(entries).toHaveLength(1);
   const entry = entries[0]!;
-  expect(entry).not.toMatch(/<(?:ul|li)\b/u);
+  expect(markup).not.toMatch(/<(?:ul|li)\b/u);
   expect(entry.split("12.5%")).toHaveLength(2);
   expect(entry).toContain("As of Aug 15, 2026");
   expect(entry).toContain("Document reviewed · page 2");

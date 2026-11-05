@@ -8,7 +8,9 @@ function actionLabels(markup: string) {
     markup.matchAll(
       /<(button\b[^>]*|a\b[^>]*\bhref=[^>]*)>([\s\S]*?)<\/(?:button|a)>/gu,
     ),
-    ([, , text]) => text!.replace(/<[^>]+>/gu, "").trim(),
+    ([, tag, text]) =>
+      tag!.match(/\baria-label="([^"]*)"/u)?.[1] ??
+      text!.replace(/<[^>]+>/gu, "").trim(),
   );
 }
 
@@ -43,9 +45,16 @@ test("explains each blocked agreement without exposing a download or an assignme
     const blocked = render(document);
     expect(blocked).toContain(document.fileName);
     expect(blocked).toContain(explanation);
-    expect(actionLabels(blocked)).toContain("Recheck agreement");
-    expect(actionLabels(blocked)).not.toContain(document.fileName);
-    expect(actionLabels(blocked)).not.toContain("Review details");
+    const actions = actionLabels(blocked);
+    expect(
+      actions.filter((label) => label.includes("Recheck agreement")),
+    ).toHaveLength(1);
+    expect(actions.some((label) => label.includes(document.fileName))).toBe(
+      false,
+    );
+    expect(actions.some((label) => label.includes("Review details"))).toBe(
+      false,
+    );
 
     const cleared = render({
       ...document,
