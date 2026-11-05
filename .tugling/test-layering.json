@@ -306,7 +306,7 @@
       "browserCases": [
         "e2e/manual-holdings.visual.spec.ts :: mobile-chromium :: opens the dedicated editor from empty and regular Holdings and restores trigger focus on cancel"
       ],
-      "assertions": "The component renders a selected manual Fund estimate without treating cash as basis or return. Mobile opens its editor from the unallocated Fund inventory row."
+      "assertions": "The component renders a selected manual Fund estimate without treating cash as basis or return. Mobile finds the unallocated Fund row and opens Add holding using the page action."
     },
     {
       "id": "reviewed-history-inventory-row",
@@ -1689,7 +1689,7 @@
         "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > projects timeouts without writes and rejects a late completion after explicit recovery",
         "packages/database/src/portfolio-watch.test.ts :: Portfolio Watch financing fact persistence > creates an append-only proposal against exact signal and scenario versions"
       ],
-      "assertions": "Desktop owns scan progress, source activity, signal tabs and exact-version reconciliation. Desktop opens the scheduled run and mobile verifies the five saved rows. Mobile owns financing consent, scenario navigation and failed checks. The 120-company list still runs at both widths. The separate missing-website form and the 125-update DOM tour are retired."
+      "assertions": "Desktop owns scan progress, source activity, signal tabs and exact-version reconciliation. Desktop opens the scheduled run and mobile verifies the five saved rows. In the financing review, Cancel sends no decision. Scenario only sends exactly one scenario_only POST for the selected event, then opens Scenarios. Mobile also owns failed checks. The 120-company list still runs at both widths. The separate missing-website form and the 125-update DOM tour are retired."
     },
     {
       "id": "browser-value-portfolio-baseline",
@@ -1938,7 +1938,7 @@
         "packages/database/src/manual-holdings.test.ts :: does not turn known cash into a current valuation and retains an explicit zero",
         "packages/database/src/manual-holdings.test.ts :: keeps cash paid, valuation and unknown net capital/distributions distinct"
       ],
-      "assertions": "One real D1 transaction each checks zero cash versus an estimate on mobile and paid cash versus capital, return and dates on desktop. Unassigned Direct still creates and reopens on both. Secondary financial write/readback flows lose a duplicate width."
+      "assertions": "Real D1 verifies zero cash versus an estimate on mobile and paid cash versus capital, return and dates on desktop. Mobile also saves and reopens an unassigned Direct holding with unknown amounts. Its duplicate desktop journey runs only on explicit design capture."
     },
     {
       "id": "editor-value-manual-editor-widths",
@@ -2791,7 +2791,7 @@
         "apps/web/src/holding-history-summary.test.ts :: shows only changed fields and preserves cleared values",
         "apps/web/src/holding-history-summary.test.ts :: isolates a fee rate change from unchanged cash and shares"
       ],
-      "assertions": "The real position-link screen still unlinks a source and reopens saved history. Real D1 keeps links and updates append-only; the renderer identifies changed fields. The purchase detail fixture combining failed unlink, disclosure focus and unchanged-field omission from its embedded timeline is retired."
+      "assertions": "The position-link browser journey reloads the saved links, unlinks the historical replacement and leaves the reported-valuation source attached. It opens that source\u2019s warning without a write. Repository tests retain append-only link history. The purchase detail fixture combining failed unlink, disclosure focus and unchanged-field omission from its embedded timeline is retired."
     },
     {
       "id": "stateful-a-purchase-refund-fee-error",
@@ -2823,7 +2823,7 @@
         "packages/domain/src/position-purchases.test.ts :: records an explicit proxy without inventing class or mark date",
         "packages/database/src/position-purchases.test.ts :: persists optional details, reads them through holdings, versions edits and rejects stale or foreign writes"
       ],
-      "assertions": "Wide uses the real valuation form, which rejects a cross-class proxy until explicitly accepted, requires refreshed price after a rejection, and persists the consent flag, exact source position and new price. Normal valuation choice preserves GP amount and shares. The mobile stale/failed/pending/saved screenshots, estimated quantity provenance editor and stale price readback fixture are retired."
+      "assertions": "The wide valuation form requires explicit cross-class consent and a refreshed price after rejection. Its mocked POST and response record consent, the exact source position and the new price. Repository tests separately cover persisted purchase details. The mobile stale, failed, pending and saved screenshots, quantity provenance editor and stale price readback fixture are retired."
     },
     {
       "id": "stateful-b-unknown-direct",

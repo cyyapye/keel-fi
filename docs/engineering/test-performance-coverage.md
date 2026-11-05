@@ -1191,3 +1191,31 @@ reference images.
   Position replacement, unlink, failed drafts, reopen and keyboard return remain
   covered. Secondary history, alternate workspace exits and duplicate
   legal-search and Overview interactions retire.
+
+### Five complete Linux measurements
+
+Five consecutive ordinary PR runs at `e8e963e8` used the same merge tree and the
+original Linux runner. All 128 browser executions passed on their first attempt
+in each run. The median browser phase took 258.613 seconds and the slowest took
+289.806 seconds. The 297-case control took 518.309 seconds.
+
+| First attempt                                                                  | Browser wall (s) | Complete native gate (s) |
+| ------------------------------------------------------------------------------ | ---------------: | -----------------------: |
+| [Run 42065568280](https://github.com/cyyapye/keel-fi/actions/runs/42065568280) |          243.001 |                  800.187 |
+| [Run 42069265320](https://github.com/cyyapye/keel-fi/actions/runs/42069265320) |          239.856 |                  772.424 |
+| [Run 42071835609](https://github.com/cyyapye/keel-fi/actions/runs/42071835609) |          262.426 |                  801.231 |
+| [Run 42074413877](https://github.com/cyyapye/keel-fi/actions/runs/42074413877) |          258.613 |                  822.713 |
+| [Run 42077082638](https://github.com/cyyapye/keel-fi/actions/runs/42077082638) |          289.806 |                  864.937 |
+
+An
+[earlier attempt](https://github.com/cyyapye/keel-fi/actions/runs/42063928991)
+on the same revision stopped before browsers. The D1 full-day test exceeded its
+five-second CPU budget at 5.401 seconds. An
+[isolated browser comparison](https://github.com/cyyapye/keel-fi/actions/runs/42065304461)
+passed in 166.904 seconds.
+
+A final coverage review tightened the existing Watch financing case. Opening the
+confirmation and cancelling it must produce zero review writes. Choosing
+Scenario only must send one POST for the selected evidence event with the
+`scenario_only` decision. The previous case passed both a deliberately wrong
+`accepted` payload and a write on Cancel. The stronger case rejects both faults.

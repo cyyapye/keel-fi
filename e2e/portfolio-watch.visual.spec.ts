@@ -893,11 +893,12 @@ test(
     const alphaResponse = await page.request.get("/api/alpha");
     expect(alphaResponse.ok()).toBe(true);
     const liveAlpha = (await alphaResponse.json()) as Record<string, unknown>;
+    const evidenceId = "evt_watch_harbor_series_c";
     const alphaFixture = {
       ...liveAlpha,
       evidenceInbox: [
         {
-          id: "evt_watch_harbor_series_c",
+          id: evidenceId,
           companyName: "Harbor Health Systems",
           eventType: "financing_announced",
           headline: "Synthetic Series C company terms reported",
@@ -928,6 +929,16 @@ test(
       await route.fulfill({ json: alphaFixture });
     });
 
+    const reviews: { path: string; method: string; body: unknown }[] = [];
+    await page.route("**/api/evidence/*/review", async (route) => {
+      const request = route.request();
+      reviews.push({
+        path: new URL(request.url()).pathname,
+        method: request.method(),
+        body: request.postDataJSON(),
+      });
+      await route.fulfill({ status: 204 });
+    });
     await page.goto("/");
     const mobile = testInfo.project.name === "mobile-chromium";
     await navigateToScreen(page, mobile, /Evidence/);
@@ -1001,10 +1012,9 @@ test(
       card.getByText("No holding mark or forecast changes."),
     ).toBeVisible();
     await card.getByRole("button", { name: "Cancel" }).click();
+    await expect(card.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    expect(reviews).toHaveLength(0);
 
-    await page.route("**/api/evidence/*/review", async (route) => {
-      await route.fulfill({ status: 204 });
-    });
     await card.getByRole("button", { name: "Scenario only" }).click();
     await expect(
       page.getByRole("heading", { name: "Scenarios" }),
@@ -1046,6 +1056,13 @@ test(
         threshold: 0.25,
       },
     );
+    expect(reviews).toEqual([
+      {
+        path: `/api/evidence/${evidenceId}/review`,
+        method: "POST",
+        body: expect.objectContaining({ decision: "scenario_only" }),
+      },
+    ]);
   },
 );
 
