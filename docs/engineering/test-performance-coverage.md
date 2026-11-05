@@ -897,3 +897,47 @@ map remain unchanged. The full-suite speed and repeated-pass target is not yet
 met. A proposed read-receipt fixture rewrite is deferred because existing
 helpers cannot preserve its four-source evidence graph without substantial new
 fixture machinery.
+
+### Browser coverage and the five-minute target
+
+The target is under 300 seconds for the complete browser command in an ordinary
+verification run on `keel-ci-us-1`, including profile preparation, server
+startup and cleanup. Five complete first-attempt runs establish repeatability.
+The required native receipt still checks the complete case inventory and rejects
+a pass on retry.
+
+| Run on the existing runner                                                                     | Required browser passes | Browser elapsed | Whole native gate |
+| ---------------------------------------------------------------------------------------------- | ----------------------: | --------------: | ----------------: |
+| [Starting full run](https://github.com/cyyapye/keel-fi/actions/runs/41947395475)               |                     406 |       566.388 s |         871.689 s |
+| [Full run after first reductions](https://github.com/cyyapye/keel-fi/actions/runs/41965947334) |                     383 |       551.700 s |         846.574 s |
+| [Browser alone on the same tree](https://github.com/cyyapye/keel-fi/actions/runs/41966075760)  |                     383 |       394.412 s |   Diagnostic only |
+
+The matched runs used the same 4-worker limit and Git tree. Other verification
+work overlapped the ordinary browser phase. Running alone reduced elapsed time
+by 157.288 seconds in this pair and still exceeded five minutes. An earlier
+trial exposed a company-review screenshot that passed on retry when the
+disclosure changed height by 16 pixels. The test now waits until both
+investments render and the panel matches its list height. The subsequent full
+run passed on the first attempt.
+
+Through `0f6b810c` the reviewed suite has 346 required browser cases, 26
+reviewed exclusions and 400 Linux references. Every retired case has executable
+owners in the [test layering manifest](../../.tugling/test-layering.json).
+Representative controls broke the actual rendering, request or financial
+calculation before removing a check. For example, replacing a saved 0% interest
+with an unknown value failed the real profile component test. Assigning a source
+to the wrong investment still failed the retained browser journey.
+
+| Removed image comparisons                                                    | Coverage that remains                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Two orphaned AngelList sign-in files on each platform                        | Their calling test was replaced by the Mac-agent sign-in flow before this review.                                                                                                                                                                                        |
+| Sparse legal-entity profile at both widths and historical profile on desktop | The real component checks zero versus unknown and omitted fields. The normal profile stays at both widths, and mobile checks historical long-owner wrapping and reload.                                                                                                  |
+| Nine alternate investment review and automatic review states per platform    | Each transaction still runs at a representative width. Distinct ownership-agreement and K-1 layouts stay at both widths. The amended closure and revision-two event retain overflow checks at the saved state.                                                           |
+| Five provider import variants and four dashboard variants per platform       | All three real provider uploads keep their own request and result checks. Incomplete financial ratios and missing price priors have domain and rendered checks. The two empty-mover crops also appear inside the full empty-dashboard images.                            |
+| Six Watch and legal-name variants per platform                               | Timeout, read-state recovery, website verification, document identity and form submission each retain one browser owner and lower-layer policy checks.                                                                                                                   |
+| Six Holdings variants per platform                                           | The full mixed-exposure images contain the compact summary and quiet public group. Mobile keeps carry-only terms, evidence acceptance, source readback and the holdings return. Desktop keeps the filled editor, calendar and unchanged aggregate after leaving a draft. |
+
+The retained full images can be less sensitive to small changes in a formerly
+separate crop. A CSS defect confined to a retired width and state can also
+escape pixel comparison. Existing Linux references outside these reviewed
+retirements keep their original pixels and tolerances.
