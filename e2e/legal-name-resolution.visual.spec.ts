@@ -523,6 +523,7 @@ test("reviews source parties on the dedicated page without offering the represen
 for (const problem of ["name_not_found", "other_structure"] as const)
   test(`validates manual ${problem} entry without requiring an excerpt or reason`, async ({
     page,
+    isMobile,
   }) => {
     const { row, writes } = await setup(page, true, problem);
     await row
@@ -588,26 +589,26 @@ for (const problem of ["name_not_found", "other_structure"] as const)
       .getByRole("option", { name: "demo-subscription.pdf", exact: true })
       .click();
     await expect(submit).toBeEnabled();
-    for (const invalidPage of ["151"]) {
-      await agreementPage.fill(invalidPage);
+    const excerpt = resolver.getByLabel("Document excerpt");
+    const checksInvalidInputs =
+      problem === "other_structure" ? isMobile : !isMobile;
+    if (checksInvalidInputs) {
+      await agreementPage.fill("151");
       await expect(submit).toBeDisabled();
+      await agreementPage.fill("4");
+      await name.fill("   ");
+      await expect(submit).toBeDisabled();
+      await name.fill("Demo Recognized LLC");
+      await excerpt.fill("Unrelated text");
+      await expect(submit).toBeDisabled();
+      await expect(excerpt).toHaveAttribute("aria-invalid", "true");
+      await excerpt.fill("The issuer is Demo Recognized LLC.");
+      await expect(submit).toBeEnabled();
+      await excerpt.fill("");
+      await expect(submit).toBeEnabled();
+    } else {
+      await excerpt.focus();
     }
-    await agreementPage.fill("4");
-    await name.fill("   ");
-    await expect(submit).toBeDisabled();
-    await name.fill("Demo Recognized LLC");
-    await resolver.getByLabel("Document excerpt").fill("Unrelated text");
-    await expect(submit).toBeDisabled();
-    await expect(resolver.getByLabel("Document excerpt")).toHaveAttribute(
-      "aria-invalid",
-      "true",
-    );
-    await resolver
-      .getByLabel("Document excerpt")
-      .fill("The issuer is Demo Recognized LLC.");
-    await expect(submit).toBeEnabled();
-    await resolver.getByLabel("Document excerpt").fill("");
-    await expect(submit).toBeEnabled();
     // Do not capture a hover carried from a control that moved during editing.
     await page.mouse.move(0, 0);
     await expect(resolver).toHaveScreenshot(
@@ -656,6 +657,7 @@ for (const problem of ["name_not_found", "other_structure"] as const)
         source: {
           nameResolution: {
             kind: "document_entry",
+            documentId: "11111111-1111-4111-8111-111111111111",
             legalName: "Demo Recognized LLC",
             page: 4,
             quote: null,
