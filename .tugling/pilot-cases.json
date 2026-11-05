@@ -1735,7 +1735,6 @@
     "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: groups reviewed public stock with separate SPVs and keeps their value bases",
     "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps failed canonical holdings out of view and retries",
     "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps reviewed history in exposures without showing fake brokerage accounts",
-    "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps the exposure summary below the heading with compact sorting",
     "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: lets a failed brokerage check be retried",
     "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: opens a new Item flow for a disconnected brokerage",
     "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view",

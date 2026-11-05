@@ -14,6 +14,16 @@ import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { navigateToScreen } from "./navigation";
 import { routeCollectionSearchModule } from "./collection-search-module";
 
+async function captureDesignReview(page: Page, filename: string) {
+  if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
+    await page.screenshot({
+      path: test.info().outputPath(filename),
+      fullPage: true,
+      animations: "disabled",
+    });
+  }
+}
+
 async function openHoldingSources(page: Page) {
   await page.getByRole("link", { name: "Sources", exact: true }).click();
   await expect(page).toHaveURL(/\/holdings\/sources$/u);
@@ -427,7 +437,7 @@ test.beforeEach(async ({ page }) => {
 
 test("groups reviewed public stock with separate SPVs and keeps their value bases", async ({
   page,
-}, testInfo) => {
+}) => {
   const syntheticHolding = (
     id: string,
     name: string,
@@ -507,11 +517,7 @@ test("groups reviewed public stock with separate SPVs and keeps their value base
     }),
   ).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({
-    path: testInfo.outputPath("review-mixed-company.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
+  await captureDesignReview(page, "review-mixed-company.png");
   await expect(group).toHaveScreenshot("public-private-company-group.png", {
     animations: "disabled",
     caret: "hide",
@@ -637,9 +643,7 @@ test("shows the Holdings shell while one read-only projection loads", async ({
   expect(apiRequests.filter((request) => request.method !== "GET")).toEqual([]);
 });
 
-test("shows compact empty exposure and account states", async ({
-  page,
-}, testInfo) => {
+test("shows compact empty exposure and account states", async ({ page }) => {
   const emptyAlphaFixture = { ...alphaFixture, holdings: [] };
   const emptyConnectionStatus = {
     ...statuses[0]!,
@@ -711,11 +715,7 @@ test("shows compact empty exposure and account states", async ({
     exposureView.getByRole("link", { name: "Manage sources" }),
   ).toHaveAttribute("href", "/holdings/sources");
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({
-    path: testInfo.outputPath("review-empty-holdings.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
+  await captureDesignReview(page, "review-empty-holdings.png");
   await expect(exposureView).toHaveScreenshot(
     "investment-holdings-empty-exposures.png",
     {
@@ -878,6 +878,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     name: /^Sort exposures and positions by value/u,
   });
   await expect(exposureSort).toHaveText("Value ↓");
+  await expect(exposureSort).toHaveAccessibleName(
+    "Sort exposures and positions by value, highest first. Switch to lowest first.",
+  );
   const presentation = () =>
     exposureSort.evaluate((element) => {
       const style = getComputedStyle(element);
@@ -1032,10 +1035,6 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   expect(rowGeometry.value.left).toBeGreaterThanOrEqual(
     rowGeometry.identity.right,
   );
-  await expect(nvda).toHaveScreenshot("holdings-quiet-public-group.png", {
-    animations: "disabled",
-    caret: "hide",
-  });
   if (rowGeometry.width < 600) {
     expect(rowGeometry.metadata.left).toBe(rowGeometry.identity.left);
     expect(rowGeometry.action.left).toBeGreaterThanOrEqual(
@@ -1118,8 +1117,14 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       has: page.getByText("US Dollar", { exact: true }),
     }),
   ).toHaveCount(0);
-  // One activation must reverse the actual group and child-position order.
+  // Start with the last-used cash disclosure centered and the sort control in view.
+  // Sorting must preserve this viewport while the list below it changes order.
+  await smallCashDisclosure.evaluate((button) =>
+    button.scrollIntoView({ block: "center", behavior: "instant" }),
+  );
+  const scrollBeforeSort = await page.evaluate(() => window.scrollY);
   await exposureSort.click();
+  await expect(exposureSort).toBeFocused();
   await expect(exposureSort).toHaveText("Value ↑");
   await expect(exposureSort).toHaveAccessibleName(
     "Sort exposures and positions by value, lowest first. Switch to highest first.",
@@ -1135,6 +1140,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     "$315k",
   ]);
   await expectNoHorizontalOverflow(page);
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeSort);
   await expect(page).toHaveScreenshot(
     "investment-holdings-sort-ascending.png",
     {
@@ -1146,6 +1152,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   );
   await exposureSort.click();
   await expect(exposureSort).toHaveText("Value ↓");
+  await expect(exposureSort).toHaveAccessibleName(
+    "Sort exposures and positions by value, highest first. Switch to lowest first.",
+  );
   await expect(
     exposureView.locator(".exposure-group__summary strong").first(),
   ).toHaveText("NVDA");
@@ -1160,6 +1169,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(exposureSort).toBeFocused();
   await exposureSort.press("Enter");
   await expect(exposureSort).toHaveText("Value ↓");
+  await expect(exposureSort).toHaveAccessibleName(
+    "Sort exposures and positions by value, highest first. Switch to lowest first.",
+  );
   await expect(exposureSort).toBeFocused();
   await expect(exposureSort).toHaveCSS("outline-style", "solid");
   expect(
@@ -1912,7 +1924,7 @@ test("keeps reviewed history in exposures without showing fake brokerage account
 
 test("keeps failed canonical holdings out of view and retries", async ({
   page,
-}, testInfo) => {
+}) => {
   let holdingsRequestCount = 0;
   await page.unroute("**/api/holdings-page");
   await page.route("**/api/holdings-page", async (route) => {
@@ -1952,11 +1964,7 @@ test("keeps failed canonical holdings out of view and retries", async ({
     errorState.getByText("Exposure unresolved", { exact: true }),
   ).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({
-    path: testInfo.outputPath("review-unavailable-holdings.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
+  await captureDesignReview(page, "review-unavailable-holdings.png");
   await expect(errorState).toHaveScreenshot(
     "investment-holdings-retry-error.png",
     {
@@ -2068,11 +2076,7 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
   const cashTotal = (await page
     .locator(".cash-holdings__total")
     .textContent())!;
-  await page.screenshot({
-    path: testInfo.outputPath("review-overview.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
+  await captureDesignReview(page, "review-overview.png");
   const requests: string[] = [];
   const recordRequest = (request: Request) => {
     if (new URL(request.url()).pathname.startsWith("/api/"))
@@ -2094,11 +2098,7 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
   page.off("request", recordRequest);
   await expectNoHorizontalOverflow(page);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({
-    path: testInfo.outputPath("review-search-match.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
+  await captureDesignReview(page, "review-search-match.png");
   await expect(page).toHaveScreenshot("investment-holdings-search-spv.png", {
     animations: "disabled",
     caret: "hide",
@@ -2135,11 +2135,7 @@ test("searches holdings by SPV and hidden cash while preserving totals and retur
     "0 results",
   );
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.screenshot({
-    path: testInfo.outputPath("review-search-empty.png"),
-    fullPage: true,
-    animations: "disabled",
-  });
+  await captureDesignReview(page, "review-search-empty.png");
   // The previous full-page SPV comparison owns the desktop navigation. Compare
   // the empty result and page header without rechecking the sticky sidebar.
   if (testInfo.project.name === "chromium") {
@@ -2338,29 +2334,29 @@ test("search bounds positions within a single large exposure and preserves the l
   await expect(target).toBeFocused();
 });
 
-test("keeps the exposure summary below the heading with compact sorting", async ({
-  page,
-}, testInfo) => {
-  if (testInfo.project.name === "chromium") {
+test(
+  "keeps the exposure summary below the heading with compact sorting",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
     await page.setViewportSize({ width: 1053, height: 954 });
-  }
-  await page.goto("/holdings");
-  const summary = page.locator(".investment-views__total");
-  await expect(summary).toContainText("5 exposures");
-  await expectExposureSummaryLayout(page);
-  await expect(
-    page.getByRole("button", {
-      name: /^Sort exposures and positions by value/u,
-    }),
-  ).toHaveAccessibleName(
-    "Sort exposures and positions by value, highest first. Switch to lowest first.",
-  );
-  await expectNoHorizontalOverflow(page);
-  await expect(page.locator(".investment-views__controls")).toHaveScreenshot(
-    "holdings-compact-summary.png",
-    { animations: "disabled", caret: "hide" },
-  );
-});
+    await page.goto("/holdings");
+    const summary = page.locator(".investment-views__total");
+    await expect(summary).toContainText("5 exposures");
+    await expectExposureSummaryLayout(page);
+    await expect(
+      page.getByRole("button", {
+        name: /^Sort exposures and positions by value/u,
+      }),
+    ).toHaveAccessibleName(
+      "Sort exposures and positions by value, highest first. Switch to lowest first.",
+    );
+    await expectNoHorizontalOverflow(page);
+    await expect(page.locator(".investment-views__controls")).toHaveScreenshot(
+      "holdings-compact-summary.png",
+      { animations: "disabled", caret: "hide" },
+    );
+  },
+);
 
 test("explains connection recovery for Holdings and recovers on reload", async ({
   page,

@@ -1634,6 +1634,11 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
       exact: true,
     }),
   ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
   inventory.entities = [
     {
       id: "entity_demo_history",
@@ -1849,11 +1854,6 @@ The SPV received 88 closing warrant shares.`);
   await expect(section).toHaveScreenshot("investment-event-saved.png", {
     animations: "disabled",
   });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
   await page.reload();
   await selectReviewSection(page, "Record actions");
   await expect(
@@ -1874,6 +1874,11 @@ The SPV received 88 closing warrant shares.`);
   await expect(
     section.getByRole("button", { name: "Update event", exact: true }),
   ).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
   expect(fixture.context.investmentEvents).toHaveLength(2);
   expect(fixture.context.committedMinor).toBe(1_000_000);
 });

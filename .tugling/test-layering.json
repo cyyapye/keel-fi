@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 119,
+  "retiredBrowserCaseCount": 120,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -958,6 +958,18 @@
         "e2e/legal-name-resolution.visual.spec.ts :: mobile-chromium :: supports a document-backed correction for a legacy conflict with no saved choices"
       ],
       "assertions": "Mobile retains empty legacy choices, requires an explicit documented correction reason, accepts an optional matching excerpt, submits the reason and exact legal name, and checks the saved review. The domain enforces the reason and matching optional excerpt. The ordinary wide agreement form keeps the same stacked fields and side-by-side actions. The exact wide arrangement of two populated textareas is retired."
+    },
+    {
+      "id": "compact-holdings-summary-mobile",
+      "retiredBrowserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: keeps the exposure summary below the heading with compact sorting"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view",
+        "e2e/investment-holdings.visual.spec.ts :: chromium :: keeps the exposure summary below the heading with compact sorting"
+      ],
+      "assertions": "The mobile mixed-holdings journey checks the same five-exposure summary, sort accessible name, size, row geometry, focus, totals and ordering. The 1053px breakpoint retains its dedicated screenshot. The full mobile exposure screenshot contains the former compact crop on both platforms, with lower sensitivity to isolated pixel changes."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
