@@ -313,6 +313,26 @@
           }
         },
         "removedWork": "Two fresh-project check requests; no test identities removed"
+      },
+      {
+        "change": "shared-ui-policy-source-reuse",
+        "retainedProof": "24 test identities, 31 assertion inputs/outcomes, same 34 files; import-aware native-date controls and exact violations unchanged",
+        "rejectedByOriginalAndRetained": [
+          "raw date input",
+          "quiet toggle button",
+          "invalid compact empty state"
+        ],
+        "measurement": {
+          "platform": "Darwin",
+          "alternatingPairs": 5,
+          "casesPerRun": 24,
+          "failedOrSkippedCases": 0,
+          "baselineWallMedianSeconds": 1.340482,
+          "candidateWallMedianSeconds": 1.276203,
+          "baselineVitestMedianSeconds": 0.577,
+          "candidateVitestMedianSeconds": 0.501
+        },
+        "removedWork": "App source reads 342 to 34; JSX extraction 70 to 34. Total timing includes collection."
       }
     ]
   }

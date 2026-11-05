@@ -855,3 +855,45 @@ without skips. Whole-file wall-time median was 8.022 seconds (8.001–8.052)
 before and 7.901 seconds (7.836–7.978) after. This small Darwin improvement is
 not a Linux CI speed claim. The change adds four lines and removes eleven, with
 no new fixture, helper, production seam or compiler policy.
+
+### Shared UI policy input reuse
+
+The shared-UI policy tests now read one immutable snapshot of the same 34 app
+TSX files. This removes nine repeated tree walks: app source reads fall from 342
+to 34, and JSX extraction from 70 parses to 34. The cached data contains strings
+and attribute maps, not TypeScript ASTs. Import-aware native-date scans and
+their accepting/rejecting controls remain separate. All 24 test identities, 31
+assertions, discovered files and exact violation messages are preserved. Actual
+before/after Vitest runs reject injected raw dates, quiet toggles and invalid
+compact empty states at their intended assertions.
+
+Five alternating local pairs passed all 24 cases. Whole-command median was 1.340
+seconds before and 1.276 after; one pair was slightly slower. Vitest total,
+including collection, fell from a 577 ms median to 501 ms. Parsing moves into
+collection, so the test-body reduction alone is not a performance result.
+Observed median child peak RSS fell from 202.42 to 192.70 MiB. These are modest
+local observations, not a claim of Linux elapsed savings.
+
+### First Linux trial after the necessity reductions
+
+[Run 41944085454](https://github.com/cyyapye/keel-fi/actions/runs/41944085454)
+used runner 21 (`keel-ci-us-1`) at merge `b34a7109` for head `cd058639`. All
+1,652 Vitest and 51 Python cases passed, as did PDF isolation. The unchanged
+900-second budget stopped the browser flow at 901.133 active seconds: 368 cases
+passed, then the final 38-case lane had four interrupted and 34 unrun. No
+assertion failure preceded cancellation. This is an incomplete failed gate.
+
+Compared with the prior complete run, PDF isolation fell from 261.168 to 227.123
+seconds, but image building grew from 31.057 to 150.036 seconds. That later slot
+release shifted provider verification and workspace build about 65 seconds
+later; browser admission moved from 282.674 to 352.674 seconds. The same
+first-ready ordering was used. The captured log does not attribute the
+image-build increase to individual build layers. Neither subtracting removed
+case durations nor the local passing receipt establishes a Linux speed win.
+
+The next trial also includes the two small compiler/UI setup reductions above.
+Deadlines, retries, total worker caps, required images and the native scheduling
+map remain unchanged. The full-suite speed and repeated-pass target is not yet
+met. A proposed read-receipt fixture rewrite is deferred because existing
+helpers cannot preserve its four-source evidence graph without substantial new
+fixture machinery.
