@@ -220,8 +220,8 @@ for (const failure of ["login HTML", "render exception"] as const) {
       ).toHaveCount(0);
       if (failure === "render exception")
         expect(
-          await page.evaluate(() =>
-            Reflect.get(window, "__keelRenderFaultReached") === true,
+          await page.evaluate(
+            () => Reflect.get(window, "__keelRenderFaultReached") === true,
           ),
         ).toBe(true);
       expect(uncaught).toEqual([]);
