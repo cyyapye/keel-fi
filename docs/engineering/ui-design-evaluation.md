@@ -6,6 +6,9 @@ scorecard to a reviewer. Existing instruction-routing holdouts in
 
 Generate the blinded catalogue stimuli for a design evaluation with
 `KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/ui-catalogue.visual.spec.ts --grep "captures blinded"'`.
+The same option captures the four supplementary Watch review images per
+viewport. Run
+`KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/portfolio-watch.visual.spec.ts --grep "failed monitoring|visually sparse|timed-out checks"'`.
 Playwright writes the four images for each viewport to its test-results
 directory.
 

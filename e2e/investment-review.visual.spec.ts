@@ -257,39 +257,41 @@ async function setup(
   };
 }
 
-test("keeps first-company assignment in Holdings instead of offering a second legal form", async ({
-  page,
-}) => {
-  const { context, review } = await setup(page);
-  context.mappings = [];
-  await page.reload();
-  await expect(
-    review.getByRole("link", {
-      name: "Choose company in Holdings",
-      exact: true,
-    }),
-  ).toHaveAttribute("href", "/holdings?position=position_demo_growth_iv");
-  await expect(
-    review.getByRole("combobox", { name: "Company evidence", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    review.getByRole("tab", { name: "Investment", exact: true }),
-  ).toHaveCount(0);
-  context.positionKind = "fund_interest";
-  await page.reload();
-  await expect(
-    review.getByRole("button", {
-      name: "Participation & corporate events",
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(
-    review.getByRole("link", {
-      name: "Choose company in Holdings",
-      exact: true,
-    }),
-  ).toHaveCount(0);
-});
+test(
+  "keeps first-company assignment in Holdings instead of offering a second legal form",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const { context, review } = await setup(page);
+    context.mappings = [];
+    await page.reload();
+    await expect(
+      review.getByRole("link", {
+        name: "Choose company in Holdings",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", "/holdings?position=position_demo_growth_iv");
+    await expect(
+      review.getByRole("combobox", { name: "Company evidence", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      review.getByRole("tab", { name: "Investment", exact: true }),
+    ).toHaveCount(0);
+    context.positionKind = "fund_interest";
+    await page.reload();
+    await expect(
+      review.getByRole("button", {
+        name: "Participation & corporate events",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      review.getByRole("link", {
+        name: "Choose company in Holdings",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  },
+);
 
 test("navigates both ways through pending reviews, including wrapping, reload and browser history", async ({
   page,
@@ -380,90 +382,92 @@ test("navigates both ways through pending reviews, including wrapping, reload an
   }
 });
 
-test("navigates after a saved review leaves the queue and hides arrows for its only remaining item", async ({
-  page,
-}) => {
-  const { inventory, row } = await setup(page, {
-    backgroundCount: 3,
-    entry: "inventory",
-  });
-  for (const candidate of inventory.candidates.slice(1))
-    await routeInvestmentReview(page, candidate);
-  await page.route("**/api/legal-entities", async (route) => {
-    if (route.request().method() === "GET")
-      return route.fulfill({ json: inventory });
-    const input = CreateLegalEntityInputSchema.parse(
-      route.request().postDataJSON(),
-    );
-    const source = inventory.candidates.find(
-      (item) => item.source.id === input.source?.reference.id,
-    )!;
-    const entity = {
-      ...input.profile,
-      id: "entity_demo_saved_queue_item",
-      versionId: "entity_demo_saved_queue_item_v1",
-      version: 1,
-      recordedAt: inventory.asOf,
-      sources: [
-        { ...source, currentDecisionId: "decision_demo_saved_queue_item" },
-      ],
-    };
-    inventory.entities.push(entity);
+test(
+  "navigates after a saved review leaves the queue and hides arrows for its only remaining item",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const { inventory, row } = await setup(page, {
+      backgroundCount: 3,
+      entry: "inventory",
+    });
+    for (const candidate of inventory.candidates.slice(1))
+      await routeInvestmentReview(page, candidate);
+    await page.route("**/api/legal-entities", async (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({ json: inventory });
+      const input = CreateLegalEntityInputSchema.parse(
+        route.request().postDataJSON(),
+      );
+      const source = inventory.candidates.find(
+        (item) => item.source.id === input.source?.reference.id,
+      )!;
+      const entity = {
+        ...input.profile,
+        id: "entity_demo_saved_queue_item",
+        versionId: "entity_demo_saved_queue_item_v1",
+        version: 1,
+        recordedAt: inventory.asOf,
+        sources: [
+          { ...source, currentDecisionId: "decision_demo_saved_queue_item" },
+        ],
+      };
+      inventory.entities.push(entity);
+      inventory.candidates = inventory.candidates.filter(
+        (item) => item !== source,
+      );
+      return route.fulfill({ status: 201, json: entity });
+    });
+    const next = row.getByRole("button", {
+      name: "Next needing review",
+      exact: true,
+    });
+    const previous = row.getByRole("button", {
+      name: "Previous needing review",
+      exact: true,
+    });
+    const title = row.getByRole("heading", { level: 1 });
+    await next.click();
+    await expect(title).toHaveText("Demo A 0 LLC");
+    await next.click();
+    await expect(title).toHaveText("Demo A 1 LLC");
+    await row.getByRole("button", { name: "Add entity", exact: true }).click();
+    await expect(
+      row.getByRole("button", { name: "Edit legal entity", exact: true }),
+    ).toBeVisible();
+    await previous.click();
+    await expect(title).toHaveText("Demo A 0 LLC");
+    await page.goBack();
+    await expect(title).toHaveText("Demo A 1 LLC");
+    await next.click();
+    await expect(title).toHaveText("Demo A 2 LLC");
+
     inventory.candidates = inventory.candidates.filter(
-      (item) => item !== source,
+      (item) => item.source.id === "demo_background_2",
     );
-    return route.fulfill({ status: 201, json: entity });
-  });
-  const next = row.getByRole("button", {
-    name: "Next needing review",
-    exact: true,
-  });
-  const previous = row.getByRole("button", {
-    name: "Previous needing review",
-    exact: true,
-  });
-  const title = row.getByRole("heading", { level: 1 });
-  await next.click();
-  await expect(title).toHaveText("Demo A 0 LLC");
-  await next.click();
-  await expect(title).toHaveText("Demo A 1 LLC");
-  await row.getByRole("button", { name: "Add entity", exact: true }).click();
-  await expect(
-    row.getByRole("button", { name: "Edit legal entity", exact: true }),
-  ).toBeVisible();
-  await previous.click();
-  await expect(title).toHaveText("Demo A 0 LLC");
-  await page.goBack();
-  await expect(title).toHaveText("Demo A 1 LLC");
-  await next.click();
-  await expect(title).toHaveText("Demo A 2 LLC");
+    await page.reload();
+    await expect(title).toHaveText("Demo A 2 LLC");
+    await expect(next).toHaveCount(0);
+    await expect(previous).toHaveCount(0);
+    await expect(
+      row.getByRole("button", { name: "Back to legal entities", exact: true }),
+    ).toBeVisible();
 
-  inventory.candidates = inventory.candidates.filter(
-    (item) => item.source.id === "demo_background_2",
-  );
-  await page.reload();
-  await expect(title).toHaveText("Demo A 2 LLC");
-  await expect(next).toHaveCount(0);
-  await expect(previous).toHaveCount(0);
-  await expect(
-    row.getByRole("button", { name: "Back to legal entities", exact: true }),
-  ).toBeVisible();
+    await page.goto(
+      "/holdings/entities?review=entity%3Aentity_demo_saved_queue_item",
+    );
+    await expect(title).toHaveText("Demo A 1 LLC");
+    await next.click();
+    await expect(title).toHaveText("Demo A 2 LLC");
 
-  await page.goto(
-    "/holdings/entities?review=entity%3Aentity_demo_saved_queue_item",
-  );
-  await expect(title).toHaveText("Demo A 1 LLC");
-  await next.click();
-  await expect(title).toHaveText("Demo A 2 LLC");
-
-  inventory.candidates = [];
-  await page.goto(
-    "/holdings/entities?review=entity%3Aentity_demo_saved_queue_item",
-  );
-  await expect(title).toHaveText("Demo A 1 LLC");
-  await expect(next).toHaveCount(0);
-  await expect(previous).toHaveCount(0);
-});
+    inventory.candidates = [];
+    await page.goto(
+      "/holdings/entities?review=entity%3Aentity_demo_saved_queue_item",
+    );
+    await expect(title).toHaveText("Demo A 1 LLC");
+    await expect(next).toHaveCount(0);
+    await expect(previous).toHaveCount(0);
+  },
+);
 
 test("opens the supported entity name after moving a different investment's agreement", async ({
   page,
@@ -1328,49 +1332,6 @@ test("presents ownership values with source and date rather than a bullet list",
   ).toBe(false);
 });
 
-test("shows saving on the clicked button then disables unchanged submission without success banners", async ({
-  page,
-}) => {
-  const { review, writes } = await setup(page);
-  let release = () => {};
-  const pending = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route("**/api/investment-positions/*/review", async (route) => {
-    if (route.request().method() === "POST") await pending;
-    await route.fallback();
-  });
-  await selectReviewSection(page, "Record actions");
-  await review
-    .getByRole("button", { name: "Save participation", exact: true })
-    .click();
-  await expect(
-    review.getByRole("button", { name: "Saving…", exact: true }),
-  ).toBeDisabled();
-  release();
-  await expect(
-    review.getByRole("button", { name: "Change status", exact: true }),
-  ).toBeVisible();
-  await review
-    .getByRole("button", { name: "Change status", exact: true })
-    .click();
-  await expect(
-    review.getByRole("button", { name: "Save participation", exact: true }),
-  ).toBeDisabled();
-  await expect.poll(() => writes.length).toBe(1);
-  await expect(
-    review.locator(".investment-review__record-disclosure").first(),
-  ).toContainText("Current");
-  await expect(
-    page.getByText(/^(Review saved\.|Investment review saved\.)$/u),
-  ).toHaveCount(0);
-  expect(writes[0]).not.toHaveProperty("ownershipObservation");
-  await selectReviewSection(page, "Ownership");
-  await expect(
-    review.getByRole("button", { name: "Add ownership evidence", exact: true }),
-  ).toBeVisible();
-});
-
 test("shows reviewed facts before editing and keeps optional ownership out of completion", async ({
   page,
   isMobile,
@@ -1520,10 +1481,53 @@ test("shows reviewed facts before editing and keeps optional ownership out of co
 
 test("saves historical closure details, keeps failed drafts, and moves only ended participation into history", async ({
   page,
+  isMobile,
 }) => {
   await page.clock.install({ time: new Date("2026-09-18T12:00:00.000Z") });
   const { context, inventory, source, review, rejectWrites, writes } =
     await setup(page);
+  if (!isMobile) {
+    let release = () => {};
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/investment-positions/*/review", async (route) => {
+      if (route.request().method() === "POST") await pending;
+      await route.fallback();
+    });
+    await selectReviewSection(page, "Record actions");
+    await review
+      .getByRole("button", { name: "Save participation", exact: true })
+      .click();
+    await expect(
+      review.getByRole("button", { name: "Saving…", exact: true }),
+    ).toBeDisabled();
+    release();
+    await expect(
+      review.getByRole("button", { name: "Change status", exact: true }),
+    ).toBeVisible();
+    await review
+      .getByRole("button", { name: "Change status", exact: true })
+      .click();
+    await expect(
+      review.getByRole("button", { name: "Save participation", exact: true }),
+    ).toBeDisabled();
+    await expect.poll(() => writes.length).toBe(1);
+    await expect(
+      review.locator(".investment-review__record-disclosure").first(),
+    ).toContainText("Current");
+    await expect(
+      page.getByText(/^(Review saved\.|Investment review saved\.)$/u),
+    ).toHaveCount(0);
+    expect(writes[0]).not.toHaveProperty("ownershipObservation");
+    await selectReviewSection(page, "Ownership");
+    await expect(
+      review.getByRole("button", {
+        name: "Add ownership evidence",
+        exact: true,
+      }),
+    ).toBeVisible();
+  }
   await selectReviewSection(page, "Record actions");
   await review
     .getByRole("combobox", { name: "Your participation", exact: true })
@@ -1596,6 +1600,12 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
     "investment-historical-closure-saved.png",
     { animations: "disabled", caret: "hide" },
   );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+  ).toBe(false);
+  if (isMobile) return;
   await review
     .getByRole("button", { name: "Change status", exact: true })
     .click();
@@ -1611,11 +1621,6 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
       exact: true,
     }),
   ).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth > innerWidth,
-    ),
-  ).toBe(false);
   inventory.entities = [
     {
       id: "entity_demo_history",
@@ -1647,6 +1652,7 @@ test("saves historical closure details, keeps failed drafts, and moves only ende
 
 test("corrects investment amounts with review, reload, second save, rejection and source reset", async ({
   page,
+  isMobile,
 }) => {
   const fixture = await setup(page);
   await selectReviewSection(page, "Record actions");
@@ -1738,6 +1744,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
       }),
     }),
   ).toHaveScreenshot("investment-amount-corrected.png");
+  if (isMobile) return;
   await open();
   await panel
     .getByRole("button", { name: "Use source amount", exact: true })
@@ -1760,6 +1767,7 @@ test("corrects investment amounts with review, reload, second save, rejection an
 
 test("records a continuing SPV conversion, retains rejected evidence and amends conditional rights", async ({
   page,
+  isMobile,
 }) => {
   const fixture = await setup(page);
   await selectReviewSection(page, "Record actions");
@@ -1827,6 +1835,12 @@ The SPV received 88 closing warrant shares.`);
   await expect(section).toHaveScreenshot("investment-event-saved.png", {
     animations: "disabled",
   });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  if (!isMobile) return;
   await page.reload();
   await selectReviewSection(page, "Record actions");
   await expect(
@@ -1849,9 +1863,4 @@ The SPV received 88 closing warrant shares.`);
   ).toHaveCount(1);
   expect(fixture.context.investmentEvents).toHaveLength(2);
   expect(fixture.context.committedMinor).toBe(1_000_000);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
 });

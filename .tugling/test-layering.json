@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 83,
+  "retiredBrowserCaseCount": 89,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -541,6 +541,67 @@
         "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: quiet buttons keep action spacing and textareas use the filled surface"
       ],
       "assertions": "The actual catalogue Button remains disabled with opacity 0.4 on both projects in an existing forms case. Blinded design evaluation can still generate its controlled stimuli on both viewports through explicit invocation."
+    },
+    {
+      "id": "review-pending-in-historical-closure",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: shows saving on the clicked button then disables unchanged submission without success banners",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: shows saving on the clicked button then disables unchanged submission without success banners"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: saves historical closure details, keeps failed drafts, and moves only ended participation into history",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: saves historical closure details, keeps failed drafts, and moves only ended participation into history"
+      ],
+      "assertions": "The desktop historical journey first confirms the default Current record, observes its disabled pending button, checks one POST without ownership cargo, and reopens the unchanged form. Both devices exercise historical closure failure, acceptance and readback."
+    },
+    {
+      "id": "first-company-review-device",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: keeps first-company assignment in Holdings instead of offering a second legal form"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: keeps first-company assignment in Holdings instead of offering a second legal form"
+      ],
+      "assertions": "The retained desktop review opens the exact position link and checks the distinct company and Fund form branches."
+    },
+    {
+      "id": "saved-review-queue-device",
+      "retiredBrowserCases": [
+        "e2e/investment-review.visual.spec.ts :: chromium :: navigates after a saved review leaves the queue and hides arrows for its only remaining item"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates after a saved review leaves the queue and hides arrows for its only remaining item",
+        "e2e/investment-review.visual.spec.ts :: chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history",
+        "e2e/investment-review.visual.spec.ts :: mobile-chromium :: navigates both ways through pending reviews, including wrapping, reload and browser history"
+      ],
+      "assertions": "The retained mobile journey saves a candidate, navigates through the saved entry, checks one and zero remaining arrows and follows direct saved URLs. Both devices retain the separate wrap, reload, back/forward and focus journey."
+    },
+    {
+      "id": "legacy-investment-link-device",
+      "retiredBrowserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: mobile-chromium :: preserves investment deep links by opening the existing Holdings position"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: preserves investment deep links by opening the existing Holdings position",
+        "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task",
+        "e2e/automatic-investment-review.visual.spec.ts :: mobile-chromium :: automatically resolves 120 legal records without making missing fees a review task"
+      ],
+      "assertions": "The retained desktop legacy tab replaces its history entry with the exact holdings position and returns Back to legal entities. The separate 120-source automatic resolver still executes on both devices."
+    },
+    {
+      "id": "watch-history-order-device",
+      "retiredBrowserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: puts pending updates first and searches the full history before paging"
+      ],
+      "unitCases": [],
+      "browserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: puts pending updates first and searches the full history before paging"
+      ],
+      "assertions": "The retained desktop Watch list orders 125 mixed-status records, searches across page boundaries, checks the page limit and reloads after an accepted update. Responsive list coverage remains in the other Watch journeys."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
