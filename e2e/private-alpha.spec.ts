@@ -1,9 +1,30 @@
-import { expect, test } from "@playwright/test";
-import { PortfolioWatchScanResultSchema } from "../packages/domain/src/index";
+import { expect, test, type Page } from "@playwright/test";
+import {
+  PlanInputSaveResultSchema,
+  PlanInputStateSchema,
+  PortfolioWatchScanResultSchema,
+} from "../packages/domain/src/index";
 import { PortfolioWatchActivitySchema } from "../packages/domain/src/portfolio-watch-activity";
 import { HoldingsPageSchema } from "../packages/domain/src/holdings-page";
 
 import { navigateToScreen } from "./navigation";
+
+function waitForApiResponse(page: Page, path: string, method: "GET" | "POST") {
+  return page.waitForResponse(
+    (response) =>
+      response.request().method() === method &&
+      new URL(response.url()).pathname === path,
+  );
+}
+
+async function readPlanWhenOpened(page: Page, navigate: () => Promise<void>) {
+  const [response] = await Promise.all([
+    waitForApiResponse(page, "/api/plan-inputs", "GET"),
+    navigate(),
+  ]);
+  expect(response.ok()).toBe(true);
+  return PlanInputStateSchema.parse(await response.json());
+}
 
 test("loads the database-backed dashboard and primary views", async ({
   page,
@@ -42,7 +63,10 @@ test("loads the database-backed dashboard and primary views", async ({
 
   const mobile = test.info().project.name === "mobile-chromium";
 
-  const holdingsResponse = await page.request.get("/api/holdings-page");
+  const [holdingsResponse] = await Promise.all([
+    waitForApiResponse(page, "/api/holdings-page", "GET"),
+    fiEligibleMetric.getByRole("button", { name: "View holdings" }).click(),
+  ]);
   expect(holdingsResponse.ok()).toBe(true);
   const holdingsPage = HoldingsPageSchema.parse(await holdingsResponse.json());
   const hasNoHoldings =
@@ -50,7 +74,6 @@ test("loads the database-backed dashboard and primary views", async ({
     holdingsPage.acceptedCashAccounts.length === 0 &&
     holdingsPage.investmentHoldings.exposureView.positions.length === 0;
 
-  await fiEligibleMetric.getByRole("button", { name: "View holdings" }).click();
   await expect(
     page.getByRole("heading", { name: "Holdings", exact: true }),
   ).toBeVisible();
@@ -164,12 +187,22 @@ test("loads the database-backed dashboard and primary views", async ({
     ).toHaveCount(0);
   }
 
+  let planWrites = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === "/api/plan-inputs"
+    )
+      planWrites++;
+  });
   await navigateToScreen(page, mobile, /Overview/);
-  await page
-    .locator(".portfolio-outlook__metric")
-    .filter({ hasText: "Protected runway" })
-    .getByRole("button", { name: "View plan inputs" })
-    .click();
+  const acceptedPlan = await readPlanWhenOpened(page, () =>
+    page
+      .locator(".portfolio-outlook__metric")
+      .filter({ hasText: "Protected runway" })
+      .getByRole("button", { name: "View plan inputs" })
+      .click(),
+  );
   await expect(page.getByRole("heading", { name: "Scenarios" })).toBeVisible();
   const planInputs = page.locator(".plan-inputs-editor");
   await expect(
@@ -182,20 +215,32 @@ test("loads the database-backed dashboard and primary views", async ({
   const householdBurn = planInputs.getByRole("textbox", {
     name: /Household burn/,
   });
-  const savedHouseholdBurn = Number(
-    (await householdBurn.inputValue()).replaceAll(",", ""),
-  );
-  await householdBurn.fill(String(savedHouseholdBurn + 10_000));
+  const savedHouseholdBurn = await householdBurn.inputValue();
+  const draftBurnMinor =
+    BigInt(acceptedPlan.values.householdBurnMonthlyMinor) + 1_000_000n;
+  const wholeDollars = draftBurnMinor / 100n;
+  const cents = (draftBurnMinor % 100n).toString().padStart(2, "0");
+  await householdBurn.fill(`${wholeDollars.toString()}.${cents}`);
   await expect(planInputs.getByText("Unsaved draft")).toBeVisible();
   await expect(
     planInputs.getByRole("textbox", { name: "What changed" }),
   ).toHaveValue(/Household burn: .*→.*/);
   await expect(savePlanButton).toBeEnabled();
+  let expectedPlan = acceptedPlan;
   if (mobile) {
     await planInputs.getByRole("button", { name: "Reset" }).click();
+    await expect(householdBurn).toHaveValue(savedHouseholdBurn);
     await expect(savePlanButton).toBeDisabled();
   } else {
-    await savePlanButton.click();
+    const [saved] = await Promise.all([
+      waitForApiResponse(page, "/api/plan-inputs", "POST"),
+      savePlanButton.click(),
+    ]);
+    expect(saved.ok()).toBe(true);
+    expectedPlan = PlanInputSaveResultSchema.parse(await saved.json()).plan;
+    expect(BigInt(expectedPlan.values.householdBurnMonthlyMinor)).toBe(
+      draftBurnMinor,
+    );
     await expect(planInputs.getByRole("status")).toHaveText(
       /Plan saved with forecast version \d+\./,
     );
@@ -255,7 +300,16 @@ test("loads the database-backed dashboard and primary views", async ({
     await page.getByRole("button", { name: "Cancel" }).click();
   }
 
-  await navigateToScreen(page, mobile, /Scenarios/);
+  const reopenedPlan = await readPlanWhenOpened(page, () =>
+    navigateToScreen(page, mobile, /Scenarios/),
+  );
+  expect(reopenedPlan).toEqual(expectedPlan);
+  if (mobile) {
+    // The menu returns focus to its trigger on the next frame.
+    await expect(
+      page.getByRole("button", { name: "Open navigation menu" }),
+    ).toBeFocused();
+  }
   await expect(page.getByRole("heading", { name: "Scenarios" })).toBeVisible();
   await expect(
     page.getByRole("tab", { name: "FI Underwriting" }),
@@ -268,9 +322,7 @@ test("loads the database-backed dashboard and primary views", async ({
   await expect(scenarioSliders).toHaveCount(2);
   const probabilitySlider = scenarioSliders.nth(0);
   const delaySlider = scenarioSliders.nth(1);
-  await probabilitySlider.focus();
   await probabilitySlider.press("ArrowRight");
-  await delaySlider.focus();
   await delaySlider.press("ArrowRight");
   await expect(page.getByText("Working draft preview")).toBeVisible();
   await expect(
@@ -288,10 +340,6 @@ test("loads the database-backed dashboard and primary views", async ({
   if (!mobile) {
     await saveScenarioButton.click();
     await expect(page.getByText("Scenario saved.")).toBeVisible();
-    await navigateToScreen(page, mobile, /History/);
-    await expect(page.locator(".history-list")).toContainText(
-      "Scenario editor",
-    );
   }
 
   await navigateToScreen(page, mobile, /Overview/);
@@ -307,5 +355,9 @@ test("loads the database-backed dashboard and primary views", async ({
   ).toBeVisible();
   if (!mobile) {
     await expect(page.locator(".history-list")).toContainText("Plan inputs");
+    await expect(page.locator(".history-list")).toContainText(
+      "Scenario editor",
+    );
   }
+  expect(planWrites).toBe(mobile ? 0 : 1);
 });
