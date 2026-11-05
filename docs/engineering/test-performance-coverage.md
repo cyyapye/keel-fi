@@ -1035,3 +1035,12 @@ subtotal and narrow brokerage detail. The domain checks that public and SPV
 contributions group together and suppress an unsupported total when one position
 is locked. Waiting for recovered exposures before checking for a missing alert
 also catches a stale error that the old reload test allowed.
+
+The Watch review brings the suite to 301 required browser cases. The mobile
+journey now checks the failed monitor, a successful scan with no updates, and a
+timeout followed by reload. It opens the history and checks all five saved rows.
+Both widths retain the original failed-monitor image. The candidate also checks
+that the manual editor receives usable owner choices and starts the provider
+reconnect clock at the request that creates the session. A 503, malformed
+choices, an extra reconnect poll and a truncated Watch history each fail the
+corresponding checks. A slow start still reaches the real viewer link.

@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 170,
+  "retiredBrowserCaseCount": 171,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -1494,6 +1494,20 @@
         "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: operates multiple institutions from one exposure-first holdings view"
       ],
       "assertions": "Both widths accept and read back a position valuation. Desktop continues to a genuinely locked SPV and a public brokerage position and checks absent fabricated performance, the optional source, and the reported share count. The narrow expanded brokerage source and locked-position tail are retired. Narrow NVDA detail and the Portfolio Watch source boundary remain."
+    },
+    {
+      "id": "watch-failed-empty-in-saved-history",
+      "retiredBrowserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps failed monitoring and an empty news inbox consistent with shared UI"
+      ],
+      "unitCases": [
+        "scripts/portfolio-watch-activity.test.ts :: saved Portfolio Watch activity > projects timeouts without writes and rejects a late completion after explicit recovery"
+      ],
+      "browserCases": [
+        "e2e/portfolio-watch.visual.spec.ts :: chromium :: keeps failed monitoring and an empty news inbox consistent with shared UI",
+        "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload"
+      ],
+      "assertions": "Both projects still render the exact failed-monitoring image, limited empty-state copy and layout, open read news and navigate to Coverage. The mobile owner also requires a failed run after a prior success, a successful scan without updates, a freshly reloaded timeout, all five saved history rows, the frozen timeout image and the no-eligible-sources response. The previous duplicate reload of the same successful response and the second independent failure screen are retired."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

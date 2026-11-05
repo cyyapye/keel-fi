@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
 
 import { PortfolioWatchActivitySchema } from "../packages/domain/src/portfolio-watch-activity";
 import { navigateToScreen } from "./navigation";
@@ -216,11 +216,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("keeps failed monitoring and an empty news inbox consistent with shared UI", async ({
-  page,
-}, testInfo) => {
-  // This cold-start case checks multiple viewport layouts, then both navigation actions.
-  test.setTimeout(60_000);
+async function checkFailedMonitoringLayout(page: Page, testInfo: TestInfo) {
   const alpha = await (await page.request.get("/api/alpha")).json();
   const readNews = {
     ...portfolioWatchFixture.observations[0]!,
@@ -242,38 +238,49 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
       },
     }),
   );
-  await page.route("**/api/watch/activity**", (route) =>
-    route.fulfill({
-      json: {
-        ...watchActivityFixture,
-        summary: {
-          ...watchActivityFixture.summary,
-          companiesWithVerifiedSources: 0,
-          unavailableCount: 3,
-          lastSuccessAt: "2026-08-01T12:00:00.000Z",
-        },
-        companies: watchActivityFixture.companies.map((company) => ({
-          ...company,
-          sources: company.sources.map((source) => ({
-            ...source,
-            outcome: "failed",
-            errorCode: "source_timeout",
-            httpStatus: null,
-            signalCount: 0,
-            lastSuccessAt: "2026-08-01T12:00:00.000Z",
-          })),
-        })),
-        runs: [
-          {
-            ...watchActivityFixture.runs[0],
-            status: "failed",
-            succeededCount: 0,
-            failedCount: 3,
-            signalCount: 0,
-          },
-        ],
+  const failed = PortfolioWatchActivitySchema.parse({
+    ...watchActivityFixture,
+    summary: {
+      ...watchActivityFixture.summary,
+      companiesWithVerifiedSources: 0,
+      unavailableCount: 3,
+      lastSuccessAt: "2026-08-01T12:00:00.000Z",
+    },
+    companies: watchActivityFixture.companies.map((company) => ({
+      ...company,
+      sources: company.sources.map((source) => ({
+        ...source,
+        outcome: "failed",
+        errorCode: "source_timeout",
+        httpStatus: null,
+        signalCount: 0,
+        lastSuccessAt: "2026-08-01T12:00:00.000Z",
+      })),
+    })),
+    runs: [
+      {
+        ...watchActivityFixture.runs[0],
+        status: "failed",
+        succeededCount: 0,
+        failedCount: 3,
+        signalCount: 0,
       },
-    }),
+      {
+        ...watchActivityFixture.runs[0]!,
+        id: "run_prior_success",
+        requestedAt: "2026-08-01T11:59:00.000Z",
+        startedAt: "2026-08-01T11:59:10.000Z",
+        completedAt: "2026-08-01T12:00:00.000Z",
+        deadlineAt: "2026-08-01T12:14:00.000Z",
+        status: "succeeded",
+        succeededCount: 3,
+        failedCount: 0,
+        signalCount: 0,
+      },
+    ],
+  });
+  await page.route("**/api/watch/activity**", (route) =>
+    route.fulfill({ json: failed }),
   );
   await page.goto("/watch");
   // Wait for the lazy page to mount before asserting its loaded-state layout.
@@ -297,6 +304,8 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
   await expect(monitor).toContainText(
     "Last successful read Aug 1, 2026, 5:00 AM PDT",
   );
+  await expect(monitor).toContainText("Last attempt Aug 2, 2026");
+  await expect(monitor).not.toContainText("No new updates");
   await expect(
     empty.getByText("Previously read news is available under All updates."),
   ).toBeVisible();
@@ -368,7 +377,17 @@ test("keeps failed monitoring and an empty news inbox consistent with shared UI"
   await expect(
     page.getByRole("tab", { name: "Coverage", exact: true }),
   ).toHaveAttribute("aria-selected", "true");
-});
+  return failed.runs;
+}
+
+test(
+  "keeps failed monitoring and an empty news inbox consistent with shared UI",
+  { tag: "@desktop-only" },
+  async ({ page }, testInfo) => {
+    test.setTimeout(60_000);
+    await checkFailedMonitoringLayout(page, testInfo);
+  },
+);
 
 test("keeps Portfolio Watch visually sparse and decision-oriented", async ({
   page,
@@ -569,10 +588,13 @@ test(
   "keeps empty, failed and timed-out checks distinct and restores saved history after reload",
   { tag: "@mobile-only" },
   async ({ page }, testInfo) => {
+    const priorRuns = await checkFailedMonitoringLayout(page, testInfo);
     let state = PortfolioWatchActivitySchema.parse({
       ...watchActivityFixture,
+      asOf: "2026-08-02T12:00:30.000Z",
       summary: {
         ...watchActivityFixture.summary,
+        lastSuccessAt: "2026-08-02T12:00:30.000Z",
         companiesWithVerifiedSources: 2,
         unavailableCount: 0,
       },
@@ -590,6 +612,11 @@ test(
       runs: [
         {
           ...watchActivityFixture.runs[0]!,
+          id: "run_recovery",
+          requestedAt: "2026-08-02T12:00:01.000Z",
+          startedAt: "2026-08-02T12:00:02.000Z",
+          completedAt: "2026-08-02T12:00:30.000Z",
+          deadlineAt: "2026-08-02T12:15:01.000Z",
           status: "succeeded",
           totalCount: 3,
           completedCount: 3,
@@ -597,76 +624,47 @@ test(
           failedCount: 0,
           signalCount: 0,
         },
+        ...priorRuns,
       ],
     });
     await page.route("**/api/watch/activity**", async (route) =>
       route.fulfill({ json: PortfolioWatchActivitySchema.parse(state) }),
     );
-    await page.goto("/watch");
+    await page.reload();
     const summary = page.getByTestId("portfolio-watch-control");
     await expect(summary).toContainText("No new updates from those sources");
     // A successful check is not full portfolio coverage when companies lack sources.
     await expect(summary.locator(".watch-check-title")).toHaveText(
       "Monitoring limited",
     );
-    await page.reload();
     await expect(summary).toContainText("Last attempt Aug 2, 2026");
+    const failedRun = {
+      ...state.runs[0]!,
+      id: "run_failed",
+      requestedAt: "2026-08-03T11:59:00.000Z",
+      startedAt: "2026-08-03T11:59:10.000Z",
+      completedAt: "2026-08-03T12:00:00.000Z",
+      deadlineAt: "2026-08-03T12:14:00.000Z",
+      status: "failed" as const,
+      succeededCount: 0,
+      failedCount: 3,
+    };
     state = {
       ...state,
-      asOf: "2026-08-03T12:00:00.000Z",
+      asOf: "2026-08-04T12:15:00.000Z",
       summary: {
         ...state.summary,
         companiesWithVerifiedSources: 0,
         unavailableCount: 3,
-        nextCheckAt: "2026-08-03T13:00:00.000Z",
+        nextCheckAt: "2026-08-04T13:00:00.000Z",
       },
       companies: state.companies.map((company) => ({
         ...company,
         sources: company.sources.map((source) => ({
           ...source,
           outcome: "failed",
-          errorCode: "source_timeout",
-          httpStatus: null,
-          lastAttemptAt: "2026-08-03T12:00:00.000Z",
-          lastCompletedAt: "2026-08-03T12:00:00.000Z",
-          nextCheckAt: "2026-08-03T13:00:00.000Z",
-        })),
-      })),
-      runs: [
-        {
-          ...state.runs[0]!,
-          id: "run_failed",
-          requestedAt: "2026-08-03T11:59:00.000Z",
-          startedAt: "2026-08-03T11:59:10.000Z",
-          completedAt: "2026-08-03T12:00:00.000Z",
-          deadlineAt: "2026-08-03T12:14:00.000Z",
-          status: "failed",
-          succeededCount: 0,
-          failedCount: 3,
-        },
-        ...state.runs,
-      ],
-    };
-    await page.reload();
-    await expect(summary).toContainText(
-      "0 of 3 pages and feeds read · 3 unavailable",
-    );
-    await expect(summary).not.toContainText("No new updates");
-    await expect(summary.locator(".watch-check-title")).toHaveText(
-      "Last check failed",
-    );
-    await expect(summary).toContainText("Last attempt Aug 3, 2026");
-    await expect(summary).toContainText("Last successful read Aug 2, 2026");
-    state = {
-      ...state,
-      asOf: "2026-08-04T12:15:00.000Z",
-      summary: { ...state.summary, nextCheckAt: "2026-08-04T13:00:00.000Z" },
-      companies: state.companies.map((company) => ({
-        ...company,
-        sources: company.sources.map((source) => ({
-          ...source,
-          outcome: "failed",
           errorCode: "check_timed_out",
+          httpStatus: null,
           lastAttemptAt: "2026-08-04T11:59:10.000Z",
           lastCompletedAt: "2026-08-04T12:15:00.000Z",
           nextCheckAt: "2026-08-04T13:00:00.000Z",
@@ -674,7 +672,7 @@ test(
       })),
       runs: [
         {
-          ...state.runs[0]!,
+          ...failedRun,
           id: "run_timeout",
           requestedAt: "2026-08-04T11:59:00.000Z",
           startedAt: "2026-08-04T11:59:10.000Z",
@@ -684,6 +682,7 @@ test(
           completedCount: 0,
           failedCount: 0,
         },
+        failedRun,
         ...state.runs,
       ],
     };
@@ -719,6 +718,25 @@ test(
         "No eligible sources were available to check. Open Coverage for details.",
       ),
     ).toBeVisible();
+    await page.getByRole("tab", { name: "Coverage", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Check history", exact: true })
+      .click();
+    const history = page.locator(".watch-run-list article");
+    await expect(history).toHaveCount(5);
+    await expect(history.nth(0)).toContainText("Did not finish");
+    await expect(history.nth(1)).toContainText(
+      "0 of 3 pages and feeds read · 3 unavailable",
+    );
+    await expect(history.nth(1)).toContainText("Requested Aug 3, 2026");
+    await expect(history.nth(2)).toContainText(
+      "No new updates from those sources",
+    );
+    await expect(history.nth(2)).toContainText("Requested Aug 2, 2026");
+    await expect(history.nth(3)).toContainText(
+      "0 of 3 pages and feeds read · 3 unavailable",
+    );
+    await expect(history.nth(4)).toContainText("Requested Aug 1, 2026");
   },
 );
 

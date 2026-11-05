@@ -1871,7 +1871,6 @@
     "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps Portfolio Watch visually sparse and decision-oriented",
     "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps a financing review focused on reported company terms",
     "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps empty, failed and timed-out checks distinct and restores saved history after reload",
-    "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: keeps failed monitoring and an empty news inbox consistent with shared UI",
     "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: reads news independently of decisions, restores read state, and opens the selected evidence",
     "e2e/portfolio-watch.visual.spec.ts :: mobile-chromium :: reconciles financing reports before creating a version-safe proposal",
     "e2e/position-links.visual.spec.ts :: chromium :: review duplicate sources and replacement history with no typing, saved reload and failed-draft retention",
