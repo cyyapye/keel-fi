@@ -130,7 +130,10 @@ async function fixture(
       return false;
     }
   };
-  const launch = async (seed = false) => {
+  const launch = async (
+    seed = false,
+    { rejectedPage = refreshFailure === null ? login : table + login } = {},
+  ) => {
     await rm(path.join(profile, "DevToolsActivePort"), { force: true });
     const child = spawn(
       chromium.executablePath(),
@@ -288,7 +291,7 @@ async function fixture(
               localStorage.setItem('refresh_token', tokens.refresh_token);
             } catch {
               localStorage.clear();
-              document.body.innerHTML = ${JSON.stringify(refreshFailure === null ? login : table + login)};
+              document.body.innerHTML = ${JSON.stringify(rejectedPage)};
               return;
             }
             response = await portfolio();
@@ -399,7 +402,7 @@ test("a working Sydecar access token does not prove a refresh token survived ano
     await immediate.close();
     expect(runtime.state.refreshes).toBe(0);
     runtime.state.now = start + 6 * hour;
-    const later = await runtime.launch();
+    const later = await runtime.launch(false, { rejectedPage: table + login });
     console.error = (message: unknown) => {
       messages.push(String(message));
     };
