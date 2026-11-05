@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { AlphaData } from "../packages/domain/src/index";
 import { formatCompactMoney, formatProbability } from "../apps/web/src/format";
 
+import { navigateToScreen } from "./navigation";
 import { withStableOverviewValues } from "./overview-alpha-fixture";
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -351,32 +352,57 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   ).toHaveText(selectedGoalName);
 });
 
-test("keeps the masthead static when only one goal is active", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = withStableOverviewValues(
-    (await alphaResponse.json()) as AlphaData,
-  );
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        goals: alphaFixture.goals.slice(0, 1),
-      } satisfies AlphaData,
+test(
+  "keeps the masthead static when only one goal is active",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = withStableOverviewValues(
+      (await alphaResponse.json()) as AlphaData,
+    );
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({
+        json: {
+          ...alphaFixture,
+          goals: alphaFixture.goals.slice(0, 1),
+        } satisfies AlphaData,
+      });
     });
-  });
 
-  await page.goto("/");
+    await page.goto("/");
 
-  await expect(page.getByRole("region", { name: "Goal overview" })).toHaveCount(
-    0,
-  );
-  await expect(page.getByRole("group", { name: "Choose a goal" })).toHaveCount(
-    0,
-  );
-  await expect(page.locator(".overview-goals")).toHaveCount(0);
-  await expect(page.locator(".hero")).toContainText("Financial independence");
-  await expectNoHorizontalOverflow(page);
-});
+    await expect(
+      page
+        .locator(".hero")
+        .getByRole("heading", { name: "Financial independence", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Goal overview" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("group", { name: "Choose a goal" }),
+    ).toHaveCount(0);
+    await expect(page.locator(".overview-goals")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+
+    await navigateToScreen(page, true, /Goals/u);
+    const selector = page.getByRole("combobox", { name: "Saved goal" });
+    await expect(selector).toBeVisible();
+    await expect(selector.locator("strong")).toHaveText(
+      "Financial independence",
+    );
+    await expect(
+      page.getByText("1 active goal", { exact: true }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "New goal +" }).click();
+    await expect(selector.locator("strong")).toHaveText("Choose a goal");
+    await expect(page.getByText("Start from a template")).toBeVisible();
+    await selector.click();
+    await page.getByRole("option", { name: /Financial independence/u }).click();
+    await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
+      "Financial independence",
+    );
+  },
+);

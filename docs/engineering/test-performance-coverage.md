@@ -958,3 +958,38 @@ retains the reduced-motion spinner, mixed checkbox and disabled tabs. Retiring
 the wide checkbox and tab crops gives up the exact wide description wrap and
 desktop tab pixels. The desktop foundation still exercises keyboard focus and
 tab selection.
+
+On the 335-case revision the
+[isolated Linux run](https://github.com/cyyapye/keel-fi/actions/runs/41973597649)
+passed every case in 307.754 seconds. The
+[ordinary run](https://github.com/cyyapye/keel-fi/actions/runs/41973532874/job/127067096890)
+failed after the mobile reload test tried to select Holdings from a temporary
+menu that disappeared when the main application loaded. That incomplete browser
+phase ran for 440.411 seconds. The reload check now requires the Holdings URL
+and the two loaded positions without a second navigation. Redirecting the reload
+to Overview fails at the URL assertion.
+
+The following review leaves 312 required browser cases, 22 reviewed exclusions
+and 371 Linux reference images. The same image variants were retired on Darwin.
+
+- Legal export verifies blank legal names and zero versus unknown cash in the
+  API table that produces the export. The real UI still checks triage,
+  navigation and download. Review fixtures select company evidence only in
+  workflows that use it.
+- Purchase and manual holding tests retain the valuation chooser, keyboard
+  selection, submitted method, reported total and shares at both widths.
+  Fourteen alternate purchase, proxy, fee and identity images per platform
+  retire. Narrow errors and wide acquisition geometry keep dedicated owners.
+- Company and link review keeps the ordinary issuer screens at both widths. Five
+  alternate source, exception and historical-link layouts per platform retire.
+  The surviving tests still exercise rejected writes, exact identities, reload,
+  popup focus and the real reconnect target.
+- Planning tests combine the single-goal Overview and selector journey and wait
+  for the actual goal before asserting the carousel is absent. A broken carousel
+  had passed the original early absence check. Both widths retain the normal
+  planning views and the distinct two-column overlap review. Eight alternate
+  monitoring, cash, obligation and recovery layouts per platform retire. The
+  120-source DOM bound and the financial readback stay executable.
+- The 205-query replay boundary uses the same real workerd handler as the
+  provider-day tests. It checks three transport calls, 205 real reads and no
+  writes. A bad batch limit, missing table and wrong row still fail.

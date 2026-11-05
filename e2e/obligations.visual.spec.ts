@@ -293,45 +293,48 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("shows a compact empty state before obligations are accepted", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
+test(
+  "shows a compact empty state before obligations are accepted",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = await alphaResponse.json();
 
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/liabilities", async (route) => {
-    await route.fulfill({ json: emptyState });
-  });
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await page.route("**/api/liabilities", async (route) => {
+      await route.fulfill({ json: emptyState });
+    });
 
-  await page.goto("/obligations");
-  const reviewed = page.locator(".reviewed-obligations");
-  await expect(
-    reviewed.getByRole("heading", {
-      level: 3,
-      name: "No obligations have been accepted.",
-    }),
-  ).toBeVisible();
-  await expect(reviewed).toContainText(
-    "Add one manually or connect an institution, then review the reported values.",
-  );
-  await expect(
-    reviewed.locator('[data-slot="empty-state"] > span'),
-  ).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await expect(reviewed).toHaveScreenshot("obligations-empty.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-});
+    await page.goto("/obligations");
+    const reviewed = page.locator(".reviewed-obligations");
+    await expect(
+      reviewed.getByRole("heading", {
+        level: 3,
+        name: "No obligations have been accepted.",
+      }),
+    ).toBeVisible();
+    await expect(reviewed).toContainText(
+      "Add one manually or connect an institution, then review the reported values.",
+    );
+    await expect(
+      reviewed.locator('[data-slot="empty-state"] > span'),
+    ).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await expect(reviewed).toHaveScreenshot("obligations-empty.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+  },
+);
 
 test("reviews obligations and preserves unknown and stale states", async ({
   page,
+  isMobile,
 }, testInfo) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
@@ -442,6 +445,8 @@ test("reviews obligations and preserves unknown and stale states", async ({
     ],
   });
 
+  const captureDates = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
+  if (!isMobile && !captureDates) return;
   await page.clock.setFixedTime(new Date(observedAt));
   await page.getByRole("button", { name: "Add manually" }).click();
   const manual = page.locator(".manual-obligation");
@@ -486,10 +491,11 @@ test("reviews obligations and preserves unknown and stale states", async ({
   await page
     .getByRole("button", { name: "Friday, August 14, 2026", exact: true })
     .click();
-  await manual.screenshot({
-    path: testInfo.outputPath("manual-obligation-dates.png"),
-    animations: "disabled",
-  });
+  if (captureDates)
+    await manual.screenshot({
+      path: testInfo.outputPath("manual-obligation-dates.png"),
+      animations: "disabled",
+    });
   await manual.getByRole("button", { name: "Continue to review" }).click();
   await expect(
     page.getByRole("heading", { name: "Review Manual entry" }),

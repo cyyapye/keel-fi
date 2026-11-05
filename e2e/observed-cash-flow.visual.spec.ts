@@ -241,52 +241,62 @@ test("reviews observed burn and prepares the existing runway plan", async ({
   await expectNoHorizontalOverflow(page);
 });
 
-test("confirms the shared bank deletion boundary before disconnect", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
+test(
+  "confirms the shared bank deletion boundary before disconnect",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = await alphaResponse.json();
 
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/plan-inputs", async (route) => {
-    await route.fulfill({ json: planState });
-  });
-  await page.route("**/api/cash-flow", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "ready",
-        latestOutcome: "no_material_change",
-        connections: [connection],
-        pendingProposals: [],
-        errorCode: null,
-      },
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
     });
-  });
+    await page.route("**/api/plan-inputs", async (route) => {
+      await route.fulfill({ json: planState });
+    });
+    await page.route("**/api/cash-flow", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          status: "ready",
+          latestOutcome: "no_material_change",
+          connections: [connection],
+          pendingProposals: [],
+          errorCode: null,
+        },
+      });
+    });
 
-  await page.goto("/scenarios");
-  await page.addStyleTag({
-    content:
-      ".topbar { position: absolute !important; visibility: hidden !important; }",
-  });
-  const panel = page.locator(".cash-flow");
-  await expect(panel.getByText("No proposal")).toBeVisible();
-  await panel.getByRole("button", { name: "Disconnect" }).click();
-  await expect(
-    panel.getByText("This removes all Plaid access", { exact: false }),
-  ).toBeVisible();
-  await expect(
-    panel.getByRole("button", { name: "Disconnect bank" }),
-  ).toBeVisible();
-  await expect(panel).toHaveScreenshot("observed-cash-flow-disconnect.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await expectNoHorizontalOverflow(page);
-});
+    let disconnectRequests = 0;
+    await page.route("**/api/cash-accounts/connections/*", (route) => {
+      if (route.request().method() !== "DELETE") return route.fallback();
+      disconnectRequests += 1;
+      return route.abort();
+    });
+
+    await page.goto("/scenarios");
+    await page.addStyleTag({
+      content:
+        ".topbar { position: absolute !important; visibility: hidden !important; }",
+    });
+    const panel = page.locator(".cash-flow");
+    await expect(panel.getByText("No proposal")).toBeVisible();
+    await panel.getByRole("button", { name: "Disconnect" }).click();
+    await expect(
+      panel.getByText("This removes all Plaid access", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      panel.getByRole("button", { name: "Disconnect bank" }),
+    ).toBeVisible();
+    await expect(panel).toHaveScreenshot("observed-cash-flow-disconnect.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+    await expectNoHorizontalOverflow(page);
+    expect(disconnectRequests).toBe(0);
+  },
+);

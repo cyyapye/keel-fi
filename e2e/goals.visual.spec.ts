@@ -129,36 +129,6 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("uses the saved-goal dropdown with one goal", async ({ page }) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = (await alphaResponse.json()) as AlphaData;
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        goals: stableGoals.slice(0, 1),
-      } satisfies AlphaData,
-    });
-  });
-
-  await page.goto("/goals");
-
-  const selector = page.getByRole("combobox", { name: "Saved goal" });
-  await expect(selector).toBeVisible();
-  await expect(selector.locator("strong")).toHaveText("Financial independence");
-  await expect(page.getByText("1 active goal", { exact: true })).toBeVisible();
-
-  await page.getByRole("button", { name: "New goal +" }).click();
-  await expect(selector.locator("strong")).toHaveText("Choose a goal");
-  await expect(page.getByText("Start from a template")).toBeVisible();
-  await selector.click();
-  await page.getByRole("option", { name: /Financial independence/u }).click();
-  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
-    "Financial independence",
-  );
-});
-
 test("keeps saved goals compact and templates creation-only", async ({
   page,
 }) => {

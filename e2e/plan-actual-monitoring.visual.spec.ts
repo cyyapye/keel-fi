@@ -114,6 +114,7 @@ async function waitForOverviewLayout(page: Page) {
 
 test("keeps material plan drift actionable without changing the plan", async ({
   page,
+  isMobile,
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
@@ -292,41 +293,45 @@ test("keeps material plan drift actionable without changing the plan", async ({
     "Moved to review later for 7 days.",
   );
 
-  monitoringState = {
-    ...monitoringBase,
-    status: "clear",
-    actionItems: [],
-    deferredItems: [],
-  };
-  await page.reload();
-  await waitForOverviewLayout(page);
-  await hideStickyTopbar(page);
-  const clearMonitoring = page.locator(".plan-monitoring");
-  const clearSummary = clearMonitoring.getByRole("button", {
-    name: /Monitoring is healthy/u,
-  });
-  await expect(clearSummary).toHaveAttribute("aria-expanded", "false");
-  await expect(clearSummary).toContainText(
-    "Reviewed actuals are within plan guardrails",
-  );
-  await expect(clearSummary).toContainText("Healthy");
-  await expect(
-    page.getByRole("heading", {
-      name: "Reviewed actuals are within the plan guardrails",
-    }),
-  ).toHaveCount(0);
-  await expect(clearMonitoring).toHaveScreenshot("plan-actual-clear.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await clearSummary.click();
-  await expect(
-    clearMonitoring.getByRole("heading", {
-      name: "Reviewed actuals are within the plan guardrails",
-    }),
-  ).toBeVisible();
+  if (!isMobile) {
+    monitoringState = {
+      ...monitoringBase,
+      status: "clear",
+      actionItems: [],
+      deferredItems: [],
+    };
+    await page.reload();
+    await waitForOverviewLayout(page);
+    await hideStickyTopbar(page);
+    const clearMonitoring = page.locator(".plan-monitoring");
+    const clearSummary = clearMonitoring.getByRole("button", {
+      name: /Monitoring is healthy/u,
+    });
+    await expect(clearSummary).toHaveAttribute("aria-expanded", "false");
+    await expect(clearSummary).toContainText(
+      "Reviewed actuals are within plan guardrails",
+    );
+    await expect(clearSummary).toContainText("Healthy");
+    await expect(
+      page.getByRole("heading", {
+        name: "Reviewed actuals are within the plan guardrails",
+      }),
+    ).toHaveCount(0);
+    await expect(clearMonitoring).toHaveScreenshot("plan-actual-clear.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+    await clearSummary.click();
+    await expect(
+      clearMonitoring.getByRole("heading", {
+        name: "Reviewed actuals are within the plan guardrails",
+      }),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    return;
+  }
 
   monitoringState = {
     ...monitoringBase,

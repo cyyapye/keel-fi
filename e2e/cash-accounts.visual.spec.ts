@@ -170,6 +170,7 @@ async function expectNoHorizontalOverflow(page: Page) {
 
 test("shows only cash exceptions and preserves failed decisions", async ({
   page,
+  isMobile,
 }) => {
   const alphaResponse = await page.request.get("/api/alpha");
   expect(alphaResponse.ok()).toBe(true);
@@ -372,32 +373,34 @@ test("shows only cash exceptions and preserves failed decisions", async ({
     threshold: 0.25,
   });
 
-  cashState = {
-    ...pendingState,
-    connections: [
-      {
-        ...pendingState.connections[0],
-        status: "needs_attention",
-        cooldownUntil: "2099-01-01T00:00:00.000Z",
-        cooldownActive: true,
-      },
-    ],
-    pendingProposals: [],
-  };
-  await page.reload();
-  await expect(
-    cashSection.getByText("Plaid paused checks until"),
-  ).toBeVisible();
-  await expect(
-    cashSection.getByRole("button", { name: "Check paused" }),
-  ).toBeDisabled();
-  await expectNoHorizontalOverflow(page);
-  await expect(cashSection).toHaveScreenshot("cash-accounts-paused.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+  if (isMobile) {
+    cashState = {
+      ...pendingState,
+      connections: [
+        {
+          ...pendingState.connections[0],
+          status: "needs_attention",
+          cooldownUntil: "2099-01-01T00:00:00.000Z",
+          cooldownActive: true,
+        },
+      ],
+      pendingProposals: [],
+    };
+    await page.reload();
+    await expect(
+      cashSection.getByText("Plaid paused checks until"),
+    ).toBeVisible();
+    await expect(
+      cashSection.getByRole("button", { name: "Check paused" }),
+    ).toBeDisabled();
+    await expectNoHorizontalOverflow(page);
+    await expect(cashSection).toHaveScreenshot("cash-accounts-paused.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+  }
   cashState = pendingState;
   await page.reload();
 
@@ -511,6 +514,7 @@ test("shows only cash exceptions and preserves failed decisions", async ({
   );
   await expectNoHorizontalOverflow(page);
 
+  if (isMobile) return;
   await page.getByRole("button", { name: "Same account" }).click();
   await expect(
     page.getByRole("heading", { name: "Possible duplicate accounts" }),

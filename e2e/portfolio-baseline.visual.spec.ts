@@ -804,100 +804,107 @@ for (const kind of ["public", "private", "cash"] as const) {
   });
 }
 
-test("retries an unavailable planning baseline", async ({ page }) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
-  let baselineRequestCount = 0;
+test(
+  "retries an unavailable planning baseline",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = await alphaResponse.json();
+    let baselineRequestCount = 0;
 
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: alphaFixture.holdings,
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.route("**/api/portfolio-baseline", async (route) => {
-    baselineRequestCount += 1;
-    if (baselineRequestCount === 1) {
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await routeHoldingsPage(page, {
+      householdName: alphaFixture.dashboard.householdName,
+      holdings: alphaFixture.holdings,
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    });
+    await page.route("**/api/portfolio-baseline", async (route) => {
+      baselineRequestCount += 1;
+      if (baselineRequestCount === 1) {
+        await route.fulfill({
+          status: 503,
+          json: { error: "The planning baseline is temporarily unavailable." },
+        });
+        return;
+      }
+      await route.fulfill({ json: readyState });
+    });
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({ json: [] });
+    });
+    await page.route("**/api/automation/angellist/status", async (route) => {
       await route.fulfill({
-        status: 503,
-        json: { error: "The planning baseline is temporarily unavailable." },
+        json: {
+          version: 1,
+          status: "ready",
+          interval: "weekly",
+          runStatus: null,
+          lastSeenAt: "2026-08-13T16:00:00.000Z",
+          lastCompletedAt: "2026-08-13T15:58:00.000Z",
+          nextRunAt: "2026-08-20T16:00:00.000Z",
+          latestImportId: null,
+          errorCode: null,
+        },
       });
-      return;
-    }
-    await route.fulfill({ json: readyState });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "ready",
-        interval: "weekly",
-        runStatus: null,
-        lastSeenAt: "2026-08-13T16:00:00.000Z",
-        lastCompletedAt: "2026-08-13T15:58:00.000Z",
-        nextRunAt: "2026-08-20T16:00:00.000Z",
-        latestImportId: null,
-        errorCode: null,
-      },
     });
-  });
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({ json: investmentConnectionsState });
-  });
-  await page.route("**/api/cash-accounts", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        configured: true,
-        status: "disconnected",
-        connections: [],
-        acceptedAccounts: [],
-        pendingProposals: [],
-        errorCode: null,
-      },
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({ json: investmentConnectionsState });
     });
-  });
+    await page.route("**/api/cash-accounts", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          configured: true,
+          status: "disconnected",
+          connections: [],
+          acceptedAccounts: [],
+          pendingProposals: [],
+          errorCode: null,
+        },
+      });
+    });
 
-  await page.goto("/holdings");
-  const errorState = page.locator(".portfolio-baseline--error");
-  await expect(
-    errorState.getByRole("heading", { name: "Planning baseline unavailable" }),
-  ).toBeVisible();
-  await expect(errorState).toContainText(
-    "The planning baseline is temporarily unavailable.",
-  );
-  await expect(
-    errorState.getByRole("button", { name: "Try again" }),
-  ).toBeVisible();
-  await expectNoHorizontalOverflow(page);
-  await expect(errorState).toHaveScreenshot(
-    "portfolio-baseline-retry-error.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+    await page.goto("/holdings");
+    const errorState = page.locator(".portfolio-baseline--error");
+    await expect(
+      errorState.getByRole("heading", {
+        name: "Planning baseline unavailable",
+      }),
+    ).toBeVisible();
+    await expect(errorState).toContainText(
+      "The planning baseline is temporarily unavailable.",
+    );
+    await expect(
+      errorState.getByRole("button", { name: "Try again" }),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expect(errorState).toHaveScreenshot(
+      "portfolio-baseline-retry-error.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
 
-  await errorState.getByRole("button", { name: "Try again" }).click();
-  await expect.poll(() => baselineRequestCount).toBe(2);
-  await expect(errorState).toHaveCount(0);
-  await expect(
-    page.getByRole("heading", { name: "Set the FI planning baseline" }),
-  ).toBeVisible();
-});
+    await errorState.getByRole("button", { name: "Try again" }).click();
+    await expect.poll(() => baselineRequestCount).toBe(2);
+    await expect(errorState).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Set the FI planning baseline" }),
+    ).toBeVisible();
+  },
+);
 
 test("updates routine sources and reviews only one exception at a time", async ({
   page,
+  isMobile,
 }) => {
   const alphaFixture = await (await page.request.get("/api/alpha")).json();
   const cashException = {
@@ -1002,6 +1009,7 @@ test("updates routine sources and reviews only one exception at a time", async (
     "portfolio-baseline-exceptions.png",
     { animations: "disabled" },
   );
+  if (!isMobile) return;
   await page
     .getByRole("button", { name: "Review Synthetic reserve cash" })
     .click();

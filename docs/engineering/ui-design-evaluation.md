@@ -11,6 +11,11 @@ For the supplementary Watch images, run
 Playwright writes the empty, initial and coverage views for desktop and mobile
 to its test-results directory. Mobile also captures the timeout view.
 
+To capture the desktop and mobile manual-obligation date forms, run
+`KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/obligations.visual.spec.ts --grep "reviews obligations"'`.
+The normal mobile journey still checks the submitted due date, effective date,
+payment and interest rate.
+
 ## Cases fixed before the pilot
 
 | Case                    | Request / evidence                                                                            | Observable requirement                                                                                                                                                                                |

@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 154,
+  "retiredBrowserCaseCount": 160,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -1306,6 +1306,66 @@
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: keeps unverified sign-ins and page-reading failures separate"
       ],
       "assertions": "Desktop retains the actual provider-scoped viewer URL, five-second admission, hidden-tab suppression, focus storm, connected terminal state and repair action. Mobile still starts and checks the real Tokenfolio reconnect flow, and the provider access browser boundary still exists on both devices. The repeated mobile AngelList timing/repair sequence is retired."
+    },
+    {
+      "id": "planning-single-goal-overview-and-editor",
+      "retiredBrowserCases": [
+        "e2e/overview-links.visual.spec.ts :: chromium :: keeps the masthead static when only one goal is active",
+        "e2e/goals.visual.spec.ts :: chromium :: uses the saved-goal dropdown with one goal",
+        "e2e/goals.visual.spec.ts :: mobile-chromium :: uses the saved-goal dropdown with one goal"
+      ],
+      "browserCases": [
+        "e2e/overview-links.visual.spec.ts :: mobile-chromium :: keeps the masthead static when only one goal is active",
+        "e2e/goals.visual.spec.ts :: chromium :: keeps saved goals compact and templates creation-only",
+        "e2e/goals.visual.spec.ts :: mobile-chromium :: keeps saved goals compact and templates creation-only"
+      ],
+      "unitCases": [
+        "apps/api/src/app.test.ts :: Keel API > validates and records a new immutable goal version"
+      ],
+      "assertions": "With one seeded goal the mobile test waits for its actual heading before asserting the carousel, chooser and duplicate section are absent. It follows the real navigation to Goals, starts a draft, reselects the existing record and checks the restored field. Both widths retain the normal multi-goal editor, selector and overview. The eliminated desktop single-record cross-section had no reference image."
+    },
+    {
+      "id": "planning-empty-obligations-mobile",
+      "retiredBrowserCases": [
+        "e2e/obligations.visual.spec.ts :: chromium :: shows a compact empty state before obligations are accepted"
+      ],
+      "browserCases": [
+        "e2e/obligations.visual.spec.ts :: mobile-chromium :: shows a compact empty state before obligations are accepted",
+        "e2e/obligations.visual.spec.ts :: chromium :: reviews obligations and preserves unknown and stale states"
+      ],
+      "unitCases": [
+        "apps/api/src/app-liabilities.test.ts :: liabilities API > stages manual fallback before applying an explicit treatment"
+      ],
+      "assertions": "Mobile retains the synthetic empty account read, compact zero-total explanation without an icon, absence of horizontal overflow and the narrow empty-obligations image. The ordinary obligations summary and proposal review remain on both devices. The separate wide empty-state line arrangement is retired."
+    },
+    {
+      "id": "planning-baseline-retry-mobile",
+      "retiredBrowserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: retries an unavailable planning baseline"
+      ],
+      "browserCases": [
+        "e2e/portfolio-baseline.visual.spec.ts :: mobile-chromium :: retries an unavailable planning baseline",
+        "e2e/portfolio-baseline.visual.spec.ts :: chromium :: sets the initial FI baseline while checking only manual cash"
+      ],
+      "unitCases": [
+        "apps/api/src/app.test.ts :: Keel API > loads the reviewed-holdings portfolio baseline state",
+        "apps/api/src/app.test.ts :: Keel API > rejects stale portfolio baseline confirmation without retrying"
+      ],
+      "assertions": "Mobile requires the unavailable headline, reason, safe retry action and no overflow. Explicit retry must perform exactly one new read, remove the error, and restore the ordinary baseline. Ready and overlap states retain both widths; the wide position of Try again loses an exact image comparison."
+    },
+    {
+      "id": "planning-disconnect-disclosure-mobile",
+      "retiredBrowserCases": [
+        "e2e/observed-cash-flow.visual.spec.ts :: chromium :: confirms the shared bank deletion boundary before disconnect"
+      ],
+      "browserCases": [
+        "e2e/observed-cash-flow.visual.spec.ts :: mobile-chromium :: confirms the shared bank deletion boundary before disconnect",
+        "e2e/observed-cash-flow.visual.spec.ts :: chromium :: reviews observed burn and prepares the existing runway plan"
+      ],
+      "unitCases": [
+        "apps/api/src/app-cash-accounts.test.ts :: cash account API > blocks disconnect before Plaid while a cash-flow review is waiting"
+      ],
+      "assertions": "Mobile opens the shared-bank disconnect warning, verifies the destructive confirmation action and no horizontal overflow, and fails on any DELETE triggered by disclosure alone. The API independently blocks deletion before Plaid during a pending review. Wide observed-cash review stays in the suite; the exact wide warning and adjacent confirmation buttons are retired."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"
