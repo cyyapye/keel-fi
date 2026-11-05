@@ -972,6 +972,7 @@ def run_vitest(runner, inventory):
     started_at = int(time.time() * 1000)
     with cost_seed_directory() as seed:
         env = {**os.environ, "KEEL_TEST_SQLITE_SNAPSHOT_ROOT": seed}
+        env.pop("KEEL_MAIN_VITEST_NICE", None)
         if strict:
             command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
             returncode = subprocess.run(command, cwd=ROOT, check=False, env=env).returncode
@@ -984,6 +985,12 @@ def run_vitest(runner, inventory):
                 unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
                 if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
                     raise ValueError("Unit PDF boundary must remain unprovisioned")
+                if partitioned and sys.platform == "linux" and os.environ.get("GITHUB_ACTIONS") == "true":
+                    previous = os.getpriority(os.PRIO_PROCESS, 0)
+                    expected = min(previous + 3, 19)
+                    command = ["nice", "-n", str(expected - previous), *command]
+                    env["KEEL_MAIN_VITEST_NICE"] = str(expected)
+                    print(f"Main Vitest parent nice={previous} worker target={expected}", flush=True)
                 returncode = subprocess.run(command, cwd=ROOT, check=False,
                                             env={**env, "KEEL_TEST_D1_SEED": seed,
                                                  "KEEL_PROVIDER_DAY_SCRATCH": provider_scratch,
