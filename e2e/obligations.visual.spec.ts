@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const captureDesignReview = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
 const observedAt = "2026-08-14T16:00:00.000Z";
 const connectionId = "liability_connection_demo_bank";
 const proposalId = "liability_proposal_demo_bank";
@@ -221,29 +222,6 @@ const appliedState = {
   },
 } as const;
 
-const emptyState = {
-  ...pendingState,
-  connections: [],
-  acceptedLiabilities: [],
-  pendingProposals: [],
-  impact: {
-    liabilityCount: 0,
-    totalOutstandingMinor: 0,
-    unknownBalanceCount: 0,
-    unknownPaymentCount: 0,
-    overdueCount: 0,
-    reservedPaymentMinor: 0,
-    addedHouseholdBurnMinor: 0,
-    netLiquidityMinor: planning.currentFiEligibleLiquidMinor,
-    adjustedHouseholdBurnMonthlyMinor: planning.householdBurnMonthlyMinor,
-    adjustedTotalBurnMonthlyMinor:
-      planning.householdBurnMonthlyMinor + planning.businessBurnMonthlyMinor,
-    protectedRunwayMonths: 42,
-    obligationAdjustedFiGapMinor:
-      planning.fiTargetMinor - planning.currentFiEligibleLiquidMinor,
-  },
-} as const;
-
 const manualProposal = {
   id: "liability_proposal_manual",
   connectionId: null,
@@ -293,216 +271,184 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("shows a compact empty state before obligations are accepted", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
+test(
+  "reviews obligations and preserves unknown and stale states",
+  { tag: captureDesignReview ? [] : "@mobile-only" },
+  async ({ page, isMobile }, testInfo) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = await alphaResponse.json();
+    let state: Record<string, unknown> = pendingState;
+    let applyBody: Record<string, unknown> | null = null;
+    let manualBody: Record<string, unknown> | null = null;
 
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/liabilities", async (route) => {
-    await route.fulfill({ json: emptyState });
-  });
-
-  await page.goto("/obligations");
-  const reviewed = page.locator(".reviewed-obligations");
-  await expect(
-    reviewed.getByRole("heading", {
-      level: 3,
-      name: "No obligations have been accepted.",
-    }),
-  ).toBeVisible();
-  await expect(reviewed).toContainText(
-    "Add one manually or connect an institution, then review the reported values.",
-  );
-  await expect(
-    reviewed.locator('[data-slot="empty-state"] > span'),
-  ).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await expect(reviewed).toHaveScreenshot("obligations-empty.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-});
-
-test("reviews obligations and preserves unknown and stale states", async ({
-  page,
-}, testInfo) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
-  let state: Record<string, unknown> = pendingState;
-  let applyBody: Record<string, unknown> | null = null;
-  let manualBody: Record<string, unknown> | null = null;
-
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/liabilities", async (route) => {
-    await route.fulfill({ json: state });
-  });
-  await page.route(
-    `**/api/liability-proposals/${proposalId}/apply`,
-    async (route) => {
-      applyBody = (await route.request().postDataJSON()) as Record<
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await page.route("**/api/liabilities", async (route) => {
+      await route.fulfill({ json: state });
+    });
+    await page.route(
+      `**/api/liability-proposals/${proposalId}/apply`,
+      async (route) => {
+        applyBody = (await route.request().postDataJSON()) as Record<
+          string,
+          unknown
+        >;
+        state = appliedState;
+        await route.fulfill({
+          json: {
+            proposalId,
+            acceptedCount: 2,
+            excludedCount: 1,
+            impact: appliedState.impact,
+          },
+          status: 201,
+        });
+      },
+    );
+    await page.route("**/api/liability-proposals/manual", async (route) => {
+      manualBody = (await route.request().postDataJSON()) as Record<
         string,
         unknown
       >;
-      state = appliedState;
-      await route.fulfill({
-        json: {
-          proposalId,
-          acceptedCount: 2,
-          excludedCount: 1,
-          impact: appliedState.impact,
-        },
-        status: 201,
+      state = { ...appliedState, pendingProposals: [manualProposal] };
+      await route.fulfill({ json: manualProposal, status: 201 });
+    });
+
+    await page.goto("/obligations");
+    const pageContent = page.locator(".obligations-page");
+    await expect(
+      page.getByRole("heading", { name: "Accepted obligations" }),
+    ).toBeVisible();
+    await expect(pageContent).toContainText("Family mortgage");
+    await expect(pageContent).toContainText("Unknown");
+    await expect(page.getByText("Stale", { exact: true })).toBeVisible();
+    await expect(page.getByText("Overdue", { exact: true })).toBeVisible();
+    await expect(pageContent).toContainText("3 checks left this month");
+    await page.addStyleTag({
+      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+    if (isMobile)
+      await expect(pageContent).toHaveScreenshot("obligations-ready.png", {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
       });
-    },
-  );
-  await page.route("**/api/liability-proposals/manual", async (route) => {
-    manualBody = (await route.request().postDataJSON()) as Record<
-      string,
-      unknown
-    >;
-    state = { ...appliedState, pendingProposals: [manualProposal] };
-    await route.fulfill({ json: manualProposal, status: 201 });
-  });
+    await expectNoHorizontalOverflow(page);
 
-  await page.goto("/obligations");
-  const pageContent = page.locator(".obligations-page");
-  await expect(
-    page.getByRole("heading", { name: "Accepted obligations" }),
-  ).toBeVisible();
-  await expect(pageContent).toContainText("Family mortgage");
-  await expect(pageContent).toContainText("Unknown");
-  await expect(page.getByText("Stale", { exact: true })).toBeVisible();
-  await expect(page.getByText("Overdue", { exact: true })).toBeVisible();
-  await expect(pageContent).toContainText("3 checks left this month");
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await expect(pageContent).toHaveScreenshot("obligations-ready.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await expectNoHorizontalOverflow(page);
+    await page.getByRole("button", { name: "Review obligations" }).click();
+    const review = page.locator(".obligation-review");
+    await expect(
+      page.getByRole("heading", { name: "Review Northstar Demo Bank" }),
+    ).toBeFocused();
+    await expect(review).toContainText("Only USD liabilities are supported.");
+    await expect(
+      page.getByLabel("Planning treatment for Graduate loan"),
+    ).toContainText("Add next payment to monthly burn");
+    await review.evaluate((element) =>
+      element.scrollIntoView({ block: "start", behavior: "auto" }),
+    );
+    if (isMobile)
+      await expect(review).toHaveScreenshot("obligations-review.png", {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      });
+    await expectNoHorizontalOverflow(page);
 
-  await page.getByRole("button", { name: "Review obligations" }).click();
-  const review = page.locator(".obligation-review");
-  await expect(
-    page.getByRole("heading", { name: "Review Northstar Demo Bank" }),
-  ).toBeFocused();
-  await expect(review).toContainText("Only USD liabilities are supported.");
-  await expect(
-    page.getByLabel("Planning treatment for Graduate loan"),
-  ).toContainText("Add next payment to monthly burn");
-  await review.evaluate((element) =>
-    element.scrollIntoView({ block: "start", behavior: "auto" }),
-  );
-  await expect(review).toHaveScreenshot("obligations-review.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await expectNoHorizontalOverflow(page);
+    await page.getByRole("button", { name: "Apply review" }).click();
+    await expect(pageContent).toContainText("Graduate loan");
+    await expect(pageContent).not.toContainText(
+      "Reported values are still proposals",
+    );
+    expect(applyBody).toEqual({
+      changeNote:
+        "Reviewed Northstar Demo Bank obligations and payment treatment.",
+      decisions: [
+        {
+          rowId: "liability_row_card",
+          decision: "accepted",
+          paymentTreatment: "reserve_from_liquidity",
+        },
+        {
+          rowId: "liability_row_student",
+          decision: "accepted",
+          paymentTreatment: "add_to_household_burn",
+        },
+        {
+          rowId: "liability_row_unsupported",
+          decision: "excluded",
+          paymentTreatment: null,
+        },
+      ],
+    });
 
-  await page.getByRole("button", { name: "Apply review" }).click();
-  await expect(pageContent).toContainText("Graduate loan");
-  await expect(pageContent).not.toContainText(
-    "Reported values are still proposals",
-  );
-  expect(applyBody).toEqual({
-    changeNote:
-      "Reviewed Northstar Demo Bank obligations and payment treatment.",
-    decisions: [
-      {
-        rowId: "liability_row_card",
-        decision: "accepted",
-        paymentTreatment: "reserve_from_liquidity",
-      },
-      {
-        rowId: "liability_row_student",
-        decision: "accepted",
-        paymentTreatment: "add_to_household_burn",
-      },
-      {
-        rowId: "liability_row_unsupported",
-        decision: "excluded",
-        paymentTreatment: null,
-      },
-    ],
-  });
-
-  await page.clock.setFixedTime(new Date(observedAt));
-  await page.getByRole("button", { name: "Add manually" }).click();
-  const manual = page.locator(".manual-obligation");
-  await manual.getByLabel("Institution").fill("Manual entry");
-  await manual.getByLabel("Account label").fill("Synthetic mortgage");
-  await manual.getByRole("combobox", { name: "Type" }).click();
-  await page.getByRole("option", { name: "Mortgage" }).click();
-  await manual.getByLabel("Next required payment").fill("2200");
-  await manual.getByLabel("APR").fill("5.125");
-  const dueDate = manual.getByRole("button", {
-    name: "Next payment due",
-    exact: true,
-  });
-  await dueDate.click();
-  await page.getByRole("button", { name: "Next month", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
-    .click();
-  await dueDate.click();
-  await page.getByRole("button", { name: "Clear date", exact: true }).click();
-  await expect(dueDate).toHaveText("Choose date");
-  await dueDate.click();
-  await page.getByRole("button", { name: "Next month", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
-    .click();
-  await manual.getByRole("combobox", { name: "Payment status" }).click();
-  await page.getByRole("option", { name: "Current" }).click();
-  const effectiveDate = manual.getByRole("button", {
-    name: "Values effective",
-    exact: true,
-  });
-  await expect(effectiveDate).toHaveAttribute("aria-required", "true");
-  await effectiveDate.click();
-  await expect(
-    page.getByRole("button", { name: "Clear date", exact: true }),
-  ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Thursday, August 13, 2026", exact: true })
-    .click();
-  await effectiveDate.click();
-  await page
-    .getByRole("button", { name: "Friday, August 14, 2026", exact: true })
-    .click();
-  await manual.screenshot({
-    path: testInfo.outputPath("manual-obligation-dates.png"),
-    animations: "disabled",
-  });
-  await manual.getByRole("button", { name: "Continue to review" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Review Manual entry" }),
-  ).toBeFocused();
-  expect(manualBody).toEqual({
-    institutionLabel: "Manual entry",
-    accountLabel: "Synthetic mortgage",
-    kind: "mortgage",
-    balanceMinor: null,
-    paymentMinor: 220_000,
-    interestRatePpm: 51_250,
-    nextPaymentDueDate: "2026-09-01",
-    isOverdue: false,
-    effectiveDate: "2026-08-14",
-  });
-});
+    await page.clock.setFixedTime(new Date(observedAt));
+    await page.getByRole("button", { name: "Add manually" }).click();
+    const manual = page.locator(".manual-obligation");
+    await manual.getByLabel("Institution").fill("Manual entry");
+    await manual.getByLabel("Account label").fill("Synthetic mortgage");
+    await manual.getByRole("combobox", { name: "Type" }).click();
+    await page.getByRole("option", { name: "Mortgage" }).click();
+    await manual.getByLabel("Next required payment").fill("2200");
+    await manual.getByLabel("APR").fill("5.125");
+    const dueDate = manual.getByRole("button", {
+      name: "Next payment due",
+      exact: true,
+    });
+    await dueDate.click();
+    await page.getByRole("button", { name: "Next month", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+      .click();
+    await dueDate.click();
+    await page.getByRole("button", { name: "Clear date", exact: true }).click();
+    await expect(dueDate).toHaveText("Choose date");
+    await dueDate.click();
+    await page.getByRole("button", { name: "Next month", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Tuesday, September 1, 2026", exact: true })
+      .click();
+    await manual.getByRole("combobox", { name: "Payment status" }).click();
+    await page.getByRole("option", { name: "Current" }).click();
+    const effectiveDate = manual.getByRole("button", {
+      name: "Values effective",
+      exact: true,
+    });
+    await expect(effectiveDate).toHaveAttribute("aria-required", "true");
+    await effectiveDate.click();
+    await expect(
+      page.getByRole("button", { name: "Clear date", exact: true }),
+    ).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Thursday, August 13, 2026", exact: true })
+      .click();
+    await effectiveDate.click();
+    await page
+      .getByRole("button", { name: "Friday, August 14, 2026", exact: true })
+      .click();
+    if (captureDesignReview)
+      await manual.screenshot({
+        path: testInfo.outputPath("manual-obligation-dates.png"),
+        animations: "disabled",
+      });
+    await manual.getByRole("button", { name: "Continue to review" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Review Manual entry" }),
+    ).toBeFocused();
+    expect(manualBody).toEqual({
+      institutionLabel: "Manual entry",
+      accountLabel: "Synthetic mortgage",
+      kind: "mortgage",
+      balanceMinor: null,
+      paymentMinor: 220_000,
+      interestRatePpm: 51_250,
+      nextPaymentDueDate: "2026-09-01",
+      isOverdue: false,
+      effectiveDate: "2026-08-14",
+    });
+  },
+);

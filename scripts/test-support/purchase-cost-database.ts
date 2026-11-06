@@ -23,6 +23,7 @@ const d1CostSchema = z.object({
 });
 const seedResultSchema = z.object({ importId: z.string().min(1) });
 const purchaseHistoryResultSchema = z.object({
+  deepHead: z.string().uuid(),
   acceptances: z
     .array(
       z.object({
@@ -65,6 +66,16 @@ export async function createPurchaseCostDatabase() {
     ...fixture,
     seed: async (subject?: string) =>
       seedResultSchema.parse(await dispatch({ operation: "seed", subject })),
+    growLinkHistory: async (
+      input: Omit<
+        Extract<PurchaseCostSetupOperation, { operation: "link-history" }>,
+        "operation"
+      >,
+    ) =>
+      z
+        .array(d1CostSchema)
+        .length(input.count)
+        .parse(await dispatch({ operation: "link-history", ...input })),
     measurePurchaseHistory: async (input: {
       subject: string;
       householdId: string;

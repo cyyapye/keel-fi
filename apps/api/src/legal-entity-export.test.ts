@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { companyOnlyHoldingSources } from "../../../e2e/legal-entity-profile-fixtures";
 
 import {
   isHistoricalLegalEntity,
@@ -9,6 +10,7 @@ import {
 import {
   legalEntityExportCsv,
   legalEntityExportRows,
+  legalEntityExportTable,
 } from "./legal-entity-export";
 import { extractLegalNameFromPages } from "../../../scripts/legal-document-extraction";
 
@@ -511,6 +513,23 @@ describe("legal entity CSV export", () => {
       entity_type: "Not reported",
     });
     expect(unresolved?.missing_information).toContain("Legal name");
+
+    const companies = companyOnlyHoldingSources(source);
+    companies[0]!.financials = { ...source.financials, fundedMinor: 0 };
+    const table = legalEntityExportTable(
+      { ...inventory, entities: [], candidates: companies },
+      {
+        fields: ["source_record", "legal_name", "funded"],
+        includeNeedsReview: true,
+        includeHistorical: false,
+        includeOtherEntityTypes: true,
+      },
+    );
+    expect(table.rows).toEqual([
+      ["Demo Circuit", "", "Demo Circuit: Not recorded"],
+      ["Demo Harbor", "", "Demo Harbor: Not recorded"],
+      ["Demo Orchard", "", "Demo Orchard: USD 0.00"],
+    ]);
 
     const expandedRows = legalEntityExportRows(inventory, {
       fields: ["legal_name"],

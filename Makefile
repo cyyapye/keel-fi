@@ -22,7 +22,7 @@ AGENT_PLATFORM ?= $(shell uname -s)
 
 export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRANGLER_LOG_PATH
 
-.PHONY: help bootstrap bootstrap-ci dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify pilot-validate pilot-verify provider-document-runtime-verify
+.PHONY: help bootstrap bootstrap-ci dev dev-up dev-down dev-clean dev-status dev-logs dev-build data-scan format format-check lint lint-typecheck typecheck test build check db-migrate db-seed db-reset db-check db-verify db-scenarios db-reset-e2e db-check-e2e db-verify-e2e local-acceptance-apply local-acceptance-dev local-acceptance-restore local-acceptance-clean provider-agent-setup provider-agent-run e2e verify pdf-sandbox-build pdf-sandbox-verify pilot-validate pilot-verify provider-document-runtime-verify
 
 help:
 	@echo "Keel developer commands"
@@ -102,6 +102,9 @@ format-check:
 lint:
 	$(PNPM) lint
 
+lint-typecheck:
+	node --max-old-space-size=4096 scripts/lint-typecheck.mjs
+
 typecheck:
 	$(PNPM) typecheck
 
@@ -113,7 +116,12 @@ build:
 
 check:
 	$(MAKE) ci-storage-test
+	$(MAKE) d1-migration-check
 	$(PNPM) check
+
+.PHONY: d1-migration-check
+d1-migration-check:
+	node --import tsx scripts/d1-migration-safety.ts check
 
 .PHONY: ci-storage-test
 ci-storage-test:
@@ -192,10 +200,10 @@ pdf-sandbox-build:
 	$(PNPM) exec tsx scripts/pdf-sandbox-build.ts
 
 provider-document-runtime-verify:
-	$(PNPM) exec tsx scripts/provider-document-runtime-verify.ts
+	node --import tsx scripts/provider-document-runtime-verify.ts
 
 pdf-sandbox-verify:
-	$(PNPM) exec tsx scripts/pdf-sandbox-verify.ts
+	node --import tsx scripts/pdf-sandbox-verify.ts
 
 verify:
 	$(MAKE) provider-document-runtime-verify

@@ -4,6 +4,24 @@ These are evaluation cases, not ordinary agent instructions. Do not give this
 scorecard to a reviewer. Existing instruction-routing holdouts in
 [agent-guidance-evaluation.md](agent-guidance-evaluation.md) still apply.
 
+Generate the blinded catalogue stimuli for a design evaluation with
+`KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/ui-catalogue.visual.spec.ts --grep "captures blinded"'`.
+For the supplementary Watch images, run
+`KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/portfolio-watch.visual.spec.ts --grep "failed monitoring|visually sparse|timed-out checks"'`.
+Playwright writes the empty, initial and coverage views for desktop and mobile
+to its test-results directory. Mobile also captures the timeout view.
+
+To capture the desktop and mobile manual-obligation date forms, run
+`KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/obligations.visual.spec.ts --grep "reviews obligations"'`.
+The normal mobile journey still checks the submitted due date, effective date,
+payment and interest rate.
+
+For the two Legal entities triage viewport images and manual holding readback
+images, run
+`KEEL_CAPTURE_DESIGN_VARIANTS=1 make e2e E2E_ARGS='e2e/legal-entities.visual.spec.ts e2e/manual-holdings.spec.ts --grep "starts with compact triage|quota exhaustion|unassigned Direct|explicit zero cash|contributed cash beside"'`.
+The quota draft image is desktop-only. The unknown-facts, identity-history and
+cash-and-estimate images run on both devices.
+
 ## Cases fixed before the pilot
 
 | Case                    | Request / evidence                                                                            | Observable requirement                                                                                                                                                                                |

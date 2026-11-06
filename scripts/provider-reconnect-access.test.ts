@@ -270,15 +270,29 @@ describe("authenticated reconnect admission", () => {
     expect((await upgrade(assertion)).status).toBe(403);
   });
 
-  it("closes an established viewer when its JWT expires before the lease", async () => {
+  it("closes an established viewer when its JWT expires before the lease", async ({
+    onTestFinished,
+  }) => {
+    vi.useFakeTimers({
+      now: new Date("2026-09-04T12:00:00Z"),
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     await start();
     const viewer = await upgrade(
       await token({}, { expires: Math.floor(Date.now() / 1000) + 1 }),
     );
     expect(viewer.status).toBe(101);
-    await new Promise<void>((resolve) =>
+    expect(delivered).toHaveBeenCalledExactlyOnceWith("/websockify");
+    const ended = new Promise<void>((resolve) =>
       viewer.socket!.once("close", () => resolve()),
     );
+    vi.advanceTimersByTime(999);
+    expect(gateway!.failed()).toBe(false);
+    vi.advanceTimersByTime(1);
+    await ended;
     expect(gateway!.failed()).toBe(true);
   });
 

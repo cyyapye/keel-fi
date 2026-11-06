@@ -1,5 +1,8 @@
 import { readdirSync } from "node:fs";
-import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import {
+  createSqliteFixture,
+  type FixtureDatabase,
+} from "../../../scripts/test-support/sqlite-fixture";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -65,7 +68,7 @@ type AcceptedPositionInput = {
 
 class TestD1Statement {
   public constructor(
-    private readonly database: DatabaseSync,
+    private readonly database: FixtureDatabase,
     private readonly sql: string,
     private readonly values: readonly SQLInputValue[] = [],
   ) {}
@@ -76,25 +79,25 @@ class TestD1Statement {
 
   public first<T>(): Promise<T | null> {
     return Promise.resolve(
-      (this.database.prepare(this.sql).get(...this.values) as T) ?? null,
+      (this.database.statement(this.sql).get(...this.values) as T) ?? null,
     );
   }
 
   public all<T>(): Promise<{ results: T[] }> {
     return Promise.resolve({
-      results: this.database.prepare(this.sql).all(...this.values) as T[],
+      results: this.database.statement(this.sql).all(...this.values) as T[],
     });
   }
 
   public execute(): void {
-    this.database.prepare(this.sql).run(...this.values);
+    this.database.statement(this.sql).run(...this.values);
   }
 }
 
 class TestD1Database {
   public readonly preparedSql: string[] = [];
 
-  public constructor(private readonly database: DatabaseSync) {}
+  public constructor(private readonly database: FixtureDatabase) {}
 
   public prepare(sql: string): TestD1Statement {
     this.preparedSql.push(sql);
@@ -249,7 +252,7 @@ function addContainer(
 }
 
 function addPositionObservation(
-  database: DatabaseSync,
+  database: FixtureDatabase,
   input: AcceptedPositionInput,
 ) {
   const importId = `import_${input.observationId}`;
@@ -268,7 +271,7 @@ function addPositionObservation(
   const legalVehicleName = input.legalVehicleName ?? "Synthetic Security";
 
   database
-    .prepare(
+    .statement(
       `INSERT INTO source_documents (
          id, household_id, object_key, file_name, content_type, byte_size,
          sha256, effective_date, retrieved_at, source_label, review_status,
@@ -288,7 +291,7 @@ function addPositionObservation(
       input.retrievedAt,
     );
   database
-    .prepare(
+    .statement(
       `INSERT INTO holding_imports (
          id, household_id, source_document_id, provider, parser_schema,
          normalized_fingerprint, row_count, created_by, created_at
@@ -304,7 +307,7 @@ function addPositionObservation(
       input.retrievedAt,
     );
   database
-    .prepare(
+    .statement(
       `INSERT INTO holding_import_rows (
          id, household_id, import_id, source_row_number,
          position_fingerprint, snapshot_fingerprint, legal_vehicle_name,
@@ -340,7 +343,7 @@ function addPositionObservation(
       input.retrievedAt,
     );
   database
-    .prepare(
+    .statement(
       `INSERT INTO holding_import_connections (
          id, household_id, import_id, connection_id, created_at, immutable
        ) VALUES (?, ?, ?, ?, ?, 1)`,
@@ -353,7 +356,7 @@ function addPositionObservation(
       input.retrievedAt,
     );
   database
-    .prepare(
+    .statement(
       `INSERT INTO holding_import_coverages (
          id, household_id, import_id, container_id, completeness,
          evidence_sha256, observed_at, created_at, immutable
@@ -370,7 +373,7 @@ function addPositionObservation(
       input.retrievedAt,
     );
   database
-    .prepare(
+    .statement(
       `INSERT INTO holding_import_row_containers (
          id, household_id, import_row_id, container_id, created_at, immutable
        ) VALUES (?, ?, ?, ?, ?, 1)`,
@@ -385,7 +388,7 @@ function addPositionObservation(
 
   if (input.createPosition) {
     database
-      .prepare(
+      .statement(
         `INSERT INTO holding_positions (
            id, household_id, provider, position_fingerprint,
            legal_vehicle_name, owner_label, position_kind, instrument_type,
@@ -407,7 +410,7 @@ function addPositionObservation(
         input.retrievedAt,
       );
     database
-      .prepare(
+      .statement(
         `INSERT INTO holding_position_ownerships (
            id, household_id, container_id, position_id,
            protected_position_key, association_basis, evidence_sha256,
@@ -432,7 +435,7 @@ function addPositionObservation(
   }
 
   database
-    .prepare(
+    .statement(
       `INSERT INTO holding_import_row_decisions (
          id, household_id, import_row_id, reviewer_user_id, decision,
          matched_position_id, currency, reviewed_snapshot_fingerprint,
@@ -454,7 +457,7 @@ function addPositionObservation(
     );
   if (input.reuseSnapshotId === undefined) {
     database
-      .prepare(
+      .statement(
         `INSERT INTO holding_position_snapshots (
            id, household_id, position_id, source_document_id,
            source_import_row_id, snapshot_fingerprint, provider_status,
@@ -487,7 +490,7 @@ function addPositionObservation(
       );
   }
   database
-    .prepare(
+    .statement(
       `INSERT INTO holding_import_applications (
          id, household_id, import_row_id, decision_id, position_id,
          snapshot_id, outcome, applied_by, applied_at
@@ -607,7 +610,7 @@ function tableCounts(database: DatabaseSync) {
 }
 
 describe("canonical investment position view", () => {
-  let sqlite: DatabaseSync;
+  let sqlite: FixtureDatabase;
   let database: TestD1Database;
   let repository: D1InvestmentPositionViewRepository;
   const demoHousehold = { id: "hh_demo", userId: "usr_demo" } as const;

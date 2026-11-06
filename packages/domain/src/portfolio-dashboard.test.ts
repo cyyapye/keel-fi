@@ -307,8 +307,9 @@ function baselineFixture(): PortfolioBaselineState {
 
 describe("createPortfolioDashboardSnapshot", () => {
   it("keeps exposure, access, mover, and unknown-value math explicit", () => {
+    const holdings = holdingsFixture();
     const snapshot: PortfolioDashboardSnapshot =
-      createPortfolioDashboardSnapshot(holdingsFixture(), baselineFixture());
+      createPortfolioDashboardSnapshot(holdings, baselineFixture());
 
     expect(snapshot.currency).toBe("USD");
     expect(snapshot.topExposures.map((item) => item.name)).toEqual([
@@ -346,6 +347,26 @@ describe("createPortfolioDashboardSnapshot", () => {
         changePpm: -142_857,
       }),
     ]);
+    for (const position of holdings.exposureView.positions) {
+      position.priorValueMinor = null;
+      position.priorValueState = "not_reported";
+      position.priorValueObservedAt = null;
+    }
+    const baseline = baselineFixture();
+    baseline.suggestedOtherFiEligibleLiquidMinor = 10_000;
+    const firstObservation = createPortfolioDashboardSnapshot(
+      holdings,
+      baseline,
+    );
+    expect(firstObservation.liquidity).toContainEqual({
+      key: "other_liquid",
+      label: "Other liquid",
+      valueMinor: 10_000,
+    });
+    expect(firstObservation.knownPortfolioValueMinor).toBe(280_000);
+    expect(firstObservation.knownExposureValueMinor).toBe(160_000);
+    expect(firstObservation.moversUp).toEqual([]);
+    expect(firstObservation.moversDown).toEqual([]);
   });
 });
 

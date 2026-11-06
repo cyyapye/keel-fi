@@ -1,3 +1,5 @@
+import { build } from "esbuild";
+import { z } from "zod";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createCostDatabase } from "./test-support/d1-cost";
 import {
@@ -5,9 +7,32 @@ import {
   productionQueries,
 } from "./test-support/query-inventory";
 
+const planResultsSchema = z.array(
+  z.object({
+    index: z.int().nonnegative(),
+    success: z.boolean(),
+    results: z.array(
+      z.object({
+        id: z.int(),
+        parent: z.int(),
+        notused: z.int(),
+        detail: z.string(),
+      }),
+    ),
+  }),
+);
+
 let fixture: Awaited<ReturnType<typeof createCostDatabase>>;
 beforeAll(async () => {
-  fixture = await createCostDatabase();
+  const worker = await build({
+    entryPoints: ["scripts/test-support/query-plan-worker.ts"],
+    bundle: true,
+    write: false,
+    platform: "neutral",
+    format: "esm",
+    target: "es2022",
+  });
+  fixture = await createCostDatabase(worker.outputFiles[0]!.text);
 }, 30_000);
 afterAll(async () => {
   await fixture?.close();
@@ -18,25 +43,30 @@ describe("complete production SQL inventory", () => {
     const queries = productionQueries();
     expect(queries.length).toBeGreaterThan(450);
     const planBatchSize = 64;
-    const planStatements = queries.map((query) =>
-      fixture.database
-        .prepare(`EXPLAIN QUERY PLAN ${query.sql}`)
-        .bind(...Array<null>(placeholderCount(query.sql)).fill(null)),
-    );
-    const planResults: D1Result<{
-      id: number;
-      parent: number;
-      detail: string;
-    }>[] = [];
+    const inputs = queries.map((query, index) => ({
+      index,
+      sql: query.sql,
+      bindings: Array<null>(placeholderCount(query.sql)).fill(null),
+    }));
+    const planResults: z.infer<typeof planResultsSchema> = [];
     let planBatchCount = 0;
-    for (let index = 0; index < planStatements.length; index += planBatchSize) {
-      const statements = planStatements.slice(index, index + planBatchSize);
-      const results = await fixture.database.batch<{
-        id: number;
-        parent: number;
-        detail: string;
-      }>(statements);
-      expect(results).toHaveLength(statements.length);
+    for (let index = 0; index < inputs.length; index += planBatchSize) {
+      const batch = inputs.slice(index, index + planBatchSize);
+      const response = await fixture.dispatchFetch(
+        "https://synthetic-query-plans.invalid/",
+        {
+          method: "POST",
+          body: JSON.stringify(batch),
+        },
+      );
+      if (!response.ok)
+        throw new Error(
+          `EXPLAIN batch at query ${index}: ${await response.text()}`,
+        );
+      const results = planResultsSchema.parse(await response.json());
+      expect(results.map((result) => result.index)).toEqual(
+        batch.map((query) => query.index),
+      );
       planResults.push(...results);
       planBatchCount++;
     }
@@ -97,6 +127,11 @@ describe("complete production SQL inventory", () => {
         `${query.file}:${query.line} ${query.method}`,
       ).toBe(true);
       const plan = planResult.results;
+      if (/^\s*SELECT\b/iu.test(query.sql))
+        expect(
+          plan.length,
+          `${query.file}:${query.line} empty SELECT plan`,
+        ).toBeGreaterThan(0);
       const derived = new Set(
         plan.flatMap(
           (step) =>

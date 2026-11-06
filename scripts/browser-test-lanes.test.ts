@@ -102,10 +102,10 @@ describe("browser test lanes", () => {
         lane: "mocked-development",
       }),
     ).toMatchObject({
-      frontend: "development",
+      frontend: "production",
       lane: "mocked-development",
       server: "mocked",
-      workers: 4,
+      workers: 1,
     });
     expect(
       resolveBrowserTestLane({
@@ -139,12 +139,7 @@ describe("browser test lanes", () => {
     expect([null, 0, 1, 2].map(browserServerFailureExitCode)).toEqual([
       1, 1, 1, 2,
     ]);
-    expect(BROWSER_TEST_SCHEDULE["mocked-development"]).toEqual([
-      "mocked",
-      "stateful-development",
-      "stateful-a",
-      "stateful-b",
-    ]);
+    expect(BROWSER_TEST_SCHEDULE["mocked-development"]).toEqual(["mocked"]);
     expect(
       Object.entries(BROWSER_TEST_SCHEDULE)
         .filter(([, dependencies]) => dependencies.length === 0)
@@ -156,7 +151,7 @@ describe("browser test lanes", () => {
           0,
         ),
     ).toBe(4);
-    expect(BROWSER_TEST_EXECUTION["mocked-development"].workers).toBe(4);
+    expect(BROWSER_TEST_EXECUTION["mocked-development"].workers).toBe(1);
 
     const root = mkdtempSync(path.join(tmpdir(), "keel-browser-build-"));
     const dist = path.join(root, "dist");

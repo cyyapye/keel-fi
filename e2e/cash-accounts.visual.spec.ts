@@ -168,191 +168,195 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("shows only cash exceptions and preserves failed decisions", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = await alphaResponse.json();
-  let cashState: Record<string, unknown> = pendingState;
-  let applyBody: Record<string, unknown> | null = null;
-  let identityReviewBody: Record<string, unknown> | null = null;
-  let automaticRefreshRequests = 0;
-  let rejectApply = true;
-  let baselineRefreshRequests = 0;
-  let nextAutomaticState: Record<string, unknown> | null = null;
+test(
+  "shows only cash exceptions and preserves failed decisions",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = await alphaResponse.json();
+    let cashState: Record<string, unknown> = pendingState;
+    let applyBody: Record<string, unknown> | null = null;
+    let identityReviewBody: Record<string, unknown> | null = null;
+    let automaticRefreshRequests = 0;
+    let rejectApply = true;
+    let baselineRefreshRequests = 0;
+    let nextAutomaticState: Record<string, unknown> | null = null;
 
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await routeHoldingsPage(page, {
-    householdName: alphaFixture.dashboard.householdName,
-    holdings: alphaFixture.holdings,
-    investmentHoldings: emptyInvestmentHoldingsView,
-    acceptedCashAccounts: [],
-    pendingImports: [],
-  });
-  await page.route("**/api/cash-accounts", async (route) => {
-    await route.fulfill({ json: cashState });
-  });
-  await page.route("**/api/cash-accounts/auto-refresh", async (route) => {
-    automaticRefreshRequests += 1;
-    if (nextAutomaticState !== null) {
-      cashState = nextAutomaticState;
-      nextAutomaticState = null;
-    }
-    await route.fulfill({ json: cashState });
-  });
-  await page.route(
-    `**/api/cash-account-proposals/${proposalId}/apply`,
-    async (route) => {
-      applyBody = (await route.request().postDataJSON()) as Record<
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await routeHoldingsPage(page, {
+      householdName: alphaFixture.dashboard.householdName,
+      holdings: alphaFixture.holdings,
+      investmentHoldings: emptyInvestmentHoldingsView,
+      acceptedCashAccounts: [],
+      pendingImports: [],
+    });
+    await page.route("**/api/cash-accounts", async (route) => {
+      await route.fulfill({ json: cashState });
+    });
+    await page.route("**/api/cash-accounts/auto-refresh", async (route) => {
+      automaticRefreshRequests += 1;
+      if (nextAutomaticState !== null) {
+        cashState = nextAutomaticState;
+        nextAutomaticState = null;
+      }
+      await route.fulfill({ json: cashState });
+    });
+    await page.route(
+      `**/api/cash-account-proposals/${proposalId}/apply`,
+      async (route) => {
+        applyBody = (await route.request().postDataJSON()) as Record<
+          string,
+          unknown
+        >;
+        if (rejectApply) {
+          await route.fulfill({
+            status: 503,
+            json: { error: "Synthetic save unavailable. Try again." },
+          });
+          return;
+        }
+        cashState = appliedState;
+        await route.fulfill({
+          json: {
+            proposalId,
+            acceptedCount: 2,
+            excludedCount: 1,
+            acceptedCashMinor: 9_968_055,
+          },
+          status: 201,
+        });
+      },
+    );
+    await page.route("**/api/cash-account-identities/review", async (route) => {
+      identityReviewBody = (await route.request().postDataJSON()) as Record<
         string,
         unknown
       >;
-      if (rejectApply) {
-        await route.fulfill({
-          status: 503,
-          json: { error: "Synthetic save unavailable. Try again." },
-        });
-        return;
-      }
-      cashState = appliedState;
+      cashState = resolvedIdentityState;
+      await route.fulfill({ json: resolvedIdentityState, status: 201 });
+    });
+    await page.route("**/api/portfolio-baseline{,/refresh}", async (route) => {
+      if (route.request().method() === "POST") baselineRefreshRequests++;
       await route.fulfill({
         json: {
-          proposalId,
-          acceptedCount: 2,
-          excludedCount: 1,
-          acceptedCashMinor: 9_968_055,
+          status: "waiting_for_reviewed_holdings",
+          sourceRevision: null,
+          observedAt: null,
+          baseForecastSnapshotId: null,
+          baseForecastSnapshotVersion: null,
+          summary: null,
+          positions: [],
+          cashAccounts: [],
+          changes: { positions: [], cashAccounts: [] },
+          planning: {
+            currentFiEligibleLiquidMinor: 182_500_000,
+            protectedCashFloorMinor: 10_300_000,
+            householdBurnMonthlyMinor: 2_850_000,
+            businessBurnMonthlyMinor: 1_250_000,
+            fiTargetMinor: 325_000_000,
+            p25FiveYearLiquidityMinor: 94_000_000,
+            p50FiveYearLiquidityMinor: 210_000_000,
+            p75FiveYearLiquidityMinor: 354_000_000,
+            forecastHorizonDate: "2031-12-31",
+          },
+          suggestedOtherFiEligibleLiquidMinor: 0,
+          currentImpact: {
+            fiEligibleLiquidMinor: 182_500_000,
+            fiEligibleChangeMinor: 0,
+            protectedRunwayMonths: 42,
+            fiGapMinor: 142_500_000,
+            lowerTotalAvailableMinor: 276_500_000,
+            middleTotalAvailableMinor: 392_500_000,
+            higherTotalAvailableMinor: 536_500_000,
+            probabilityCrossingFiPpm: 640_000,
+          },
+          latestBaseline: null,
+          hasSourceChanges: false,
+          hasCashAccountChanges: false,
+          requiresDuplicateReview: false,
+          requiresCashOverlapReview: false,
+          canConfirm: false,
         },
-        status: 201,
       });
-    },
-  );
-  await page.route("**/api/cash-account-identities/review", async (route) => {
-    identityReviewBody = (await route.request().postDataJSON()) as Record<
-      string,
-      unknown
-    >;
-    cashState = resolvedIdentityState;
-    await route.fulfill({ json: resolvedIdentityState, status: 201 });
-  });
-  await page.route("**/api/portfolio-baseline{,/refresh}", async (route) => {
-    if (route.request().method() === "POST") baselineRefreshRequests++;
-    await route.fulfill({
-      json: {
-        status: "waiting_for_reviewed_holdings",
-        sourceRevision: null,
-        observedAt: null,
-        baseForecastSnapshotId: null,
-        baseForecastSnapshotVersion: null,
-        summary: null,
-        positions: [],
-        cashAccounts: [],
-        changes: { positions: [], cashAccounts: [] },
-        planning: {
-          currentFiEligibleLiquidMinor: 182_500_000,
-          protectedCashFloorMinor: 10_300_000,
-          householdBurnMonthlyMinor: 2_850_000,
-          businessBurnMonthlyMinor: 1_250_000,
-          fiTargetMinor: 325_000_000,
-          p25FiveYearLiquidityMinor: 94_000_000,
-          p50FiveYearLiquidityMinor: 210_000_000,
-          p75FiveYearLiquidityMinor: 354_000_000,
-          forecastHorizonDate: "2031-12-31",
-        },
-        suggestedOtherFiEligibleLiquidMinor: 0,
-        currentImpact: {
-          fiEligibleLiquidMinor: 182_500_000,
-          fiEligibleChangeMinor: 0,
-          protectedRunwayMonths: 42,
-          fiGapMinor: 142_500_000,
-          lowerTotalAvailableMinor: 276_500_000,
-          middleTotalAvailableMinor: 392_500_000,
-          higherTotalAvailableMinor: 536_500_000,
-          probabilityCrossingFiPpm: 640_000,
-        },
-        latestBaseline: null,
-        hasSourceChanges: false,
-        hasCashAccountChanges: false,
-        requiresDuplicateReview: false,
-        requiresCashOverlapReview: false,
-        canConfirm: false,
-      },
     });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({
-      json: {
-        version: 1,
-        status: "ready",
-        interval: "weekly",
-        runStatus: null,
-        lastSeenAt: "2026-08-14T15:00:00.000Z",
-        lastCompletedAt: "2026-08-14T14:55:00.000Z",
-        nextRunAt: "2026-08-21T16:00:00.000Z",
-        latestImportId: null,
-        errorCode: null,
-      },
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({ json: [] });
     });
-  });
-  const investmentConnectionsState = {
-    version: 1,
-    configured: true,
-    connections: [
-      {
-        version: 1,
-        connectionId: "11111111-1111-4111-8111-111111111111",
-        institutionKey: "ins_robinhood",
-        institutionLabel: "Robinhood",
-        status: "ready",
-        lastSyncedAt: "2026-08-14T15:00:00.000Z",
-        automaticUpdatesEnabled: true,
-        latestImportId: null,
-        latestRunStatus: "succeeded",
-        errorCode: null,
-        latestAdjudication: null,
+    await page.route("**/api/automation/angellist/status", async (route) => {
+      await route.fulfill({
+        json: {
+          version: 1,
+          status: "ready",
+          interval: "weekly",
+          runStatus: null,
+          lastSeenAt: "2026-08-14T15:00:00.000Z",
+          lastCompletedAt: "2026-08-14T14:55:00.000Z",
+          nextRunAt: "2026-08-21T16:00:00.000Z",
+          latestImportId: null,
+          errorCode: null,
+        },
+      });
+    });
+    const investmentConnectionsState = {
+      version: 1,
+      configured: true,
+      connections: [
+        {
+          version: 1,
+          connectionId: "11111111-1111-4111-8111-111111111111",
+          institutionKey: "ins_robinhood",
+          institutionLabel: "Robinhood",
+          status: "ready",
+          lastSyncedAt: "2026-08-14T15:00:00.000Z",
+          automaticUpdatesEnabled: true,
+          latestImportId: null,
+          latestRunStatus: "succeeded",
+          errorCode: null,
+          latestAdjudication: null,
+        },
+      ],
+      errorCode: null,
+    };
+    await page.route("**/api/investment-connections", async (route) => {
+      await route.fulfill({ json: investmentConnectionsState });
+    });
+    await page.route(
+      "**/api/investment-connections/auto-sync",
+      async (route) => {
+        await route.fulfill({ json: investmentConnectionsState });
       },
-    ],
-    errorCode: null,
-  };
-  await page.route("**/api/investment-connections", async (route) => {
-    await route.fulfill({ json: investmentConnectionsState });
-  });
-  await page.route("**/api/investment-connections/auto-sync", async (route) => {
-    await route.fulfill({ json: investmentConnectionsState });
-  });
+    );
 
-  await page.goto("/holdings/sources");
-  const cashSection = page.locator(".cash-accounts");
-  await expect(
-    page.getByRole("heading", { name: "Bank cash", exact: true }),
-  ).toBeVisible();
-  await expect(cashSection.locator(".cash-accounts__total")).toContainText(
-    "Total cash$75k",
-  );
-  const acceptedSavingsRow = cashSection
-    .locator(".cash-accounts__accepted-account")
-    .filter({ hasText: "Reserve savings" });
-  await expect(acceptedSavingsRow).toHaveCount(1);
-  await expect(
-    acceptedSavingsRow.locator(".cash-accounts__accepted-value"),
-  ).toHaveText("$75,000.00");
-  await expect(acceptedSavingsRow).toContainText(
-    "Northstar Demo Bank · As of Aug 1, 2026",
-  );
-  await expect(cashSection).toContainText(
-    "Keel checks due balances when you open Sources",
-  );
-  await expect(cashSection).toContainText("Last checked Aug 14, 2026");
-  await expect(cashSection).not.toContainText("Review waiting");
-  await expect(cashSection).not.toContainText("ready to review");
-  await expect.poll(() => automaticRefreshRequests).toBe(1);
-  await page.addStyleTag({
-    content: `
+    await page.goto("/holdings/sources");
+    const cashSection = page.locator(".cash-accounts");
+    await expect(
+      page.getByRole("heading", { name: "Bank cash", exact: true }),
+    ).toBeVisible();
+    await expect(cashSection.locator(".cash-accounts__total")).toContainText(
+      "Total cash$75k",
+    );
+    const acceptedSavingsRow = cashSection
+      .locator(".cash-accounts__accepted-account")
+      .filter({ hasText: "Reserve savings" });
+    await expect(acceptedSavingsRow).toHaveCount(1);
+    await expect(
+      acceptedSavingsRow.locator(".cash-accounts__accepted-value"),
+    ).toHaveText("$75,000.00");
+    await expect(acceptedSavingsRow).toContainText(
+      "Northstar Demo Bank · As of Aug 1, 2026",
+    );
+    await expect(cashSection).toContainText(
+      "Keel checks due balances when you open Sources",
+    );
+    await expect(cashSection).toContainText("Last checked Aug 14, 2026");
+    await expect(cashSection).not.toContainText("Review waiting");
+    await expect(cashSection).not.toContainText("ready to review");
+    await expect.poll(() => automaticRefreshRequests).toBe(1);
+    await page.addStyleTag({
+      content: `
       /* Keep font-metric rounding from changing the screenshot frame by one pixel. */
       .cash-accounts {
         min-height: 359px;
@@ -364,81 +368,58 @@ test("shows only cash exceptions and preserves failed decisions", async ({
         }
       }
     `,
-  });
-  await expect(cashSection).toHaveScreenshot("cash-accounts-ready.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+    });
+    await expect(cashSection).toHaveScreenshot("cash-accounts-ready.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
 
-  cashState = {
-    ...pendingState,
-    connections: [
-      {
-        ...pendingState.connections[0],
-        status: "needs_attention",
-        cooldownUntil: "2099-01-01T00:00:00.000Z",
-        cooldownActive: true,
-      },
-    ],
-    pendingProposals: [],
-  };
-  await page.reload();
-  await expect(
-    cashSection.getByText("Plaid paused checks until"),
-  ).toBeVisible();
-  await expect(
-    cashSection.getByRole("button", { name: "Check paused" }),
-  ).toBeDisabled();
-  await expectNoHorizontalOverflow(page);
-  await expect(cashSection).toHaveScreenshot("cash-accounts-paused.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  cashState = pendingState;
-  await page.reload();
-
-  await page.getByRole("button", { name: "Review 2 exceptions" }).click();
-  const reviewHeading = page.getByRole("heading", {
-    name: "Northstar Demo Bank balances",
-  });
-  await expect(reviewHeading).toBeFocused();
-  await expect
-    .poll(async () => {
-      const top = await reviewHeading.evaluate(
-        (element) => element.getBoundingClientRect().top,
-      );
-      return top >= 0 && top < 160;
-    })
-    .toBe(true);
-  await expect(
-    page.getByRole("button", { name: "Review 2 exceptions" }),
-  ).toHaveCount(0);
-  await expect(cashSection).toContainText("Only USD cash balances");
-  await expect(
-    page.getByRole("checkbox", { name: "Include account" }),
-  ).toHaveCount(1);
-  await expect(page.locator(".cash-review")).not.toContainText(
-    "Reserve savings",
-  );
-  await page.getByRole("checkbox", { name: "Include account" }).check();
-  const cashReview = page.locator(".cash-review");
-  const changeNote = page.getByLabel("What changed");
-  await changeNote.hover();
-  await expect(changeNote).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
-  await changeNote.focus();
-  await expect(changeNote).toHaveCSS("border-bottom-color", "rgba(0, 0, 0, 0)");
-  await expect(page.locator(".cash-review__actions")).toHaveCSS(
-    "border-top-color",
-    "rgba(0, 0, 0, 0)",
-  );
-  await reviewHeading.focus();
-  await page.mouse.move(0, 0);
-  await page.addStyleTag({
-    content: `
+    await page.getByRole("button", { name: "Review 2 exceptions" }).click();
+    const reviewHeading = page.getByRole("heading", {
+      name: "Northstar Demo Bank balances",
+    });
+    await expect(reviewHeading).toBeFocused();
+    await expect
+      .poll(async () => {
+        const top = await reviewHeading.evaluate(
+          (element) => element.getBoundingClientRect().top,
+        );
+        return top >= 0 && top < 160;
+      })
+      .toBe(true);
+    await expect(
+      page.getByRole("button", { name: "Review 2 exceptions" }),
+    ).toHaveCount(0);
+    await expect(cashSection).toContainText("Only USD cash balances");
+    await expect(
+      page.getByRole("checkbox", { name: "Include account" }),
+    ).toHaveCount(1);
+    await expect(page.locator(".cash-review")).not.toContainText(
+      "Reserve savings",
+    );
+    await page.getByRole("checkbox", { name: "Include account" }).check();
+    const cashReview = page.locator(".cash-review");
+    const changeNote = page.getByLabel("What changed");
+    await changeNote.hover();
+    await expect(changeNote).toHaveCSS(
+      "border-bottom-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await changeNote.focus();
+    await expect(changeNote).toHaveCSS(
+      "border-bottom-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(page.locator(".cash-review__actions")).toHaveCSS(
+      "border-top-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await reviewHeading.focus();
+    await page.mouse.move(0, 0);
+    await page.addStyleTag({
+      content: `
       .topbar,
       .mobile-nav {
         visibility: hidden !important;
@@ -451,114 +432,119 @@ test("shows only cash exceptions and preserves failed decisions", async ({
         }
       }
     `,
-  });
-  await expect(cashReview).toHaveScreenshot("cash-accounts-review.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await expectNoHorizontalOverflow(page);
+    });
+    await expect(cashReview).toHaveScreenshot("cash-accounts-review.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+    await expectNoHorizontalOverflow(page);
 
-  await page.getByRole("button", { name: "Save decisions" }).click();
-  await expect(cashReview).toContainText("Synthetic save unavailable");
-  await expect(
-    page.getByRole("checkbox", { name: "Include account" }),
-  ).toBeChecked();
-  await expect(changeNote).toHaveValue(
-    "Resolved Northstar Demo Bank cash exceptions.",
-  );
-  rejectApply = false;
-  await page.getByRole("button", { name: "Save decisions" }).click();
-  await expect(cashSection.locator(".cash-accounts__total")).toContainText(
-    "Total cash$100k",
-  );
-  await expect(
-    cashSection.locator(".cash-accounts__accepted-value"),
-  ).toHaveText(["$24,680.55", "$75,000.00", "Not reported"]);
-  await expect(cashSection).toContainText("Cash decisions saved.");
-  expect(applyBody).toEqual({
-    changeNote: "Resolved Northstar Demo Bank cash exceptions.",
-    decisions: [
-      { rowId: "cash_row_checking", decision: "accepted" },
-      { rowId: "cash_row_non_usd", decision: "excluded" },
-    ],
-  });
+    await page.getByRole("button", { name: "Save decisions" }).click();
+    await expect(cashReview).toContainText("Synthetic save unavailable");
+    await expect(
+      page.getByRole("checkbox", { name: "Include account" }),
+    ).toBeChecked();
+    await expect(changeNote).toHaveValue(
+      "Resolved Northstar Demo Bank cash exceptions.",
+    );
+    rejectApply = false;
+    await page.getByRole("button", { name: "Save decisions" }).click();
+    await expect(cashSection.locator(".cash-accounts__total")).toContainText(
+      "Total cash$100k",
+    );
+    await expect(
+      cashSection.locator(".cash-accounts__accepted-value"),
+    ).toHaveText(["$24,680.55", "$75,000.00", "Not reported"]);
+    await expect(cashSection).toContainText("Cash decisions saved.");
+    expect(applyBody).toEqual({
+      changeNote: "Resolved Northstar Demo Bank cash exceptions.",
+      decisions: [
+        { rowId: "cash_row_checking", decision: "accepted" },
+        { rowId: "cash_row_non_usd", decision: "excluded" },
+      ],
+    });
 
-  await expect(
-    page.getByRole("heading", { name: "Possible duplicate accounts" }),
-  ).toBeVisible();
-  await expect(cashSection).toContainText(
-    "Confirm each match before the records are combined.",
-  );
-  await page.addStyleTag({
-    content: `
+    await expect(
+      page.getByRole("heading", { name: "Possible duplicate accounts" }),
+    ).toBeVisible();
+    await expect(cashSection).toContainText(
+      "Confirm each match before the records are combined.",
+    );
+    await page.addStyleTag({
+      content: `
       @media (min-width: 621px) {
         .cash-accounts {
           min-height: 442px;
         }
       }
     `,
-  });
-  await expect(cashSection).toHaveScreenshot(
-    "cash-accounts-identity-review.png",
-    {
+    });
+    await expect(cashSection).toHaveScreenshot(
+      "cash-accounts-identity-review.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
+    await expectNoHorizontalOverflow(page);
+
+    await page.getByRole("button", { name: "Same account" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Possible duplicate accounts" }),
+    ).toHaveCount(0);
+    await expect(cashSection).toContainText(
+      "Account match saved. Future balances update automatically.",
+    );
+    await expect(
+      cashSection
+        .locator(".cash-accounts__accepted-list strong")
+        .filter({ hasText: "Reserve savings" }),
+    ).toHaveCount(1);
+    await expect.poll(() => baselineRefreshRequests).toBe(2);
+    await page.reload();
+    await expect(
+      cashSection.locator(".cash-accounts__accepted-value"),
+    ).toHaveText(["$24,680.55", "$75,000.00"]);
+    await expect(
+      cashSection.getByRole("button", { name: /Review .*exception/ }),
+    ).toHaveCount(0);
+    expect(identityReviewBody).toEqual({
+      connectionId,
+      priorNaturalKeySha256: "4".repeat(64),
+      reportedNaturalKeySha256: "2".repeat(64),
+      decision: "same_account",
+      changeNote: "Confirmed both records describe the same cash account.",
+    });
+    nextAutomaticState = {
+      ...resolvedIdentityState,
+      acceptedAccounts: resolvedIdentityState.acceptedAccounts.map((account) =>
+        account.naturalKeySha256 === "2".repeat(64)
+          ? {
+              ...account,
+              id: "cash_fact_savings_updated",
+              valueMinor: 8_000_000,
+            }
+          : account,
+      ),
+    };
+    await page.reload();
+    await expect(
+      cashSection.locator(".cash-accounts__accepted-value"),
+    ).toHaveText(["$24,680.55", "$80,000.00"]);
+    await expect.poll(() => baselineRefreshRequests).toBe(3);
+    await expect(
+      cashSection.getByRole("button", { name: /Review .*exception/ }),
+    ).toHaveCount(0);
+    await expect(cashSection.getByRole("checkbox")).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+    await expect(cashSection).toHaveScreenshot("cash-accounts-updated.png", {
       animations: "disabled",
-      caret: "hide",
       maxDiffPixelRatio: 0.025,
       threshold: 0.25,
-    },
-  );
-  await expectNoHorizontalOverflow(page);
-
-  await page.getByRole("button", { name: "Same account" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Possible duplicate accounts" }),
-  ).toHaveCount(0);
-  await expect(cashSection).toContainText(
-    "Account match saved. Future balances update automatically.",
-  );
-  await expect(
-    cashSection
-      .locator(".cash-accounts__accepted-list strong")
-      .filter({ hasText: "Reserve savings" }),
-  ).toHaveCount(1);
-  await expect.poll(() => baselineRefreshRequests).toBe(2);
-  await page.reload();
-  await expect(
-    cashSection.getByRole("button", { name: /Review .*exception/ }),
-  ).toHaveCount(0);
-  await expect(
-    cashSection.locator(".cash-accounts__accepted-value"),
-  ).toHaveText(["$24,680.55", "$75,000.00"]);
-  expect(identityReviewBody).toEqual({
-    connectionId,
-    priorNaturalKeySha256: "4".repeat(64),
-    reportedNaturalKeySha256: "2".repeat(64),
-    decision: "same_account",
-    changeNote: "Confirmed both records describe the same cash account.",
-  });
-  nextAutomaticState = {
-    ...resolvedIdentityState,
-    acceptedAccounts: resolvedIdentityState.acceptedAccounts.map((account) =>
-      account.naturalKeySha256 === "2".repeat(64)
-        ? { ...account, id: "cash_fact_savings_updated", valueMinor: 8_000_000 }
-        : account,
-    ),
-  };
-  await page.reload();
-  await expect(
-    cashSection.locator(".cash-accounts__accepted-value"),
-  ).toHaveText(["$24,680.55", "$80,000.00"]);
-  await expect.poll(() => baselineRefreshRequests).toBe(3);
-  await expect(
-    cashSection.getByRole("button", { name: /Review .*exception/ }),
-  ).toHaveCount(0);
-  await expect(cashSection.getByRole("checkbox")).toHaveCount(0);
-  await expectNoHorizontalOverflow(page);
-  await expect(cashSection).toHaveScreenshot("cash-accounts-updated.png", {
-    animations: "disabled",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-});
+    });
+  },
+);

@@ -64,6 +64,10 @@ completes before UI workers and remaining PDF isolation probes start. Workspace
 builds can use any available native slot; source checks, migrations and all 11
 flows remain independently required.
 
+A ready-PDF-priority trial failed the complete 900-second budget despite passing
+all unit and Python cases. The prior map order and source-before-PDF dependency
+are restored. Complete browser accounting remains required.
+
 The unit watchdog remains 25 minutes; the independent active-verification budget
 is 15 minutes for the complete gate. Individual test deadlines, case accounting,
 and resource and D1 cost assertions remain unchanged. The combined flow

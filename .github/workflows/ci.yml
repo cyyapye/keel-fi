@@ -2,6 +2,15 @@ name: PR Checks
 
 on:
   pull_request:
+    types:
+      [
+        opened,
+        reopened,
+        synchronize,
+        ready_for_review,
+        converted_to_draft,
+        edited,
+      ]
   merge_group:
 
 permissions:
@@ -17,12 +26,15 @@ jobs:
   native:
     name: Complete native pilot gate
     needs: secret-scan
+    if: success() && needs.secret-scan.outputs.plan == ''
     uses: ./.github/workflows/native-verification.yml
 
   quality:
     name: Quality
-    needs: native
-    if: ${{ !cancelled() }}
+    needs: [secret-scan, native]
+    if: >-
+      !cancelled() && (needs.secret-scan.result != 'success' ||
+      needs.secret-scan.outputs.plan == '')
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -41,8 +53,10 @@ jobs:
 
   migrations:
     name: D1 migration and synthetic seed
-    needs: native
-    if: ${{ !cancelled() }}
+    needs: [secret-scan, native]
+    if: >-
+      !cancelled() && (needs.secret-scan.result != 'success' ||
+      needs.secret-scan.outputs.plan == '')
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -61,8 +75,10 @@ jobs:
 
   browser:
     name: Critical browser flows
-    needs: native
-    if: ${{ !cancelled() }}
+    needs: [secret-scan, native]
+    if: >-
+      !cancelled() && (needs.secret-scan.result != 'success' ||
+      needs.secret-scan.outputs.plan == '')
     runs-on: [self-hosted, Linux, X64, keel-ci]
     timeout-minutes: 5
     steps:
@@ -81,13 +97,95 @@ jobs:
 
   secret-scan:
     name: Secret scan
+    outputs:
+      plan: >-
+        ${{ steps.draft.outcome == 'success' && steps.draft.outputs.selected ==
+        'true' && steps.draft.outputs.plan || '' }}
     runs-on: [self-hosted, Linux, X64, keel-ci]
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
           HOME: ${{ runner.workspace }}
+      - name: Select checks for an eligible draft
+        id: draft
+        continue-on-error: true
+        if: >-
+          github.event_name == 'pull_request' && github.event.pull_request.draft
+          && github.event.pull_request.base.ref == 'main' &&
+          github.event.pull_request.base.repo.full_name == github.repository &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          full() { printf 'Draft verification will run in full (%s).\n' "$1" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+          policy=$(mktemp -d "$RUNNER_TEMP/keel-draft.XXXXXXXX") || full "policy unavailable"
+          trap 'rm -rf -- "$policy"' EXIT
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || full "invalid event revisions"
+          for tool in ci-draft-plan.py ci-draft-checks.py; do
+            git --no-replace-objects cat-file blob "$BASE_SHA:scripts/$tool" > "$policy/$tool" 2>/dev/null || full "base policy unavailable"
+          done
+          raw=$(python3 -I "$policy/ci-draft-checks.py" --route "$BASE_SHA" "$HEAD_SHA" "$GITHUB_SHA" 2>/dev/null) || full "unsupported policy or unverified merge"
+          [[ ${#raw} -le 4096 ]] || full "invalid decision"
+          plan=$(jq -ces 'select(length == 1) | .[0] | select(.schema_version == 1 and (.reason | test("^[a-z-]{1,64}$")))' <<< "$raw") || full "invalid decision"
+          profile=$(jq -r '.profile' <<< "$plan")
+          if [[ "$profile" == full ]]; then full "$(jq -r '.reason' <<< "$plan")"; fi
+          [[ "$profile" == docs || "$profile" == test-files || "$profile" == layout ]] || full "unknown profile"
+          jq -e --arg base "$BASE_SHA" --arg head "$HEAD_SHA" '
+            .base == $base and .head == $head and (.merge_base | test("^[a-f0-9]{40}$"))
+            and (.test_files | type == "array") and (.changed_count | type == "number" and . >= 1)
+          ' <<< "$plan" >/dev/null || full "invalid decision"
+          printf 'plan=%s\nselected=true\n' "$plan" >> "$GITHUB_OUTPUT"
+          printf 'Selected draft checks (%s) on merge `%s`.\n' "$profile" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  draft-checks:
+    name: Selected draft checks
+    needs: secret-scan
+    if:
+      success() && needs.secret-scan.outputs.plan != '' &&
+      fromJSON(needs.secret-scan.outputs.plan).profile != 'layout'
+    runs-on: [self-hosted, Linux, X64, keel-ci]
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Confirm the selected merge and trusted policy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git --no-replace-objects rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git --no-replace-objects show -s --format=%P HEAD)" = "$BASE_SHA $HEAD_SHA"
+          git --no-replace-objects diff --quiet --no-ext-diff "$BASE_SHA" HEAD -- scripts/ci-draft-plan.py scripts/ci-draft-checks.py
+      - uses: ./.github/actions/setup-node-pnpm
+      - name: Run the reviewed draft scope
+        env:
+          DRAFT_PLAN: ${{ needs.secret-scan.outputs.plan }}
+        run: |
+          set -euo pipefail
+          test "$(git --no-replace-objects rev-parse HEAD)" = "$GITHUB_SHA"
+          git --no-replace-objects diff --quiet --no-ext-diff HEAD --
+          printf '%s\n' "$DRAFT_PLAN" | python3 -I scripts/ci-draft-checks.py --plan-stdin
+
+  draft-layout:
+    name: Layout draft checks
+    needs: secret-scan
+    if:
+      success() && needs.secret-scan.outputs.plan != '' &&
+      fromJSON(needs.secret-scan.outputs.plan).profile == 'layout'
+    uses: ./.github/workflows/native-verification.yml
+    with:
+      layout_plan: ${{ needs.secret-scan.outputs.plan }}

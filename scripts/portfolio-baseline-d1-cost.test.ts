@@ -2,30 +2,29 @@ import { D1InvestmentReviewRepository } from "../packages/database/src/investmen
 import { InvestmentReviewStateSchema } from "../packages/domain/src/investment-review";
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import {
-  D1PortfolioBaselineRepository,
-  refreshAcceptedPortfolioBaseline,
-} from "../packages/database/src/portfolio-baseline";
-import { D1InvestmentExposureViewRepository } from "../packages/database/src/exposure-read-model";
 import { measureD1, emptyD1Cost } from "./test-support/d1-cost";
 import { createCostFixtureDatabase } from "./test-support/cost-database";
 import { COST_SUBJECT } from "./test-support/cost-fixtures";
+import { baselineCostRepositories } from "./test-support/portfolio-baseline-cost";
 
 it("keeps partial baseline refresh costs bounded with 120 sources, tied-date history, and retained exceptions", async () => {
   const fixture = await createCostFixtureDatabase({ operation: "holdings" });
   try {
     const measured = measureD1(fixture.database);
-    const exposures = new D1InvestmentExposureViewRepository(measured.database);
     let missing = false;
-    const baseline = new D1PortfolioBaselineRepository(measured.database, {
-      list: async (subject) => {
-        const view = await exposures.list(subject);
-        return {
-          ...view,
-          positions: missing ? view.positions.slice(1) : view.positions,
-        };
-      },
-    });
+    const { baseline, exposures } = baselineCostRepositories(
+      measured.database,
+      () => missing,
+    );
+    async function refresh() {
+      const result = await fixture.setup({
+        operation: "baseline-refresh",
+        missingPosition: missing,
+      });
+      if (result.operation !== "baseline-refresh")
+        throw new Error("Missing baseline refresh result");
+      return result;
+    }
     const initial = await baseline.getState(COST_SUBJECT);
     await baseline.confirm(COST_SUBJECT, {
       sourceRevision: initial.sourceRevision!,
@@ -54,26 +53,22 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
         revision,
       });
       missing = true;
-      Object.assign(measured.cost, emptyD1Cost());
-      expect(
-        (await refreshAcceptedPortfolioBaseline(baseline, COST_SUBJECT)).status,
-      ).toBe("refreshed");
-      expect(measured.cost.roundTrips).toBeLessThanOrEqual(46);
-      expect(measured.cost.rowsWritten).toBeLessThanOrEqual(1_000);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(18_000);
-      costs.push({ ...measured.cost });
+      const refreshed = await refresh();
+      expect(refreshed.status).toBe("refreshed");
+      expect(refreshed.cost.roundTrips).toBeLessThanOrEqual(46);
+      expect(refreshed.cost.rowsWritten).toBeLessThanOrEqual(1_000);
+      expect(refreshed.cost.rowsRead).toBeLessThanOrEqual(18_000);
+      costs.push(refreshed.cost);
       Object.assign(measured.cost, emptyD1Cost());
       const state = await baseline.getState(COST_SUBJECT);
       expect(state.exceptions).toHaveLength(1);
       expect(state.automaticUpdateCount).toBe(0);
       expect(measured.cost.roundTrips).toBeLessThanOrEqual(14);
       expect(measured.cost.rowsWritten).toBe(0);
-      Object.assign(measured.cost, emptyD1Cost());
-      expect(
-        (await refreshAcceptedPortfolioBaseline(baseline, COST_SUBJECT)).status,
-      ).toBe("manual_required");
-      expect(measured.cost.rowsWritten).toBe(0);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(6_000);
+      const manual = await refresh();
+      expect(manual.status).toBe("manual_required");
+      expect(manual.cost.rowsWritten).toBe(0);
+      expect(manual.cost.rowsRead).toBeLessThanOrEqual(6_000);
     }
     const sql = [...measured.queries].find(
       (query) =>
@@ -199,25 +194,21 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
     expect(measured.cost.roundTrips).toBeLessThanOrEqual(14);
     expect(measured.cost.rowsRead).toBeLessThanOrEqual(6_000);
     expect(measured.cost.rowsWritten).toBe(0);
-    Object.assign(measured.cost, emptyD1Cost());
-    expect(
-      (await refreshAcceptedPortfolioBaseline(baseline, COST_SUBJECT)).status,
-    ).toBe("refreshed");
-    expect(measured.cost.roundTrips).toBeLessThanOrEqual(46);
-    expect(measured.cost.rowsRead).toBeLessThanOrEqual(18_000);
-    expect(measured.cost.rowsWritten).toBeLessThanOrEqual(1_000);
+    const refreshed = await refresh();
+    expect(refreshed.status).toBe("refreshed");
+    expect(refreshed.cost.roundTrips).toBeLessThanOrEqual(46);
+    expect(refreshed.cost.rowsRead).toBeLessThanOrEqual(18_000);
+    expect(refreshed.cost.rowsWritten).toBeLessThanOrEqual(1_000);
     const retained = await baseline.getState(COST_SUBJECT);
     expect(retained.latestBaseline?.summary.positionCount).toBe(1);
     expect(retained.exceptions).toEqual(closed.exceptions);
-    Object.assign(measured.cost, emptyD1Cost());
-    expect(
-      (await refreshAcceptedPortfolioBaseline(baseline, COST_SUBJECT)).status,
-    ).toBe("manual_required");
-    expect(measured.cost.rowsWritten).toBe(0);
+    const manual = await refresh();
+    expect(manual.status).toBe("manual_required");
+    expect(manual.cost.rowsWritten).toBe(0);
     console.info(
       JSON.stringify({
         baselineRefreshCosts: costs,
-        baselineReadCost: measured.cost,
+        baselineReadCost: manual.cost,
       }),
     );
   } finally {

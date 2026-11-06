@@ -192,19 +192,36 @@ describe("manual holdings migration", () => {
     const previous = new Map(
       tables.map((table) => [table, tableRows(db, table)]),
     );
-    const schema = db
-      .prepare(
-        "SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name",
-      )
-      .all();
+    const schemaObjects = () =>
+      db
+        .prepare(
+          "SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .all();
+    const schema = schemaObjects();
     applyMigration(db);
     for (const table of tables)
       expect(tableRows(db, table), table).toEqual(previous.get(table));
+    // Read the catalogue once per frontier. Preparing a separate name lookup
+    // for each old object repeatedly scans sqlite_master.
+    const currentByIdentity = new Map(
+      schemaObjects().map((item) => [
+        `${String(item.type)}:${String(item.name)}`,
+        item,
+      ]),
+    );
     for (const item of schema) {
-      const current = db
-        .prepare("SELECT type,name,sql FROM sqlite_master WHERE name=?")
-        .get(item.name!);
-      expect(current, String(item.name)).toBeDefined();
+      const current = currentByIdentity.get(
+        `${String(item.type)}:${String(item.name)}`,
+      );
+      if (!current)
+        throw new Error(`Missing prior schema object: ${String(item.name)}`);
+      if (
+        item.sql === current.sql &&
+        item.name !== "holding_purchase_review_guard" &&
+        item.name !== "holding_position_link_guard"
+      )
+        continue;
       let expectedSql = normalizeSql(item.sql);
       if (item.name === "holding_purchase_review_guard")
         expectedSql = expectedSql.replace(
@@ -229,7 +246,7 @@ describe("manual holdings migration", () => {
         ].includes(String(item.name))
       )
         expect(
-          { ...current, sql: normalizeSql(current?.sql) },
+          { ...current, sql: normalizeSql(current.sql) },
           String(item.name),
         ).toEqual({ ...item, sql: expectedSql });
     }

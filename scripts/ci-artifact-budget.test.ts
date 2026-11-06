@@ -238,9 +238,11 @@ describe("GitHub artifact storage budgets", () => {
       expect(source).toContain(
         "path: .tugling/local/ci-upload/diagnostics.zip",
       );
-      expect(source).toContain(
-        "if: ${{ always() && steps.diagnostics.outcome == 'success' }}",
-      );
+      const uploadCondition =
+        file === "native-verification.yml"
+          ? "if: ${{ always() && inputs.layout_plan == '' && steps.diagnostics.outcome == 'success' }}"
+          : "if: ${{ always() && steps.diagnostics.outcome == 'success' }}";
+      expect(source.replace(/\s+/g, " ")).toContain(uploadCondition);
     }
   });
 });

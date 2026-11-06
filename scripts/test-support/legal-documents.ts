@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import { createSqliteFixture } from "./sqlite-fixture";
+import { createSqliteFixture, type FixtureDatabase } from "./sqlite-fixture";
 import type {
   LegalDocumentScan,
   ProviderLegalDocumentCapture,
@@ -88,15 +88,15 @@ export function syntheticDocumentCapture(): ProviderLegalDocumentCapture {
 
 class TestStatement {
   public constructor(
-    private readonly database: DatabaseSync,
+    private readonly prepare: FixtureDatabase["statement"],
     public readonly sql: string,
     public readonly values: SQLInputValue[] = [],
   ) {}
   public bind(...values: SQLInputValue[]) {
-    return new TestStatement(this.database, this.sql, values);
+    return new TestStatement(this.prepare, this.sql, values);
   }
   public first<T>(column?: string): Promise<T | null> {
-    const row = this.database.prepare(this.sql).get(...this.values);
+    const row = this.prepare(this.sql).get(...this.values);
     return Promise.resolve(
       row === undefined
         ? null
@@ -105,14 +105,14 @@ class TestStatement {
   }
   public all<T>() {
     return Promise.resolve({
-      results: this.database.prepare(this.sql).all(...this.values) as T[],
+      results: this.prepare(this.sql).all(...this.values) as T[],
     });
   }
   public run() {
     return Promise.resolve(this.execute());
   }
   public execute() {
-    const result = this.database.prepare(this.sql).run(...this.values);
+    const result = this.prepare(this.sql).run(...this.values);
     return { success: true, meta: { changes: Number(result.changes) } };
   }
 }
@@ -120,10 +120,14 @@ export class LegalDocumentTestD1 {
   public readonly queries: string[] = [];
   public readonly statements: TestStatement[] = [];
   public beforeBatch: (() => void) | null = null;
-  public constructor(public readonly sqlite: DatabaseSync) {}
+  public constructor(
+    public readonly sqlite: DatabaseSync,
+    private readonly prepareStatement: FixtureDatabase["statement"] = (sql) =>
+      sqlite.prepare(sql),
+  ) {}
   public prepare(sql: string) {
     this.queries.push(sql);
-    const statement = new TestStatement(this.sqlite, sql);
+    const statement = new TestStatement(this.prepareStatement, sql);
     this.statements.push(statement);
     return statement;
   }
@@ -154,5 +158,5 @@ export function legalDocumentTestDatabase() {
       .map((file) => resolve(root, "migrations", file)),
     resolve(root, "seed/synthetic.sql"),
   ]);
-  return new LegalDocumentTestD1(sqlite);
+  return new LegalDocumentTestD1(sqlite, (sql) => sqlite.statement(sql));
 }

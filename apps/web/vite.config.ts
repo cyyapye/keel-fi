@@ -16,6 +16,9 @@ export default defineConfig({
     ...(browserReadinessEnabled ? [browserTestReadinessPlugin()] : []),
   ],
   server: {
+    // Keep Vite's WebSocket pings outside the browser tests' simulated day.
+    // Application timers still run for every virtual hour.
+    ...(browserReadinessEnabled ? { hmr: { timeout: 48 * 60 * 60_000 } } : {}),
     proxy: {
       "/api": {
         target: process.env.KEEL_API_ORIGIN ?? `http://127.0.0.1:${apiPort}`,

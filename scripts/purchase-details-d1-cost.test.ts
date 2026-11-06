@@ -10,8 +10,14 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
   const fixture = await createPurchaseCostDatabase();
   try {
     await fixture.seed();
-    await fixture.execute(`INSERT INTO users VALUES('purchase-other-user','purchase-other-subject','purchase-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z');
-    INSERT INTO households VALUES('purchase-other-household','purchase-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z');`);
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES('purchase-other-user','purchase-other-subject','purchase-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES('purchase-other-household','purchase-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z')",
+      ),
+    ]);
     await fixture.seed("purchase-other-subject");
     const meter = measureD1(fixture.database);
     const reader = new D1InvestmentPositionViewRepository(meter.database);
@@ -58,17 +64,15 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
     expect(history.stored).toEqual({ receiptCount: 960, positionCount: 120 });
     const purchases = new D1PositionPurchaseRepository(meter.database);
     const target = positions[0]!;
-    let priorId = history.acceptances.findLast(
-      (row) => row.positionId === target.id,
-    )!.receiptId;
-    for (let version = 0; version < 120; version++) {
-      const receipt = await purchases.accept(COST_SUBJECT, target.id, {
-        expectedSnapshotId: target.snapshot.id,
-        expectedReceiptId: priorId,
-        details: { coversPosition: true, lots: [] },
-      });
-      priorId = receipt.id;
-    }
+    const priorId = history.deepHead;
+    expect(
+      await fixture.database
+        .prepare(
+          "SELECT COUNT(*) AS n FROM holding_purchase_reviews WHERE position_id=?",
+        )
+        .bind(target.id)
+        .first<number>("n"),
+    ).toBe(128);
     meter.reset();
     const historyPage = await purchases.history(COST_SUBJECT, target.id);
     expect(historyPage.entries).toHaveLength(30);
@@ -90,35 +94,29 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
     // alongside purchase revisions and unrelated household history; the merged
     // page and every predecessor lookup stay bounded.
     const source = positions[1]!;
-    const addLinks = async (count: number) => {
-      for (let i = 0; i < count; i++) {
-        meter.reset();
-        await meter.database
+    let expectedLinks = 0;
+    for (const count of [120, 240] as const) {
+      const costs = await fixture.growLinkHistory({
+        count,
+        source: { id: source.id, snapshotId: source.snapshot.id },
+        target: { id: target.id, snapshotId: target.snapshot.id },
+      });
+      expectedLinks += count;
+      expect(
+        await fixture.database
           .prepare(
-            `INSERT INTO holding_position_link_reviews
-          (id,household_id,source_position_id,target_position_id,source_snapshot_id,target_snapshot_id,
-            source_participation_review_id,target_participation_review_id,prior_id,relationship,state,
-            use_source_value,note,reviewer_user_id,accepted_at)
-          VALUES(?,'hh_demo',?,?,?,?,NULL,NULL,
-            (SELECT review_id FROM holding_position_link_heads WHERE source_position_id=?),
-            'same_investment',?,0,'Synthetic history decision','usr_demo','2026-10-01T12:00:00.000Z')`,
+            "SELECT COUNT(*) AS n FROM holding_position_link_reviews WHERE source_position_id=? AND target_position_id=?",
           )
-          .bind(
-            crypto.randomUUID(),
-            source.id,
-            target.id,
-            source.snapshot.id,
-            target.snapshot.id,
-            source.id,
-            i % 2 === 0 ? "linked" : "unlinked",
-          )
-          .run();
-        expect(meter.cost.rowsWritten).toBeLessThanOrEqual(16);
-        expect(meter.cost.rowsRead).toBeLessThanOrEqual(80);
+          .bind(source.id, target.id)
+          .first<number>("n"),
+      ).toBe(expectedLinks);
+      expect(costs).toHaveLength(count);
+      for (const cost of costs) {
+        expect(cost.roundTrips).toBe(1);
+        expect(cost.rowsWritten).toBeGreaterThan(0);
+        expect(cost.rowsWritten).toBeLessThanOrEqual(16);
+        expect(cost.rowsRead).toBeLessThanOrEqual(80);
       }
-    };
-    for (const count of [120, 240]) {
-      await addLinks(count);
       for (const id of [target.id, source.id]) {
         meter.reset();
         const page = await purchases.history(COST_SUBJECT, id);

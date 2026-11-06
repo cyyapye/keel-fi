@@ -1,11 +1,8 @@
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  DatabaseSync,
-  type SQLInputValue,
-  type StatementSync,
-} from "node:sqlite";
+import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 
 import { D1AngelListMacAgentRepository } from "./angellist-mac-agent";
 import type { AngelListMacAgentRepositoryError } from "./angellist-mac-agent";
@@ -95,11 +92,9 @@ class TestD1Database {
 }
 
 function createTestDatabase(): DatabaseSync {
-  const database = new DatabaseSync(":memory:");
-  migrationFiles.forEach((file) => {
-    database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-  });
-  return database;
+  return createSqliteFixture(
+    migrationFiles.map((file) => resolve(process.cwd(), file)),
+  );
 }
 
 function seedPendingImport(

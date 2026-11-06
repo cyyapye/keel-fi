@@ -113,33 +113,29 @@ it("bounds 120-record link projections, positive matches, growing history, empty
     // Native constraints stay enabled. Exercise one head lookup per source and
     // target while accepted decisions grow independently of the visible count.
     for (let version = 0; version < 8; version++) {
-      const statements = [];
-      for (let index = 0; index < 120; index += 2) {
-        const source = positions[index]!;
-        const target = positions[index + 1]!;
-        statements.push(
-          fixture.database
-            .prepare(
-              `INSERT INTO holding_position_link_reviews(id,household_id,source_position_id,target_position_id,source_snapshot_id,target_snapshot_id,source_participation_review_id,target_participation_review_id,prior_id,relationship,state,use_source_value,note,reviewer_user_id,accepted_at)
-          VALUES(?,'hh_demo',?,?,?,?,NULL,NULL,(SELECT review_id FROM holding_position_link_heads WHERE source_position_id=?),'same_investment','linked',1,'Synthetic cost history','usr_demo','2026-09-20T12:00:00.000Z')`,
-            )
-            .bind(
-              crypto.randomUUID(),
-              source.id,
-              target.id,
-              source.snapshot.id,
-              target.snapshot.id,
-              source.id,
-            ),
-        );
-      }
-      await fixture.database.batch(statements);
+      await fixture.setup({
+        operation: "position-link-history",
+        positions: positions.map((position) => ({
+          id: position.id,
+          snapshotId: position.snapshot.id,
+        })),
+        reviewIds: Array.from({ length: positions.length / 2 }, () =>
+          crypto.randomUUID(),
+        ),
+      });
       meter.reset();
       expect(await flatten()).toHaveLength(60);
       expect(meter.cost.roundTrips).toBe(3);
       expect(meter.cost.rowsWritten).toBe(0);
       expect(meter.cost.rowsRead).toBeLessThanOrEqual(12_000);
     }
+    expect(
+      await fixture.database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM holding_position_link_reviews WHERE note = 'Synthetic cost history'",
+        )
+        .first<number>("count"),
+    ).toBe(480);
     const positive = { ...meter.cost };
     for (let revision = 2; revision <= 4; revision++)
       await fixture.setup({ operation: "holdings", revision });

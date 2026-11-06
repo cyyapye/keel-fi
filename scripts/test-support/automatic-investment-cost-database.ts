@@ -27,6 +27,13 @@ const automaticInvestmentCostWorker = build({
   ],
   logLevel: "silent",
 }).then((bundled) => bundled.outputFiles[0]!.text);
+const wefunderImportResultSchema = z
+  .object({
+    importId: z.string().min(1),
+    status: z.literal("applied"),
+    rowCount: z.literal(120),
+  })
+  .strict();
 const seedResultSchema = z.object({ ids: z.array(z.string().uuid()) });
 const completedResultSchema = z.object({ completed: z.literal(true) });
 const sourceCaptureCostSchema = z.object({
@@ -57,6 +64,10 @@ export async function createAutomaticInvestmentCostDatabase() {
   };
   return {
     ...fixture,
+    stageWefunderImport: async (scenario: "initial" | "grown" | "empty") =>
+      wefunderImportResultSchema.parse(
+        await dispatch({ operation: "wefunder-import", scenario }),
+      ),
     measureSourceCapture: async () =>
       sourceCaptureCostSchema.parse(
         await dispatch({ operation: "source-capture-cost" }),

@@ -1,5 +1,11 @@
 # CI performance contract
 
+The current CI split keeps runtime quota admission in draft PR #340. Earlier
+measurements below describe the combined branch at their recorded revisions. Its
+quota-owner tests are deferred with that implementation. The current registered
+inventory and required receipt define executable coverage for the CI-only
+branch.
+
 Each ordinary workflow executes the complete native suite once for its exact
 revision. The full requirement map, individual case accounting, expected
 platform exclusions, native assertions and no-flaky-success policy remain
@@ -71,18 +77,174 @@ servers, ports and cleanup; each partition remains serial internally.
 
 ## Bounded execution plan
 
-The verification map opts into at most three concurrent native flows. Source
-checks, integrity checks and the PDF security-image build can start together.
-Migration depends on integrity checks. Its sealed private copy supplies browser
-fixtures. Workspace builds consume source files and can start whenever a slot is
-available; source checks and migrations remain independently required. When
-integrity finishes, ready compose and migration work precedes unit admission.
-The workspace build can then release a slot for units while migrations run. This
-avoids holding the browser fixture critical path behind the unit suite;
-commands, dependencies and the three-slot limit remain unchanged. Unit/D1 tests
-become ready after integrity; they receive an explicitly absent owned PDF
-configuration, retain their own isolated databases and consume TypeScript
-sources. Source checks remain concurrent and required.
+The verification map admits an exclusive preflight before any heavy flow. The
+existing integrity flow first executes the strict workload and migration files
+with one Vitest worker, then runs native Python accounting. The main unit flow
+executes the complementary cases. Both reports must account for the entire
+reviewed Vitest inventory exactly once. Missing, stale, substituted or
+overlapping preflight evidence fails verification.
+
+Source checks, the PDF image build and workspace build now wait for that gate,
+along with the flows that already depended on integrity. After preflight, at
+most three native flows run concurrently. Admission follows the reviewed map's
+first-ready order. Unit and browser work may overlap source checks after their
+own prerequisites pass. PDF isolation waits for source checks, so its scanner
+cannot overlap the compiler flow. Source checks still must pass in the same
+complete receipt. Configured scanner and compiler limits do not establish
+observed memory use or available host capacity. The 900-second active budget and
+per-case deadlines remain. Native main units and standalone execution use three
+workers after the two-worker trial below failed the complete budget.
+
+Draft PR #340 tried admitting the workspace build before the main unit suite in
+[run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
+All 11 flows passed. Compared with the preceding run, the browser suite started
+55.640 seconds earlier but took 39.265 seconds longer to execute. The complete
+gate fell from 828.915 to 812.540 seconds and missed the 750-second trial
+cutoff. The map restores the previous order.
+
+The native source flow uses `make lint-typecheck` to collect full compiler
+diagnostics from the TypeScript programs already loaded by typed ESLint. It
+retains every root, workspace and catalogue context, all lint files and rules,
+and the zero-warning limit. Standalone `make lint` and `make typecheck` retain
+their existing commands. The combined command validates canonical context
+discovery, configuration syntax, CLI options, complete roots and supported
+source types. Missing contexts and unsupported compiler modes fail rather than
+silently reducing coverage. Alternative parsers and processors are refused
+because transformed input can hide diagnostics from the original source. It
+creates no persistent cache or receipt.
+
+Its regression fixtures reuse loaded modules in an owned child while each
+operation clears parser caches and creates fresh context maps. The strict CLI is
+checked separately. The existing per-fixture timeout and aggregate output bound
+still apply, including rejection of a result received after its deadline.
+Same-path source/configuration changes verify that batching cannot accept a
+stale compiler result. The child closes between logical cases and before CLI
+smokes.
+
+Normal run `41600540573` spent 269.761 seconds in source checks and admitted
+wide phases at offset 351.88. It failed a browser case that passed on retry at
+893.586 active seconds, before the 900-second boundary. Remaining unit and
+browser work was interrupted. A private five-pair macOS prototype comparison
+found less compiler CPU work, no elapsed improvement and higher reported child
+peak RSS. That experiment justifies testing reuse on Linux; it does not
+establish whole-run headroom.
+
+The next ordinary attempt, `41612724486`, spent 222.061 seconds in source checks
+but failed a different retry-success case at 843.066 active seconds. Main unit
+work and the final browser lane remained incomplete. Removing source-check
+serialization is an experiment alongside work reductions, not a forecast. The
+bounded resource summary now distinguishes weighted host execution, steal,
+iowait and idle from the existing raw tick samples. Its legacy busy peak
+includes steal. These are host-wide observations; flow CPU remains a sampled
+lower bound.
+
+The same samples also expose host logical CPU count, total memory and total swap
+from their existing buffers. Per-flow resident memory is a peak of sums of
+observed process RSS. Shared pages can be counted more than once, and containers
+outside the owned process tree are excluded. This is not aggregate physical
+memory or an effective CPU quota. Sampling frequency, target paths and read
+bounds remain unchanged. One page-size query per sampler converts resident pages
+to bytes without assuming a host page size.
+
+Run `41627807001` passes all eleven flows, 1,648 unit cases, 426 browser cases
+with 32 existing exclusions and 49 Python cases at 861.783 active seconds. Its
+38.217-second margin is insufficient practical headroom. Browser work is
+critical at 605.639 seconds; main units take 693.996 seconds and source checks
+408.303 seconds. Host samples show memory and I/O pressure, but do not attribute
+that pressure to a particular flow.
+
+The native-main-only two-worker trial, run `41635613228`, fails the global
+budget at 903.027 active seconds. All browser cases and 49 Python cases pass,
+but main unit work is interrupted after 797.248 seconds and the complete unit
+union is not established. Source checks take 372.072 seconds and browser work
+578.553 seconds. These are different attempts, not an isolated causal
+comparison. Restore three native main workers and retain the proven duplicate
+browser-read removal. The exclusive one-worker preflight, native-flow and
+browser ceilings, complete inventory, assertions and all deadlines remain.
+
+Run `41641925007` fails within budget at 835.421 seconds when the exposure
+continuity migration case exceeds its unchanged five-second deadline. The other
+1,647 unit cases and all 49 Python cases pass; browser work is interrupted. The
+next partition moves the complete 28-case exposure file into the existing
+one-worker preflight. All its cases use in-process SQLite and repositories. The
+cold migration body, frontier and deadline remain. Preflight now accounts for 84
+unit cases and main for 1,564, with the same complete 1,648-case union. The
+gate's 120-second budget remains and needs actual Linux acceptance.
+
+Three ordinary SQLite fixture helpers also reuse the existing content-keyed
+snapshot helper. Five alternating local pairs pass all 590 selected case
+executions. Median wall time falls from 6.510 to 1.267 seconds and reported
+child CPU from 13.389 to 3.730 seconds; largest reported child peak RSS
+increases slightly and is not aggregate memory. These are Darwin component
+measurements, not a full Linux result. Explicit migration frontiers and all 59
+cases, 235 assertions, adapters, ordered inputs and per-case business SQL
+remain.
+
+Four further ordinary setup prefixes reuse that same helper. Five local pairs
+preserve all 280 executions in the selected five-file subset, including the
+unchanged one-use API fixture. Median wall time is 2.048 to 1.498 seconds and
+reported child CPU is 6.445 to 4.020 seconds. Exact state, foreign keys,
+rollback and clone cleanup remain; this establishes no full-run speedup.
+
+The PDF-priority trial in run `41658444196` fails the global budget at 900.513
+seconds. All 1,648 unit cases and 49 Python cases pass, but browser work is
+interrupted after 383 successful pass lines. Source checks take 292.011 seconds
+and main units 609.437 seconds; browsers start at 383.035 seconds. These
+different attempts do not isolate a causal speedup. Reject that map order and
+restore the source-before-PDF dependency and prior browser priority. Retain the
+ordinary fixture improvements. All 11 flows, deadlines, case coverage and
+concurrency ceilings remain required.
+
+The restored policy in run `41663108413` also fails the global budget, at
+901.127 seconds. All 1,648 unit cases and 49 Python cases pass; browsers stop
+after 413 successful pass lines, including 23 of the final 36-case tail. This is
+not a complete passing receipt or a fast-run result.
+
+The manual visual fixture separates route registration from opening the creation
+editor. Six existing-holding or inventory journeys avoid the unused creation
+visit. The complete private paired file retains all 32 identities and observed
+states, 24 mutations and 16 reloads. It records 12 fewer document navigations,
+12 fewer Holdings projection GETs and 24 fewer options GETs. These are counted
+requests, including canceled reads, rather than elapsed savings. The
+stale-identity and single-company Fund preludes remain: removing the Fund
+prelude let a draft-key collision pass. Seven paired fault families retain their
+rejection boundaries. Named screenshots use separate private Darwin references;
+all 22 Linux PNGs remain unchanged. Extra diagnostic captures initially match 29
+of 32 pairs; six bounded settled follow-up pairs match. This component proof
+does not establish complete Linux fit or useful headroom.
+
+Run `41670925141` fails within budget at 811.453 seconds. All 1,648 units, 49
+Python cases and the 32 manual visual identities pass; the latter have zero
+retries and match the exact published tree. A purchase-history case misses its
+unchanged five-second Edit valuation assertion, then passes on retry. Native
+accounting rejects that flaky result and cancels the other browser roots. The
+364 successful browser pass lines do not form a complete receipt.
+
+Purchase visuals previously mocked financial mutations while an accepted
+valuation also waited for live Alpha data from unrelated test-database state.
+The fixture now uses the existing fail-closed API guard and explicit background
+responses. The Alpha initializer and three contexts move unchanged from the
+holding-detail spec into a shared browser fixture. Small background response
+initializers reuse existing synthetic values. All original callback bodies,
+financial routes, assertions, project settings and deadlines remain.
+
+A controlled HTTP pair passes 30 purchase and two holding-detail cases on each
+side. Browser Alpha calls remain 34; owned Alpha HTTP visits fall from 26 to
+zero and all owned backend visits from 34 to zero. One candidate holding-detail
+case makes one additional already-mocked review GET with the same body and no
+backend visit. Request-count parity is not universal. Mock valuation
+fulfillments remain 16 per side; only 14 responses are browser-observed after an
+original immediate reload, so receipt delivery is not inferred from fixture
+acceptance. Subsequent projection and history readback remain separate proof.
+
+An eight-second Alpha response reproduces the old five-second failure in both
+projects; isolated cases pass. Failed valuation, stale projection, empty history
+and absent exposure controls still reject. All 32 settled states and final
+camera pairs match; original crop assertions and Linux PNGs remain unchanged.
+These are private Darwin and controlled HTTP results, not real-D1 parity,
+complete Linux acceptance or elapsed savings. Production still awaits Alpha;
+this test change does not fix or certify that latency behavior, and the exact CI
+failure cause remains unproven without its unavailable trace.
 
 The standalone provider-document boundary runs real Chromium through the
 production tsx entrypoint, scanner and reader after image provisioning and
@@ -99,14 +261,16 @@ The declared prerequisites are:
 
 ```mermaid
 flowchart LR
-  source[Source checks: independently required]
-  build[Build and entry budget]
-  integrity[Integrity checks] --> compose[Compose validation]
+  integrity[Strict workloads and integrity] --> source[Source checks]
+  integrity --> build[Build and entry budget]
+  integrity --> pdfBuild[PDF security-image build]
+  integrity --> compose[Compose validation]
   integrity --> migrations[Migrations and seed]
   integrity --> provider[Real provider document boundary]
-  pdfBuild[PDF security-image build] --> provider
+  pdfBuild --> provider
   provider --> pdf[PDF isolation]
   integrity --> unit[Unit and D1 tests]
+  source --> pdf
   migrations --> browserFixture[Browser fixture]
   build --> browser[Browser suite]
   provider --> browser
@@ -122,54 +286,74 @@ released by an earlier flow and can overlap remaining source/PDF work. No UI
 browser consumer starts before its fixture, real provider document boundary and
 build succeed. All PDF isolation probes must pass before the gate succeeds.
 
-The unit suite uses three workers in CI and locally. Deadline-sensitive workload
-files receive first admission, followed by measured expensive files. Its early
-admission reduces overlap between expensive D1 fixtures and browser startup. The
-automatic-review day/history case joins this early group after run `40443347834`
-exceeded its unchanged 90-second deadline during browser overlap. That run's
-host CPU pressure (`some avg10`) had a 65.6% median. Moving admission does not
-change its 120-item histories, request envelope, D1 assertions, worker count or
-timeout. A complete Linux run remains the acceptance check. The purchase-route
-case joins the early group after run `41383958842` exceeded its unchanged
-five-second deadline during browser overlap. Its authentication, validation,
-accepted-write, valuation, history and fixture work remain inside that same test
-and deadline. Earlier admission changes neither the three-worker unit pool nor
-the case inventory. The reviewed-rename cost fixture runs its synthetic import
-and 240 company-review operations inside its existing workerd fixture to avoid
+The populated migration fixture hashes every selected row beside real D1 and
+returns each table's row count and SHA-256 digest. This avoids transporting
+large preservation results through the Node binding proxy. The host compares all
+table digests with the independent OLD-schema snapshot. SQL, schema and
+foreign-key checks, immutable probes and actual migration billing counters
+remain required. PR340 run `41518998047` rejected serial source checks at the
+unchanged 600-second flow deadline. Source goals retain their prior two-job
+limit. That failed attempt also exceeded the historical 24-capture case's
+unchanged 120-second deadline; the revised driver requires a fresh complete
+native receipt.
+
+The historical comparison prepares one closed real-D1 OLD-schema seed inside its
+timed case. Both branches receive fresh verified copies. The seal binds the
+exact bootstrap SQL, runtime configuration, lockfile and pristine platform
+schema. Existing 64 MiB and 32-file bounds remain. Complete preservation still
+precedes measurement on each copy. This removes a duplicate unmeasured bootstrap
+without moving setup outside the unchanged 120-second deadline. Run
+`41522276828` retained one failure at that deadline before this seed trial; all
+other 1,645 unit cases and the complete browser inventory passed. A fresh
+complete native receipt must establish this candidate's Linux fit.
+
+Standalone and native main-unit execution use three workers. Preflight uses one.
+Priority alone did not isolate the strict CPU workloads: run `41587011543` timed
+out both the runtime graph and capacity day before browser startup while
+source/migration work was active. The explicit gate supersedes priority-only
+admission for those two files. Cash-account, purchase-route and provider-usage
+files also run in the one-worker preflight. The purchase-route case previously
+exceeded its unchanged five-second deadline during browser overlap in run
+`41383958842`. Its authentication, validation, accepted-write, valuation,
+history and fixture work remain inside that same test and deadline. The two D1
+cost files remain in main, which can run alongside source checks and browsers.
+Main unit files retain their measured cost priorities. The automatic-review
+day/history case has early main-phase priority after run `40443347834` exceeded
+its unchanged 90-second deadline during browser overlap. That run's host CPU
+pressure (`some avg10`) had a 65.6% median. Those admission changes retained its
+120-item histories, request envelope, D1 assertions, worker pool and timeout.
+The two-worker native trial was rejected above. A complete Linux run remains the
+acceptance check. The reviewed-rename cost fixture runs its synthetic import and
+240 company-review operations inside its existing workerd fixture to avoid
 repeated Node-to-D1 bridge calls. It uses the same repository methods, accepted
 decisions and link records. The test still meters every positive, history, empty
 and unrelated-household read against real D1, with the same 120-position scale,
 row budgets and query-plan assertions.
 
-Browser verification produces five reports while admitting at most four workers.
-The initial four lanes each use one worker. After all four reports and runtimes
-validate and close, the development mocked lane uses the released four-worker
-budget. No stateful lane is parallelized. The development stateful partition
-contains four specs and 72 executions: three depend on source modules, while
-Portfolio Watch asserts development-mode demo-source disclosure. The two
-production stateful partitions contain 124 executions each. The production
-mocked lane contains 108 executions, and the development mocked tail
-contains 36. These are the same 464 browser identities with 33 reviewed
-exclusions.
+Browser verification produces five reports with at most four active workers.
+Three stateful partitions and one mocked partition start together. When the
+first mocked partition validates its report and releases its server, its worker
+slot runs the remaining mocked holdings and agreement-security checks. The other
+partitions can finish independently. The checked-in case inventory defines the
+required executions and explicit exclusions on each platform. Each retired case
+and its remaining coverage are recorded in
+[test performance coverage](test-performance-coverage.md).
 
-The 42 manual-holding visual executions use the fail-closed API-mocked fixture
-inside the production stateful-a partition. Moving the complete spec balances
-the existing serial partitions without changing its frontend, cases or snapshot
-identities. API mocking belongs to each test's fixture, independently of the
-lane's server. The fixture blocks service workers and rejects unhandled API
-reads and writes even when a lane configuration allows service workers. Each
-stateful partition receives a separate copy of the verified, closed synthetic
-seed and owns distinct API/web ports. Neither mocked lane starts an API server.
-Production serving reduces module transforms and requests; development serving
-retains the direct source-module checks and the intentional demo-source
-disclosure. Missing production JS or CSS fails startup. All lanes keep
-desktop/mobile project names, snapshots and case identities. Each lane owns its
-Vite dependency cache as well as its browser output. Development readiness
-transforms the initial application and Holdings module graph and rejects broken
-imports before admitting tests. Stateful readiness also checks the actual
-holdings-page projection through the web proxy, with one bounded probe in flight
-and a cached successful result for the development server. A simpler health
-endpoint cannot hide a cold first read or module load.
+The manual-holding visual tests and UI catalogue use the fail-closed API-mocked
+fixture inside production stateful-a. API mocking belongs to each test's
+fixture, independently of its lane's server. The fixture blocks service workers
+and rejects unhandled API reads and writes. Each stateful partition receives a
+separate copy of the verified, closed synthetic seed and owns distinct API/web
+ports. Neither mocked lane starts an API server. The legal-entity suite uses the
+built frontend and bundles the actual collection search module for its browser
+timing check. The development stateful lane owns the recovery, navigation and
+Watch development behavior. Its provider cases use controlled browser profiles
+or provider pages, and the reconnect interstitial still reaches the local API.
+Missing production JS or CSS fails startup. Each retained visual comparison uses
+its existing platform reference. Each lane owns its dependency cache and output.
+Development readiness validates the initial module graph; stateful readiness
+also checks the actual holdings projection through the web proxy. A simpler
+health endpoint cannot hide a cold first read.
 
 The migration flow runs every migration and the base synthetic seed, then copies
 its closed D1 tree into a dedicated allowlisted browser path before applying
@@ -276,9 +460,8 @@ inventory; one green lane cannot substitute for the suite. Merged elapsed time
 is the span of the concurrent lanes, not their summed work. Per-suite leases
 reject duplicate writers, and cancellation cleans owned process groups before
 removing the isolated database profiles. The reviewed dependency map is exact:
-only the development mocked lane waits, and it cannot start until all four
-initial lanes have validated their reports and released their process groups and
-ports.
+the second mocked lane waits for its predecessor to validate its report and
+release its process group and port. All five lanes run within the timed phase.
 
 The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
 9.3 GiB available memory and low CPU/I/O pressure. This is a starting snapshot,
@@ -508,7 +691,7 @@ Execution slices:
    production/development mocked partitions with distinct ports, runtime state,
    diagnostics and owned cleanup. Compare their complete union with the
    unchanged reviewed browser inventory.
-4. Overlap read-only source checks with `make -j2`, and permit three native
+4. Run read-only source goals with at most two Make jobs. Permit three native
    flows so PDF isolation can overlap migration verification. Build and consumer
    prerequisites remain explicit; runtime and migration outputs are not shared.
 5. Keep scanner/reader and kernel-probe sequences independent, but serialize
@@ -924,3 +1107,35 @@ injected only into synthetic test-host transports, not into production or the
 Worker-side D1 operations. These are focused transport-sensitivity measurements,
 not a complete CI speedup claim. Full Linux required-gate evidence is still
 required for the changed revision.
+
+## Per-case timings from Linux job logs
+
+Once a native suite passes its existing case accounting, its runner writes one
+`KEEL_CASE_TIMINGS_V1` line to the job log. This works while artifact uploads
+are paused. Python measures each unittest case with the monotonic clock. Vitest
+timing comes from the complete merged JSON report. Playwright uses the duration
+of the single native result. The ranked CSV reports integer microseconds rounded
+up. An explicit platform exclusion has a blank duration. A missing measurement
+from a required case suppresses that suite's timing line. The maximum line size
+is 16 KiB, including its checksum and metadata.
+
+Get the checkout SHA from the native verification job's
+`Uses: .../native-verification.yml@refs/pull/.../merge (...)` log line or its
+checkout step. On a pull request this identifies the synthetic merge commit. The
+PR head SHA describes a different checkout. Run the following from Keel with
+`RUN`, `ATTEMPT` and `REVISION` set to the values for the same CI attempt.
+
+```sh
+gh run view "$RUN" --attempt "$ATTEMPT" --log > native-run.log
+git cat-file -e "$REVISION^{commit}" || git fetch --no-tags origin "$REVISION"
+python3 -I scripts/ci-case-timings.py native-run.log \
+  --revision "$REVISION" --run "$RUN" --attempt "$ATTEMPT" > cases.csv
+```
+
+The decoder loads the ordered registry and exclusions from that Git object. It
+validates the revision, run, attempt, platform, checksum, expected exclusions
+and vector lengths before writing CSV. The default requires complete Python,
+Vitest and Playwright vectors. Pass `--suite python`, `--suite vitest` or
+`--suite playwright` to rank a completed suite when another was interrupted. An
+unavailable historical merge object must be recovered from an existing checkout
+of that revision before the log can be decoded.

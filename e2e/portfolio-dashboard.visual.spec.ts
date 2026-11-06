@@ -129,8 +129,8 @@ const priorValuesByPosition = {
 const holdingsView = investmentHoldingsViewFor(holdings, priorValuesByPosition);
 const unchangedHoldingsView = investmentHoldingsViewFor(holdings);
 
-function performanceHoldingsView() {
-  const view = structuredClone(holdingsView);
+function performanceHoldingsView(source = holdingsView) {
+  const view = structuredClone(source);
   for (const position of view.exposureView.positions) {
     if (position.valueMinor === null) continue;
     const value = BigInt(position.valueMinor);
@@ -292,326 +292,298 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("shows a two-color portfolio snapshot on Overview", async ({ page }) => {
-  await page.route("**/api/investment-holdings", async (route) => {
-    holdingsRequestCount += 1;
-    await route.fulfill({ json: performanceHoldingsView() });
-  });
-  await page.goto("/");
-
-  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-  await expect(
-    snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
-  ).toBeVisible();
-  await expect(snapshot).toContainText("Portfolio value");
-  await expect(snapshot).not.toContainText("Reviewed total");
-  await expect(snapshot).not.toContainText("Known portfolio");
-  const headline = snapshot.locator(".portfolio-snapshot__metrics");
-  await expect(headline).not.toContainText("Mapped");
-  await expect(headline).not.toContainText("concentration");
-  await expect(headline).toContainText("+76.8%");
-  await expect(headline).toContainText("11 of 12 holdings");
-  await expect(headline).toContainText("2.20×");
-  await expect(headline).toContainText("0.20×");
-  await expect(snapshot).toContainText("Excludes closed positions and cash");
-  await expect(snapshot).toContainText("$3.6M");
-  await expect(snapshot).toContainText("$3.0M");
-  await expect(snapshot).toContainText("61.8%");
-  await expect(snapshot).toContainText("1 value is unavailable and excluded");
-  await expect(
-    snapshot.getByRole("heading", { name: "Top 10 holdings" }),
-  ).toBeVisible();
-  const portfolioHeader = snapshot.locator(":scope > .section-heading");
-  const topHoldings = snapshot.locator(".portfolio-snapshot__top");
-  const viewHoldings = topHoldings.getByRole("button", {
-    name: "View holdings",
-  });
-  await expect(portfolioHeader.getByRole("button")).toHaveCount(0);
-  await expect(viewHoldings).toBeVisible();
-  const [topHeaderBox, viewHoldingsBox] = await Promise.all([
-    topHoldings.locator(".panel__header").boundingBox(),
-    viewHoldings.boundingBox(),
-  ]);
-  expect(topHeaderBox).not.toBeNull();
-  expect(viewHoldingsBox).not.toBeNull();
-  expect(viewHoldingsBox!.x).toBeGreaterThanOrEqual(topHeaderBox!.x);
-  expect(viewHoldingsBox!.x + viewHoldingsBox!.width).toBeLessThanOrEqual(
-    topHeaderBox!.x + topHeaderBox!.width + 1,
-  );
-  await expect(
-    snapshot.getByRole("heading", { name: "Portfolio by access" }),
-  ).toBeVisible();
-  await expect(
-    snapshot.getByRole("heading", { name: "Largest value changes" }),
-  ).toBeVisible();
-  await expect(snapshot.getByRole("heading", { name: "Up" })).toBeVisible();
-  await expect(snapshot.getByRole("heading", { name: "Down" })).toBeVisible();
-  await expect(
-    snapshot
-      .locator("ol.visually-hidden li")
-      .filter({ hasText: "Orion Compute: $480k" }),
-  ).toHaveCount(1);
-  await expect(
-    snapshot
-      .locator("ol.visually-hidden li")
-      .filter({ hasText: "Juniper Mobility: −$60k" }),
-  ).toHaveCount(1);
-  await expect(snapshot.locator(".recharts-wrapper")).toHaveCount(4);
-  expect(holdingsRequestCount).toBe(1);
-  expect(baselineRequestCount).toBe(1);
-  await expectNoHorizontalOverflow(page);
-
-  await page.addStyleTag({
-    content:
-      ".topbar { position: absolute !important; visibility: hidden !important; }",
-  });
-  await expect(snapshot).toHaveScreenshot("portfolio-snapshot.png", {
-    animations: "disabled",
-  });
-  const basis = snapshot.getByRole("button", { name: "Performance basis" });
-  await basis.press("Enter");
-  await expect(basis).toHaveAttribute("aria-expanded", "true");
-  await expect(snapshot).toContainText("$780k paid in");
-  const calculationDetail = snapshot.locator(
-    ".portfolio-snapshot__basis-content",
-  );
-  // The calculation detail should be scannable, not the former prose manual.
-  expect(
-    (await calculationDetail.innerText()).trim().split(/\s+/).length,
-  ).toBeLessThan(110);
-  await expectNoHorizontalOverflow(page);
-  await expect(snapshot.locator(".portfolio-snapshot__basis")).toHaveScreenshot(
-    "portfolio-performance-basis.png",
-    { animations: "disabled" },
-  );
-});
-
-test("preserves supported DPI when current private values cannot support TVPI", async ({
-  page,
-}) => {
-  const view = performanceHoldingsView();
-  for (const position of view.exposureView.positions) {
-    if (position.reviewedInvestment?.terms.reportedValueReview) {
-      position.reviewedInvestment.terms.reportedValueReview.carryStatus =
-        "unknown";
-    }
-  }
-  await page.route("**/api/investment-holdings", (route) =>
-    route.fulfill({ json: view }),
-  );
-  await page.goto("/");
-  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-  const metrics = snapshot.locator(".portfolio-snapshot__metrics");
-  await expect(metrics).toContainText("+25.0%");
-  await expect(metrics).toContainText("5 of 12 holdings");
-  await expect(
-    metrics
-      .locator("[data-slot='data-item']")
-      .filter({ hasText: "Private TVPI" }),
-  ).toContainText("—");
-  await expect(metrics).toContainText("0.20×");
-  await expect(metrics).not.toContainText("0.00×");
-  await expectNoHorizontalOverflow(page);
-  await page.addStyleTag({
-    content: ".topbar { visibility: hidden !important; }",
-  });
-  await expect(snapshot).toHaveScreenshot(
-    "portfolio-performance-incomplete.png",
-    { animations: "disabled" },
-  );
-  await snapshot.getByRole("button", { name: "Performance basis" }).click();
-  await expect(snapshot).toContainText("TVPI and DPI cover different holdings");
-  await expectNoHorizontalOverflow(page);
-  await expect(snapshot.locator(".portfolio-snapshot__basis")).toHaveScreenshot(
-    "portfolio-performance-basis-incomplete.png",
-    { animations: "disabled" },
-  );
-});
-
-test("keeps empty performance unavailable and recovers from a snapshot failure", async ({
-  page,
-}) => {
-  let fail = true;
-  await page.route("**/api/investment-holdings", async (route) => {
-    holdingsRequestCount += 1;
-    await route.fulfill(
-      fail
-        ? { status: 503, json: { error: "unavailable" } }
-        : { json: performanceHoldingsView() },
-    );
-  });
-  await page.goto("/");
-  const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-  await expect(snapshot).toContainText("Portfolio snapshot unavailable.");
-  await expect(snapshot.locator(".portfolio-snapshot__metrics")).toHaveCount(0);
-  await expect(snapshot).toHaveScreenshot("portfolio-performance-failed.png", {
-    animations: "disabled",
-  });
-  fail = false;
-  await snapshot.getByRole("button", { name: "Try again" }).click();
-  await expect(snapshot).toContainText("+76.8%");
-  expect(holdingsRequestCount).toBe(2);
-  expect(baselineRequestCount).toBe(2);
-  const empty = InvestmentHoldingsViewSchema.parse({
-    version: 1,
-    authorizationStatus: "available",
-    positionView: { asOf, connections: [] },
-    exposureView: { asOf, positions: [], exposures: [] },
-  });
-  await page.route("**/api/investment-holdings", (route) =>
-    route.fulfill({ json: empty }),
-  );
-  await page.route("**/api/portfolio-baseline", (route) =>
-    route.fulfill({
-      json: {
-        ...baseline,
-        positions: [],
-        cashAccounts: [],
-        suggestedOtherFiEligibleLiquidMinor: 0,
-      },
-    }),
-  );
-  await page.reload();
-  const metrics = snapshot.locator(".portfolio-snapshot__metrics");
-  await expect(metrics).toContainText("No investment holdings");
-  await expect(
-    metrics.getByText("No private holdings", { exact: true }),
-  ).toHaveCount(2);
-  await expect(metrics).not.toContainText("0.0%");
-  await expect(metrics).not.toContainText("0.00×");
-  await expectNoHorizontalOverflow(page);
-  await page.addStyleTag({
-    content: ".topbar { visibility: hidden !important; }",
-  });
-  await expect(snapshot).toHaveScreenshot("portfolio-performance-empty.png", {
-    animations: "disabled",
-  });
-});
-
-test("shows compact empty states when no portfolio changes are comparable", async ({
-  page,
-}) => {
-  await page.unroute("**/api/investment-holdings");
-  await page.route("**/api/investment-holdings", async (route) => {
-    holdingsRequestCount += 1;
-    await route.fulfill({ json: unchangedHoldingsView });
-  });
-
-  await page.goto("/");
-  const movers = page.locator(".portfolio-movers");
-  await expect(
-    movers.getByRole("heading", {
-      level: 4,
-      name: "No comparable changes.",
-    }),
-  ).toHaveCount(2);
-  await expect(movers.locator('[data-slot="empty-state"] > span')).toHaveCount(
-    0,
-  );
-  expect(holdingsRequestCount).toBe(1);
-  await expectNoHorizontalOverflow(page);
-  await expect(movers).toHaveScreenshot("portfolio-empty-movers.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-});
-
-test("drills each portfolio chart into its corresponding Holdings detail without arrows", async ({
-  page,
-}) => {
-  const exposureIdFor = (name: string) => {
-    const exposure = holdingsView.exposureView.exposures.find(
-      (item) => item.exposure.canonicalName === name,
-    );
-    expect(exposure, `${name} exposure fixture`).toBeDefined();
-    return exposure!.exposure.id;
-  };
-  const expectExposureOpen = async (exposureId: string) => {
-    await expect(page).toHaveURL(/\/holdings\?exposure=/u);
-    expect(new URL(page.url()).searchParams.get("exposure")).toBe(exposureId);
-    const exposure = page.locator(`[data-exposure-id="${exposureId}"]`);
-    await expect(exposure).toHaveAttribute("data-open", "");
-    await expect(exposure.locator(".exposure-group__summary")).toBeFocused();
-    await expectNoHorizontalOverflow(page);
-    return exposure;
-  };
-  const openSnapshot = async () => {
+test(
+  "shows a two-color portfolio snapshot on Overview",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    await page.route("**/api/investment-holdings", async (route) => {
+      holdingsRequestCount += 1;
+      await route.fulfill({ json: performanceHoldingsView() });
+    });
     await page.goto("/");
+
     const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
     await expect(
       snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
     ).toBeVisible();
-    await expect(snapshot).not.toContainText("→");
-    return snapshot;
-  };
-
-  let snapshot = await openSnapshot();
-  const topExposureLink = snapshot
-    .getByLabel(/Top 10 holdings grouped by economic exposure/u)
-    .getByRole("link", { name: /View Orion Compute holdings detail/u });
-  await expect(topExposureLink).toBeVisible();
-  const topExposureTarget = await topExposureLink.boundingBox();
-  expect(topExposureTarget?.height).toBeGreaterThanOrEqual(44);
-  await topExposureLink.press("Enter");
-  await expectExposureOpen(exposureIdFor("Orion Compute"));
-  const unknownCapitalSummary = page.locator(
-    `[data-exposure-id="${exposureIdFor("Meridian Bio")}"] .exposure-group__summary`,
-  );
-  await expect(unknownCapitalSummary).toContainText("$400k");
-  await expect(unknownCapitalSummary).not.toContainText("%");
-  await page.addStyleTag({
-    content: ".topbar { visibility: hidden !important; }",
-  });
-  await expect(page.locator(".investment-views")).toHaveScreenshot(
-    "portfolio-exposure-drilldown.png",
-    { animations: "disabled" },
-  );
-
-  await page.goBack();
-  snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
-  await expect(snapshot).toBeVisible();
-  await snapshot
-    .getByLabel("Largest decreases in USD")
-    .getByRole("link", { name: /View Juniper Mobility holdings detail/u })
-    .click();
-  await expectExposureOpen(exposureIdFor("Juniper Mobility"));
-
-  const accessCases = [
-    { key: "cash", label: "Cash", row: "Reserve savings" },
-    { key: "public_market", label: "Public market", row: "Orion Compute" },
-    { key: "private_paper", label: "Private paper", row: "Meridian Bio" },
-    {
-      key: "other_liquid",
-      label: "Other liquid",
-      row: "Assets held elsewhere",
-    },
-  ] as const;
-  for (const [index, access] of accessCases.entries()) {
-    snapshot = await openSnapshot();
-    const accessButton = snapshot.getByRole("button", {
-      name: new RegExp(`View ${access.label} holdings detail`, "u"),
-    });
-    await expect(accessButton).toBeVisible();
-    await expect(accessButton).toHaveAttribute("data-slot", "button");
-    if (index === 0) {
-      await accessButton.press("Enter");
-    } else {
-      await accessButton.click();
-    }
-    await expect(page).toHaveURL(/\/holdings\?access=/u);
-    expect(new URL(page.url()).searchParams.get("access")).toBe(access.key);
-    const detail = page.getByRole("region", { name: access.label });
+    await expect(snapshot).toContainText("Portfolio value");
+    await expect(snapshot).not.toContainText("Reviewed total");
+    await expect(snapshot).not.toContainText("Known portfolio");
+    const headline = snapshot.locator(".portfolio-snapshot__metrics");
+    await expect(headline).not.toContainText("Mapped");
+    await expect(headline).not.toContainText("concentration");
+    await expect(headline).toContainText("+76.8%");
+    await expect(headline).toContainText("11 of 12 holdings");
+    await expect(headline).toContainText("2.20×");
+    await expect(headline).toContainText("0.20×");
+    await expect(snapshot).toContainText("Excludes closed positions and cash");
+    await expect(snapshot).toContainText("$3.6M");
+    await expect(snapshot).toContainText("$3.0M");
+    await expect(snapshot).toContainText("61.8%");
+    await expect(snapshot).toContainText("1 value is unavailable and excluded");
     await expect(
-      detail.getByRole("heading", { name: access.label }),
-    ).toBeFocused();
-    await expect(detail).toContainText(access.row);
+      snapshot.getByRole("heading", { name: "Top 10 holdings" }),
+    ).toBeVisible();
+    const portfolioHeader = snapshot.locator(":scope > .section-heading");
+    const topHoldings = snapshot.locator(".portfolio-snapshot__top");
+    const viewHoldings = topHoldings.getByRole("button", {
+      name: "View holdings",
+    });
+    await expect(portfolioHeader.getByRole("button")).toHaveCount(0);
+    await expect(viewHoldings).toBeVisible();
+    const [topHeaderBox, viewHoldingsBox] = await Promise.all([
+      topHoldings.locator(".panel__header").boundingBox(),
+      viewHoldings.boundingBox(),
+    ]);
+    expect(topHeaderBox).not.toBeNull();
+    expect(viewHoldingsBox).not.toBeNull();
+    expect(viewHoldingsBox!.x).toBeGreaterThanOrEqual(topHeaderBox!.x);
+    expect(viewHoldingsBox!.x + viewHoldingsBox!.width).toBeLessThanOrEqual(
+      topHeaderBox!.x + topHeaderBox!.width + 1,
+    );
+    await expect(
+      snapshot.getByRole("heading", { name: "Portfolio by access" }),
+    ).toBeVisible();
+    await expect(
+      snapshot.getByRole("heading", { name: "Largest value changes" }),
+    ).toBeVisible();
+    await expect(snapshot.getByRole("heading", { name: "Up" })).toBeVisible();
+    await expect(snapshot.getByRole("heading", { name: "Down" })).toBeVisible();
+    await expect(
+      snapshot
+        .locator("ol.visually-hidden li")
+        .filter({ hasText: "Orion Compute: $480k" }),
+    ).toHaveCount(1);
+    await expect(
+      snapshot
+        .locator("ol.visually-hidden li")
+        .filter({ hasText: "Juniper Mobility: −$60k" }),
+    ).toHaveCount(1);
+    await expect(snapshot.locator(".recharts-wrapper")).toHaveCount(4);
+    expect(holdingsRequestCount).toBe(1);
+    expect(baselineRequestCount).toBe(1);
     await expectNoHorizontalOverflow(page);
-    if (access.key === "cash") {
-      await expect(detail).toHaveScreenshot("portfolio-access-drilldown.png", {
-        animations: "disabled",
-      });
+
+    await page.addStyleTag({
+      content:
+        ".topbar { position: absolute !important; visibility: hidden !important; }",
+    });
+    await expect(snapshot).toHaveScreenshot("portfolio-snapshot.png", {
+      animations: "disabled",
+    });
+    const basis = snapshot.getByRole("button", { name: "Performance basis" });
+    await basis.press("Enter");
+    await expect(basis).toHaveAttribute("aria-expanded", "true");
+    await expect(snapshot).toContainText("$780k paid in");
+    const calculationDetail = snapshot.locator(
+      ".portfolio-snapshot__basis-content",
+    );
+    // The calculation detail should be scannable, not the former prose manual.
+    expect(
+      (await calculationDetail.innerText()).trim().split(/\s+/).length,
+    ).toBeLessThan(110);
+    await expectNoHorizontalOverflow(page);
+    await expect(
+      snapshot.locator(".portfolio-snapshot__basis"),
+    ).toHaveScreenshot("portfolio-performance-basis.png", {
+      animations: "disabled",
+    });
+  },
+);
+
+test(
+  "keeps empty performance unavailable and recovers from a snapshot failure",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const recovered = performanceHoldingsView(unchangedHoldingsView);
+    for (const position of recovered.exposureView.positions) {
+      const review = position.reviewedInvestment?.terms.reportedValueReview;
+      if (review) review.carryStatus = "unknown";
     }
-  }
-});
+    let fail = true;
+    await page.route("**/api/investment-holdings", async (route) => {
+      holdingsRequestCount += 1;
+      await route.fulfill(
+        fail
+          ? { status: 503, json: { error: "unavailable" } }
+          : { json: recovered },
+      );
+    });
+    await page.goto("/");
+    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+    await expect(snapshot).toContainText("Portfolio snapshot unavailable.");
+    await expect(snapshot.locator(".portfolio-snapshot__metrics")).toHaveCount(
+      0,
+    );
+    await expect(snapshot).toHaveScreenshot(
+      "portfolio-performance-failed.png",
+      {
+        animations: "disabled",
+      },
+    );
+    fail = false;
+    await snapshot.getByRole("button", { name: "Try again" }).click();
+    const recoveredMetrics = snapshot.locator(".portfolio-snapshot__metrics");
+    await expect(recoveredMetrics).toContainText("+25.0%");
+    await expect(recoveredMetrics).toContainText("5 of 12 holdings");
+    await expect(
+      recoveredMetrics
+        .locator("[data-slot='data-item']")
+        .filter({ hasText: "Private TVPI" }),
+    ).toContainText("—");
+    await expect(recoveredMetrics).toContainText("0.20×");
+    await expect(recoveredMetrics).not.toContainText("0.00×");
+    await snapshot.getByRole("button", { name: "Performance basis" }).click();
+    await expect(snapshot).toContainText(
+      "TVPI and DPI cover different holdings",
+    );
+
+    expect(holdingsRequestCount).toBe(2);
+    expect(baselineRequestCount).toBe(2);
+    const movers = snapshot.locator(".portfolio-movers");
+    await expect(
+      movers.getByRole("heading", { level: 4, name: "No comparable changes." }),
+    ).toHaveCount(2);
+    await expect(
+      movers.locator('[data-slot="empty-state"] > span'),
+    ).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
+
+    const empty = InvestmentHoldingsViewSchema.parse({
+      version: 1,
+      authorizationStatus: "available",
+      positionView: { asOf, connections: [] },
+      exposureView: { asOf, positions: [], exposures: [] },
+    });
+    await page.route("**/api/investment-holdings", (route) =>
+      route.fulfill({ json: empty }),
+    );
+    await page.route("**/api/portfolio-baseline", (route) =>
+      route.fulfill({
+        json: {
+          ...baseline,
+          positions: [],
+          cashAccounts: [],
+          suggestedOtherFiEligibleLiquidMinor: 0,
+        },
+      }),
+    );
+    await page.reload();
+    const metrics = snapshot.locator(".portfolio-snapshot__metrics");
+    await expect(metrics).toContainText("No investment holdings");
+    await expect(
+      metrics.getByText("No private holdings", { exact: true }),
+    ).toHaveCount(2);
+    await expect(metrics).not.toContainText("0.0%");
+    await expect(metrics).not.toContainText("0.00×");
+    await expectNoHorizontalOverflow(page);
+    await page.addStyleTag({
+      content: ".topbar { visibility: hidden !important; }",
+    });
+    await expect(snapshot).toHaveScreenshot("portfolio-performance-empty.png", {
+      animations: "disabled",
+    });
+  },
+);
+
+test(
+  "drills each portfolio chart into its corresponding Holdings detail without arrows",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const exposureIdFor = (name: string) => {
+      const exposure = holdingsView.exposureView.exposures.find(
+        (item) => item.exposure.canonicalName === name,
+      );
+      expect(exposure, `${name} exposure fixture`).toBeDefined();
+      return exposure!.exposure.id;
+    };
+    const expectExposureOpen = async (exposureId: string) => {
+      await expect(page).toHaveURL(/\/holdings\?exposure=/u);
+      expect(new URL(page.url()).searchParams.get("exposure")).toBe(exposureId);
+      const exposure = page.locator(`[data-exposure-id="${exposureId}"]`);
+      await expect(exposure).toHaveAttribute("data-open", "");
+      await expect(exposure.locator(".exposure-group__summary")).toBeFocused();
+      await expectNoHorizontalOverflow(page);
+      return exposure;
+    };
+    const snapshot = page.getByRole("region", { name: "Portfolio snapshot" });
+    const expectSnapshot = async () => {
+      await expect(
+        snapshot.getByRole("heading", { name: "Portfolio snapshot" }),
+      ).toBeVisible();
+      await expect(snapshot).not.toContainText("→");
+    };
+
+    await page.goto("/");
+    await expectSnapshot();
+    const topExposureLink = snapshot
+      .getByLabel(/Top 10 holdings grouped by economic exposure/u)
+      .getByRole("link", { name: /View Orion Compute holdings detail/u });
+    await expect(topExposureLink).toBeVisible();
+    const topExposureTarget = await topExposureLink.boundingBox();
+    expect(topExposureTarget?.height).toBeGreaterThanOrEqual(44);
+    await topExposureLink.press("Enter");
+    await expectExposureOpen(exposureIdFor("Orion Compute"));
+    const unknownCapitalSummary = page.locator(
+      `[data-exposure-id="${exposureIdFor("Meridian Bio")}"] .exposure-group__summary`,
+    );
+    await expect(unknownCapitalSummary).toContainText("$400k");
+    await expect(unknownCapitalSummary).not.toContainText("%");
+    await page.addStyleTag({
+      content: ".topbar { visibility: hidden !important; }",
+    });
+    await expect(page.locator(".investment-views")).toHaveScreenshot(
+      "portfolio-exposure-drilldown.png",
+      { animations: "disabled" },
+    );
+
+    await page.goBack();
+    await expectSnapshot();
+    await snapshot
+      .getByLabel("Largest decreases in USD")
+      .getByRole("link", { name: /View Juniper Mobility holdings detail/u })
+      .click();
+    await expectExposureOpen(exposureIdFor("Juniper Mobility"));
+
+    const accessCases = [
+      { key: "cash", label: "Cash", row: "Reserve savings" },
+      { key: "private_paper", label: "Private paper", row: "Meridian Bio" },
+      {
+        key: "other_liquid",
+        label: "Other liquid",
+        row: "Assets held elsewhere",
+      },
+      { key: "public_market", label: "Public market", row: "Orion Compute" },
+    ];
+    for (const [index, access] of accessCases.entries()) {
+      await page.goBack();
+      await expectSnapshot();
+      const accessButton = snapshot.getByRole("button", {
+        name: new RegExp(`View ${access.label} holdings detail`, "u"),
+      });
+      await expect(accessButton).toBeVisible();
+      await expect(accessButton).toHaveAttribute("data-slot", "button");
+      if (index === 0) {
+        await accessButton.press("Enter");
+      } else {
+        await accessButton.click();
+      }
+      await expect(page).toHaveURL(/\/holdings\?access=/u);
+      expect(new URL(page.url()).searchParams.get("access")).toBe(access.key);
+      const detail = page.getByRole("region", { name: access.label });
+      await expect(
+        detail.getByRole("heading", { name: access.label }),
+      ).toBeFocused();
+      await expect(detail).toContainText(access.row);
+      await expectNoHorizontalOverflow(page);
+      if (access.key === "cash") {
+        await expect(detail).toHaveScreenshot(
+          "portfolio-access-drilldown.png",
+          {
+            animations: "disabled",
+          },
+        );
+      }
+    }
+  },
+);

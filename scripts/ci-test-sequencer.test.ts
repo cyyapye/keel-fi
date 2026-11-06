@@ -17,7 +17,7 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
       moduleId:
         "/synthetic/scripts/automatic-investment-review-d1-cost.test.ts",
     },
-    { moduleId: "/synthetic/apps/api/src/position-purchases.test.ts" },
+    { moduleId: "/synthetic/apps/api/src/position-routes.test.ts" },
     { moduleId: "/synthetic/packages/database/src/position-purchases.test.ts" },
   ];
   const original = [...files];

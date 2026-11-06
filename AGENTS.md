@@ -42,6 +42,10 @@
 
 Load the applicable guidance when the task crosses its boundary:
 
+- For D1 schema migrations, database maintenance, quota admission, or recurring
+  D1 producers, use [$keel-d1-safety](.codex/skills/keel-d1-safety/SKILL.md).
+  Its populated OLD-schema cost and preservation evidence is separate from empty
+  migration replay and post-migration query tests.
 - For user-visible frontend work, including `packages/ui` and visual tests, use
   [$keel-ui-quality](.codex/skills/keel-ui-quality/SKILL.md). It routes minor
   edits, diagnosis, and material changes to the required product and visual

@@ -1,8 +1,10 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { createSqliteFixture } from "./sqlite-fixture";
+import { fixtureSourceKey } from "./sqlite-snapshot";
+import { prepareFixtureSnapshot } from "./sqlite-vitest-global";
 
 it("isolates copied rows, schema and transactions while preserving constraints and cleanup", () => {
   const root = mkdtempSync(join(tmpdir(), "keel-fixture-input-"));
@@ -59,7 +61,20 @@ it("invalidates changed or reordered inputs and rejects incomplete migrations", 
   writeFileSync(schema, "CREATE TABLE items (id INTEGER PRIMARY KEY);");
   writeFileSync(seed, "INSERT INTO items VALUES (1);");
   try {
+    const snapshot = prepareFixtureSnapshot(root, [schema, seed]);
+    if (!snapshot)
+      throw new Error("Small SQLite test fixture exceeds its bound");
+    for (const invalid of [
+      { ...snapshot, sha256: "0".repeat(64) },
+      { ...snapshot, bytes: 1 },
+      { ...snapshot, packed: snapshot.packed + "!" },
+    ]) {
+      vi.stubGlobal("keelSqliteFixtureSnapshot", invalid);
+      expect(() => createSqliteFixture([schema, seed])).toThrow();
+    }
+    vi.stubGlobal("keelSqliteFixtureSnapshot", snapshot);
     const first = createSqliteFixture([schema, seed]);
+    expect(first.prepare("SELECT id FROM items").get()!.id).toBe(1);
     first.close();
     writeFileSync(seed, "INSERT INTO items VALUES (2);");
     const changed = createSqliteFixture([schema, seed]);
@@ -80,7 +95,15 @@ it("invalidates changed or reordered inputs and rejects incomplete migrations", 
     } finally {
       repaired.close();
     }
+    expect(() =>
+      createSqliteFixture([schema, join(root, "missing.sql")]),
+    ).toThrow(/ENOENT/u);
+    // Both bytes decode to the same replacement character, but the sources differ.
+    expect(fixtureSourceKey([seed], [Buffer.from([0xfe])])).not.toBe(
+      fixtureSourceKey([seed], [Buffer.from([0xff])]),
+    );
   } finally {
+    vi.unstubAllGlobals();
     rmSync(root, { recursive: true, force: true });
   }
 });

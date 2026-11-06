@@ -35,22 +35,27 @@ export const renamedCostScaleInput = (
 
 // Preserve the production import/review operations while keeping synthetic setup
 // beside D1. The caller still meters the same read and history holdouts.
-export async function seedReviewedRenameCostFixture(database: D1Database) {
+export async function seedReviewedRenameCostImport(
+  database: D1Database,
+  input: HoldingImportStageInput,
+) {
   const imports = new D1HoldingImportRepository(database);
-  const seed = async (input: HoldingImportStageInput) => {
-    const staged = await imports.stageHoldingImport(renamedCostSubject, input);
-    if (staged.preview.status !== "applied")
-      await imports.applyHoldingImport(renamedCostSubject, staged.preview.id, {
-        currency: "USD",
-        decisions: staged.preview.rows.map((row) => ({
-          rowId: row.id,
-          decision: "accepted",
-          rationale: "Synthetic reviewed identity.",
-        })),
-      });
-  };
-  await seed(renamedCostScaleInput(false, 1));
-  await seed(renamedCostScaleInput(true, 2));
+  const staged = await imports.stageHoldingImport(renamedCostSubject, input);
+  if (staged.preview.status !== "applied")
+    return imports.applyHoldingImport(renamedCostSubject, staged.preview.id, {
+      currency: "USD",
+      decisions: staged.preview.rows.map((row) => ({
+        rowId: row.id,
+        decision: "accepted",
+        rationale: "Synthetic reviewed identity.",
+      })),
+    });
+  return undefined;
+}
+
+export async function seedReviewedRenameCostFixture(database: D1Database) {
+  await seedReviewedRenameCostImport(database, renamedCostScaleInput(false, 1));
+  await seedReviewedRenameCostImport(database, renamedCostScaleInput(true, 2));
   const links = new D1PositionLinkRepository(database);
   const reviews = new D1InvestmentReviewRepository(database);
   const workspace = await links.workspace(renamedCostSubject);
