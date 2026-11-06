@@ -53,14 +53,11 @@ describe("GitHub artifact storage budgets", () => {
         "utf8",
       );
       expect(deployment).not.toContain("KEEL_PAUSE_ARTIFACT_UPLOADS");
-      expect(deployment).toContain("scripts/d1-maintenance.ts release");
-      const maintenance = await readFile("scripts/d1-maintenance.ts", "utf8");
-      expect(maintenance).not.toContain("KEEL_PAUSE_ARTIFACT_UPLOADS");
-      expect(maintenance).toMatch(
-        /await storePreviewEvidence\("backup", environment\)/u,
+      expect(deployment).toContain(
+        "scripts/preview-deployment-storage.ts backup",
       );
-      expect(maintenance).toMatch(
-        /await storePreviewEvidence\("release", environment\)/u,
+      expect(deployment).toContain(
+        "scripts/preview-deployment-storage.ts release",
       );
       expect(action).toContain("inputs.paused == 'true'");
       // Repository variables are not available inside composite actions.
