@@ -731,7 +731,7 @@ function ParticipationReview({
   );
 }
 
-function OwnershipReview({
+export function OwnershipReview({
   context,
   save,
   busy,

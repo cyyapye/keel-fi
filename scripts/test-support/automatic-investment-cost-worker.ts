@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { D1HoldingImportRepository } from "../../packages/database/src/holding-imports";
+import { syntheticWefunderImport } from "./wefunder-holdings";
 import { D1AutomaticInvestmentReviewRepository } from "../../packages/database/src/automatic-investment-review";
 import { D1InvestmentReviewRepository } from "../../packages/database/src/investment-review";
 import { seedAutomaticInvestments } from "./automatic-investments";
@@ -6,6 +8,12 @@ import { measureD1 } from "./d1-meter";
 
 const positionIdsSchema = z.array(z.string().uuid()).min(1).max(120);
 const setupOperationSchema = z.discriminatedUnion("operation", [
+  z
+    .object({
+      operation: z.literal("wefunder-import"),
+      scenario: z.enum(["initial", "grown", "empty"]),
+    })
+    .strict(),
   z.object({ operation: z.literal("source-capture-cost") }),
   z.object({
     operation: z.literal("seed"),
@@ -46,6 +54,68 @@ export default {
       return Response.json({ error: parsed.error.flatten() }, { status: 400 });
     }
     const input = parsed.data;
+    if (input.operation === "wefunder-import") {
+      const config = {
+        initial: {
+          prefix: "Synthetic Initial Position",
+          missing: false,
+          reviewed: false,
+        },
+        grown: {
+          prefix: "Synthetic Later Position",
+          missing: false,
+          reviewed: true,
+        },
+        empty: {
+          prefix: "Synthetic No Entity Match",
+          missing: true,
+          reviewed: false,
+        },
+      }[input.scenario];
+      const holdingInput = await syntheticWefunderImport({
+        count: 120,
+        positionType: "Direct",
+        legalName: (index) =>
+          config.missing
+            ? `Synthetic Unmatched Vehicle ${index} LLC`
+            : `Synthetic Wefunder Vehicle ${index} LLC`,
+        investmentPrefix: config.prefix,
+      });
+      const imports = new D1HoldingImportRepository(bindings.DB);
+      const staged = await imports.stageHoldingImport(
+        "synthetic-access-subject",
+        holdingInput,
+      );
+      if (config.reviewed) {
+        await imports.applyHoldingImport(
+          "synthetic-access-subject",
+          staged.preview.id,
+          {
+            currency: "USD",
+            decisions: staged.preview.rows.map((row) => ({
+              rowId: row.id,
+              decision: "accepted",
+              rationale:
+                "Reviewed synthetic additional positions for the cost holdout.",
+            })),
+          },
+        );
+      } else {
+        await imports.autoAdjudicatePrivateHoldingImport(
+          "synthetic-access-subject",
+          staged.preview.id,
+        );
+      }
+      const current = await imports.getHoldingImport(
+        "synthetic-access-subject",
+        staged.preview.id,
+      );
+      return Response.json({
+        importId: staged.preview.id,
+        status: current?.status ?? null,
+        rowCount: staged.preview.rows.length,
+      });
+    }
     if (input.operation === "source-capture-cost") {
       const measured = measureD1(bindings.DB);
       let sourceWrites = 0;

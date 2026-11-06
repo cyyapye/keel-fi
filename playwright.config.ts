@@ -35,8 +35,6 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: browserLane.files,
   fullyParallel: true,
-  // Mocked lanes reject unhandled application API requests. Four one-worker
-  // roots run first; the final mocked development lane then uses all four slots.
   workers: browserLane.workers,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
@@ -52,10 +50,12 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
+      grepInvert: /@mobile-only\b/u,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "mobile-chromium",
+      grepInvert: /@desktop-only\b/u,
       use: { ...devices["Pixel 7"] },
     },
   ],
@@ -63,7 +63,7 @@ export default defineConfig({
     command:
       browserLane.lane === "all"
         ? "pnpm dev"
-        : "pnpm exec tsx scripts/browser-test-server.ts",
+        : "node --import tsx scripts/browser-test-server.ts",
     reuseExistingServer:
       !process.env.CI && process.env.KEEL_E2E_ISOLATED !== "1",
     timeout: 120_000,

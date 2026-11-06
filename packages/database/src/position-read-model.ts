@@ -152,6 +152,10 @@ async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
   return result.results;
 }
 
+const IncomingDocumentsSchema = z
+  .array(LegalNameDocumentReferenceSchema)
+  .max(6);
+
 function positionFromRow(
   row: InvestmentPositionRow,
   asOf: string,
@@ -278,10 +282,9 @@ function positionFromRow(
         : InvestmentReviewStateSchema.parse(
             JSON.parse(row.investment_review_json),
           ),
-      z
-        .array(LegalNameDocumentReferenceSchema)
-        .max(6)
-        .parse(JSON.parse(row.incoming_document_json ?? "[]")),
+      IncomingDocumentsSchema.parse(
+        JSON.parse(row.incoming_document_json ?? "[]"),
+      ),
     ),
     ownerLabel: row.owner_label,
     reportedExposureName: row.reported_exposure_name,

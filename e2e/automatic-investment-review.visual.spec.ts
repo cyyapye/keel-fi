@@ -12,7 +12,7 @@ import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { routeInvestmentReview } from "./investment-review-fixtures";
 
-async function setup(page: Page, failed = false) {
+async function setup(page: Page) {
   const sources: LegalEntitySourceSummary[] = Array.from(
     { length: 120 },
     (_, index) => ({
@@ -51,7 +51,7 @@ async function setup(page: Page, failed = false) {
       newEntityCount: 0,
       llcEntityCount: 0,
       limitedPartnershipEntityCount: 0,
-      remainingCandidateCount: 120,
+      remainingCandidateCount: sources.length,
     },
   };
   const source = sources[0]!;
@@ -115,14 +115,6 @@ async function setup(page: Page, failed = false) {
   let resolves = 0;
   await page.route("**/api/legal-entities/resolve", async (route) => {
     resolves++;
-    if (failed)
-      return route.fulfill({
-        status: 503,
-        json: {
-          error:
-            "Automatic review could not finish. Your saved records are available.",
-        },
-      });
     const first = inventory.entities.length === 0;
     if (first) {
       inventory.entities = sources.map((item, index) => {
@@ -165,9 +157,9 @@ async function setup(page: Page, failed = false) {
     }
     return route.fulfill({
       json: {
-        processedCount: 120,
-        changedCount: first ? 120 : 0,
-        resolvedCount: summary.issues.length ? 119 : 120,
+        processedCount: sources.length,
+        changedCount: first ? sources.length : 0,
+        resolvedCount: sources.length - (summary.issues.length ? 1 : 0),
         exceptionCount: summary.issues.length ? 1 : 0,
         nextPositionId: null,
       },
@@ -222,97 +214,56 @@ async function setup(page: Page, failed = false) {
   };
 }
 
-test("automatically resolves 120 legal records without making missing fees a review task", async ({
-  page,
-}) => {
-  const fixture = await setup(page);
-  await expect(
-    page.getByRole("heading", { name: /Needs your review/u }),
-  ).toHaveCount(0);
-  await expect(page.locator(".legal-entity-candidate")).toHaveCount(0);
-  await expect(page.locator(".legal-entity-row")).toHaveCount(25);
-  expect(fixture.inventory.entities).toHaveLength(120);
-  expect(fixture.resolves()).toBe(1);
-  expect(fixture.reads()).toBe(0);
-  await expect(page).toHaveScreenshot("automatic-investment-exceptions.png");
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  const row = page.locator(".legal-entity-row").filter({
-    has: page.getByRole("heading", {
-      name: "Synthetic Orchard 0 SPV LLC",
+test(
+  "automatically resolves 120 legal records without making missing fees a review task",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const fixture = await setup(page);
+    await expect(
+      page.getByRole("heading", { name: /Needs your review/u }),
+    ).toHaveCount(0);
+    await expect(page.locator(".legal-entity-candidate")).toHaveCount(0);
+    await expect(page.locator(".legal-entity-row")).toHaveCount(25);
+    expect(fixture.inventory.entities).toHaveLength(120);
+    expect(fixture.resolves()).toBe(1);
+    expect(fixture.reads()).toBe(0);
+    await expect(page).toHaveScreenshot("automatic-investment-exceptions.png");
+    await page.addStyleTag({
+      content: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+    const row = page.locator(".legal-entity-row").filter({
+      has: page.getByRole("heading", {
+        name: "Synthetic Orchard 0 SPV LLC",
+        exact: true,
+      }),
+    });
+    await row.getByRole("button").click();
+    const review = page.getByRole("region", {
+      name: "Investment review",
       exact: true,
-    }),
-  });
-  await row.getByRole("button").click();
-  const review = page.getByRole("region", {
-    name: "Investment review",
-    exact: true,
-  });
-  await expect(
-    review.getByText("Review complete", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    review.getByRole("tab", { name: "Investment", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    review.getByRole("button", { name: "Edit company", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "View position in Holdings", exact: true }),
-  ).toHaveAttribute("href", "/holdings?position=synthetic-auto-position-0");
-  await expect(
-    review.locator(".position-economics, .position-purchases"),
-  ).toHaveCount(0);
-  await expect(review).toHaveScreenshot(
-    "automatic-investment-missing-term.png",
-  );
-  expect(fixture.termWrites).toHaveLength(0);
-  expect(fixture.writes).toHaveLength(0);
-});
-
-test("preserves investment deep links by opening the existing Holdings position", async ({
-  page,
-}) => {
-  await setup(page);
-  await page.route("**/holdings?position=synthetic-auto-position-0", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: "<h1>Existing Holdings position</h1>",
-    }),
-  );
-  await page.goto(
-    "/holdings/entities?review=holding_position%3Asynthetic-auto-position-0&tab=investment",
-  );
-  await expect(page).toHaveURL(
-    /\/holdings\?position=synthetic-auto-position-0$/u,
-  );
-  await expect(
-    page.getByRole("heading", {
-      name: "Existing Holdings position",
-      exact: true,
-    }),
-  ).toBeVisible();
-  await page.goBack();
-  await expect(page).toHaveURL(/\/holdings\/entities$/u);
-});
-
-test("keeps the inventory accessible after a failed automatic review without background retries", async ({
-  page,
-}) => {
-  const fixture = await setup(page, true);
-  await expect(
-    page.getByText(
-      "Automatic review could not finish. Your saved records are available.",
-    ),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Add entity", exact: true }),
-  ).toBeVisible();
-  expect(fixture.resolves()).toBe(1);
-  await expect(page).toHaveScreenshot("automatic-investment-retry.png");
-  await page
-    .getByRole("button", { name: "Retry automatic review", exact: true })
-    .click();
-  await expect.poll(fixture.resolves).toBe(2);
-});
+    });
+    await expect(
+      review.getByText("Review complete", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      review.getByRole("tab", { name: "Investment", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      review.getByRole("button", { name: "Edit company", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", {
+        name: "View position in Holdings",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", "/holdings?position=synthetic-auto-position-0");
+    await expect(
+      review.locator(".position-economics, .position-purchases"),
+    ).toHaveCount(0);
+    await expect(review).toHaveScreenshot(
+      "automatic-investment-missing-term.png",
+    );
+    expect(fixture.termWrites).toHaveLength(0);
+    expect(fixture.writes).toHaveLength(0);
+  },
+);

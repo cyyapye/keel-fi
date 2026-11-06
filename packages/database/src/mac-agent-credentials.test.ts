@@ -1,11 +1,9 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  DatabaseSync,
-  type SQLInputValue,
-  type StatementSync,
-} from "node:sqlite";
+import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 
 import { D1AngelListMacAgentRepository } from "./angellist-mac-agent";
 import { D1MacAgentCredentialRepository } from "./mac-agent-credentials";
@@ -64,24 +62,17 @@ class TestD1Database {
 }
 
 function createTestDatabase(): DatabaseSync {
-  const database = new DatabaseSync(":memory:");
   const migrationDirectory = resolve(
     process.cwd(),
     "packages/database/migrations",
   );
-  readdirSync(migrationDirectory)
-    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
-    .sort()
-    .forEach((file) => {
-      database.exec(readFileSync(resolve(migrationDirectory, file), "utf8"));
-    });
-  database.exec(
-    readFileSync(
-      resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
-      "utf8",
-    ),
-  );
-  return database;
+  return createSqliteFixture([
+    ...readdirSync(migrationDirectory)
+      .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+      .sort()
+      .map((file) => resolve(migrationDirectory, file)),
+    resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
+  ]);
 }
 
 let database: DatabaseSync | null = null;

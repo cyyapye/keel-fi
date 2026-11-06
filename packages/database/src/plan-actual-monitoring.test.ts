@@ -1,9 +1,11 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { NormalizedCashAccounts } from "@keel/connectors";
+
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 
 import { D1CashAccountsRepository } from "./cash-accounts";
 import { D1PlanActualMonitoringRepository } from "./plan-actual-monitoring";
@@ -165,23 +167,17 @@ describe("plan-versus-actual monitoring persistence", () => {
   let monitoring: D1PlanActualMonitoringRepository;
 
   beforeEach(() => {
-    sqlite = new DatabaseSync(":memory:");
     const migrationDirectory = resolve(
       process.cwd(),
       "packages/database/migrations",
     );
-    readdirSync(migrationDirectory)
-      .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
-      .sort((left, right) => left.localeCompare(right))
-      .forEach((file) => {
-        sqlite.exec(readFileSync(resolve(migrationDirectory, file), "utf8"));
-      });
-    sqlite.exec(
-      readFileSync(
-        resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
-        "utf8",
-      ),
-    );
+    sqlite = createSqliteFixture([
+      ...readdirSync(migrationDirectory)
+        .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+        .sort((left, right) => left.localeCompare(right))
+        .map((file) => resolve(migrationDirectory, file)),
+      resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
+    ]);
     database = new TestD1Database(sqlite) as unknown as D1Database;
     monitoring = new D1PlanActualMonitoringRepository(database);
   });

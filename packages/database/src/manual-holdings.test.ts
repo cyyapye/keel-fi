@@ -90,6 +90,8 @@ it.each(["direct", "spv_interest", "fund_interest"] as const)(
     const saved = await repository.create(subject, input({ kind }));
     const initial = await holding(saved.positionId);
     expect(initial.holding).toMatchObject({
+      positionKind: kind,
+      purchaseContext: { openedOn: null },
       manualContext: { version: 1, classification: "private_paper" },
       sourceStatus: "manual",
       sourceLabel: "Entered by you",

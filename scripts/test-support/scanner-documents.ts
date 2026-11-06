@@ -1,45 +1,4 @@
-import { crc32, deflateSync } from "node:zlib";
-
-// A small stored ZIP isolates MaxFiles from PDF parsing's time budget. Its
-// complete payload and expanded contents both stay below 8 MiB at 10001 items.
-export function syntheticManyFileZip(
-  fileCount: number,
-): Uint8Array<ArrayBuffer> {
-  if (!Number.isSafeInteger(fileCount) || fileCount < 1 || fileCount > 11_000)
-    throw new Error("Synthetic file count must be between 1 and 11000.");
-  const local: Buffer[] = [];
-  const directory: Buffer[] = [];
-  let offset = 0;
-  for (let index = 0; index < fileCount; index += 1) {
-    const name = Buffer.from(`synthetic-${index.toString()}.txt`);
-    const content = Buffer.from(
-      `Synthetic scanner budget item ${index.toString()}\n`,
-    );
-    const header = Buffer.alloc(30);
-    header.writeUInt32LE(0x04034b50, 0);
-    header.writeUInt16LE(20, 4);
-    header.writeUInt32LE(crc32(content), 14);
-    header.writeUInt32LE(content.length, 18);
-    header.writeUInt32LE(content.length, 22);
-    header.writeUInt16LE(name.length, 26);
-    const entry = Buffer.alloc(46);
-    entry.writeUInt32LE(0x02014b50, 0);
-    entry.writeUInt16LE(20, 4);
-    header.copy(entry, 6, 4, 28);
-    entry.writeUInt32LE(offset, 42);
-    local.push(header, name, content);
-    directory.push(entry, name);
-    offset += header.length + name.length + content.length;
-  }
-  const central = Buffer.concat(directory);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(fileCount, 8);
-  end.writeUInt16LE(fileCount, 10);
-  end.writeUInt32LE(central.length, 12);
-  end.writeUInt32LE(offset, 16);
-  return new Uint8Array(Buffer.concat([...local, central, end]));
-}
+import { deflateSync } from "node:zlib";
 
 // Fully synthetic, valid PDF structure with many independently compressed
 // streams. Distinct contents prevent the scanner's clean-file cache from

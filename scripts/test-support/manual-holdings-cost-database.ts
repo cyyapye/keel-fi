@@ -25,9 +25,16 @@ const costSchema = z
   .strict();
 
 export async function createManualHoldingsCostDatabase() {
-  const fixture = await createCostDatabase(await worker);
+  const fixture = await createCostDatabase(await worker, {
+    sharedMemoryParent:
+      process.env.CI === "true"
+        ? process.env.KEEL_PROVIDER_DAY_SCRATCH
+        : undefined,
+    checkProviderDayHeadroom: true,
+  });
   return {
     database: fixture.database,
+    storage: fixture.storage,
     close: fixture.close,
     createManualHoldings: async (batch: ManualHoldingCostBatch) => {
       const response = await fixture.dispatchFetch(

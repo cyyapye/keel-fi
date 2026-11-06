@@ -55,29 +55,28 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     const legacyBefore = await readLegacy();
     // 120 versions per position share a timestamp: version ordering, not time,
     // must select the accepted decision. Every database guard remains enabled.
-    const historyStatements: D1PreparedStatement[] = [];
-    for (let version = 2; version <= 121; version++) {
-      historyStatements.push(
-        fixture.database
-          .prepare(
-            `INSERT INTO holding_investment_reviews
+    const insertHistory = fixture.database.prepare(
+      `INSERT INTO holding_investment_reviews
         (id,household_id,position_id,request_id,request_sha256,expected_snapshot_id,supersedes_review_id,version,state_json,reviewer_user_id,recorded_at,evidence_guard_json)
         SELECT printf('20000000-0000-4000-9000-%012x', ? * 1000 + keys.key), previous.household_id, previous.position_id,
           printf('30000000-0000-4000-9000-%012x', ? * 1000 + keys.key), printf('%064x', ? * 1000 + keys.key), previous.expected_snapshot_id, previous.id, ?,
           json_set(previous.state_json, '$.id', printf('20000000-0000-4000-9000-%012x', ? * 1000 + keys.key), '$.version', ?),
           previous.reviewer_user_id, previous.recorded_at, json_set(previous.evidence_guard_json, '$.reviewId', previous.id)
         FROM json_each(?) keys JOIN holding_investment_reviews previous ON previous.position_id = keys.value AND previous.version = ?`,
-          )
-          .bind(
-            version,
-            version,
-            version,
-            version,
-            version,
-            version,
-            JSON.stringify(ids),
-            version - 1,
-          ),
+    );
+    const historyStatements: D1PreparedStatement[] = [];
+    for (let version = 2; version <= 121; version++) {
+      historyStatements.push(
+        insertHistory.bind(
+          version,
+          version,
+          version,
+          version,
+          version,
+          version,
+          JSON.stringify(ids),
+          version - 1,
+        ),
       );
     }
     // Setup is outside the measured requests. Bound transport batches while
@@ -89,9 +88,14 @@ it("keeps 120 participation projections and closure saves bounded across tied hi
     }
     const history = await read();
     expect(history.rowsRead).toBeLessThanOrEqual(before.rowsRead + 1_000);
-    await fixture.execute(
-      "INSERT INTO users VALUES ('participation-other-user','participation-other-subject','other@example.invalid','Synthetic Other','2026-09-01'); INSERT INTO households VALUES ('participation-other','participation-other-user','Synthetic Other','USD','2026-09-01')",
-    );
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES ('participation-other-user','participation-other-subject','other@example.invalid','Synthetic Other','2026-09-01')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES ('participation-other','participation-other-user','Synthetic Other','USD','2026-09-01')",
+      ),
+    ]);
     await fixture.seed({
       count: 120,
       subject: "participation-other-subject",

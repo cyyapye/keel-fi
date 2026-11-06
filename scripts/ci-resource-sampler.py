@@ -42,8 +42,14 @@ def read_stat(proc, pid):
     if min(values) < 0 or max(values) > 2**64 - 1 or int(raw.split(b" ", 1)[0]) != pid:
         raise ValueError("invalid process counters")
     parent, group, session, user, system, start = values
+    try:
+        rss = int(fields[21])
+        if not 0 <= rss <= 2**64 - 1:
+            rss = None
+    except (ValueError, IndexError):
+        rss = None
     return {"pid": pid, "parent": parent, "group": group, "session": session,
-            "start": start, "cpu": user + system}
+            "start": start, "cpu": user + system, "rss_pages": rss}
 
 
 def identity(process):
@@ -77,6 +83,9 @@ class FlowSampler:
         self.ticks = os.sysconf("SC_CLK_TCK") if ticks_per_second is None else ticks_per_second
         if not isinstance(self.ticks, int) or self.ticks <= 0:
             raise ValueError("invalid clock tick rate")
+        self.page_size = os.sysconf("SC_PAGE_SIZE")
+        if type(self.page_size) is not int or not 0 < self.page_size <= 2**32:
+            raise ValueError("invalid resident page size")
         self.previous = {}
         self.last_time = None
 
@@ -100,6 +109,7 @@ class FlowSampler:
                   "pids_examined": 0, "read_errors": 0, "ancestry_incomplete": 0,
                   "interval_ns": None if self.last_time is None else started - self.last_time,
                   "flows": {name: {"observed_processes": 0, "new_processes": 0, "lost_processes": 0,
+                                   "process_rss_bytes_sum": None,
                                    "cpu_delta_processes": 0, "cpu_delta_ns": None,
                                    "runqueue_delta_processes": 0, "main_thread_runqueue_delta_ns": None,
                                    "counter_resets": 0} for name in self.flows}}
@@ -203,7 +213,9 @@ class FlowSampler:
             if after is None or not same_process(item, after):
                 result["read_errors"] += 1
                 continue
-            current[identity(item)] = {"owner": roots[root], "cpu": item["cpu"], "delay": delay}
+            current[identity(item)] = {"owner": roots[root], "cpu": item["cpu"], "delay": delay,
+                                       "rss": item["rss_pages"] * self.page_size
+                                       if item["rss_pages"] is not None else None}
 
         # Reject a root/coordinator/scope replaced or reparented during this scan.
         invalid, rechecked = set(), {}
@@ -219,6 +231,12 @@ class FlowSampler:
         for key, value in current.items():
             row = result["flows"][value["owner"][0]]
             row["observed_processes"] += 1
+            if row["observed_processes"] == 1:
+                row["process_rss_bytes_sum"] = value["rss"]
+            elif row["process_rss_bytes_sum"] is not None and value["rss"] is not None:
+                row["process_rss_bytes_sum"] += value["rss"]
+            else:
+                row["process_rss_bytes_sum"] = None
             prior = self.previous.get(key)
             if prior is None or prior["owner"] != value["owner"]:
                 row["new_processes"] += 1
@@ -247,7 +265,10 @@ class FlowSampler:
 
 
 def sample():
-    cpu = list(map(int, Path("/proc/stat").read_text().splitlines()[0].split()[1:9]))
+    cpu_lines = Path("/proc/stat").read_text().splitlines()
+    cpu = list(map(int, cpu_lines[0].split()[1:9]))
+    cpu_count = len({line.split()[0] for line in cpu_lines if re.match(r"cpu[0-9]+\s", line)}) \
+        if len(cpu_lines) <= MAX_ENTRIES else None
     memory = {line.split(":")[0]: int(line.split()[1])
               for line in Path("/proc/meminfo").read_text().splitlines()}
     pressure = {
@@ -256,6 +277,11 @@ def sample():
         for kind in ("cpu", "memory", "io")
     }
     return {"time": time.time(), "cpu": cpu,
+            "logical_cpu_count": cpu_count if cpu_count else None,
+            "memory_total_mib": round(memory["MemTotal"] / 1024, 1)
+            if memory.get("MemTotal", 0) > 0 else None,
+            "swap_total_mib": round(memory["SwapTotal"] / 1024, 1)
+            if memory["SwapTotal"] >= 0 else None,
             "memory_available_mib": round(memory["MemAvailable"] / 1024, 1),
             "swap_used_mib": round((memory["SwapTotal"] - memory["SwapFree"]) / 1024, 1),
             "pressure": pressure}

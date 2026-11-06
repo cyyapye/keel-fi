@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
   agreementCapture,
   type AgreementPosition,
@@ -50,9 +50,10 @@ function collect(
 for (const problem of ["scanner_unavailable", "security_blocked"] as const) {
   test(`preserves original bytes without PDF extraction when ${problem}`, async () => {
     const saved: ProviderLegalDocumentCapture[] = [];
+    const extract = vi.fn(reader.extract);
     let storedBytes = 0;
     const collector = agreementCapture({
-      extract: reader.extract,
+      extract,
       now: () => new Date(currentCheck),
       provider: "sydecar",
       manifest: { version: 1, captures: [] },
@@ -77,6 +78,7 @@ for (const problem of ["scanner_unavailable", "security_blocked"] as const) {
     });
     await collect(collector, position);
     await collector.flush();
+    expect(extract).not.toHaveBeenCalled();
     expect(storedBytes).toBe(syntheticAgreementPdf().length);
     expect(saved[0]?.documents[0]?.extraction).toMatchObject({
       problem,
@@ -85,6 +87,35 @@ for (const problem of ["scanner_unavailable", "security_blocked"] as const) {
     });
   });
 }
+
+test("extracts the original bytes after a clean scan", async () => {
+  const bytes = syntheticAgreementPdf();
+  const extract = vi.fn(reader.extract);
+  const saved: ProviderLegalDocumentCapture[] = [];
+  const collector = agreementCapture({
+    extract,
+    now: () => new Date(currentCheck),
+    provider: "sydecar",
+    manifest: { version: 1, captures: [] },
+    renew: () => Promise.resolve(),
+    download: () => Promise.resolve(new Response(bytes)),
+    scan: cleanSyntheticScan,
+    save: ({ capture }) => {
+      saved.push(capture);
+      return Promise.resolve();
+    },
+  });
+  await collect(collector, position);
+  await collector.flush();
+  expect(extract).toHaveBeenCalledExactlyOnceWith(Buffer.from(bytes));
+  expect(saved[0]?.documents[0]?.extraction).toMatchObject({
+    problem: null,
+    pageCount: 1,
+    citations: [
+      { legalName: "Synthetic Atlas SPV LLC", page: 1, role: "issuer" },
+    ],
+  });
+});
 
 for (const provider of ["sydecar", "tokenfolio"] as const) {
   test(`${provider}: rechecks only the selected agreement among 120 positions and preserves sibling evidence`, async () => {

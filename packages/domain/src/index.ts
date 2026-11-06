@@ -3631,12 +3631,14 @@ export function scenarioSensitivityScalePpm(
   return Math.min(scale, 10 * PARTS_PER_MILLION);
 }
 
+const ScalePpmSchema = z.number().int().safe().nonnegative();
+
 export function multiplyMinorByScalePpm(
   minorUnits: number,
   scalePpm: number,
 ): number {
   NonNegativeMoneyMinorSchema.parse(minorUnits);
-  z.number().int().safe().nonnegative().parse(scalePpm);
+  ScalePpmSchema.parse(scalePpm);
   const result =
     (BigInt(minorUnits) * BigInt(scalePpm)) / BigInt(PARTS_PER_MILLION);
   return NonNegativeMoneyMinorSchema.parse(Number(result));

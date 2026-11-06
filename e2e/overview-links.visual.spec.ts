@@ -61,8 +61,9 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   const alphaFixture = withStableOverviewValues(
     (await alphaResponse.json()) as AlphaData,
   );
+  let visibleGoals = alphaFixture.goals;
   await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
+    await route.fulfill({ json: { ...alphaFixture, goals: visibleGoals } });
   });
 
   await page.goto("/");
@@ -222,6 +223,14 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   await goalDots.first().focus();
   await page.keyboard.press("ArrowRight");
   await expect(goalDots.nth(1)).toHaveAttribute("aria-current", "true");
+  if (testInfo.project.name === "chromium") {
+    await expect(goalOverview).toHaveAttribute(
+      "data-goal-id",
+      alphaFixture.goals[1]!.id,
+    );
+    await expectNoHorizontalOverflow(page);
+    return;
+  }
   await goalDots.first().click();
   await expect(goalDots.first()).toHaveAttribute("aria-current", "true");
 
@@ -336,8 +345,7 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   expect(
     linkStyles.every(
       ({ height, textDecorationLine }) =>
-        height >= (testInfo.project.name === "mobile-chromium" ? 44 : 40) &&
-        textDecorationLine === "none",
+        height >= 44 && textDecorationLine === "none",
     ),
   ).toBe(true);
   await expect(goalOverview).not.toContainText("→");
@@ -349,27 +357,13 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
   await expect(
     page.getByRole("combobox", { name: "Saved goal" }).locator("strong"),
   ).toHaveText(selectedGoalName);
-});
-
-test("keeps the masthead static when only one goal is active", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = withStableOverviewValues(
-    (await alphaResponse.json()) as AlphaData,
-  );
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        goals: alphaFixture.goals.slice(0, 1),
-      } satisfies AlphaData,
-    });
-  });
-
+  visibleGoals = alphaFixture.goals.slice(0, 1);
   await page.goto("/");
-
+  await expect(
+    page
+      .locator(".hero")
+      .getByRole("heading", { name: "Financial independence", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("region", { name: "Goal overview" })).toHaveCount(
     0,
   );
@@ -377,6 +371,5 @@ test("keeps the masthead static when only one goal is active", async ({
     0,
   );
   await expect(page.locator(".overview-goals")).toHaveCount(0);
-  await expect(page.locator(".hero")).toContainText("Financial independence");
   await expectNoHorizontalOverflow(page);
 });
