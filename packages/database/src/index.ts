@@ -51,6 +51,7 @@ import {
 } from "./holding-imports";
 
 export * from "./holding-imports";
+export * from "./manual-holdings";
 export * from "./holdings-page";
 export * from "./angellist-mac-agent";
 export * from "./provider-portfolio-agent";

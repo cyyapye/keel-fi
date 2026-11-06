@@ -272,7 +272,7 @@ function sourceSummary(source: LegalEntitySourceSummary): string {
   return `${sourceRecord}${source.sourceLabel} · ${formatDate(source.sourceAsOf)}`;
 }
 
-function AgreementEvidence({
+export function AgreementEvidence({
   sources,
   assignment,
   documents: providedDocuments,
@@ -1214,7 +1214,7 @@ function CandidateRow({
   );
 }
 
-function SavedEntityProfile({ entity }: { entity: LegalEntityRecord }) {
+export function SavedEntityProfile({ entity }: { entity: LegalEntityRecord }) {
   const earlierOwnership =
     entity.sources.some(
       (source) => source.source.kind === "holding_position",

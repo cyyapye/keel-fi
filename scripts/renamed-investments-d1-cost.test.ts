@@ -1,14 +1,9 @@
 import { build } from "esbuild";
 import { expect, it } from "vitest";
+import { z } from "zod";
+import { HoldingImportApplyResultSchema } from "../packages/domain/src/index";
 import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import {
-  renamedCostSubject as subject,
-  renamedCostScaleInput as scaleInput,
-} from "./test-support/renamed-investments-cost";
-import {
-  D1HoldingImportRepository,
-  type HoldingImportStageInput,
-} from "../packages/database/src/holding-imports";
+import { renamedCostScaleInput as scaleInput } from "./test-support/renamed-investments-cost";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
 import { reviewedRenameScopes } from "../packages/database/src/reviewed-rename-scope";
 it("bounds 120 reviewed rename aliases and projections across decision and repeated-date source history, empty results and unrelated households", async () => {
@@ -26,19 +21,6 @@ it("bounds 120 reviewed rename aliases and projections across decision and repea
   });
   const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
   try {
-    const imports = new D1HoldingImportRepository(fixture.database);
-    const seed = async (input: HoldingImportStageInput) => {
-      const staged = await imports.stageHoldingImport(subject, input);
-      if (staged.preview.status !== "applied")
-        await imports.applyHoldingImport(subject, staged.preview.id, {
-          currency: "USD",
-          decisions: staged.preview.rows.map((row) => ({
-            rowId: row.id,
-            decision: "accepted",
-            rationale: "Synthetic reviewed identity.",
-          })),
-        });
-    };
     const setupResponse = await fixture.dispatchFetch(
       "https://synthetic-fixture.invalid/reviewed-renames",
       {
@@ -112,10 +94,24 @@ it("bounds 120 reviewed rename aliases and projections across decision and repea
       );
       expect(meter.cost.rowsRead).toBeLessThanOrEqual(positive.rowsRead + 10);
     }
-    for (let revision = 8; revision < 11; revision++) {
-      const input = scaleInput(false, revision);
-      input.effectiveDate = "2026-09-01";
-      await seed(input);
+    for (const revision of [8, 9, 10]) {
+      const response = await fixture.dispatchFetch(
+        "https://synthetic-fixture.invalid/reviewed-renames",
+        {
+          method: "POST",
+          body: JSON.stringify({ operation: "history", revision }),
+        },
+      );
+      expect(response.ok).toBe(true);
+      const result = HoldingImportApplyResultSchema.extend({
+        operation: z.literal("history"),
+      })
+        .strict()
+        .parse(await response.json());
+      expect(
+        result.createdCount + result.updatedCount + result.unchangedCount,
+      ).toBe(120);
+      expect(result.rejectedCount).toBe(0);
     }
     meter.reset();
     await reviewedRenameScopes(
@@ -144,14 +140,32 @@ it("bounds 120 reviewed rename aliases and projections across decision and repea
     expect(meter.cost.rowsWritten).toBe(0);
     expect(meter.cost.rowsRead).toBeLessThanOrEqual(20_000);
     const projection = { ...meter.cost };
-    await fixture.execute(
-      "INSERT INTO users VALUES('rename-other-user','rename-other-subject','rename-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z'); INSERT INTO households VALUES('rename-other-household','rename-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z');",
-    );
-    for (let revision = 12; revision < 14; revision++)
-      await new D1HoldingImportRepository(fixture.database).stageHoldingImport(
-        "rename-other-subject",
-        scaleInput(true, revision),
+    await fixture.database.batch([
+      fixture.database.prepare(
+        "INSERT INTO users VALUES('rename-other-user','rename-other-subject','rename-other@example.test','Synthetic other owner','2026-09-01T00:00:00.000Z')",
+      ),
+      fixture.database.prepare(
+        "INSERT INTO households VALUES('rename-other-household','rename-other-user','Synthetic other household','USD','2026-09-01T00:00:00.000Z')",
+      ),
+    ]);
+    for (const revision of [12, 13]) {
+      const response = await fixture.dispatchFetch(
+        "https://synthetic-fixture.invalid/reviewed-renames",
+        {
+          method: "POST",
+          body: JSON.stringify({ operation: "foreign", revision }),
+        },
       );
+      expect(response.ok).toBe(true);
+      z.object({
+        operation: z.literal("foreign"),
+        importId: z.string().min(1),
+        rowCount: z.literal(120),
+        status: z.literal("pending_review"),
+      })
+        .strict()
+        .parse(await response.json());
+    }
     meter.reset();
     await reviewedRenameScopes(
       meter.database,

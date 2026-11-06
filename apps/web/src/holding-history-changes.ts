@@ -21,7 +21,11 @@ const words = (value: string) =>
     proxy: "Proxy estimate",
   })[value] ?? value.replaceAll("_", " ");
 
-function facts(receipt: PurchaseReceipt | null, multiple: boolean) {
+function facts(
+  receipt: PurchaseReceipt | null,
+  multiple: boolean,
+  initial = false,
+) {
   const result = new Map<string, Fact>();
   if (!receipt) return result;
   const put = (
@@ -341,9 +345,13 @@ function facts(receipt: PurchaseReceipt | null, multiple: boolean) {
   const valuation = details.valuation;
   for (const record of valuation?.records ?? []) {
     const key = `value:${record.id}:`;
-    const label = `${record.sourceLabel} · `;
+    const label =
+      initial && valuation?.records.length === 1
+        ? ""
+        : `${record.sourceLabel} · `;
     put(key + "source", "Valuation source", record.sourceLabel);
-    put(key + "origin", label + "Type", record.origin);
+    if (record.origin !== "judgment")
+      put(key + "origin", label + "Type", record.origin);
     put(
       key + "total",
       label + "Position total",
@@ -422,7 +430,7 @@ export function holdingHistoryChanges(
     Math.max(receipt.details.lots.length, previous?.details.lots.length ?? 0) >
     1;
   const before = facts(previous, multiple),
-    after = facts(receipt, multiple);
+    after = facts(receipt, multiple, previous === null);
   return [...new Set([...after.keys(), ...before.keys()])].flatMap((key) => {
     const old = before.get(key),
       current = after.get(key);

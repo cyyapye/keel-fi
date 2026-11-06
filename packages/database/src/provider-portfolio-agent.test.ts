@@ -1,7 +1,8 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  DatabaseSync,
+  type DatabaseSync,
   type SQLInputValue,
   type StatementSync,
 } from "node:sqlite";
@@ -65,24 +66,14 @@ class TestD1Database {
 }
 
 function createTestDatabase(): DatabaseSync {
-  const database = new DatabaseSync(":memory:");
-  const migrationDirectory = resolve(
-    process.cwd(),
-    "packages/database/migrations",
-  );
-  readdirSync(migrationDirectory)
-    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
-    .sort()
-    .forEach((file) => {
-      database.exec(readFileSync(resolve(migrationDirectory, file), "utf8"));
-    });
-  database.exec(
-    readFileSync(
-      resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
-      "utf8",
-    ),
-  );
-  return database;
+  const directory = resolve(process.cwd(), "packages/database/migrations");
+  return createSqliteFixture([
+    ...readdirSync(directory)
+      .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+      .sort()
+      .map((file) => resolve(directory, file)),
+    resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
+  ]);
 }
 
 function seedPendingImport(

@@ -279,7 +279,7 @@ export function positionContributionBasis(input: {
 export function calculatePositionPerformance(input: {
   currentValueMinor: number | null;
   currentValueReported: boolean;
-  realizedValueMinor: number;
+  realizedValueMinor: number | null;
   providerCostBasisMinor: number | null;
   fundedMinor: number | null;
   economicsContext: PositionEconomicsContext | null;
@@ -337,7 +337,11 @@ export function calculatePositionPerformance(input: {
             ? ("reviewed_spv_estimate" as const)
             : ("reviewed_spv_terms" as const)
         : ("provider" as const);
-  if (!input.currentValueReported || input.currentValueMinor === null) {
+  if (
+    !input.currentValueReported ||
+    input.currentValueMinor === null ||
+    input.realizedValueMinor === null
+  ) {
     return {
       costBasisMinor,
       costBasisSource,

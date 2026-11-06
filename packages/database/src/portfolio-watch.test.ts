@@ -1,3 +1,4 @@
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -150,10 +151,9 @@ class TestD1Database {
 }
 
 function createTestDatabase(): DatabaseSync {
-  const database = new DatabaseSync(":memory:");
-  for (const file of migrationFiles) {
-    database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-  }
+  const database = createSqliteFixture(
+    migrationFiles.map((file) => resolve(process.cwd(), file)),
+  );
   database.exec(`
     UPDATE portfolio_watch_targets
     SET status = 'active'

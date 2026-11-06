@@ -61,6 +61,7 @@ type InvestmentContainerRow = {
 };
 
 type InvestmentPositionRow = {
+  manual_context_json: string | null;
   purchase_receipt_json?: string | null;
   price_proxy_status_json?: string | null;
   linked_value_json: string | null;
@@ -79,11 +80,11 @@ type InvestmentPositionRow = {
   snapshot_fingerprint: string;
   snapshot_observed_at: string;
   provider_status: "live" | "realized";
-  invested_minor: number;
-  allocation_minor: number;
+  invested_minor: number | null;
+  allocation_minor: number | null;
   unrealized_value_minor: number | null;
   unrealized_value_state: "reported" | "locked" | "not_reported";
-  realized_value_minor: number;
+  realized_value_minor: number | null;
   net_value_minor: number | null;
   net_value_state: "reported" | "locked" | "not_reported";
   instrument_type: string;
@@ -150,6 +151,10 @@ async function all<T>(statement: D1PreparedStatement): Promise<readonly T[]> {
   const result = await statement.all<T>();
   return result.results;
 }
+
+const IncomingDocumentsSchema = z
+  .array(LegalNameDocumentReferenceSchema)
+  .max(6);
 
 function positionFromRow(
   row: InvestmentPositionRow,
@@ -227,6 +232,12 @@ function positionFromRow(
           observedAt: row.retrieved_at,
         });
   return {
+    manualContext:
+      row.manual_context_json == null
+        ? null
+        : InvestmentPositionRecordSchema.shape.manualContext.parse(
+            JSON.parse(row.manual_context_json),
+          ),
     linkedReportedValue:
       row.linked_value_json == null
         ? null
@@ -271,10 +282,9 @@ function positionFromRow(
         : InvestmentReviewStateSchema.parse(
             JSON.parse(row.investment_review_json),
           ),
-      z
-        .array(LegalNameDocumentReferenceSchema)
-        .max(6)
-        .parse(JSON.parse(row.incoming_document_json ?? "[]")),
+      IncomingDocumentsSchema.parse(
+        JSON.parse(row.incoming_document_json ?? "[]"),
+      ),
     ),
     ownerLabel: row.owner_label,
     reportedExposureName: row.reported_exposure_name,
@@ -444,13 +454,11 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              connection_version.lifecycle_state
            FROM investment_connections connection
            JOIN investment_connection_versions connection_version
-             ON connection_version.connection_id = connection.id
-            AND NOT EXISTS (
-              SELECT 1
-              FROM investment_connection_versions later_connection_version
-              WHERE later_connection_version.supersedes_version_id =
-                    connection_version.id
-            )
+             ON connection_version.id = (
+               SELECT id FROM investment_connection_versions latest
+               WHERE latest.connection_id = connection.id
+               ORDER BY version DESC LIMIT 1
+             )
            WHERE connection.household_id = ?
            ORDER BY lower(connection_version.institution_label), connection.id`,
           )
@@ -469,13 +477,11 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              coverage.observed_at AS coverage_observed_at
            FROM ownership_containers container
            JOIN ownership_container_versions container_version
-             ON container_version.container_id = container.id
-            AND NOT EXISTS (
-              SELECT 1
-              FROM ownership_container_versions later_container_version
-              WHERE later_container_version.supersedes_version_id =
-                    container_version.id
-            )
+             ON container_version.id = (
+               SELECT id FROM ownership_container_versions latest
+               WHERE latest.container_id = container.id
+               ORDER BY version DESC LIMIT 1
+             )
            LEFT JOIN holding_import_coverages coverage
              ON coverage.id = (
                SELECT latest_coverage.id
@@ -508,8 +514,8 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                  THEN 'true' ELSE 'false' END)) END AS price_proxy_status_json,
              ownership.container_id,
              position.id AS position_id,
-             position.legal_vehicle_name,
-             position.owner_label,
+             COALESCE(manual_identity.legal_vehicle_name,position.legal_vehicle_name) AS legal_vehicle_name,
+             COALESCE(manual_identity.owner_label,position.owner_label) AS owner_label,
              accepted_row.exposure_label AS reported_exposure_name,
              (SELECT json_object('reviewId',link.review_id,'sourcePositionId',link.source_position_id,
                'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' WHEN 'wefunder' THEN 'Wefunder' ELSE 'AngelList' END,'observedAt',ls.observed_at,
@@ -528,8 +534,9 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
               FROM holding_position_link_heads link JOIN holding_position_link_reviews r ON r.id=link.review_id
               WHERE link.household_id=position.household_id AND link.target_position_id=position.id AND link.state='linked' AND r.company_renamed=1
               ORDER BY r.accepted_at DESC,r.id DESC LIMIT 1) AS renamed_company_json,
-             position.position_kind,
-             position.opened_on,
+             COALESCE(manual_identity.position_kind,position.position_kind) AS position_kind,
+             CASE WHEN manual_identity.id IS NULL THEN position.opened_on ELSE manual_identity.opened_on END AS opened_on,
+             CASE WHEN manual_identity.id IS NOT NULL THEN json_object('version',manual_identity.version,'containerId',manual_identity.container_id,'containerVersion',(SELECT version FROM ownership_container_versions mv WHERE mv.container_id=manual_identity.container_id ORDER BY version DESC LIMIT 1),'classification',manual_identity.classification,'companyMappingIds',json((SELECT json_group_array(mapping_id) FROM (SELECT mapping_id FROM holding_position_exposure_heads WHERE position_id=position.id AND household_id=position.household_id AND status='active' ORDER BY mapping_id)))) ELSE NULL END AS manual_context_json,
              ownership.version AS ownership_version,
              ownership.association_basis,
              snapshot.id AS snapshot_id,
@@ -609,6 +616,8 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                AS reported_management_fee_ppm,
              economics_evidence.carry_ppm AS reported_carry_ppm
            FROM holding_positions position
+           LEFT JOIN manual_holding_identity_heads manual_head ON manual_head.position_id=position.id AND manual_head.household_id=position.household_id
+           LEFT JOIN manual_holding_identity_versions manual_identity ON manual_identity.id=manual_head.version_id
            LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id=position.id AND purchase_head.household_id=position.household_id
            LEFT JOIN holding_purchase_reviews purchase_review ON purchase_review.id=purchase_head.review_id
            LEFT JOIN holding_price_proxy_links proxy_link ON proxy_link.position_id=position.id

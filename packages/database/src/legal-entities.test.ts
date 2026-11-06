@@ -1,3 +1,4 @@
+import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -98,6 +99,16 @@ const profile = {
 } satisfies LegalEntityProfileInput;
 
 function createDatabase(lastMigration = Number.MAX_SAFE_INTEGER): DatabaseSync {
+  if (lastMigration === Number.MAX_SAFE_INTEGER) {
+    const directory = resolve(process.cwd(), "packages/database/migrations");
+    return createSqliteFixture([
+      ...readdirSync(directory)
+        .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+        .sort((left, right) => left.localeCompare(right))
+        .map((file) => resolve(directory, file)),
+      resolve(process.cwd(), "packages/database/seed/synthetic.sql"),
+    ]);
+  }
   const database = new DatabaseSync(":memory:");
   const migrationDirectory = resolve(
     process.cwd(),

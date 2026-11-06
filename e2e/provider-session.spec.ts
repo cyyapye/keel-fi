@@ -14,15 +14,14 @@ import { __providerPortfolioMacAgentTest } from "../scripts/provider-portfolio-m
 const { closeChromeGracefully, completeBrowserSession, stopChild } =
   __providerBrowserReconnectTest;
 
-for (const provider of ["tokenfolio", "sydecar"] as const) {
-  for (const persisted of [true, false]) {
-    test(`${provider} ${persisted ? "accepts a saved" : "rejects a lost"} sign-in after a real Chrome restart`, async ({
-      isMobile,
-    }) => {
-      test.skip(
-        isMobile,
-        "The background provider browser always uses a desktop viewport.",
-      );
+for (const [provider, persisted] of [
+  ["tokenfolio", true],
+  ["sydecar", false],
+] as const) {
+  test(
+    `${provider} ${persisted ? "accepts a saved" : "rejects a lost"} sign-in after a real Chrome restart`,
+    { tag: "@desktop-only" },
+    async () => {
       const profile = await mkdtemp(
         path.join(os.tmpdir(), "keel-synthetic-reconnect-"),
       );
@@ -202,6 +201,6 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
           retryDelay: 100,
         });
       }
-    });
-  }
+    },
+  );
 }

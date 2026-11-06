@@ -1,3 +1,4 @@
+import { investmentReviewContext } from "./investment-review-context";
 import { InvestmentEventSchema } from "../packages/domain/src/investment-events";
 import { expect, type Page } from "@playwright/test";
 
@@ -36,7 +37,6 @@ import {
   InvestmentCompanyReceiptSchema,
   InvestmentCompanyReviewInputSchema,
   InvestmentOwnershipObservationSchema,
-  InvestmentReviewContextSchema,
   InvestmentReviewStateSchema,
   ReviewInvestmentInputSchema,
   investmentEvidenceRevision,
@@ -61,26 +61,7 @@ export async function routeInvestmentReview(
       },
     }),
   );
-  const context = InvestmentReviewContextSchema.parse({
-    positionId: source.source.id,
-    positionLabel: source.sourceDisplayName,
-    holderLabel: source.currentOwner ?? "Not recorded",
-    snapshotId: null,
-    committedMinor: null,
-    fundedMinor: null,
-    currency: "USD",
-    economics: null,
-    review: null,
-    defaultParticipationStatus: source.interestStatus,
-    documents: source.legalEntityNameEvidence.documents ?? [],
-    evidenceRevision: "a".repeat(64),
-    companyChoices: [],
-    companies: [],
-    mappings: [],
-    companyReceipt: null,
-    otherPositions: [],
-    ...overrides,
-  });
+  const context = investmentReviewContext(source, overrides);
   const writes: unknown[] = [];
   let reads = 0;
   let reject = false;

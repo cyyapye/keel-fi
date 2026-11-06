@@ -174,8 +174,14 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     );
     // Interrupt only propagation after the import is accepted: replay must pick
     // up durable source heads without re-fetching the provider or losing value.
-    await fixture.execute(`INSERT INTO users VALUES ('proxy-other-user','proxy-other-subject','proxy-other@example.invalid','Synthetic Other','2026-09-01');
-      INSERT INTO households VALUES ('proxy-other','proxy-other-user','Synthetic Other','USD','2026-09-01')`);
+    await db.batch([
+      db.prepare(
+        "INSERT INTO users VALUES ('proxy-other-user','proxy-other-subject','proxy-other@example.invalid','Synthetic Other','2026-09-01')",
+      ),
+      db.prepare(
+        "INSERT INTO households VALUES ('proxy-other','proxy-other-user','Synthetic Other','USD','2026-09-01')",
+      ),
+    ]);
     const measured = measureD1(db);
     const propagator = new D1PriceProxyRepository(measured.database);
     const costs = [];

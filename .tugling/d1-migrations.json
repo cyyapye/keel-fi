@@ -1,0 +1,391 @@
+{
+  "version": 2,
+  "immutableThrough": "0089_manual_holdings.sql",
+  "immutableMigrations": [
+    {
+      "name": "0001_keel_core.sql",
+      "sha256": "b9447304457b495cafb793590e314ab4774895af5d115abb2e68e684b0f4c545"
+    },
+    {
+      "name": "0002_versioned_goals.sql",
+      "sha256": "13cf8a6cc8882f5c0458099a1babff5d6e374584fb0e3fb460000fcaee2d7a1c"
+    },
+    {
+      "name": "0003_evidence_applications.sql",
+      "sha256": "9ec98873187fa154169bd793c682fe9fcd17698d75bbd3742ebc9bdeb52eae89"
+    },
+    {
+      "name": "0004_portfolio_watch.sql",
+      "sha256": "b53ccb580f47479fe8c054da479e1a74663e04bec9e5a9a5b8c4d4f9d26c1c6d"
+    },
+    {
+      "name": "0005_portfolio_watch_sources.sql",
+      "sha256": "3f70acccf571111722a1b46b8d2d74ee0f74f5dbdb407a91cbd0ac75e04b185e"
+    },
+    {
+      "name": "0006_evidence_claim_integrity.sql",
+      "sha256": "742c9432e8d1fcda75d62698ec2e7daed219e501e0eafc066ac9ae0f5c820068"
+    },
+    {
+      "name": "0007_holding_imports.sql",
+      "sha256": "a613b367ab6ffe04192b2f73456e88c9f828a74bae5bf10c05bcd00556f9b578"
+    },
+    {
+      "name": "0008_signal_update_proposals.sql",
+      "sha256": "7f5b7fcf6340f362eda25a7d8e494275db4e3991a9ab2608632d0270b0779a50"
+    },
+    {
+      "name": "0009_angellist_mac_agent.sql",
+      "sha256": "a7501ca3097715eebd6120b47e32765bf6a5a58a2d9af69771753711b1a4d83d"
+    },
+    {
+      "name": "0010_public_holdings.sql",
+      "sha256": "ea6637a4f3dbdf290a31d56f8b87171ed1a71ee1db9b81d4918bd4ee5b1caab8"
+    },
+    {
+      "name": "0011_portfolio_baselines.sql",
+      "sha256": "fbc792bc387d16ec07b90f45a4a771825c01fa5e9c2328da2b2f423321fe5986"
+    },
+    {
+      "name": "0012_append_only_cash_flow_plans.sql",
+      "sha256": "98dd50d44896b08c9f9055764d705386c49c1692f086cd260812fb26df05cfcd"
+    },
+    {
+      "name": "0013_plaid_holdings_webhooks.sql",
+      "sha256": "290977ffee4d20759b6dca883f2cd9cd9772c650b246eddb65215eaea21fa03c"
+    },
+    {
+      "name": "0014_robinhood_auto_adjudication.sql",
+      "sha256": "451fe56149b19406f06dccf38b5c031967bdee49620cc9ea0cedd66d63102279"
+    },
+    {
+      "name": "0015_reviewed_cash_accounts.sql",
+      "sha256": "93d0163f085cdcfa763453c2a129c0b15b85f667727f7604c16244902715cfab"
+    },
+    {
+      "name": "0016_reviewed_liabilities.sql",
+      "sha256": "7813e8ddbc930e456ba7acd6b0e4e99967c7c8c08588daa0bb03fafd9801dd0e"
+    },
+    {
+      "name": "0017_reviewed_cash_flow.sql",
+      "sha256": "65a2136dff4edb33d78f2e4957787f81f65a3ce0befb6c0091f5b9ebf218cb01"
+    },
+    {
+      "name": "0018_reviewed_cash_account_identities.sql",
+      "sha256": "3770237e174087c76f075fa33156c284fe8debaf1cf3dee2a1bde06a363ccd5f"
+    },
+    {
+      "name": "0019_multi_source_holdings_contract.sql",
+      "sha256": "d8e2e7559d2a45351f82de452d9d55513d17365687906c33de1361ef3116e77c"
+    },
+    {
+      "name": "0020_container_scoped_holding_ingestion.sql",
+      "sha256": "0ec15bbbb8f2340ac59ae3a1f27a021a82f9353c433539691913bc835bf27b17"
+    },
+    {
+      "name": "0021_canonical_exposure_resolution.sql",
+      "sha256": "8e638f8e2a8142c3b6a23c27383cc42828d5bea605f27893dfb425b40c4aa80b"
+    },
+    {
+      "name": "0022_provider_neutral_investments.sql",
+      "sha256": "99dd293f93ad94fc65814ac391470da8dabdd95ce0a481f428cea848b42dc509"
+    },
+    {
+      "name": "0023_authoritative_portfolio_baselines.sql",
+      "sha256": "acf49489eafe7f113b16213c342fce1cd7a81fcf433673a12d93e8daabd42934"
+    },
+    {
+      "name": "0024_plan_actual_monitoring.sql",
+      "sha256": "8c7002f467541547771ffeb04c9f7c66d5fbd2066915423f9b9271960b668a81"
+    },
+    {
+      "name": "0025_retired_asset_lots.sql",
+      "sha256": "c610f4d1550af5b3336043c4aa930bdc16308916b3855b155524bd477068d26f"
+    },
+    {
+      "name": "0026_reconciled_holding_ownership.sql",
+      "sha256": "0caae5a73ed7cf007bf6330e49e450547d45eab7ebb6eebbae4e334fa5c188d7"
+    },
+    {
+      "name": "0027_retained_public_exposure_identity.sql",
+      "sha256": "2aea3394792ef99e07d3eef418a04054bcf9140e9e851c7289981ebeb53e1e34"
+    },
+    {
+      "name": "0028_provider_scoped_public_exposure.sql",
+      "sha256": "fda66945e8c6ae35e7f125e3c3d6769dc185becebb0992b085d47120ec177c99"
+    },
+    {
+      "name": "0029_structured_asset_exposure.sql",
+      "sha256": "081c40d316a553eabe98413a0bb4da1c1c081bdf6bf26930f017df60e4e32c19"
+    },
+    {
+      "name": "0030_reconnected_position_continuity.sql",
+      "sha256": "d3629004a0a6f93a03628bb6e27e303a5fd54128eed76837d0c1d54a1dd253c5"
+    },
+    {
+      "name": "0031_reconnected_position_continuity_one_sided_identity.sql",
+      "sha256": "dcbfcabc8cf9999a7e46f510cc442af38fbd34d456be8d048fe47e0330b10052"
+    },
+    {
+      "name": "0032_provider_template_holdings.sql",
+      "sha256": "a8a734c3cbc40bd979b10666882af72d82f2177ec865eed69901ef56a237447e"
+    },
+    {
+      "name": "0033_provider_portfolio_agents.sql",
+      "sha256": "c6edd2a74d46ce1f69b07a29a995798b1e429d58c8023dc6c340b6df0ca5ef9e"
+    },
+    {
+      "name": "0034_mac_agent_credentials.sql",
+      "sha256": "19597d7c142635b03e060b1d9c8695efc07784a5132af526d63c4fdd030f2dbb"
+    },
+    {
+      "name": "0035_nullable_private_investment_date.sql",
+      "sha256": "35e6368f0d7e3e07c63e8fc5e240103965c32722bf8abfb778fbd19b6ba25075"
+    },
+    {
+      "name": "0036_exact_reviewed_private_exposures.sql",
+      "sha256": "3be76c2ca893fba1da6c5ccca7e77cbd2598d67f093de2f7e847588a59beda35"
+    },
+    {
+      "name": "0037_private_provider_position_continuity.sql",
+      "sha256": "cd808958d25865e59ad944c52061abc370ca409052b015e545d91e3f097792a4"
+    },
+    {
+      "name": "0038_reviewed_position_value_adjustments.sql",
+      "sha256": "0eea8dc15d9dfaf17d791594447da30a130ebfe0f2eb1a1fd5b4d93006c3f1bd"
+    },
+    {
+      "name": "0039_reviewed_position_economics.sql",
+      "sha256": "5ea8cd7fab3a3e574aa0f54a12ddeb0d68232df518bbf385f678de897483fb92"
+    },
+    {
+      "name": "0040_holdings_read_performance.sql",
+      "sha256": "b32d640c2de6b4e020ec347670de5021715be36389d9a49c10098529104a0ed7"
+    },
+    {
+      "name": "0041_reported_position_economics.sql",
+      "sha256": "02f4c4d999e599bd98520fed9d6650075477e42464bcdf7dc9140ca934281a7f"
+    },
+    {
+      "name": "0042_provider_browser_sessions.sql",
+      "sha256": "36ffa451ad395c9f37e9a26be7153db62ce69b34f10c4d9e090e7d6d89a58110"
+    },
+    {
+      "name": "0043_mac_agent_credential_rotation.sql",
+      "sha256": "3f9cb39ef928a0a6b953a201b381313b79e0855da9b7fd73550a5588679e7c52"
+    },
+    {
+      "name": "0044_public_equity_sync_schedule.sql",
+      "sha256": "ab4ed4eb5f8ce798da1b7945d10227118f635ebf76f004873791d4492e0162fc"
+    },
+    {
+      "name": "0045_portfolio_watch_exposure_universe.sql",
+      "sha256": "a5807dcc85048506b0347904174da224c17d7c60d419f4b20b1e0ba2dbfad8e5"
+    },
+    {
+      "name": "0046_reviewed_legal_entity_inventory.sql",
+      "sha256": "5bf13fb28682fdbe2be2539115c95e4f28d05e415db9502b725923e29f393e1b"
+    },
+    {
+      "name": "0047_provider_legal_document_evidence.sql",
+      "sha256": "9827261b33c1b724b31897ca54c304df3c3110a35943e6f89dac506ee1a1e442"
+    },
+    {
+      "name": "0048_private_document_access.sql",
+      "sha256": "9f8e135c535fc5dd9061afb943f0767594172f02262c377dc2eece5a65bac0e2"
+    },
+    {
+      "name": "0049_legal_name_resolutions.sql",
+      "sha256": "ec8e323cfa7a4ea064cae7f2a6b7f6c14e373cd4701b51839ef8f2abe980ff3f"
+    },
+    {
+      "name": "0050_agreement_rechecks.sql",
+      "sha256": "2ca9b59d621ddad957b95545a42d30e82de2bb8061fb1e0c5deabc6deac3995d"
+    },
+    {
+      "name": "0051_legal_structure_review_guard.sql",
+      "sha256": "f3554ccd218d5248f92e981d3c54f0cc73b631a651ea0710a6e539d548822a99"
+    },
+    {
+      "name": "0052_reviewed_structure_entity_type.sql",
+      "sha256": "f5edbaa7fb8f7555e753f4a82fe8869acd395399de83d8b64ee9f8b16376a97c"
+    },
+    {
+      "name": "0053_connected_investment_reviews.sql",
+      "sha256": "0591fdd5ba40cc433f9427ec829d14a8284d7579c1dba79c70d9b0d4f94ba7b8"
+    },
+    {
+      "name": "0054_legal_entity_link_version_guard.sql",
+      "sha256": "ffbd09010d24484d189ddbee9cda950372aeae14b54944bc191be3a5d67da82d"
+    },
+    {
+      "name": "0055_exception_based_source_updates.sql",
+      "sha256": "723bec18d110aa5db88d67be7dd886c136e64d95d10156a971b98c572f0da0fd"
+    },
+    {
+      "name": "0056_exception_based_cash_balances.sql",
+      "sha256": "c16d34b98e58d900f6950a0666cf2a59ef3d086cb956b15b2da9115c48f1f2b9"
+    },
+    {
+      "name": "0057_query_cost_bounds.sql",
+      "sha256": "89fa638012819d6779972eae20bdd13ebb27f4321c12d7b4f0acf5a65466262d"
+    },
+    {
+      "name": "0058_net_invested_position_economics.sql",
+      "sha256": "4125955f47cd8881f394df8b967005d3e274714968045ea2a2141823bc6f033f"
+    },
+    {
+      "name": "0059_automatic_investment_reviews.sql",
+      "sha256": "54d1fb7fe1043783ccfd19377dd1449a108d0149ad9bebeac25fc709f73154b5"
+    },
+    {
+      "name": "0060_provider_session_renewals.sql",
+      "sha256": "84658eff89d9e9cb4143c6b357784048675d9c2c0cb62675c44ef518e9df2857"
+    },
+    {
+      "name": "0061_portfolio_watch_activity.sql",
+      "sha256": "2df9b0b49eb07db40b6d00124d25bdabaeac07e3f373e34737cab0026f4ae2c9"
+    },
+    {
+      "name": "0062_reviewed_company_aliases.sql",
+      "sha256": "0c0a08a2f499f996994096408acdb6ef715c3cdf098dce2c37cad8796e5d2c5c"
+    },
+    {
+      "name": "0063_current_exposure_mapping_heads.sql",
+      "sha256": "259112f56034da3dba1919235a4a4e3bec1569f1bb430339bfc864d5e99cb881"
+    },
+    {
+      "name": "0064_watch_read_receipts.sql",
+      "sha256": "51308150f920a28e8942174636aedb3da91ea65488cfbe40532caee10f6362cc"
+    },
+    {
+      "name": "0065_watch_website_confirmation.sql",
+      "sha256": "99a9f3d2bea78108e7ebf16f8fc9503376a3705a079bde3e030b18cca95ce0a1"
+    },
+    {
+      "name": "0066_investment_closure_details.sql",
+      "sha256": "213252d34a9426f6e92e521c46678b4e09cccaf823064586cc989d23fa902693"
+    },
+    {
+      "name": "0067_investment_amount_corrections.sql",
+      "sha256": "9b982a47809fc26c650019fb91f5ab1cae62ebf9d41aede3741f63318637d7fe"
+    },
+    {
+      "name": "0068_exception_baseline_empty.sql",
+      "sha256": "1124479673647b88f421ad1ad24b63f3ef99e6c5e15351b2e2cabd36a024cf62"
+    },
+    {
+      "name": "0069_historical_private_position_continuity.sql",
+      "sha256": "c71541d98a92f95f5b136511e31818477a81bbbf4937b41ab0725d664c49a8bb"
+    },
+    {
+      "name": "0070_private_purchase_details.sql",
+      "sha256": "4021ab96a572516de91925ec3a493328a70a007b5014277d790e408f8a01a029"
+    },
+    {
+      "name": "0071_investment_events.sql",
+      "sha256": "1af1d393edd42556fe7272c2556d52ac2cde9dd26ced02b36664d2a5709cfb72"
+    },
+    {
+      "name": "0072_reviewed_public_company_links.sql",
+      "sha256": "1cdca823bc9725e77453cb69e6f234280f08cf02cb4461ca81eceb34ab10601f"
+    },
+    {
+      "name": "0073_public_company_recommendations.sql",
+      "sha256": "62ba164968ee43345c28d14b70dcaa599ac4746fe516e9a55c1ff93a65897598"
+    },
+    {
+      "name": "0074_purchase_fee_economics.sql",
+      "sha256": "06ca17b8f27516ceb3a4de0dd6407e1db43dc371fc37f6f74ed0ea5cebb18806"
+    },
+    {
+      "name": "0075_provider_share_prices.sql",
+      "sha256": "4cd5e1ae6acc49b8c7c293367ece6d4a844594fa377e3b5c66fc78feac06c28f"
+    },
+    {
+      "name": "0076_proxy_share_estimates.sql",
+      "sha256": "d47decd280a82879d411605f32c0dbc658f70e5b6b6867c5fdf1124a34ae9ddc"
+    },
+    {
+      "name": "0077_cash_balance_rate_limit_lookup.sql",
+      "sha256": "82b3f10046b4573ee14b256ff8103714235f2577e0443ad726a3d1be81a034dc"
+    },
+    {
+      "name": "0078_reviewed_position_links.sql",
+      "sha256": "3ccd5c97f1964ed93b50cda65e48c599a3cb72b6e313462a7494a6e8c89d8ebd"
+    },
+    {
+      "name": "0079_unified_investment_details.sql",
+      "sha256": "60a4be451e04a1024cd1acce9ecdbb8f5c9387f8cdb1344bd09be31421faf8d5"
+    },
+    {
+      "name": "0080_renamed_investment_links.sql",
+      "sha256": "066f2f453fe19511f633fe341a4cbf7305227490219ee4d232becad4b14f7040"
+    },
+    {
+      "name": "0081_purchase_capital_returns.sql",
+      "sha256": "ab7695673fbc009be537d9a957fed3fd0c9f6fb68732c028082b4190e6af2db1"
+    },
+    {
+      "name": "0082_optional_capital_refund_date.sql",
+      "sha256": "0706e5f03d986a155b1879a9455a98f7524827e95946275a988feaa3a814dcf8"
+    },
+    {
+      "name": "0083_selected_position_valuations.sql",
+      "sha256": "847410f1dd8a7e5d3107ab5e0735924cd0c26f5cb867ed6ea60b8b94ee591dab"
+    },
+    {
+      "name": "0084_position_link_target_history.sql",
+      "sha256": "03f263c144fd866f02a28ff25b0e2781b7a5aee69e953d6c888e307ea970bec3"
+    },
+    {
+      "name": "0085_provider_renewal_recovery.sql",
+      "sha256": "fc12d96f5026342a1e1fb9bbef38e91767a673ceb25814067e036326ddf3ecb3"
+    },
+    {
+      "name": "0086_live_price_proxies.sql",
+      "sha256": "a668933dcb13a6236b5907e4259128c9b6e3814743913b2a36f4351794bb2283"
+    },
+    {
+      "name": "0087_wefunder_holdings.sql",
+      "sha256": "03edec3bdf89244c68b6e008e742a77a3f3a367a6cb9d851ca08b12f89b1f361"
+    },
+    {
+      "name": "0088_wefunder_exact_entity_links.sql",
+      "sha256": "4c5ee37f2caef5c90fbeda3cb9ef26f4d9bdbe9742496ffe36d75180c8d66e67"
+    },
+    {
+      "name": "0089_manual_holdings.sql",
+      "sha256": "ee26f2377d723ca9e7d4752b1e1d56de675a9fb4d3b7fbdc05e32d9877281ea2"
+    }
+  ],
+  "cases": [
+    {
+      "kind": "upgrade",
+      "id": "distribution-reviews-v1",
+      "frontier": "0089_manual_holdings.sql",
+      "migrations": [
+        {
+          "name": "0090_distribution_reviews.sql",
+          "sha256": "34fde7d6679b849a82fa2f35a90fc41a3c5ec265c060f8eee875d3742a33d1a4"
+        }
+      ],
+      "fixture": "holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 2000,
+      "maxRowsWritten": 100
+    }
+  ],
+  "baseline": {
+    "kind": "baseline",
+    "id": "distribution-schema-v1",
+    "frontier": "0090_distribution_reviews.sql",
+    "pending": [],
+    "fixture": "holding-history-v1",
+    "mainPositions": 120,
+    "unrelatedPositions": 120,
+    "histories": [24]
+  }
+}

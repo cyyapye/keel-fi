@@ -155,6 +155,8 @@ const reasons = {
     "Estimated carry exceeds the remaining value. The supported estimate is unavailable.",
   precision: "The amount exceeds supported precision.",
   unknown_refund_inclusion: "Refund inclusion is unknown.",
+  unknown_provider_distributions:
+    "The provider-reported distribution total is unknown.",
   provider_amount_mismatch:
     "The provider total and complete distribution history do not reconcile. Review inclusion before calculating return.",
   provider_binding_stale:

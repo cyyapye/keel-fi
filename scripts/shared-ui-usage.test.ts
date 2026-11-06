@@ -55,15 +55,126 @@ function jsxElements(source: string) {
   return elements;
 }
 
+function nativeDateInputs(source: string) {
+  const file = ts.createSourceFile(
+    "screen.tsx",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const inputs = new Set<string>();
+  for (const statement of file.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "@keel/ui"
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const specifier of bindings.elements) {
+        if ((specifier.propertyName ?? specifier.name).text === "Input") {
+          inputs.add(specifier.name.text);
+        }
+      }
+    } else if (bindings && ts.isNamespaceImport(bindings)) {
+      inputs.add(`${bindings.name.text}.Input`);
+    }
+  }
+  const violations: { component: string; line: number }[] = [];
+  function visit(node: ts.Node) {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const component = node.tagName.getText(file);
+      if (inputs.has(component)) {
+        for (const attribute of node.attributes.properties) {
+          const value = ts.isJsxAttribute(attribute)
+            ? attribute.name.getText(file) === "type"
+              ? attribute.initializer
+              : undefined
+            : undefined;
+          const expression =
+            value && ts.isJsxExpression(value) ? value.expression : value;
+          if (
+            expression &&
+            (ts.isStringLiteral(expression) ||
+              ts.isNoSubstitutionTemplateLiteral(expression)) &&
+            expression.text === "date"
+          ) {
+            violations.push({
+              component,
+              line:
+                file.getLineAndCharacterOfPosition(node.getStart(file)).line +
+                1,
+            });
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  return violations;
+}
+
+// These policy checks only read the app tree, so share one source snapshot.
+const webSources = reactSourceFiles(webSourceDirectory).map((path) => {
+  const source = readFileSync(path, "utf8");
+  return {
+    relativePath: relative(webSourceDirectory, path),
+    source,
+    elements: jsxElements(source),
+  } as const;
+});
+
 describe("shared UI usage", () => {
+  it.each([
+    ['import { Input } from "@keel/ui"; <Input type="date" />', "Input"],
+    ['import { Input } from "@keel/ui"; <Input type={"date"} />', "Input"],
+    [
+      'import { Input as TextInput } from "@keel/ui"; <TextInput type="date" />',
+      "TextInput",
+    ],
+    ['import * as Ui from "@keel/ui"; <Ui.Input type="date" />', "Ui.Input"],
+  ])(
+    "rejects a native date through a shared input in %s",
+    (source, component) => {
+      expect(nativeDateInputs(source)).toEqual([{ component, line: 1 }]);
+    },
+  );
+
+  it.each([
+    'import { DatePicker } from "@keel/ui"; <DatePicker value="" />',
+    'import { Input } from "@keel/ui"; <Input />',
+    'import { Input } from "@keel/ui"; <Input type="text" />',
+    'import { Input as TextInput } from "@keel/ui"; <TextInput type="email" />',
+    'import * as Ui from "@keel/ui"; <Ui.Input type="search" />',
+    'import { Input } from "other-library"; <Input type="date" />',
+    'function Input() {} <Input type="date" />',
+  ])("accepts the supported control choice in %s", (source) => {
+    expect(nativeDateInputs(source)).toEqual([]);
+  });
+
+  it("routes app date selection through DatePicker", () => {
+    const violations = webSources.flatMap(({ relativePath, source }) =>
+      nativeDateInputs(source).map(
+        ({ component, line }) =>
+          `${relativePath}:${line}: ${component} type=date must use DatePicker`,
+      ),
+    );
+    expect(violations).toEqual([]);
+  });
+
   it("keeps the integrated catalogue controls in the shared library", () => {
     for (const name of ["LegalEntities.tsx", "HoldingImportOutcome.tsx"]) {
-      const source = readFileSync(join(webSourceDirectory, name), "utf8");
-      const rawChoices = jsxElements(source).filter(
-        ({ component, attributes }) =>
-          component === "Input" &&
-          ["checkbox", "radio"].includes(attributes.get("type") ?? ""),
-      );
+      const rawChoices = webSources
+        .find(({ relativePath }) => relativePath === name)
+        ?.elements.filter(
+          ({ component, attributes }) =>
+            component === "Input" &&
+            ["checkbox", "radio"].includes(attributes.get("type") ?? ""),
+        );
       expect(rawChoices, name).toEqual([]);
     }
     const examples = readFileSync(
@@ -80,20 +191,16 @@ describe("shared UI usage", () => {
   });
 
   it("keeps native interactive elements inside @keel/ui", () => {
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const source = readFileSync(path, "utf8");
+    const violations = webSources.flatMap(({ relativePath, source }) => {
       const matches = source.match(/<(?:a|button|input|select|textarea)\b/gu);
-      return matches === null
-        ? []
-        : [`${relative(webSourceDirectory, path)}: ${matches.join(", ")}`];
+      return matches === null ? [] : [`${relativePath}: ${matches.join(", ")}`];
     });
 
     expect(violations).toEqual([]);
   });
 
   it("routes app disclosures through the shared Collapsible composition", () => {
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const source = readFileSync(path, "utf8");
+    const violations = webSources.flatMap(({ relativePath, source }) => {
       const disclosureCount = source.match(/<Collapsible\b/gu)?.length ?? 0;
       const triggerCount = source.match(/<CollapsibleTrigger\b/gu)?.length ?? 0;
       const contentCount = source.match(/<CollapsibleContent\b/gu)?.length ?? 0;
@@ -106,7 +213,7 @@ describe("shared UI usage", () => {
         nativeDetailsCount === 0
         ? []
         : [
-            `${relative(webSourceDirectory, path)}: ${disclosureCount} roots, ${triggerCount} triggers, ${contentCount} panels, ${indicatorCount} indicators, ${nativeDetailsCount} native details`,
+            `${relativePath}: ${disclosureCount} roots, ${triggerCount} triggers, ${contentCount} panels, ${indicatorCount} indicators, ${nativeDetailsCount} native details`,
           ];
     });
 
@@ -145,8 +252,7 @@ describe("shared UI usage", () => {
   });
 
   it("routes reusable action rows through ActionGroup", () => {
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const source = readFileSync(path, "utf8");
+    const violations = webSources.flatMap(({ relativePath, source }) => {
       const elements = source.matchAll(
         /<([A-Za-z][\w.]*)\b[^>]*\bclassName="([^"]+)"/gsu,
       );
@@ -156,9 +262,7 @@ describe("shared UI usage", () => {
           .split(/\s+/u)
           .some((token) => token.endsWith("actions"));
         return isActionRow && component !== "ActionGroup"
-          ? [
-              `${relative(webSourceDirectory, path)}: <${component} className="${className}">`,
-            ]
+          ? [`${relativePath}: <${component} className="${className}">`]
           : [];
       });
     });
@@ -167,14 +271,13 @@ describe("shared UI usage", () => {
   });
 
   it("keeps toggle filters from using link-styled buttons", () => {
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) =>
-      jsxElements(readFileSync(path, "utf8")).flatMap(
-        ({ component, attributes }) =>
-          component === "Button" &&
-          attributes.has("aria-pressed") &&
-          attributes.get("tone") === "quiet"
-            ? [`${relative(webSourceDirectory, path)}: quiet toggle button`]
-            : [],
+    const violations = webSources.flatMap(({ relativePath, elements }) =>
+      elements.flatMap(({ component, attributes }) =>
+        component === "Button" &&
+        attributes.has("aria-pressed") &&
+        attributes.get("tone") === "quiet"
+          ? [`${relativePath}: quiet toggle button`]
+          : [],
       ),
     );
 
@@ -192,11 +295,9 @@ describe("shared UI usage", () => {
       "PlanActualMonitoring.tsx": ["plan-monitoring__header"],
       "RouteShells.tsx": ["investment-views__heading"],
     };
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const relativePath = relative(webSourceDirectory, path);
+    const violations = webSources.flatMap(({ relativePath, source }) => {
       const structuralHeadingClasses =
         structuralHeadingClassesByFile[relativePath] ?? [];
-      const source = readFileSync(path, "utf8");
       const elements = source.matchAll(
         /<([A-Za-z][\w.]*)\b[^>]*\bclassName="([^"]+)"/gsu,
       );
@@ -224,45 +325,38 @@ describe("shared UI usage", () => {
       "PortfolioSnapshot.tsx": ["portfolio-movers__empty"],
       "PortfolioWatchMonitor.tsx": ["watch-updates-empty"],
     };
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const relativePath = relative(webSourceDirectory, path);
+    const violations = webSources.flatMap(({ relativePath, elements }) => {
       const emptyStateClasses = emptyStateClassesByFile[relativePath] ?? [];
-      return jsxElements(readFileSync(path, "utf8")).flatMap(
-        ({ component, attributes }) => {
-          const className = attributes.get("className") ?? "";
-          const isAuditedEmptyState = className
-            .split(/\s+/u)
-            .some((token) => emptyStateClasses.includes(token));
-          return isAuditedEmptyState &&
-            (component !== "EmptyState" ||
-              attributes.get("compact") !== "true" ||
-              attributes.get("icon") !== "null")
-            ? [
-                `${relativePath}: ${className} requires compact EmptyState without an icon`,
-              ]
-            : [];
-        },
-      );
+      return elements.flatMap(({ component, attributes }) => {
+        const className = attributes.get("className") ?? "";
+        const isAuditedEmptyState = className
+          .split(/\s+/u)
+          .some((token) => emptyStateClasses.includes(token));
+        return isAuditedEmptyState &&
+          (component !== "EmptyState" ||
+            attributes.get("compact") !== "true" ||
+            attributes.get("icon") !== "null")
+          ? [
+              `${relativePath}: ${className} requires compact EmptyState without an icon`,
+            ]
+          : [];
+      });
     });
 
     expect(violations).toEqual([]);
   });
 
   it("routes alert feedback through shared components", () => {
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const source = readFileSync(path, "utf8");
-      return source.includes('role="alert"')
-        ? [relative(webSourceDirectory, path)]
-        : [];
+    const violations = webSources.flatMap(({ relativePath, source }) => {
+      return source.includes('role="alert"') ? [relativePath] : [];
     });
 
     expect(violations).toEqual([]);
   });
 
   it("routes description lists through DataList", () => {
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const source = readFileSync(path, "utf8");
-      return source.includes("<dl") ? [relative(webSourceDirectory, path)] : [];
+    const violations = webSources.flatMap(({ relativePath, source }) => {
+      return source.includes("<dl") ? [relativePath] : [];
     });
 
     expect(violations).toEqual([]);
@@ -284,8 +378,7 @@ describe("shared UI usage", () => {
       "position-economics__values",
       "scenario-summary",
     ];
-    const violations = reactSourceFiles(webSourceDirectory).flatMap((path) => {
-      const source = readFileSync(path, "utf8");
+    const violations = webSources.flatMap(({ relativePath, source }) => {
       const elements = source.matchAll(
         /<([A-Za-z][\w.]*)\b[^>]*\bclassName="([^"]+)"/gsu,
       );
@@ -295,9 +388,7 @@ describe("shared UI usage", () => {
           .split(/\s+/u)
           .some((token) => reusableMetricGroups.includes(token));
         return isReusableMetricGroup && component !== "StatGroup"
-          ? [
-              `${relative(webSourceDirectory, path)}: <${component} className="${className}">`,
-            ]
+          ? [`${relativePath}: <${component} className="${className}">`]
           : [];
       });
     });

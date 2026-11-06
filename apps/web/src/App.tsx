@@ -81,6 +81,7 @@ import {
   FormMessage,
   Input,
   InputGroup,
+  LoadingStatus,
   MetricCard,
   Notice,
   PageHeader,
@@ -196,6 +197,11 @@ import {
   LoadingShell,
 } from "./RouteShells";
 
+const ManualHoldingEditor = lazy(async () => {
+  const module = await import("./ManualHoldingEditor");
+  return { default: module.ManualHoldingEditor };
+});
+
 const PortfolioSnapshot = lazy(async () => {
   const module = await import("./PortfolioSnapshot");
   return { default: module.PortfolioSnapshot };
@@ -207,6 +213,7 @@ const isRealCompanyAcceptanceProfile =
 type AppRoute = {
   screen: Screen;
   holdingImportId: string | null;
+  holdingManualEntry: boolean;
   holdingPositionId: string | null;
   holdingsDrilldown: PortfolioSnapshotDrilldown | null;
   holdingsView: "entities" | "overview" | "sources";
@@ -245,10 +252,21 @@ function holdingsDrilldownFromLocation(): PortfolioSnapshotDrilldown | null {
 }
 
 function routeFromLocation(): AppRoute {
+  if (/^\/holdings\/new\/?$/u.test(window.location.pathname)) {
+    return {
+      screen: "holdings",
+      holdingImportId: null,
+      holdingManualEntry: true,
+      holdingPositionId: null,
+      holdingsDrilldown: null,
+      holdingsView: "overview",
+    };
+  }
   if (/^\/holdings\/entities\/?$/u.test(window.location.pathname)) {
     return {
       screen: "holdings",
       holdingImportId: null,
+      holdingManualEntry: false,
       holdingPositionId: null,
       holdingsDrilldown: null,
       holdingsView: "entities",
@@ -258,6 +276,7 @@ function routeFromLocation(): AppRoute {
     return {
       screen: "holdings",
       holdingImportId: null,
+      holdingManualEntry: false,
       holdingPositionId: null,
       holdingsDrilldown: null,
       holdingsView: "sources",
@@ -271,6 +290,7 @@ function routeFromLocation(): AppRoute {
       return {
         screen: "holdings",
         holdingImportId: decodeURIComponent(importMatch[1]),
+        holdingManualEntry: false,
         holdingPositionId: null,
         holdingsDrilldown: null,
         holdingsView: "overview",
@@ -279,6 +299,7 @@ function routeFromLocation(): AppRoute {
       return {
         screen: "holdings",
         holdingImportId: null,
+        holdingManualEntry: false,
         holdingPositionId: null,
         holdingsDrilldown: null,
         holdingsView: "overview",
@@ -291,6 +312,7 @@ function routeFromLocation(): AppRoute {
   return {
     screen: screen ?? "dashboard",
     holdingImportId: null,
+    holdingManualEntry: false,
     holdingsDrilldown:
       screen === "holdings" ? holdingsDrilldownFromLocation() : null,
     holdingPositionId:
@@ -304,11 +326,8 @@ function holdingPositionFromLocation(): string | null {
   return id && id.trim().length > 0 && id.length <= 200 ? id : null;
 }
 
-function SourceBadge({
-  status,
-}: {
-  status: "verified" | "review_due" | "proposed";
-}) {
+function SourceBadge({ status }: { status: Holding["sourceStatus"] }) {
+  if (status === "manual") return null;
   if (status === "verified") {
     return <Badge tone="positive">Verified</Badge>;
   }
@@ -1779,6 +1798,7 @@ function holdingImportProviderName(
     sydecar: "Sydecar",
     tokenfolio: "Tokenfolio",
     wefunder: "Wefunder",
+    manual: "Entered by you",
   }[provider];
 }
 
@@ -1801,6 +1821,7 @@ function holdingImportSourceLabel(
     sydecar: "Sydecar template",
     tokenfolio: "Tokenfolio template",
     wefunder: "Wefunder template",
+    manual: "Entered by you",
   }[provider];
 }
 
@@ -1853,7 +1874,8 @@ function HoldingImportWorkspace({
     useState<UploadHoldingImportProvider>(
       initialPreview === null ||
         initialPreview === undefined ||
-        initialPreview.provider === "plaid_investments"
+        initialPreview.provider === "plaid_investments" ||
+        initialPreview.provider === "manual"
         ? "angellist"
         : initialPreview.provider,
     );
@@ -2921,11 +2943,13 @@ function PositionPerformanceSummary({
 
 function HoldingDetailWorkspace({
   holding,
+  onManualNavigationLockChange,
   companyGroupingAction,
   onValueAccepted,
   related = [],
 }: {
   holding: Holding;
+  onManualNavigationLockChange?: ((locked: boolean) => void) | undefined;
   companyGroupingAction?: ReactNode;
   onValueAccepted: () => Promise<void>;
   related?: Holding[];
@@ -2933,6 +2957,7 @@ function HoldingDetailWorkspace({
   return holding.purchaseContext ? (
     <SpvHoldingDetail
       holding={holding}
+      onManualNavigationLockChange={onManualNavigationLockChange}
       companyGroupingAction={companyGroupingAction}
       onAccepted={onValueAccepted}
       related={related}
@@ -3378,12 +3403,13 @@ function LegacyHoldingDetailWorkspace({
                     value={formatProbability(holding.confidencePpm)}
                   />
                 )}
-                {holding.sourceStatus !== "verified" && (
-                  <DataItem
-                    label="Source status"
-                    value={<SourceBadge status={holding.sourceStatus} />}
-                  />
-                )}
+                {holding.sourceStatus !== "verified" &&
+                  holding.sourceStatus !== "manual" && (
+                    <DataItem
+                      label="Source status"
+                      value={<SourceBadge status={holding.sourceStatus} />}
+                    />
+                  )}
               </DataList>
             </section>
           </div>
@@ -6977,12 +7003,17 @@ function Holdings({
   onBaselineConfirmed,
   onCashAccepted,
   onExposureResolved,
+  onManualSaved,
   onApplyImport,
   onImportRouteChange,
   onPreviewImport,
   requestedDrilldown,
   requestedImportId,
   requestedPositionId,
+  requestedManualEntry,
+  onManualEntryChange,
+  onManualNavigationLockChange,
+  manualNavigationLocked,
   onPositionRouteChange,
   requestedView,
 }: {
@@ -6991,6 +7022,7 @@ function Holdings({
   onBaselineConfirmed: () => Promise<void>;
   onCashAccepted: () => Promise<void>;
   onExposureResolved: () => Promise<void>;
+  onManualSaved: () => Promise<void>;
   onApplyImport: (
     importId: string,
     input: HoldingImportApplyInput,
@@ -7003,6 +7035,10 @@ function Holdings({
   requestedDrilldown: PortfolioSnapshotDrilldown | null;
   requestedImportId: string | null;
   requestedPositionId: string | null;
+  requestedManualEntry: boolean;
+  onManualEntryChange: (open: boolean) => void;
+  onManualNavigationLockChange: (locked: boolean) => void;
+  manualNavigationLocked: boolean;
   onPositionRouteChange: (positionId: string | null) => void;
   requestedView: "overview" | "sources";
 }) {
@@ -7285,6 +7321,25 @@ function Holdings({
     }
   };
 
+  if (requestedManualEntry) {
+    return (
+      <ScreenLayout className="holdings-screen">
+        <Suspense
+          fallback={<LoadingStatus>Loading holding editor…</LoadingStatus>}
+        >
+          <ManualHoldingEditor
+            onClose={() => onManualEntryChange(false)}
+            onNavigationLockChange={onManualNavigationLockChange}
+            onSaved={async (receipt) => {
+              await onManualSaved();
+              onPositionRouteChange(receipt.positionId);
+            }}
+          />
+        </Suspense>
+      </ScreenLayout>
+    );
+  }
+
   return (
     <ScreenLayout
       className="holdings-screen"
@@ -7299,7 +7354,12 @@ function Holdings({
     >
       {selectedHolding !== null ? (
         <div className="holding-detail-back">
-          <TextLink onClick={closeHoldingDetail}>Back to holdings</TextLink>
+          <TextLink
+            disabled={manualNavigationLocked}
+            onClick={closeHoldingDetail}
+          >
+            Back to holdings
+          </TextLink>
         </div>
       ) : (
         <PageHeader
@@ -7309,6 +7369,16 @@ function Holdings({
             ) : sourcesVisible ? (
               <Button onClick={() => setShowImporter(true)} tone="primary">
                 Import holdings
+              </Button>
+            ) : data.holdings.length > 0 ||
+              data.acceptedCashAccounts.length > 0 ||
+              data.investmentHoldings.exposureView.positions.length > 0 ? (
+              <Button
+                data-add-holding
+                onClick={() => onManualEntryChange(true)}
+                tone="primary"
+              >
+                Add holding
               </Button>
             ) : undefined
           }
@@ -7345,6 +7415,7 @@ function Holdings({
       ) : selectedHolding !== null ? (
         <HoldingDetailWorkspace
           holding={selectedHolding}
+          onManualNavigationLockChange={onManualNavigationLockChange}
           companyGroupingAction={companyGroupingAction}
           related={
             selectedHolding.companyId
@@ -7356,7 +7427,9 @@ function Holdings({
                 )
               : []
           }
-          onValueAccepted={onExposureResolved}
+          onValueAccepted={
+            selectedHolding.manualContext ? onManualSaved : onExposureResolved
+          }
         />
       ) : importerVisible ? (
         requestedImportId !== null &&
@@ -7456,6 +7529,7 @@ function Holdings({
           )}
           <InvestmentHoldings
             acceptedCashAccounts={data.acceptedCashAccounts}
+            onAddHolding={() => onManualEntryChange(true)}
             data={data.investmentHoldings}
             holdings={data.holdings}
             mode={sourcesVisible ? "sources" : "exposures"}
@@ -8933,6 +9007,19 @@ export function App() {
   const [holdingPositionId, setHoldingPositionId] = useState<string | null>(
     () => routeFromLocation().holdingPositionId ?? null,
   );
+  const [holdingManualEntry, setHoldingManualEntry] = useState(
+    () => routeFromLocation().holdingManualEntry,
+  );
+  const [manualNavigationLocked, setManualNavigationLocked] = useState(false);
+  const manualNavigationLockRef = useRef(false);
+  const manualLockedPathRef = useRef<string | null>(null);
+  const onManualNavigationLockChange = useCallback((locked: boolean) => {
+    manualNavigationLockRef.current = locked;
+    manualLockedPathRef.current = locked
+      ? `${window.location.pathname}${window.location.search}`
+      : null;
+    setManualNavigationLocked(locked);
+  }, []);
   const [holdingsDrilldown, setHoldingsDrilldown] =
     useState<PortfolioSnapshotDrilldown | null>(
       () => routeFromLocation().holdingsDrilldown,
@@ -9021,6 +9108,8 @@ export function App() {
   );
 
   const navigateToScreen = useCallback((screen: Screen) => {
+    if (manualNavigationLockRef.current) return;
+    setHoldingManualEntry(false);
     const path = pathForScreen(screen);
     if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history.pushState(null, "", path);
@@ -9035,6 +9124,8 @@ export function App() {
   }, []);
 
   const navigateToGoal = useCallback((goalId: string) => {
+    if (manualNavigationLockRef.current) return;
+    setHoldingManualEntry(false);
     const path = pathForScreen("goals");
     if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history.pushState(null, "", path);
@@ -9048,6 +9139,8 @@ export function App() {
   }, []);
 
   const navigateToHoldingImport = useCallback((importId: string | null) => {
+    if (manualNavigationLockRef.current) return;
+    setHoldingManualEntry(false);
     const path =
       importId === null
         ? "/holdings"
@@ -9063,6 +9156,8 @@ export function App() {
   }, []);
 
   const navigateToHoldingPosition = useCallback((positionId: string | null) => {
+    if (manualNavigationLockRef.current) return;
+    setHoldingManualEntry(false);
     const search = new URLSearchParams();
     if (positionId !== null) search.set("position", positionId);
     const path = `/holdings${positionId === null ? "" : `?${search.toString()}`}`;
@@ -9076,6 +9171,8 @@ export function App() {
   }, []);
 
   const navigateToHoldingsView = useCallback((view: HoldingsView) => {
+    if (manualNavigationLockRef.current) return;
+    setHoldingManualEntry(false);
     const path = holdingsNavigation.find((item) => item.id === view)!.path;
     if (`${window.location.pathname}${window.location.search}` !== path) {
       window.history.pushState(null, "", path);
@@ -9092,6 +9189,7 @@ export function App() {
 
   const navigateToPortfolioDrilldown = useCallback(
     (drilldown: PortfolioSnapshotDrilldown) => {
+      if (manualNavigationLockRef.current) return;
       const search = new URLSearchParams();
       if (drilldown.type === "exposure") {
         search.set("exposure", drilldown.exposureId);
@@ -9103,6 +9201,7 @@ export function App() {
         window.history.pushState(null, "", path);
       }
       setActiveScreen("holdings");
+      setHoldingManualEntry(false);
       setHoldingPositionId(null);
       setHoldingImportId(null);
       setHoldingsDrilldown(drilldown);
@@ -9113,6 +9212,10 @@ export function App() {
 
   useEffect(() => {
     const updateRoute = () => {
+      if (manualLockedPathRef.current) {
+        window.history.pushState(null, "", manualLockedPathRef.current);
+        return;
+      }
       const route = routeFromLocation();
       setFocusedEventId(
         new URLSearchParams(window.location.search).get("event"),
@@ -9120,12 +9223,31 @@ export function App() {
       setActiveScreen(route.screen);
       setHoldingPositionId(route.holdingPositionId ?? null);
       setHoldingImportId(route.holdingImportId);
+      setHoldingManualEntry(route.holdingManualEntry);
       setHoldingsDrilldown(route.holdingsDrilldown);
       setHoldingsView(route.holdingsView);
       setRequestedGoalId(null);
     };
     window.addEventListener("popstate", updateRoute);
     return () => window.removeEventListener("popstate", updateRoute);
+  }, []);
+
+  const navigateToManualHolding = useCallback((open: boolean) => {
+    if (manualNavigationLockRef.current) return;
+    const path = open ? "/holdings/new" : "/holdings";
+    window.history.pushState(null, "", path);
+    setActiveScreen("holdings");
+    setHoldingPositionId(null);
+    setHoldingImportId(null);
+    setHoldingsDrilldown(null);
+    setHoldingsView("overview");
+    setHoldingManualEntry(open);
+    if (!open)
+      requestAnimationFrame(() =>
+        document
+          .querySelector<HTMLButtonElement>("[data-add-holding]")
+          ?.focus(),
+      );
   }, []);
 
   const needsHoldingsData =
@@ -9147,6 +9269,7 @@ export function App() {
   }, [
     activeScreen,
     holdingImportId,
+    holdingManualEntry,
     holdingPositionId,
     holdingsDrilldown,
     holdingsView,
@@ -9190,6 +9313,10 @@ export function App() {
             ]);
           }}
           onExposureResolved={refreshReviewedHoldings}
+          onManualSaved={async () => {
+            await refreshHoldingsPage(true);
+            setData(null);
+          }}
           onApplyImport={async (importId, input) => {
             const result = await applyHoldingImport(importId, input);
             await refreshReviewedHoldings();
@@ -9201,6 +9328,10 @@ export function App() {
             await refreshReviewedHoldings();
             return preview;
           }}
+          requestedManualEntry={holdingManualEntry}
+          onManualEntryChange={navigateToManualHolding}
+          onManualNavigationLockChange={onManualNavigationLockChange}
+          manualNavigationLocked={manualNavigationLocked}
           requestedPositionId={holdingPositionId}
           onPositionRouteChange={navigateToHoldingPosition}
           requestedImportId={holdingImportId}
@@ -9367,6 +9498,10 @@ export function App() {
     data,
     holdingImportId,
     holdingPositionId,
+    holdingManualEntry,
+    manualNavigationLocked,
+    navigateToManualHolding,
+    onManualNavigationLockChange,
     navigateToHoldingPosition,
     holdingsDrilldown,
     holdingsLoadError,

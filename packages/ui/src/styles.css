@@ -1578,7 +1578,8 @@ h3 {
   font-size: 20px;
 }
 
-.empty-state p {
+.empty-state p,
+.empty-state__actions {
   max-width: 470px;
   margin-bottom: 0;
   color: var(--muted);
@@ -1599,7 +1600,8 @@ h3 {
   font-size: inherit;
 }
 
-.empty-state--compact > p {
+.empty-state--compact > p,
+.empty-state--compact > .empty-state__actions {
   max-width: none;
   margin-top: 5px;
   font-size: inherit;

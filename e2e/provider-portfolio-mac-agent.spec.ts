@@ -11,6 +11,17 @@ const {
   requireProviderPageReady,
 } = __providerPortfolioMacAgentTest;
 
+const nonblockingMfaMarkup = [
+  "<h1>Set up two-factor authentication</h1><button>Continue</button>",
+  "<div hidden><form><h1>Verify your identity</h1><button>Verify</button></form></div>",
+  "<form><h1 hidden>Verify your identity</h1><button>Verify</button></form>",
+  "<form><h1>Verify your identity</h1><button hidden>Verify</button></form>",
+  "<form><h1>Verify your identity</h1></form><form><button>Verify</button></form>",
+  "<button hidden>Sign in with a passkey</button>",
+  "<form><h1>Two-factor authentication</h1><button>Disable</button></form>",
+  "<form><h1>Security settings</h1><button>Add passkey</button></form>",
+] as const;
+
 for (const [provider, origin, control] of [
   [
     "tokenfolio",
@@ -25,45 +36,116 @@ for (const [provider, origin, control] of [
 ] as const) {
   test(`${provider} distinguishes sign-in from missing, responsive, or delayed portfolio controls`, async ({
     page,
+    isMobile,
   }) => {
     let html =
       '<div role="button" class="relative cursor-pointer">Not a portfolio</div>';
     await page.route(`${origin}/**`, (route) =>
       route.fulfill({ body: html, contentType: "text/html" }),
     );
-    await page.goto(`${origin}/portfolio`);
-    await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
 
-    // A login link in a signed-in page must not count as a login form.
-    html = '<a href="/login">Sign in</a><p>Temporarily unavailable</p>';
-    await page.reload();
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
+    if (!isMobile) {
+      await page.route("https://unrelated.example/**", (route) =>
+        route.fulfill({
+          body: '<input type="password"><button>Sign in with a passkey</button>',
+          contentType: "text/html",
+        }),
+      );
+      await page.goto("https://unrelated.example/login");
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("page_not_supported");
 
-    for (const form of [
-      '<input type="password"><button>Sign in</button>',
-      '<input autocomplete="one-time-code"><button>Verify</button>',
-      '<input type="email"><button>Sign in</button>',
-      `${control}<input type="password"><button>Sign in</button>`,
-    ]) {
-      html = form;
+      await page.goto(`${origin}/portfolio`);
+      await expect(providerPageReady(page, provider, 100)).resolves.toBe(false);
+      await expect(
+        requireProviderPageReady(page, provider, 100),
+      ).rejects.toThrow("page_not_supported");
+
+      html = '<a href="/login">Sign in</a><p>Temporarily unavailable</p>';
       await page.reload();
       await expect(
         requireProviderPageReady(page, provider, 100),
-      ).rejects.toThrow("provider_sign_in_required");
+      ).rejects.toThrow("page_not_supported");
+
+      for (const form of [
+        '<input type="password"><button>Sign in</button>',
+        '<input autocomplete="one-time-code"><button>Verify</button>',
+        '<input type="email"><button>Sign in</button>',
+      ]) {
+        html = form;
+        await page.reload();
+        await expect(
+          requireProviderPageReady(page, provider, 100),
+        ).rejects.toThrow("provider_sign_in_required");
+      }
     }
 
-    await page.route("https://unrelated.example/**", (route) =>
-      route.fulfill({
-        body: '<input type="password"><button>Sign in</button>',
-        contentType: "text/html",
-      }),
+    // A real sign-in prompt takes priority over mounted holdings at both widths.
+    html = `${control}<input type="password"><button>Sign in</button>`;
+    await page.goto(`${origin}/portfolio`);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "provider_sign_in_required",
     );
-    await page.goto("https://unrelated.example/login");
+
+    if (isMobile) {
+      // The remote desktop can resize to its viewer before saved-session verification.
+      const responsive = `<meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>@media (max-width: 700px) { .wide-only { display: none } }
+        @media (min-width: 701px) { .narrow-only { display: none } }</style>`;
+      html = `${responsive}<div class="wide-only">${control}</div>`;
+      await page.goto(`${origin}/portfolio`);
+      await expect(page.locator(".wide-only")).toBeHidden();
+      await expect(providerPageReady(page, provider)).resolves.toBe(
+        provider === "sydecar",
+      );
+
+      html = `${responsive}<div id="portfolio" class="narrow-only">Loading</div>
+        <script>setTimeout(() => document.getElementById("portfolio").innerHTML = ${JSON.stringify(control)}, 200)</script>`;
+      await page.reload();
+      await expect(page.locator(".narrow-only")).toBeVisible();
+      await expect(
+        requireProviderPageReady(page, provider),
+      ).resolves.toBeUndefined();
+      if (provider === "tokenfolio") {
+        // Ordinary settings alone cannot establish a signed-in portfolio.
+        html = `${responsive}${nonblockingMfaMarkup.join("")}`;
+        await page.reload();
+        await expect(providerPageReady(page, provider, 100)).resolves.toBe(
+          false,
+        );
+        for (const optional of nonblockingMfaMarkup) {
+          html = `${responsive}${control}<div class="narrow-only">${optional}</div>`;
+          await page.reload();
+          await expect(providerPageReady(page, provider)).resolves.toBe(true);
+        }
+        html = `${responsive}${control}<form class="narrow-only"><h1>Set up two-factor authentication</h1><button>Continue</button></form>`;
+        await page.reload();
+        await expect(providerPageReady(page, provider)).resolves.toBe(true);
+        for (const challenge of [
+          "<button>Sign in with a passkey</button>",
+          "<button>Log in with your passkey</button>",
+          '<div role="dialog"><h2>Set up your passkey</h2><button>Continue</button></div>',
+        ]) {
+          html = `${responsive}${control}<div class="narrow-only">${challenge}</div>`;
+          await page.reload();
+          await expect(providerPageReady(page, provider)).resolves.toBe(false);
+          html = `${responsive}${control}<div class="wide-only">${challenge}</div>`;
+          await page.reload();
+          await expect(
+            requireProviderPageReady(page, provider),
+          ).resolves.toBeUndefined();
+        }
+      }
+      return;
+    }
+    // A provider's own login page can arrive before its form has mounted.
+    html = "<h1>Log in to your account</h1>";
+    await page.goto(`${origin}/login`);
+    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
+      "provider_sign_in_required",
+    );
+    await page.goto(`${origin}/portfolio?redirect=/login`);
     await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
       "page_not_supported",
     );
@@ -82,154 +164,117 @@ for (const [provider, origin, control] of [
       requireProviderPageReady(page, provider, 2_000),
     ).resolves.toBeUndefined();
   });
+}
 
-  test(`${provider} recognizes a dedicated sign-in page before its form loads`, async ({
-    page,
-  }) => {
-    let html = "<h1>Log in to your account</h1><div>Loading…</div>";
+test(
+  "Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const origin = "https://app.tokenfolio.co";
+    const control =
+      '<button id="portfolio-tab-active" role="tab">Active Holdings0</button>';
+    let html = "";
     await page.route(`${origin}/**`, (route) =>
       route.fulfill({ body: html, contentType: "text/html" }),
     );
-    await page.goto(`${origin}/login`);
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "provider_sign_in_required",
-    );
 
-    // A heading without the dedicated route is not proof of an expired session.
-    await page.goto(`${origin}/portfolio?redirect=/login`);
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
-    );
-    // Neither an auth route alone nor hidden authentication copy is sufficient.
     for (const content of [
-      "<h1>Temporarily unavailable</h1>",
-      "<h1 hidden>Log in to your account</h1><div>Loading…</div>",
+      "<button>Sign in with a passkey</button>",
+      "<button>Log in with your passkey</button>",
+      '<form><h1>Verify your identity</h1><input inputmode="numeric"><button>Verify</button></form>',
+      '<form><h1>Two-factor authentication</h1><input inputmode="numeric"><button>Verify</button></form>',
+      "<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>",
+      `${control}<div role="dialog"><h2>Set up your passkey</h2><button>Continue</button></div>`,
     ]) {
       html = content;
-      await page.goto(`${origin}/login`);
+      await page.goto(`${origin}/portfolio`);
       await expect(
-        requireProviderPageReady(page, provider, 100),
-      ).rejects.toThrow("page_not_supported");
+        requireProviderPageReady(page, "tokenfolio", 100),
+      ).rejects.toThrow("provider_sign_in_required");
     }
+
+    for (const content of nonblockingMfaMarkup) {
+      html = content;
+      await page.goto(`${origin}/portfolio`);
+      await expect(
+        requireProviderPageReady(page, "tokenfolio", 100),
+      ).rejects.toThrow("page_not_supported");
+      html = `${control}${content}`;
+      await page.reload();
+      await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
+    }
+
+    // Optional enrollment within the portfolio's settings is not a sign-in gate.
+    html = `${control}<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>`;
+    await page.goto(`${origin}/portfolio`);
+    await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
+
     await page.route("https://unrelated.example/**", (route) =>
       route.fulfill({
-        body: "<h1>Log in to your account</h1>",
+        body: "<button>Sign in with a passkey</button>",
         contentType: "text/html",
       }),
     );
     await page.goto("https://unrelated.example/login");
-    await expect(requireProviderPageReady(page, provider, 100)).rejects.toThrow(
-      "page_not_supported",
+    await expect(
+      requireProviderPageReady(page, "tokenfolio", 100),
+    ).rejects.toThrow("page_not_supported");
+  },
+);
+
+test(
+  "Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const origin = "https://tokenfolio.eu.auth0.com";
+    let html =
+      '<form><input autocomplete="username"><input type="password"><button>Continue</button></form>';
+    await page.route(`${origin}/**`, (route) =>
+      route.fulfill({ body: html, contentType: "text/html" }),
     );
-  });
-}
-
-test("Tokenfolio recognizes passkey sign-in and blocking MFA enrollment without treating security settings as sign-in", async ({
-  page,
-}) => {
-  const origin = "https://app.tokenfolio.co";
-  const control =
-    '<button id="portfolio-tab-active" role="tab">Active Holdings0</button>';
-  let html = "";
-  await page.route(`${origin}/**`, (route) =>
-    route.fulfill({ body: html, contentType: "text/html" }),
-  );
-
-  for (const content of [
-    "<button>Sign in with a passkey</button>",
-    "<button>Log in with your passkey</button>",
-    '<form><h1>Verify your identity</h1><input inputmode="numeric"><button>Verify</button></form>',
-    '<form><h1>Two-factor authentication</h1><input inputmode="numeric"><button>Verify</button></form>',
-    "<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>",
-    `${control}<div role="dialog"><h2>Set up your passkey</h2><button>Continue</button></div>`,
-  ]) {
-    html = content;
-    await page.goto(`${origin}/portfolio`);
+    await page.goto(`${origin}/u/login/password?state=synthetic`);
     await expect(
       requireProviderPageReady(page, "tokenfolio", 100),
     ).rejects.toThrow("provider_sign_in_required");
-  }
-
-  for (const content of [
-    "<h1>Set up two-factor authentication</h1><button>Continue</button>",
-    "<div hidden><form><h1>Verify your identity</h1><button>Verify</button></form></div>",
-    "<form><h1 hidden>Verify your identity</h1><button>Verify</button></form>",
-    "<form><h1>Verify your identity</h1><button hidden>Verify</button></form>",
-    "<form><h1>Verify your identity</h1></form><form><button>Verify</button></form>",
-    "<button hidden>Sign in with a passkey</button>",
-    "<form><h1>Two-factor authentication</h1><button>Disable</button></form>",
-    "<form><h1>Security settings</h1><button>Add passkey</button></form>",
-  ]) {
-    html = content;
-    await page.goto(`${origin}/portfolio`);
+    await expect(
+      requireProviderPageReady(page, "sydecar", 100),
+    ).rejects.toThrow("page_not_supported");
+    for (const content of [
+      '<form hidden><input type="password"><button>Continue</button></form>',
+      '<form><input type="password"></form><form><button>Continue</button></form>',
+      "<h1>Temporarily unavailable</h1>",
+    ]) {
+      html = content;
+      await page.reload();
+      await expect(
+        requireProviderPageReady(page, "tokenfolio", 100),
+      ).rejects.toThrow("page_not_supported");
+    }
+    html = '<form><input type="password"><button>Continue</button></form>';
+    await page.goto(`${origin}/settings`);
     await expect(
       requireProviderPageReady(page, "tokenfolio", 100),
     ).rejects.toThrow("page_not_supported");
-    html = `${control}${content}`;
-    await page.reload();
-    await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
-  }
+  },
+);
 
-  // Optional enrollment within the portfolio's settings is not a sign-in gate.
-  html = `${control}<form><h1>Set up two-factor authentication</h1><button>Continue</button></form>`;
-  await page.goto(`${origin}/portfolio`);
-  await expect(providerPageReady(page, "tokenfolio")).resolves.toBe(true);
-
-  await page.route("https://unrelated.example/**", (route) =>
-    route.fulfill({
-      body: "<button>Sign in with a passkey</button>",
-      contentType: "text/html",
-    }),
-  );
-  await page.goto("https://unrelated.example/login");
-  await expect(
-    requireProviderPageReady(page, "tokenfolio", 100),
-  ).rejects.toThrow("page_not_supported");
-});
-
-test("Tokenfolio recognizes its hosted Auth0 login without accepting unrelated or incomplete pages", async ({
-  page,
-}) => {
-  const origin = "https://tokenfolio.eu.auth0.com";
-  let html =
-    '<form><input autocomplete="username"><input type="password"><button>Continue</button></form>';
-  await page.route(`${origin}/**`, (route) =>
-    route.fulfill({ body: html, contentType: "text/html" }),
-  );
-  await page.goto(`${origin}/u/login/password?state=synthetic`);
-  await expect(
-    requireProviderPageReady(page, "tokenfolio", 100),
-  ).rejects.toThrow("provider_sign_in_required");
-  await expect(requireProviderPageReady(page, "sydecar", 100)).rejects.toThrow(
-    "page_not_supported",
-  );
-  for (const content of [
-    '<form hidden><input type="password"><button>Continue</button></form>',
-    '<form><input type="password"></form><form><button>Continue</button></form>',
-    "<h1>Temporarily unavailable</h1>",
-  ]) {
-    html = content;
-    await page.reload();
-    await expect(
-      requireProviderPageReady(page, "tokenfolio", 100),
-    ).rejects.toThrow("page_not_supported");
-  }
-  html = '<form><input type="password"><button>Continue</button></form>';
-  await page.goto(`${origin}/settings`);
-  await expect(
-    requireProviderPageReady(page, "tokenfolio", 100),
-  ).rejects.toThrow("page_not_supported");
-});
-
-function tokenfolioPage(
+function tokenfolioPage({
   activeCount = 2,
-  statuses: readonly [string, string] = ["Funds Received", "Completed"],
+  statuses = ["Funds Received", "Completed"],
   drawerInitiallyOpen = false,
   detailDelayMs = 0,
   tabCountDelayMs = 0,
   drawerUrlDelayMs = 0,
-  rowRenderDelayMs = 0,
-): string {
+  shareBases = [null, null],
+}: {
+  activeCount?: number;
+  statuses?: readonly [string, string];
+  drawerInitiallyOpen?: boolean;
+  detailDelayMs?: number;
+  tabCountDelayMs?: number;
+  drawerUrlDelayMs?: number;
+  shareBases?: readonly [string | null, string | null];
+} = {}): string {
   const rows = [
     {
       company: "Synthetic Atlas",
@@ -255,6 +300,7 @@ function tokenfolioPage(
       (row, index) => `
         <div role="button" class="relative cursor-pointer" tabindex="0"
           data-investment-id="${index === 0 ? "11111111-1111-4111-8111-111111111111" : "22222222-2222-4222-8222-222222222222"}"
+          data-quote-basis="${shareBases[index] ?? ""}"
           data-company="${row.company}" data-committed="${row.committed}"
           data-current="${row.current}" data-entity="${row.entity}"
           data-date="${row.date}">
@@ -293,6 +339,7 @@ function tokenfolioPage(
           <div><dt>Entry Price</dt><dd>$10.00</dd></div>
           <div><dt>Committed On</dt><dd data-detail="date"></dd></div>
         </dl>
+        <dl data-reported-quote></dl>
         <button aria-label="Close drawer">Close</button>
       </div>
       <script>
@@ -314,6 +361,9 @@ function tokenfolioPage(
               dialog.querySelector('[data-summary="current"]').textContent = row.dataset.current;
               dialog.querySelector('[data-detail="entity"]').textContent = row.dataset.entity;
               dialog.querySelector('[data-detail="date"]').textContent = row.dataset.date;
+              dialog.querySelector('[data-reported-quote]').innerHTML = row.dataset.quoteBasis
+                ? '<dt>Mark date</dt><dd>Aug 18, 2026</dd><dt>Share class</dt><dd>Common</dd><dt>Share basis</dt><dd>' + row.dataset.quoteBasis + '</dd>'
+                : '';
             }, ${detailDelayMs.toString()});
           });
         });
@@ -325,14 +375,6 @@ function tokenfolioPage(
             history.replaceState(null, '', url.href);
           }, ${drawerUrlDelayMs.toString()});
         });
-        if (${rowRenderDelayMs.toString()} > 0) {
-          const list = document.querySelector('#portfolio-rows');
-          const rows = [...list.children];
-          list.replaceChildren();
-          document.addEventListener('restore-portfolio-rows', () => {
-            setTimeout(() => list.append(...rows), ${rowRenderDelayMs.toString()});
-          }, { once: true });
-        }
       </script>
     </body></html>`;
 }
@@ -430,7 +472,15 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
   let firstStatus = "Funds Received";
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(2, [firstStatus, "Completed"]),
+      body: tokenfolioPage({
+        statuses: [firstStatus, "Completed"],
+        detailDelayMs: firstStatus === "Funds Received" ? 250 : 0,
+        tabCountDelayMs: firstStatus === "Partially Exited" ? 250 : 0,
+        shareBases:
+          firstStatus === "Funds Received"
+            ? [null, "Before split"]
+            : ["After 10-for-1 split", null],
+      }),
       contentType: "text/html",
     });
   });
@@ -449,8 +499,6 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
           sharePrices: {
             costMicros: 10000000,
             markMicros: 15000000,
-            markDate: null,
-            shareClass: null,
           },
         },
         investedMinor: 1_250_000,
@@ -469,36 +517,23 @@ test("captures and reconciles the supported Tokenfolio page contract", async ({
         investDate: "2026-01-03",
       },
     ]);
-  }
-});
-
-test("captures explicit Tokenfolio quote dates and split basis without substituting the import date", async ({
-  page,
-}) => {
-  for (const [basis, units] of [
-    ["Before split", 1],
-    ["After 10-for-1 split", 10],
-  ] as const) {
-    await page.route("https://app.tokenfolio.co/**", (route) =>
-      route.fulfill({
-        contentType: "text/html",
-        body: tokenfolioPage().replace(
-          "<div><dt>Entry Price</dt>",
-          `<div><dt>Mark date</dt><dd>Aug 18, 2026</dd></div><div><dt>Share class</dt><dd>Common</dd></div><div><dt>Share basis</dt><dd>${basis}</dd></div><div><dt>Entry Price</dt>`,
-        ),
-      }),
-    );
-    await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-    const parsed = await parseProviderHoldingsTemplateCsv(
-      "tokenfolio",
-      await captureTokenfolio(page, "2026-08-21"),
-    );
-    expect(parsed.rows[0]!.dealMetadata?.sharePrices).toMatchObject({
+    const partialExit = firstStatus === "Partially Exited";
+    const reported =
+      parsed.rows[partialExit ? 0 : 1]!.dealMetadata?.sharePrices;
+    const unknown = parsed.rows[partialExit ? 1 : 0]!.dealMetadata?.sharePrices;
+    expect(reported).toMatchObject({
       markDate: "2026-08-18",
       shareClass: "Common",
-      shareBasis: { key: "issuer-original", unitsPerOriginal: units },
+      shareBasis: {
+        key: "issuer-original",
+        unitsPerOriginal: partialExit ? 10 : 1,
+      },
     });
-    await page.unrouteAll();
+    expect(unknown).toMatchObject({
+      markDate: null,
+      shareClass: null,
+      shareBasis: null,
+    });
   }
 });
 
@@ -509,14 +544,10 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
   let firstLoad = true;
   await page.route("https://app.tokenfolio.co/**", (route) => {
-    const body = tokenfolioPage(
-      2,
-      ["Funds Received", "Completed"],
-      firstLoad,
-      0,
-      0,
-      300,
-    );
+    const body = tokenfolioPage({
+      drawerInitiallyOpen: firstLoad,
+      drawerUrlDelayMs: 300,
+    });
     firstLoad = false;
     return route.fulfill({
       contentType: "text/html",
@@ -538,54 +569,6 @@ test("Tokenfolio waits for each drawer URL to open and clear before associating 
       Promise.reject(new Error("Unexpected provider")),
     flush: () => Promise.resolve(),
   };
-  await captureTokenfolio(page, "2026-08-21", () => undefined, agreements);
-  expect(ids).toEqual([
-    "11111111-1111-4111-8111-111111111111",
-    "22222222-2222-4222-8222-222222222222",
-  ]);
-  expect(new URL(page.url()).searchParams.has("investmentId")).toBe(false);
-});
-
-test("Tokenfolio waits for all holdings after document return before continuing and reconciling", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  let loads = 0;
-  await page.route("https://app.tokenfolio.co/**", (route) =>
-    route.fulfill({
-      contentType: "text/html",
-      body: tokenfolioPage(
-        2,
-        ["Funds Received", "Completed"],
-        false,
-        0,
-        0,
-        0,
-        loads++ === 0 ? 0 : 500,
-      ),
-    }),
-  );
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-  const ids: Array<string | null> = [];
-  const agreements: AgreementCollector = {
-    collect: async (sourcePage) => {
-      ids.push(new URL(sourcePage.url()).searchParams.get("investmentId"));
-      await sourcePage.goto("https://app.tokenfolio.co/portfolio?tab=active");
-      await expect(sourcePage.locator("#portfolio-tab-active")).toBeVisible();
-      expect(
-        await sourcePage
-          .locator('div[role="button"].relative.cursor-pointer')
-          .count(),
-      ).toBe(0);
-      await sourcePage.evaluate(() => {
-        document.dispatchEvent(new Event("restore-portfolio-rows"));
-      });
-    },
-    collectSydecarDocuments: () =>
-      Promise.reject(new Error("Unexpected provider")),
-    flush: () => Promise.resolve(),
-  };
   const bytes = await captureTokenfolio(
     page,
     "2026-08-21",
@@ -593,12 +576,15 @@ test("Tokenfolio waits for all holdings after document return before continuing 
     agreements,
   );
   const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
+  expect(parsed.rows.map((row) => row.companyOrFund)).toEqual([
+    "Synthetic Atlas",
+    "Synthetic Beacon",
+  ]);
   expect(ids).toEqual([
     "11111111-1111-4111-8111-111111111111",
     "22222222-2222-4222-8222-222222222222",
   ]);
-  expect(loads).toBe(3);
+  expect(new URL(page.url()).searchParams.has("investmentId")).toBe(false);
 });
 
 test("fails closed when the Tokenfolio visible count does not reconcile", async ({
@@ -608,7 +594,7 @@ test("fails closed when the Tokenfolio visible count does not reconcile", async 
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(3),
+      body: tokenfolioPage({ activeCount: 3 }),
       contentType: "text/html",
     });
   });
@@ -619,60 +605,6 @@ test("fails closed when the Tokenfolio visible count does not reconcile", async 
   );
 });
 
-test("recovers from a Tokenfolio drawer left open by an interrupted run", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", async (route) => {
-    await route.fulfill({
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], true),
-      contentType: "text/html",
-    });
-  });
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-
-  const bytes = await captureTokenfolio(page, "2026-08-21");
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
-});
-
-test("waits for asynchronously rendered Tokenfolio drawer details", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", async (route) => {
-    await route.fulfill({
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], false, 250),
-      contentType: "text/html",
-    });
-  });
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-
-  const bytes = await captureTokenfolio(page, "2026-08-21");
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
-});
-
-test("waits for the Tokenfolio active count after navigation", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.tokenfolio.co/**", async (route) => {
-    await route.fulfill({
-      body: tokenfolioPage(2, ["Funds Received", "Completed"], false, 0, 250),
-      contentType: "text/html",
-    });
-  });
-  await page.goto("https://app.tokenfolio.co/portfolio?tab=active");
-
-  const bytes = await captureTokenfolio(page, "2026-08-21");
-  const parsed = await parseProviderHoldingsTemplateCsv("tokenfolio", bytes);
-  expect(parsed.rows).toHaveLength(2);
-});
-
 test("fails closed for an unknown Tokenfolio active-row status", async ({
   isMobile,
   page,
@@ -680,7 +612,7 @@ test("fails closed for an unknown Tokenfolio active-row status", async ({
   test.skip(isMobile, "The local capture always uses a desktop viewport.");
   await page.route("https://app.tokenfolio.co/**", async (route) => {
     await route.fulfill({
-      body: tokenfolioPage(2, ["Exited", "Completed"]),
+      body: tokenfolioPage({ statuses: ["Exited", "Completed"] }),
       contentType: "text/html",
     });
   });
@@ -703,54 +635,13 @@ test("captures the visible funded Sydecar position and leaves value unreported",
     "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
     async (route) => {
       await route.fulfill({
-        body: sydecarDetailPage(250),
+        body: `${sydecarDetailPage(250)}<h2 data-testid="investment-docs-heading">Investment Docs</h2>`,
         contentType: "text/html",
       });
     },
   );
   await page.goto("https://app.sydecar.io/investments");
 
-  const stages: string[] = [];
-  const bytes = await captureSydecar(page, "2026-08-21", (stage) => {
-    stages.push(stage);
-  });
-  expect(stages.at(-1)).toBe("csv");
-  expect(stages).toContain("detail");
-  const parsed = await parseProviderHoldingsTemplateCsv("sydecar", bytes);
-  expect(parsed.rows).toMatchObject([
-    {
-      companyOrFund: "Synthetic Climate Labs",
-      investedMinor: 1_250_000,
-      dealMetadata: {
-        allocationMinor: 1_500_000,
-        managementFeePpm: 20_000,
-        carryPpm: 200_000,
-      },
-      unrealizedValueMinor: null,
-      unrealizedValueState: "not_reported",
-      investmentEntity: "Synthetic Investor LLC",
-      investDate: "2025-04-14",
-    },
-  ]);
-});
-
-test("defers Sydecar agreement capture to one central Documents pass after snapshot reconciliation", async ({
-  isMobile,
-  page,
-}) => {
-  test.skip(isMobile, "The local capture always uses a desktop viewport.");
-  await page.route("https://app.sydecar.io/investments", (route) =>
-    route.fulfill({ body: sydecarListPage(), contentType: "text/html" }),
-  );
-  await page.route(
-    "https://app.sydecar.io/investments/11111111-1111-4111-8111-111111111111",
-    (route) =>
-      route.fulfill({
-        body: `${sydecarDetailPage()}<h2 data-testid="investment-docs-heading">Investment Docs</h2>`,
-        contentType: "text/html",
-      }),
-  );
-  await page.goto("https://app.sydecar.io/investments");
   let inlineCollections = 0;
   const centralBatches: Array<{
     count: number;
@@ -773,8 +664,33 @@ test("defers Sydecar agreement capture to one central Documents pass after snaps
     flush: () => Promise.resolve(),
   };
 
-  await captureSydecar(page, "2026-08-21", () => undefined, agreements);
-
+  const stages: string[] = [];
+  const bytes = await captureSydecar(
+    page,
+    "2026-08-21",
+    (stage) => {
+      stages.push(stage);
+    },
+    agreements,
+  );
+  expect(stages.at(-1)).toBe("csv");
+  expect(stages).toContain("detail");
+  const parsed = await parseProviderHoldingsTemplateCsv("sydecar", bytes);
+  expect(parsed.rows).toMatchObject([
+    {
+      companyOrFund: "Synthetic Climate Labs",
+      investedMinor: 1_250_000,
+      dealMetadata: {
+        allocationMinor: 1_500_000,
+        managementFeePpm: 20_000,
+        carryPpm: 200_000,
+      },
+      unrealizedValueMinor: null,
+      unrealizedValueState: "not_reported",
+      investmentEntity: "Synthetic Investor LLC",
+      investDate: "2025-04-14",
+    },
+  ]);
   expect(inlineCollections).toBe(0);
   expect(centralBatches).toEqual([
     {

@@ -221,14 +221,18 @@ describe("investment exposure read model", () => {
       companyId: "company_synthetic",
       resolutionMethod: "reviewed_company",
     };
-    const publicPositions = Array.from({ length: 120 }, (_, index) => ({
-      ...reviewedProviderPosition(
-        `public_${String(index).padStart(3, "0")}`,
-        index % 2 === 0 ? null : "2026-08-12",
-        1_000,
-      ),
-      kind: "direct" as const,
-    }));
+    const publicPositions: InvestmentPositionRecord[] = Array.from(
+      { length: 120 },
+      (_, index) => ({
+        ...reviewedProviderPosition(
+          `public_${String(index).padStart(3, "0")}`,
+          index % 2 === 0 ? null : "2026-08-12",
+          1_000,
+        ),
+        kind: "direct" as const,
+      }),
+    );
+    publicPositions.push(position("public_locked", null, "locked"));
     const spv = position("spv_1", 25_000);
     spv.kind = "spv_interest";
     spv.snapshot.quantityMicros = null;
@@ -266,13 +270,13 @@ describe("investment exposure read model", () => {
     );
     expect(grouped).toHaveLength(1);
     expect(grouped[0]?.exposure.id).toBe(privateCompany.id);
-    expect(grouped[0]?.contributions).toHaveLength(121);
+    expect(grouped[0]?.contributions).toHaveLength(122);
     expect(grouped[0]?.totals).toEqual([
       {
         currency: "USD",
         allocatedValueMinor: 145_000,
         knownValuePositionCount: 121,
-        unknownValuePositionCount: 0,
+        unknownValuePositionCount: 1,
       },
     ]);
     expect(
@@ -864,8 +868,8 @@ it.each([false, true])(
         economicsContext: {
           snapshotId: value.snapshotId,
           currency: value.currency,
-          committedMinor: value.committedMinor,
-          fundedMinor: value.investedMinor,
+          committedMinor: value.committedMinor!,
+          fundedMinor: value.investedMinor!,
           acceptedTerms: null,
           reportedTerms: null,
           reviewedInvestment: value.reviewedInvestment,

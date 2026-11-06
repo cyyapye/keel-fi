@@ -174,7 +174,10 @@ function positionSourceSummary(
     openedOn: position.openedOn,
     financials: {
       currency: position.snapshot.currency,
-      commitmentMinor: investmentAmount(position),
+      commitmentMinor:
+        position.manualContext != null
+          ? position.snapshot.allocationMinor
+          : investmentAmount(position),
       fundedMinor: position.snapshot.investedMinor,
       capitalBasis: hasUnifiedTerms
         ? currentReviewed?.terms.importedAmountBasis === "gross_cash"

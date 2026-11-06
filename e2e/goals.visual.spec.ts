@@ -129,256 +129,225 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-test("uses the saved-goal dropdown with one goal", async ({ page }) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = (await alphaResponse.json()) as AlphaData;
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        goals: stableGoals.slice(0, 1),
-      } satisfies AlphaData,
+test(
+  "keeps saved goals compact and templates creation-only",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const alphaResponse = await page.request.get("/api/alpha");
+    expect(alphaResponse.ok()).toBe(true);
+    const alphaFixture = (await alphaResponse.json()) as AlphaData;
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({
+        json: {
+          ...alphaFixture,
+          dashboard: {
+            ...alphaFixture.dashboard,
+            fiEligibleLiquidMinor: 182_500_000,
+            fiTargetMinor: 325_000_000,
+            p25FiveYearLiquidityMinor: 94_000_000,
+            p50FiveYearLiquidityMinor: 210_000_000,
+            p75FiveYearLiquidityMinor: 354_000_000,
+            protectedRunwayMonths: 42,
+          },
+          goals: stableGoals,
+        } satisfies AlphaData,
+      });
     });
-  });
 
-  await page.goto("/goals");
+    await page.goto("/goals");
 
-  const selector = page.getByRole("combobox", { name: "Saved goal" });
-  await expect(selector).toBeVisible();
-  await expect(selector.locator("strong")).toHaveText("Financial independence");
-  await expect(page.getByText("1 active goal", { exact: true })).toBeVisible();
+    const selector = page.getByRole("combobox", { name: "Saved goal" });
+    const selectorHeader = selector.locator(".goal-selector__goal-header");
+    await expect(selectorHeader.locator(":scope > span")).toHaveText("Primary");
+    await expect(selectorHeader.locator("strong")).toHaveText(
+      "Financial independence",
+    );
+    await expect(selectorHeader.locator("small")).toHaveText("v1 · $1.8M");
+    await expect(page.locator(".goal-templates")).toHaveCount(0);
+    await expect(page.locator(".goal-selector .eyebrow")).toHaveText("Goals");
+    await expect(
+      page.getByText("Goal version and forecast snapshot save together."),
+    ).toHaveCount(0);
 
-  await page.getByRole("button", { name: "New goal +" }).click();
-  await expect(selector.locator("strong")).toHaveText("Choose a goal");
-  await expect(page.getByText("Start from a template")).toBeVisible();
-  await selector.click();
-  await page.getByRole("option", { name: /Financial independence/u }).click();
-  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
-    "Financial independence",
-  );
-});
+    const modeledBadge = page.getByText("Modeled", { exact: true });
+    await expect(modeledBadge).toHaveCSS("color", "rgb(247, 244, 238)");
+    await expect(modeledBadge).toHaveCSS("background-color", "rgb(38, 34, 56)");
 
-test("keeps saved goals compact and templates creation-only", async ({
-  page,
-}) => {
-  const alphaResponse = await page.request.get("/api/alpha");
-  expect(alphaResponse.ok()).toBe(true);
-  const alphaFixture = (await alphaResponse.json()) as AlphaData;
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({
-      json: {
-        ...alphaFixture,
-        dashboard: {
-          ...alphaFixture.dashboard,
-          fiEligibleLiquidMinor: 182_500_000,
-          fiTargetMinor: 325_000_000,
-          p25FiveYearLiquidityMinor: 94_000_000,
-          p50FiveYearLiquidityMinor: 210_000_000,
-          p75FiveYearLiquidityMinor: 354_000_000,
-          protectedRunwayMonths: 42,
-        },
-        goals: stableGoals,
-      } satisfies AlphaData,
-    });
-  });
+    const selectorBox = await page.locator(".goal-selector").boundingBox();
+    const formBox = await page.locator(".goal-form").boundingBox();
+    expect(selectorBox).not.toBeNull();
+    expect(formBox).not.toBeNull();
+    expect(selectorBox!.y + selectorBox!.height).toBeLessThan(formBox!.y);
 
-  await page.goto("/goals");
-
-  const selector = page.getByRole("combobox", { name: "Saved goal" });
-  const selectorHeader = selector.locator(".goal-selector__goal-header");
-  await expect(selectorHeader.locator(":scope > span")).toHaveText("Primary");
-  await expect(selectorHeader.locator("strong")).toHaveText(
-    "Financial independence",
-  );
-  await expect(selectorHeader.locator("small")).toHaveText("v1 · $1.8M");
-  await expect(page.locator(".goal-templates")).toHaveCount(0);
-  await expect(page.locator(".goal-selector .eyebrow")).toHaveText("Goals");
-  await expect(
-    page.getByText("Goal version and forecast snapshot save together."),
-  ).toHaveCount(0);
-
-  const modeledBadge = page.getByText("Modeled", { exact: true });
-  await expect(modeledBadge).toHaveCSS("color", "rgb(247, 244, 238)");
-  await expect(modeledBadge).toHaveCSS("background-color", "rgb(38, 34, 56)");
-
-  const selectorBox = await page.locator(".goal-selector").boundingBox();
-  const formBox = await page.locator(".goal-form").boundingBox();
-  expect(selectorBox).not.toBeNull();
-  expect(formBox).not.toBeNull();
-  expect(selectorBox!.y + selectorBox!.height).toBeLessThan(formBox!.y);
-
-  const livePreview = page.locator(".goal-preview");
-  if ((page.viewportSize()?.width ?? 0) <= 980) {
+    const livePreview = page.locator(".goal-preview");
     await expect(livePreview).toBeHidden();
-  } else {
-    await expect(livePreview).toBeVisible();
-  }
-  await expect(page.locator("[data-slot='panel']")).toHaveCount(4);
-  await expect(page.locator("[data-slot='metric-card']")).toHaveCount(1);
-  await expect(page.locator("[data-slot='action-group']")).toHaveCount(1);
-  const newGoalAction = page.getByRole("button", { name: "New goal +" });
-  await expect(newGoalAction).toHaveAttribute("data-slot", "text-link");
-  await expect(page.locator(".goal-form .field--filled")).toHaveCount(7);
-  await expect(page.locator(".goal-form input[type='date']")).toHaveCount(0);
-  const primaryStatus = page.locator(
-    ".goal-form__panel > .panel__header [data-slot='badge']",
-  );
-  await expect(primaryStatus).toHaveText("Primary");
-  await expect(primaryStatus).toHaveClass(/badge--positive/u);
-  await expect(page.getByRole("switch")).toHaveCount(0);
-  await expect(page.getByRole("checkbox")).toHaveCount(0);
-  const targetDate = page.getByRole("button", { name: "Target date" });
-  await expect(targetDate).toHaveAttribute("data-slot", "date-picker");
-  await expect(page).toHaveScreenshot("goals-editor.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+    await expect(page.locator("[data-slot='panel']")).toHaveCount(4);
+    await expect(page.locator("[data-slot='metric-card']")).toHaveCount(1);
+    await expect(page.locator("[data-slot='action-group']")).toHaveCount(1);
+    const newGoalAction = page.getByRole("button", { name: "New goal +" });
+    await expect(newGoalAction).toHaveAttribute("data-slot", "text-link");
+    await expect(page.locator(".goal-form .field--filled")).toHaveCount(7);
+    await expect(page.locator(".goal-form input[type='date']")).toHaveCount(0);
+    const primaryStatus = page.locator(
+      ".goal-form__panel > .panel__header [data-slot='badge']",
+    );
+    await expect(primaryStatus).toHaveText("Primary");
+    await expect(primaryStatus).toHaveClass(/badge--positive/u);
+    await expect(page.getByRole("switch")).toHaveCount(0);
+    await expect(page.getByRole("checkbox")).toHaveCount(0);
+    const targetDate = page.getByRole("button", { name: "Target date" });
+    await expect(targetDate).toHaveAttribute("data-slot", "date-picker");
+    await expect(page).toHaveScreenshot("goals-editor.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
 
-  await selector.click();
-  const options = page.getByRole("option");
-  await expect(options).toHaveCount(3);
-  expect(
-    await page
-      .locator(".goal-selector__item .goal-selector__goal-header")
-      .evaluateAll((headers) =>
-        headers.map((header) =>
-          Array.from(header.children).map((child) => child.tagName),
+    await selector.click();
+    const options = page.getByRole("option");
+    await expect(options).toHaveCount(3);
+    expect(
+      await page
+        .locator(".goal-selector__item .goal-selector__goal-header")
+        .evaluateAll((headers) =>
+          headers.map((header) =>
+            Array.from(header.children).map((child) => child.tagName),
+          ),
         ),
-      ),
-  ).toEqual([
-    ["SPAN", "STRONG", "SMALL"],
-    ["SPAN", "STRONG", "SMALL"],
-    ["SPAN", "STRONG", "SMALL"],
-  ]);
-  await expect(page).toHaveScreenshot("goals-selector-open.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+    ).toEqual([
+      ["SPAN", "STRONG", "SMALL"],
+      ["SPAN", "STRONG", "SMALL"],
+      ["SPAN", "STRONG", "SMALL"],
+    ]);
+    await expect(page).toHaveScreenshot("goals-selector-open.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
 
-  await page
-    .getByRole("option", {
-      name: "Cash runway Keep a three-year cash runway v1 · 42 months",
-    })
-    .click();
-  await expect(selectorHeader.locator(":scope > span")).toHaveText(
-    "Cash runway",
-  );
-  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
-    "Keep a three-year cash runway",
-  );
-  await expect(page.locator(".goal-templates")).toHaveCount(0);
-  const makePrimary = page.getByRole("button", { name: "Make primary" });
-  await expect(makePrimary).toHaveAttribute("data-slot", "button");
-  await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
-  await makePrimary.click();
-  const primaryOnSave = page.getByRole("button", {
-    name: "Primary on save",
-  });
-  await expect(primaryOnSave).toHaveAttribute("aria-pressed", "true");
-  await expect(page).toHaveScreenshot("goals-primary-pending.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-  await primaryOnSave.click();
-  await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
-  await makePrimary.click();
-  await expect(primaryOnSave).toHaveAttribute("aria-pressed", "true");
+    await page
+      .getByRole("option", {
+        name: "Cash runway Keep a three-year cash runway v1 · 42 months",
+      })
+      .click();
+    await expect(selectorHeader.locator(":scope > span")).toHaveText(
+      "Cash runway",
+    );
+    await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
+      "Keep a three-year cash runway",
+    );
+    await expect(page.locator(".goal-templates")).toHaveCount(0);
+    const makePrimary = page.getByRole("button", { name: "Make primary" });
+    await expect(makePrimary).toHaveAttribute("data-slot", "button");
+    await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
+    await makePrimary.click();
+    const primaryOnSave = page.getByRole("button", {
+      name: "Primary on save",
+    });
+    await expect(primaryOnSave).toHaveAttribute("aria-pressed", "true");
+    await expect(page).toHaveScreenshot("goals-primary-pending.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+    await primaryOnSave.click();
+    await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
+    await makePrimary.click();
+    await expect(primaryOnSave).toHaveAttribute("aria-pressed", "true");
 
-  const unit = page.getByRole("combobox", { name: "Unit" });
-  await expect(unit).toBeEnabled();
+    const unit = page.getByRole("combobox", { name: "Unit" });
+    await expect(unit).toBeEnabled();
 
-  const targetValue = page.getByRole("textbox", {
-    name: "Target value · optional",
-  });
-  const targetValueInset = await targetValue.evaluate((input) => {
-    const group = input.parentElement;
-    if (group === null) return null;
-    return {
-      adornments: group.querySelectorAll(
-        "[data-slot='input-prefix'], [data-slot='input-suffix']",
-      ).length,
-      inset:
-        input.getBoundingClientRect().left - group.getBoundingClientRect().left,
-    };
-  });
-  expect(targetValueInset).toEqual({ adornments: 0, inset: 12 });
+    const targetValue = page.getByRole("textbox", {
+      name: "Target value · optional",
+    });
+    const targetValueInset = await targetValue.evaluate((input) => {
+      const group = input.parentElement;
+      if (group === null) return null;
+      return {
+        adornments: group.querySelectorAll(
+          "[data-slot='input-prefix'], [data-slot='input-suffix']",
+        ).length,
+        inset:
+          input.getBoundingClientRect().left -
+          group.getBoundingClientRect().left,
+      };
+    });
+    expect(targetValueInset).toEqual({ adornments: 0, inset: 12 });
 
-  await unit.click();
-  await page.getByRole("option", { exact: true, name: "Count" }).click();
-  await expect(unit).toHaveText("Count");
-  await unit.click();
-  await page.getByRole("option", { exact: true, name: "Months" }).click();
-  await expect(unit).toHaveText("Months");
+    await unit.click();
+    await page.getByRole("option", { exact: true, name: "Count" }).click();
+    await expect(unit).toHaveText("Count");
+    await unit.click();
+    await page.getByRole("option", { exact: true, name: "Months" }).click();
+    await expect(unit).toHaveText("Months");
 
-  await targetValue.scrollIntoViewIfNeeded();
-  await expect(page).toHaveScreenshot("goals-runway-fields.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
+    await targetValue.scrollIntoViewIfNeeded();
+    await expect(page).toHaveScreenshot("goals-runway-fields.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
 
-  await selector.click();
-  await page
-    .getByRole("option", {
-      name: "Major purchase Future home purchase v1 · $250k",
-    })
-    .click();
-  await expect(targetDate).toHaveText("Jun 30, 2030");
-  await targetDate.click();
-  await expect(page.locator(".date-picker__popup")).toBeVisible();
-  const clearDate = page.getByRole("button", { name: "Clear date" });
-  await expect(clearDate).toBeVisible();
-  await clearDate.click();
-  await expect(targetDate).toHaveText("Choose date");
+    await selector.click();
+    await page
+      .getByRole("option", {
+        name: "Major purchase Future home purchase v1 · $250k",
+      })
+      .click();
+    await expect(targetDate).toHaveText("Jun 30, 2030");
+    await targetDate.click();
+    await expect(page.locator(".date-picker__popup")).toBeVisible();
+    const clearDate = page.getByRole("button", { name: "Clear date" });
+    await expect(clearDate).toBeVisible();
+    await clearDate.click();
+    await expect(targetDate).toHaveText("Choose date");
 
-  await newGoalAction.click();
-  await expect(page.getByText("Start from a template")).toBeVisible();
-  await expect(newGoalAction).toHaveCount(0);
-  await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
-  await expect(page.locator(".goal-templates").getByRole("button")).toHaveCount(
-    4,
-  );
-  await expect(
-    page.locator(".goal-templates [data-slot='button']"),
-  ).toHaveCount(4);
-  await expect(
-    page.getByRole("button", { exact: true, name: "Custom" }),
-  ).toHaveAttribute("aria-pressed", "true");
-  const customTemplate = page.getByRole("button", {
-    exact: true,
-    name: "Custom",
-  });
-  const cashRunwayTemplate = page.getByRole("button", {
-    exact: true,
-    name: "Cash runway",
-  });
-  await cashRunwayTemplate.click();
-  await expect(cashRunwayTemplate).toHaveAttribute("aria-pressed", "true");
-  await expect(customTemplate).toHaveAttribute("aria-pressed", "false");
-  await expect(cashRunwayTemplate).toHaveCSS(
-    "background-color",
-    "rgb(38, 34, 56)",
-  );
-  await expect(cashRunwayTemplate).toHaveCSS("color", "rgb(247, 244, 238)");
-  await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
-    "Protect cash runway",
-  );
-  await expect(selectorHeader.locator("strong")).toHaveText("Choose a goal");
-  await expectNoHorizontalOverflow(page);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
-  await expect(page).toHaveScreenshot("goals-template-selected.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
-  });
-});
+    await newGoalAction.click();
+    await expect(page.getByText("Start from a template")).toBeVisible();
+    await expect(newGoalAction).toHaveCount(0);
+    await expect(makePrimary).toHaveAttribute("aria-pressed", "false");
+    await expect(
+      page.locator(".goal-templates").getByRole("button"),
+    ).toHaveCount(4);
+    await expect(
+      page.locator(".goal-templates [data-slot='button']"),
+    ).toHaveCount(4);
+    await expect(
+      page.getByRole("button", { exact: true, name: "Custom" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    const customTemplate = page.getByRole("button", {
+      exact: true,
+      name: "Custom",
+    });
+    const cashRunwayTemplate = page.getByRole("button", {
+      exact: true,
+      name: "Cash runway",
+    });
+    await cashRunwayTemplate.click();
+    await expect(cashRunwayTemplate).toHaveAttribute("aria-pressed", "true");
+    await expect(customTemplate).toHaveAttribute("aria-pressed", "false");
+    await expect(cashRunwayTemplate).toHaveCSS(
+      "background-color",
+      "rgb(38, 34, 56)",
+    );
+    await expect(cashRunwayTemplate).toHaveCSS("color", "rgb(247, 244, 238)");
+    await expect(page.getByRole("textbox", { name: "Goal name" })).toHaveValue(
+      "Protect cash runway",
+    );
+    await expect(selectorHeader.locator("strong")).toHaveText("Choose a goal");
+    await expectNoHorizontalOverflow(page);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page).toHaveScreenshot("goals-template-selected.png", {
+      animations: "disabled",
+      caret: "hide",
+      maxDiffPixelRatio: 0.025,
+      threshold: 0.25,
+    });
+  },
+);

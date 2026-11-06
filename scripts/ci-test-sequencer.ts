@@ -36,6 +36,7 @@ function priority(moduleId: string): number {
   if (name === "automatic-investment-review-d1-cost.test.ts") return 1_005;
   if (name === "cash-accounts.test.ts") return 1_004;
   if (name === "cash-request-d1-cost.test.ts") return 1_003;
+  if (moduleId.endsWith("/apps/api/src/position-routes.test.ts")) return 1_002;
   if (name === "provider-agent-usage.test.ts") return 1_001;
   // New D1 scale cases can dominate the tail before an OVH timing exists.
   // Admit unmeasured cost fixtures first; never rely on a complete hint list.

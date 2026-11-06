@@ -1119,6 +1119,8 @@ describe("reviewed cash accounts", () => {
   });
 
   it("treats a missing account as unknown only after review", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-14T18:00:00.000Z"));
     const connection = await repository.upsertConnection(
       "synthetic-access-subject",
       "First Synthetic Bank",
@@ -1196,6 +1198,7 @@ describe("reviewed cash accounts", () => {
       missingProposal.id,
       0,
     );
+    vi.setSystemTime(new Date("2026-08-14T18:00:00.001Z"));
     await repository.applyProposal(
       "synthetic-access-subject",
       missingProposal.id,

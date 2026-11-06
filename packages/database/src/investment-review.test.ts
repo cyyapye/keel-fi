@@ -669,7 +669,15 @@ describe("connected investment review", () => {
     );
     expect(positions).toHaveLength(2);
     expect(
-      positions.reduce((sum, p) => sum + p.snapshot.investedMinor, 0),
+      positions.reduce(
+        (sum, p) =>
+          sum +
+          (p.snapshot.investedMinor ??
+            (() => {
+              throw new Error("Synthetic funded position is missing cash");
+            })()),
+        0,
+      ),
     ).toBe(3_000_000);
     expect(
       positions.find((p) => p.id === positionId)?.legalEntityNameEvidence,

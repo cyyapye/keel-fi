@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
+import type * as promiseTimers from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { acquireSandboxOwner } from "./pdf-sandbox-owner";
 import { describeSandboxFailure } from "./pdf-sandbox-error";
@@ -19,6 +20,12 @@ import {
 } from "./pdf-sandbox";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+// The production poll imports the promise timer; route it through Vitest's clock.
+vi.mock("node:timers/promises", async (original) => ({
+  ...(await original<typeof promiseTimers>()),
+  setTimeout: (milliseconds: number) =>
+    new Promise<void>((resolve) => setTimeout(resolve, milliseconds)),
+}));
 const config = {
   version: 1 as const,
   socket: "/run/user/1234/docker.sock",
@@ -389,9 +396,11 @@ describe("PDF sandbox lifecycle", () => {
     const result = expect(
       runSandbox(config, Buffer.from("synthetic"), command),
     ).resolves.toEqual(success);
-    await vi.runAllTimersAsync();
-    await result;
+    await vi.advanceTimersByTimeAsync(499);
+    expect(absenceChecks).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
     expect(absenceChecks).toBe(3);
+    await result;
   });
   it("fails after a bounded wait if the owned container remains", async () => {
     vi.useFakeTimers();
@@ -413,9 +422,11 @@ describe("PDF sandbox lifecycle", () => {
     const result = expect(
       runSandbox(config, Buffer.from("synthetic"), command),
     ).rejects.toThrow("extractor_unavailable");
-    await vi.runAllTimersAsync();
-    await result;
+    await vi.advanceTimersByTimeAsync(999);
+    expect(absenceChecks).toBe(4);
+    await vi.advanceTimersByTimeAsync(1);
     expect(absenceChecks).toBe(5);
+    await result;
   });
 });
 

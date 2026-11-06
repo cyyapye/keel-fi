@@ -77,7 +77,8 @@ export const groups: Record<
   DatePicker: {
     page: "interactions",
     names: ["DatePicker"],
-    states: "Selected, clear, open calendar, date bounds, disabled",
+    states:
+      "Selected, clear, open calendar, date bounds, disabled, field error",
   },
   Tabs: {
     page: "interactions",
@@ -108,7 +109,7 @@ export const groups: Record<
     page: "forms",
     names: ["Badge", "Notice", "FormMessage", "EmptyState"],
     states:
-      "All badge tones; empty result; error, neutral and success messages",
+      "All badge tones; empty result with separate actions; error, neutral and success messages",
   },
   Layout: {
     page: "display",

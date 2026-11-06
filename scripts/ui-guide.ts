@@ -92,11 +92,7 @@ export function readUiExports(root = repository) {
   });
 }
 
-function readExample(spec: Guidance["examples"][number], root: string) {
-  const file = parse(
-    spec.file === "catalogue" ? cataloguePath : candidatesPath,
-    root,
-  );
+function readExample(spec: Guidance["examples"][number], file: ts.SourceFile) {
   const owner = file.statements.find(
     (node): node is ts.FunctionDeclaration =>
       ts.isFunctionDeclaration(node) && node.name?.text === spec.symbol,
@@ -139,8 +135,7 @@ function readExample(spec: Guidance["examples"][number], root: string) {
   };
 }
 
-function readRule(heading: string, root: string) {
-  const source = readFileSync(join(root, contractPath), "utf8");
+function readRule(heading: string, source: string) {
   const marker = `## ${heading}\n`;
   const start = source.indexOf(marker);
   if (start < 0) throw new Error(`Missing UI rule: ${heading}`);
@@ -168,6 +163,11 @@ export function buildUiGuide(root = repository) {
     Object.keys(guidance).some((id) => !groups[id])
   )
     throw new Error("Agent guidance and catalogue groups have drifted.");
+  const rules = readFileSync(join(root, contractPath), "utf8");
+  const examples = {
+    catalogue: parse(cataloguePath, root),
+    candidates: parse(candidatesPath, root),
+  };
   const entries = Object.entries({ ...guidance, ...compositionGuidance }).map(
     ([id, entry]) => {
       const group = groups[id];
@@ -181,9 +181,11 @@ export function buildUiGuide(root = repository) {
         states:
           group?.states ??
           "See the live composition's state controls and browser assertions.",
-        rules: entry.rules.map((heading) => readRule(heading, root)),
+        rules: entry.rules.map((heading) => readRule(heading, rules)),
         api: exports.filter((item) => group?.names.includes(item.name)),
-        examples: entry.examples.map((spec) => readExample(spec, root)),
+        examples: entry.examples.map((spec) =>
+          readExample(spec, examples[spec.file]),
+        ),
         verification: [
           "e2e/ui-catalogue.visual.spec.ts",
           "scripts/shared-ui-usage.test.ts",

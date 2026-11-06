@@ -51,6 +51,38 @@ const portfolioWatchCostSchema = z
 const setupResultSchema = z.discriminatedUnion("operation", [
   z
     .object({
+      operation: z.literal("baseline-refresh"),
+      status: z.enum(["refreshed", "manual_required", "not_needed"]),
+      baselineId: z.uuid().nullable(),
+      cost: d1CostSchema.refine(
+        ({ roundTrips, statements, rowsRead }) =>
+          roundTrips > 0 && statements >= roundTrips && rowsRead > 0,
+        "Baseline refresh must include measured D1 reads",
+      ),
+    })
+    .strict()
+    .refine(
+      ({ status, baselineId, cost }) =>
+        status === "refreshed"
+          ? baselineId !== null && cost.rowsWritten > 0
+          : baselineId === null,
+      "A refreshed baseline requires a stored ID and measured writes",
+    ),
+  z
+    .object({
+      operation: z.literal("position-link-history"),
+      statementCount: z.literal(60),
+    })
+    .strict(),
+
+  z
+    .object({
+      operation: z.enum(["watch-targets", "forecast-history"]),
+      completed: z.literal(true),
+    })
+    .strict(),
+  z
+    .object({
       operation: z.literal("portfolio-watch-day"),
       results: portfolioWatchCostSchema,
     })

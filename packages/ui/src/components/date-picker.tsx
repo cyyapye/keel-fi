@@ -1,5 +1,6 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import {
+  type ComponentProps,
   type KeyboardEvent,
   useEffect,
   useId,
@@ -11,7 +12,10 @@ import {
 import { cn } from "../lib/utils";
 import { TextLink } from "./text-link";
 
-type DatePickerProps = {
+type DatePickerProps = Pick<
+  ComponentProps<"button">,
+  "id" | "aria-labelledby" | "aria-describedby" | "aria-invalid"
+> & {
   "aria-label": string;
   className?: string;
   disabled?: boolean;
@@ -108,8 +112,12 @@ function calendarDays(month: Date): Date[] {
 
 export function DatePicker({
   "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
+  "aria-invalid": ariaInvalid,
   className,
   disabled = false,
+  id,
   max,
   min,
   onValueChange,
@@ -224,10 +232,14 @@ export function DatePicker({
     >
       <PopoverPrimitive.Trigger
         aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
+        aria-describedby={ariaDescribedBy}
+        aria-invalid={ariaInvalid}
         aria-required={required || undefined}
         className={cn("date-picker__trigger", className)}
         data-slot="date-picker"
         disabled={disabled}
+        id={id}
         type="button"
       >
         <span>

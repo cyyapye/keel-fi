@@ -4,6 +4,7 @@ export { expect };
 export type { Page, Request } from "@playwright/test";
 
 export const test = base.extend({
+  serviceWorkers: "block",
   context: async ({ context }, use) => {
     // These reads are global shell/background concerns for the isolated visual
     // files. Individual tests register later routes when the response is part

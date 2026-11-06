@@ -8,6 +8,7 @@ import {
 } from "./position-purchases";
 import { investmentAmount } from "./investment-review";
 import { z } from "zod";
+import { manualHoldingInstrumentType } from "./manual-holdings";
 
 import {
   CanonicalExposureSchema,
@@ -93,6 +94,7 @@ export const InvestmentExposureMappingViewSchema = z.object({
 
 export const InvestmentExposurePositionSchema = z
   .object({
+    manualContext: InvestmentPositionRecordSchema.shape.manualContext,
     id: z.string().min(1),
     connectionId: z.string().min(1),
     adapterType: InvestmentPositionConnectionSchema.shape.adapterType,
@@ -308,9 +310,11 @@ function usesInvestedAmountFallback(
   position: InvestmentPositionRecord,
 ): boolean {
   return (
+    position.manualContext == null &&
     position.linkedReportedValue == null &&
     position.snapshot.providerStatus === "live" &&
     reportedPositionValue(position).state === "not_reported" &&
+    position.snapshot.investedMinor !== null &&
     position.snapshot.investedMinor > 0 &&
     position.snapshot.instrumentType.trim().toLowerCase() !== "cash"
   );
@@ -319,20 +323,23 @@ function usesInvestedAmountFallback(
 function privatePositionCostBasis(
   position: InvestmentPositionRecord,
 ): number | null {
+  const amount = investmentAmount(position);
   return positionContributionBasis({
     providerCostBasisMinor: position.snapshot.costBasisMinor,
     fundedMinor: position.snapshot.investedMinor,
     economicsContext:
+      position.manualContext == null &&
+      position.snapshot.investedMinor !== null &&
+      amount !== null &&
       position.kind === "spv_interest" &&
-      (investmentAmount(position) > 0 ||
-        position.purchaseReceipt?.details.investmentTerms)
+      (amount > 0 || position.purchaseReceipt?.details.investmentTerms)
         ? {
             reviewedInvestment: reviewedInvestmentFromReceipt(
               position.purchaseReceipt,
             ),
             snapshotId: position.snapshot.id,
             currency: position.snapshot.currency,
-            committedMinor: investmentAmount(position),
+            committedMinor: amount,
             amountCorrectionNote:
               position.investmentReview?.amountCorrection?.note ?? null,
             fundedMinor: position.snapshot.investedMinor,
@@ -423,6 +430,7 @@ export function createInvestmentExposureView(
         const companyId = privateCompanyByPositionId.get(position.id);
         const costBasisMinor = privatePositionCostBasis(position);
         if (
+          position.manualContext != null ||
           companyId === undefined ||
           position.openedOn === null ||
           costBasisMinor === null ||
@@ -595,6 +603,7 @@ export function createInvestmentExposureView(
                 valueMinor - allocatedValueMinor,
               );
         return {
+          manualContext: position.manualContext ?? null,
           id: position.id,
           connectionId: connection.id,
           adapterType: connection.adapterType,
@@ -616,12 +625,17 @@ export function createInvestmentExposureView(
           snapshotId: position.snapshot.id,
           snapshotFingerprint: position.snapshot.fingerprint,
           observedAt: position.snapshot.observedAt,
-          instrumentType: position.snapshot.instrumentType,
+          instrumentType: position.manualContext
+            ? manualHoldingInstrumentType(position.kind)
+            : position.snapshot.instrumentType,
           currency: position.snapshot.currency,
           ticker: position.snapshot.ticker,
           quantityMicros: position.snapshot.quantityMicros,
           investedMinor: position.snapshot.investedMinor,
-          committedMinor: investmentAmount(position),
+          committedMinor:
+            position.manualContext != null
+              ? position.snapshot.allocationMinor
+              : investmentAmount(position),
           realizedValueMinor: position.snapshot.realizedValueMinor,
           providerCostBasisMinor: position.snapshot.costBasisMinor,
           reviewedInvestment: reviewedInvestmentFromReceipt(

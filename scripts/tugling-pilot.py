@@ -6,8 +6,11 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import runpy
+import signal
 import subprocess
 import sys
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ".tugling/pilot.json"
@@ -80,9 +83,41 @@ def helper_command(helper, source, mode, receipt=None):
     return command
 
 
+def run_layout_draft(contract, source):
+    """Run the native graph without the late scanner marker; emit only a draft log."""
+    revision = contract.clean_revision(ROOT)
+    report = contract.validate_project(root=ROOT, config_path=Path(CONFIG),
+                                       source_root=source, source_mode="pinned")
+    mapping = report["verification"]
+    selected = contract.required_flow_ids(mapping)
+    pdf = next((flow for flow in mapping["flows"] if flow["id"] == "pdf-isolation"), None)
+    if pdf is None or "pdf-isolation" not in selected or pdf["argv"] != ["make", "pdf-sandbox-verify"]:
+        raise ValueError("review the layout draft command against the PDF verification map")
+    pdf["argv"] = ["node", "--import", "tsx", "scripts/pdf-sandbox-verify.ts", "--layout-draft"]
+    budget = report["verification_budget_seconds"]
+    if budget is None:
+        raise ValueError("layout draft verification requires the native time budget")
+    contract.flow_execution_ancestry(ROOT)
+    # The pinned scheduler owns each process group and cleans up on KeyboardInterrupt.
+    def interrupt(signum, frame):
+        raise KeyboardInterrupt
+    previous = signal.signal(signal.SIGTERM, interrupt)
+    try:
+        rows = contract.execute_flow_plan(ROOT, mapping, selected, active_budget=budget)
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    performance = contract.performance_summary(rows, budget)
+    print("Layout draft native checks " + json.dumps({"revision": revision, "results": rows,
+                                                      "performance": performance}, sort_keys=True))
+    if (not performance["within_budget"] or contract.clean_revision(ROOT) != revision
+            or any(row["failure"] or row["exit_code"] != 0 or row["forced_cleanup"] for row in rows)):
+        raise ValueError("layout draft native verification failed")
+    contract.validate_execution_timing(rows, contract.execution_plan(mapping, selected))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("validate", "required", "evidence", "cleanup"))
+    parser.add_argument("mode", choices=("validate", "required", "evidence", "cleanup", "layout-draft"))
     parser.add_argument("receipt", nargs="?")
     args = parser.parse_args()
     if args.mode != "evidence" and args.receipt is not None:
@@ -96,13 +131,21 @@ def main():
         raise ValueError("candidate source and project must be separate sibling checkouts")
     config = json.loads((ROOT / CONFIG).read_text())
     helper = validate_source(source, config["tugling"]["revision"])
-    if args.mode == "required":
+    if args.mode in ("required", "layout-draft"):
         local = ROOT / ".tugling/local"
         local.mkdir(parents=True, exist_ok=True, mode=0o700)
         if local.resolve() != local or (local / "pilot-required.lease").is_symlink():
             raise ValueError("pilot evidence ownership must not follow symlinks")
         lease = os.fdopen(os.open(local / "pilot-required.lease", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600), "a")
         fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if args.mode == "layout-draft":
+        environment = git_environment()
+        os.environ.clear()
+        os.environ.update(environment)
+        contract = SimpleNamespace(**runpy.run_path(str(helper)))
+        run_layout_draft(contract, source)
+        return
+    if args.mode == "required":
         os.set_inheritable(lease.fileno(), True)
     os.execve(sys.executable, helper_command(helper, source, args.mode, args.receipt), git_environment())
 

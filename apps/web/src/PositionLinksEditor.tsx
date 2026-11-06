@@ -261,7 +261,9 @@ export function PositionLinksEditor({
         companyRenamed:
           remove?.companyRenamed ?? relationship === "company_renamed",
         state: remove ? "unlinked" : "linked",
-        useSourceValue: remove?.useSourceValue ?? useSourceValue,
+        useSourceValue:
+          remove?.useSourceValue ??
+          (source?.sourceProvider === "manual" ? false : useSourceValue),
         note: "",
       });
       setWorkspace(await loadPositionLinks());
@@ -320,11 +322,12 @@ export function PositionLinksEditor({
                     label="Investment record to keep"
                     searchLabel="Search surviving investment"
                     placeholder="Choose the surviving investment"
-                    emptyMessage="No available SPV records."
+                    emptyMessage="No available investment records."
                     items={workspace!.positions
                       .filter(
                         (p) =>
-                          p.kind === "spv_interest" &&
+                          (p.kind === "spv_interest" ||
+                            p.sourceProvider === "manual") &&
                           !workspace!.links.some(
                             (l) =>
                               l.sourcePositionId === p.id &&
@@ -625,6 +628,7 @@ export function PositionLinksEditor({
                   {relationship !== "replaced" &&
                     includesCurrentInvestment(target) &&
                     includesCurrentInvestment(source) &&
+                    source.sourceProvider !== "manual" &&
                     !activeLinks.some((l) => l.useSourceValue) && (
                       <Field label="Reported valuation to use">
                         <Select

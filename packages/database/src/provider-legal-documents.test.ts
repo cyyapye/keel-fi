@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   legalDocumentTestDatabase,
   syntheticDocumentCapture,
@@ -17,8 +17,10 @@ let now: Date;
 let repository: D1ProviderLegalDocumentRepository;
 let lease: LegalDocumentLease;
 let token: string;
-beforeEach(async () => {
+async function setUpRepository() {
   d1 = legalDocumentTestDatabase();
+  const { sqlite } = d1;
+  onTestFinished(() => sqlite.close());
   now = new Date("2026-09-01T12:00:00.000Z");
   const agents = new D1ProviderPortfolioAgentRepository(d1.asD1(), () => now);
   await agents.register("synthetic-access-subject", "sydecar");
@@ -33,8 +35,7 @@ beforeEach(async () => {
     leased.run.id,
     token,
   );
-});
-afterEach(() => d1.sqlite.close());
+}
 const digest = (index: number) => index.toString(16).padStart(64, "0");
 function captureObjects() {
   return syntheticDocumentCapture().documents.map((document) => ({
@@ -133,6 +134,7 @@ describe("provider agreement evidence repository", () => {
     ).toMatchObject({ problem: "security_blocked" });
   });
   it("does not change scan state when a conflicting concurrent capture wins the observation", async () => {
+    await setUpRepository();
     const clean = syntheticDocumentCapture();
     await repository.record(lease, digest(1), clean, captureObjects());
     const blocked = structuredClone(clean);
@@ -179,6 +181,7 @@ describe("provider agreement evidence repository", () => {
     }
   });
   it("normalizes scan timestamps and makes a blocked verdict win an equal-time tie", async () => {
+    await setUpRepository();
     const clean = syntheticDocumentCapture();
     clean.documents[0]!.scan!.scannedAt = "2026-09-01T12:00:00Z";
     await repository.record(
@@ -214,6 +217,7 @@ describe("provider agreement evidence repository", () => {
     ).toEqual([{ outcome: "blocked", scanned_at: "2026-09-01T12:00:00.000Z" }]);
   });
   it("recovers quarantine and never lets an older clean scan undo a newer block", async () => {
+    await setUpRepository();
     const clean = syntheticDocumentCapture();
     const unscanned = structuredClone(clean);
     delete unscanned.documents[0]!.scan;
@@ -276,6 +280,7 @@ describe("provider agreement evidence repository", () => {
     ).toEqual({ count: 1 });
   });
   it("saves private evidence idempotently without accepting an entity or holding", async () => {
+    await setUpRepository();
     const entitiesBefore = d1.sqlite
       .prepare("SELECT * FROM legal_entities")
       .all();
@@ -326,6 +331,7 @@ describe("provider agreement evidence repository", () => {
     ).rejects.toThrow("capture_conflict");
   });
   it("rejects wrong household, provider, token, expired and terminal leases", async () => {
+    await setUpRepository();
     await expect(
       repository.lease("other-subject", "sydecar", lease.runId, token),
     ).rejects.toThrow("lease_invalid");
@@ -363,6 +369,7 @@ describe("provider agreement evidence repository", () => {
     ).rejects.toThrow("lease_invalid");
   });
   it("keeps newer evidence when an older projection update is replayed", async () => {
+    await setUpRepository();
     await repository.record(
       lease,
       digest(1),
@@ -418,6 +425,7 @@ describe("provider agreement evidence repository", () => {
     ).toEqual({ count: 2 });
   });
   it("caps renewal at thirty minutes and fences a lease lost before commit", async () => {
+    await setUpRepository();
     const capture = syntheticDocumentCapture();
     for (let minute = 4; minute < 30; minute += 4) {
       now = new Date(
@@ -464,6 +472,7 @@ describe("provider agreement evidence repository", () => {
     ).rejects.toThrow("lease_invalid");
   });
   it("reserves a fixed upload budget atomically, including retries after storage failure", async () => {
+    await setUpRepository();
     const documents = Array.from({ length: 24 }, (_, index) => ({
       sha256: digest(index + 1),
       byteSize: 100,
@@ -482,6 +491,7 @@ describe("provider agreement evidence repository", () => {
     ).toEqual({ count: 24 });
   });
   it("enforces the byte budget before object writes", async () => {
+    await setUpRepository();
     await repository.reserveUploads(
       lease,
       Array.from({ length: 8 }, (_, index) => ({
@@ -494,6 +504,7 @@ describe("provider agreement evidence repository", () => {
     ).rejects.toThrow("run budget reached");
   });
   it("uses a single indexed manifest read for 120 sources and scopes downloads", async () => {
+    await setUpRepository();
     for (let index = 1; index <= 120; index += 1)
       await repository.record(
         lease,

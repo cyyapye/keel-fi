@@ -1,7 +1,7 @@
 import { D1PositionPurchaseRepository } from "./position-purchases";
 import { automaticEconomics } from "@keel/domain/automatic-investment-review";
 import type { PurchaseReceipt } from "@keel/domain/position-purchases";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import {
   legalDocumentTestDatabase,
   type LegalDocumentTestD1,
@@ -19,10 +19,11 @@ import { legalReviewIssues } from "@keel/domain/automatic-investment-review";
 
 const subject = "synthetic-access-subject";
 let d1: LegalDocumentTestD1;
-beforeEach(() => {
+function setUpRepository() {
   d1 = legalDocumentTestDatabase();
-});
-afterEach(() => d1.sqlite.close());
+  const { sqlite } = d1;
+  onTestFinished(() => sqlite.close());
+}
 
 const seed = (count = 1, extraLines: string[] = [], sharedName = false) =>
   seedAutomaticInvestments(d1.asD1(), count, extraLines, sharedName);
@@ -77,6 +78,7 @@ async function seedExactCompany(companyName: string | null = null) {
 
 describe("exception-based investment review", () => {
   it("keeps contradictory agreement evidence in review after an exact-company policy decision", async () => {
+    setUpRepository();
     const id = await seedExactCompany("Synthetic Different Company");
     const context = await new D1InvestmentReviewRepository(
       d1.asD1(),
@@ -90,6 +92,7 @@ describe("exception-based investment review", () => {
     expect(context.economics?.acceptedTerms).toBeNull();
   });
   it("does not turn a provider deal label alone into a company decision", async () => {
+    setUpRepository();
     const [id] = await seedAutomaticInvestments(
       d1.asD1(),
       1,
@@ -111,6 +114,7 @@ describe("exception-based investment review", () => {
     expect(context.economics?.acceptedTerms).toBeNull();
   });
   it("retains a recorded exact-company policy without a new agreement citation or invented fees", async () => {
+    setUpRepository();
     const id = await seedExactCompany();
     const context = await new D1InvestmentReviewRepository(
       d1.asD1(),
@@ -140,6 +144,7 @@ describe("exception-based investment review", () => {
     expect(after.mappings.map((mapping) => mapping.id)).toEqual(mappingsBefore);
   });
   it("reconciles matching purchase fees and rejects conflicting or stale purchase evidence", async () => {
+    setUpRepository();
     const [id] = await seed();
     const review = await new D1InvestmentReviewRepository(d1.asD1()).getContext(
       subject,
@@ -250,6 +255,7 @@ describe("exception-based investment review", () => {
   });
 
   it("re-evaluates legacy cached summaries once and then returns to a write-free retry", async () => {
+    setUpRepository();
     await seed();
     const originalBatch = d1.batch.bind(d1);
     d1.batch = (statements) =>
@@ -290,6 +296,7 @@ describe("exception-based investment review", () => {
   it.each(["confirm", "correct", "link"] as const)(
     "flags evidence that contradicts an earlier company decision and honors an explicit %s decision",
     async (decision) => {
+      setUpRepository();
       const [id] = await seed();
       const reviews = new D1InvestmentReviewRepository(d1.asD1());
       const initial = await reviews.getContext(subject, id!);
@@ -398,6 +405,7 @@ describe("exception-based investment review", () => {
     );
   });
   it("retries a racing document check as an exception without applying its financial terms", async () => {
+    setUpRepository();
     const [id] = await seed();
     const context = await new D1InvestmentReviewRepository(
       d1.asD1(),
@@ -437,6 +445,7 @@ describe("exception-based investment review", () => {
   });
 
   it("lets a racing manual fee correction win and makes a duplicate automatic request a no-op", async () => {
+    setUpRepository();
     const [id] = await seed();
     const context = await new D1InvestmentReviewRepository(
       d1.asD1(),
@@ -490,6 +499,7 @@ describe("exception-based investment review", () => {
     ).toMatchObject({ n: 1 });
   });
   it("accepts cited identity, company, participation, and reconciled fees without reducing net capital twice", async () => {
+    setUpRepository();
     const [id] = await seed();
     const application = d1.sqlite
       .prepare(
@@ -536,6 +546,7 @@ describe("exception-based investment review", () => {
   });
 
   it("preserves later manual fee and participation corrections across recovery", async () => {
+    setUpRepository();
     const [id] = await seed();
     const automatic = new D1AutomaticInvestmentReviewRepository(d1.asD1());
     await automatic.resolve(subject);
@@ -573,6 +584,7 @@ describe("exception-based investment review", () => {
   });
 
   it("surfaces conflicting terms and duplicate vehicles instead of inventing values or merging names", async () => {
+    setUpRepository();
     const ids = await seed(2, ["Carry: 22% of exit gains"], true);
     await new D1AutomaticInvestmentReviewRepository(d1.asD1()).resolve(subject);
     for (const id of ids)
@@ -598,6 +610,7 @@ describe("exception-based investment review", () => {
   });
 
   it("resolves a bounded 120-position batch with fixed queries and no writes on an unchanged retry", async () => {
+    setUpRepository();
     const ids = await seed(120);
     d1.queries.length = 0;
     const automatic = new D1AutomaticInvestmentReviewRepository(d1.asD1());

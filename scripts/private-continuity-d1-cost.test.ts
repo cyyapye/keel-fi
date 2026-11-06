@@ -1,9 +1,27 @@
 import { build } from "esbuild";
 import { expect, it } from "vitest";
+import { z } from "zod";
 import { D1ExposureRepository } from "../packages/database/src/exposures";
 import { D1InvestmentPositionViewRepository } from "../packages/database/src/position-read-model";
 import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import { COST_SUBJECT, seedCostHoldings } from "./test-support/cost-fixtures";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
+
+const measuredImportSchema = z
+  .object({
+    operation: z.literal("second-import"),
+    cost: z
+      .object({
+        roundTrips: z.number().int().positive(),
+        statements: z.number().int().positive(),
+        rowsRead: z.number().int().positive(),
+        rowsWritten: z.number().int().positive(),
+      })
+      .strict(),
+    queries: z
+      .array(z.tuple([z.string().min(1), z.number().int().nonnegative()]))
+      .nonempty(),
+  })
+  .strict();
 
 it("automatically reconciles 120 historical private investments with bounded D1 work and stable retries", async () => {
   const bundled = await build({
@@ -19,25 +37,33 @@ it("automatically reconciles 120 historical private investments with bounded D1 
     logLevel: "silent",
   });
   const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
-  const setup = async (operation: "history" | "initial" | "unrelated") => {
+  const setup = async (
+    operation: "history" | "initial" | "unrelated" | "second-import",
+  ) => {
     const response = await fixture.dispatchFetch(
       "https://synthetic-setup.invalid",
       { method: "POST", body: operation },
     );
     if (!response.ok) throw new Error(await response.text());
+    return response;
   };
   try {
     await setup("initial");
     const measured = measureD1(fixture.database);
-    await seedCostHoldings(measured.database, COST_SUBJECT, 2, false, {
-      status: "Realized",
-      investedMinor: 130_000,
-      allocationMinor: 170_000,
-    });
-    expect(measured.cost.roundTrips).toBeLessThanOrEqual(35);
-    expect(measured.cost.rowsRead).toBeLessThanOrEqual(60_000);
-    expect(measured.cost.rowsWritten).toBeLessThanOrEqual(8_000);
-    console.info(JSON.stringify({ historicalPrivateImport: measured.cost }));
+    const response = await setup("second-import");
+    const imported = measuredImportSchema.parse(await response.json());
+    expect(imported.cost.statements).toBeGreaterThanOrEqual(
+      imported.cost.roundTrips,
+    );
+    expect(
+      imported.queries.reduce((total, [, calls]) => total + calls, 0),
+    ).toBe(imported.cost.statements);
+    for (const [sql] of imported.queries) measured.queries.add(sql);
+    expect(measured.queries.size).toBe(imported.queries.length);
+    expect(imported.cost.roundTrips).toBeLessThanOrEqual(35);
+    expect(imported.cost.rowsRead).toBeLessThanOrEqual(60_000);
+    expect(imported.cost.rowsWritten).toBeLessThanOrEqual(8_000);
+    console.info(JSON.stringify({ historicalPrivateImport: imported.cost }));
     expect(
       await fixture.database
         .prepare("SELECT COUNT(*) count FROM holding_position_continuities")

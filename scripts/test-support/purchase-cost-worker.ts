@@ -4,6 +4,10 @@ import { D1InvestmentPositionViewRepository } from "../../packages/database/src/
 import { measureD1 } from "./d1-meter";
 import { seedCostHoldings } from "./cost-fixtures";
 
+const position = z.object({
+  id: z.string().uuid(),
+  snapshotId: z.string().uuid(),
+});
 const setupOperationSchema = z.discriminatedUnion("operation", [
   z.object({
     operation: z.literal("seed"),
@@ -13,14 +17,13 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
     operation: z.literal("purchase-history"),
     subject: z.string().min(1).max(200),
     householdId: z.string().min(1).max(200),
-    positions: z
-      .array(
-        z.object({
-          id: z.string().uuid(),
-          snapshotId: z.string().uuid(),
-        }),
-      )
-      .length(120),
+    positions: z.array(position).length(120),
+  }),
+  z.object({
+    operation: z.literal("link-history"),
+    count: z.union([z.literal(120), z.literal(240)]),
+    source: position,
+    target: position,
   }),
 ]);
 export type PurchaseCostSetupOperation = z.input<typeof setupOperationSchema>;
@@ -42,6 +45,34 @@ export default {
     }
 
     const meter = measureD1(bindings.DB);
+    if (input.operation === "link-history") {
+      const costs = [];
+      for (let i = 0; i < input.count; i++) {
+        meter.reset();
+        await meter.database
+          .prepare(
+            `INSERT INTO holding_position_link_reviews
+          (id,household_id,source_position_id,target_position_id,source_snapshot_id,target_snapshot_id,
+            source_participation_review_id,target_participation_review_id,prior_id,relationship,state,
+            use_source_value,note,reviewer_user_id,accepted_at)
+          VALUES(?,'hh_demo',?,?,?,?,NULL,NULL,
+            (SELECT review_id FROM holding_position_link_heads WHERE source_position_id=?),
+            'same_investment',?,0,'Synthetic history decision','usr_demo','2026-10-01T12:00:00.000Z')`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            input.source.id,
+            input.target.id,
+            input.source.snapshotId,
+            input.target.snapshotId,
+            input.source.id,
+            i % 2 === 0 ? "linked" : "unlinked",
+          )
+          .run();
+        costs.push({ ...meter.cost });
+      }
+      return Response.json(costs);
+    }
     const purchases = new D1PositionPurchaseRepository(meter.database);
     const reader = new D1InvestmentPositionViewRepository(meter.database);
     const heads = new Map<string, string>();
@@ -107,7 +138,20 @@ export default {
     )
       .bind(input.householdId)
       .first<{ receiptCount: number; positionCount: number }>();
+    // Grow one position to a second history page using the same production
+    // accept path. Keeping the loop here avoids hundreds of host RPCs.
+    const target = input.positions[0]!;
+    let deepHead = heads.get(target.id)!;
+    for (let version = 0; version < 120; version++) {
+      const receipt = await purchases.accept(input.subject, target.id, {
+        expectedSnapshotId: target.snapshotId,
+        expectedReceiptId: deepHead,
+        details: { coversPosition: true, lots: [] },
+      });
+      deepHead = receipt.id;
+    }
     return Response.json({
+      deepHead,
       acceptances,
       reads,
       stored,

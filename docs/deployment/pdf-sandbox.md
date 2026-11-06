@@ -254,13 +254,24 @@ copy.
 `make pdf-sandbox-verify` additionally runs a real clean synthetic PDF and the
 standard inert antivirus test string. It requires a 512-stream compressed PDF to
 scan clean and yield its exact synthetic issuer name, detects the inert test
-marker compressed in stream 512, and blocks a 10,001-entry synthetic ZIP
-specifically with `Heuristics.Limits.Exceeded.MaxFiles`. The expanded-file-size
-negative control must still block. This proves both useful coverage beyond the
-old cap and fail-closed enforcement of the new one. Small ZIP entries isolate
-the item budget; a large PDF can correctly hit the unchanged scan-time budget
-first. The test string never reaches a provider or R2. Production capture has no
-network-enabled signature updater and cannot build an image itself.
+marker compressed in stream 512, and blocks the expanded-file-size negative
+control. These real checks prove scanning beyond the old cap, signature
+detection, and fail-closed handling of a vendor limit. The test string never
+reaches a provider or R2. Production capture has no network-enabled signature
+updater and cannot build an image itself.
+
+`scripts/document-scan-reasons.test.ts` executes the production scanner
+entrypoint with a controlled ClamAV process boundary. It verifies the exact
+arguments, unchanged input bytes, blocked MaxFiles result, and unavailable
+failure result without retrying with relaxed limits. The decoder tests retain
+the complete reason mapping. Capture and API tests cover extraction blocking,
+quarantine bytes, and rejection auditing. The suite no longer constructs a
+10,001-entry ZIP to observe ClamAV's exact vendor threshold.
+
+On eligible layout drafts, CI omits the stream-512 marker probe. The remaining
+isolation checks still run. Scanner, dependency and unclassified changes run the
+probe, as do ready PRs, merge groups and post-merge verification. See the
+[draft routing policy](../../.github/workflows/README.md).
 
 On OVH, install `scripts/keel-document-scanner-refresh@.service` and `.timer`
 for the two exact instances `sydecar` and `tokenfolio`. Do not install them for

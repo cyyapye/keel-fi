@@ -373,6 +373,7 @@ export type HistoricalProceedsAssessment =
         | "history_coverage"
         | "valuation_predates_distribution"
         | "unknown_refund_inclusion"
+        | "unknown_provider_distributions"
         | "provider_amount_mismatch"
         | "provider_binding_stale"
         | "unknown_provider_inclusion"
@@ -383,7 +384,7 @@ export type HistoricalProceedsAssessment =
 export function reconcileHistoricalProceeds(input: {
   review: DistributionReview | undefined;
   providerSnapshotId: string;
-  realizedValueMinor: number;
+  realizedValueMinor: number | null;
   includedRefundMinor: number;
   excludedRefundMinor: number;
   refundReconciliationPending: boolean;
@@ -400,6 +401,8 @@ export function reconcileHistoricalProceeds(input: {
   });
   if (input.refundReconciliationPending)
     return unavailable("unknown_refund_inclusion");
+  if (input.realizedValueMinor === null)
+    return unavailable("unknown_provider_distributions");
   const realized = BigInt(input.realizedValueMinor),
     includedRefund = BigInt(input.includedRefundMinor);
   if (includedRefund > realized) return unavailable("provider_amount_mismatch");

@@ -30,7 +30,10 @@ const digest = (bytes: Uint8Array | string) =>
   createHash("sha256").update(bytes).digest("hex");
 
 export function costSeedInput(body: string) {
-  return digest(body + readFileSync("pnpm-lock.yaml", "utf8"));
+  return createHash("sha256")
+    .update(body)
+    .update(readFileSync("pnpm-lock.yaml"))
+    .digest("hex");
 }
 
 function seedFiles(root: string) {

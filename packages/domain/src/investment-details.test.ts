@@ -827,6 +827,10 @@ describe("distribution-aware carry", () => {
     },
   );
   it("rejects stale source bindings and unexplained provider residuals", () => {
+    expect(reconcile({ realizedValueMinor: null })).toEqual({
+      status: "unavailable",
+      reason: "unknown_provider_distributions",
+    });
     expect(
       reconcile({ providerSnapshotId: "new-synthetic-snapshot" }),
     ).toMatchObject({

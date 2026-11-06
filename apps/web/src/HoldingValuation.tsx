@@ -85,7 +85,9 @@ export function HoldingValuationEditor({
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [reload, setReload] = useState(0);
-  const [source, setSource] = useState(saved?.selected?.recordId ?? "gp");
+  const [source, setSource] = useState(
+    saved?.selected?.recordId ?? (holding.manualContext ? "mine" : "gp"),
+  );
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
   const [stale, setStale] = useState(false);
@@ -130,10 +132,12 @@ export function HoldingValuationEditor({
       totalMinor: null,
       priceMicros: null,
       priceDate: null,
-      effectiveDate: new Date().toISOString().slice(0, 10),
+      effectiveDate: holding.manualContext
+        ? ""
+        : new Date().toISOString().slice(0, 10),
       shareClass: receipt?.details.lots[0]?.shareClass ?? null,
-      carryStatus: "before_carry",
-      sourceLabel: "My estimate",
+      carryStatus: holding.manualContext ? "unknown" : "before_carry",
+      sourceLabel: holding.manualContext ? "Your estimate" : "My estimate",
       sourceUrl: null,
       sourceEvidenceId: null,
       sourcePositionId: null,

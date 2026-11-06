@@ -346,60 +346,45 @@ describe("real D1 reads at collection scale", () => {
       40_000,
     );
     const before = { ...measured.cost };
-    const snapshot = await fixture.database
+    const forecastCounts = `SELECT snapshot.id, snapshot.version, snapshot.created_at,
+        (SELECT COUNT(*) FROM company_forecasts WHERE forecast_snapshot_id = snapshot.id) AS companies,
+        (SELECT COUNT(*) FROM liquidity_curves WHERE forecast_snapshot_id = snapshot.id) AS curves,
+        (SELECT COUNT(*) FROM forecast_outputs WHERE forecast_snapshot_id = snapshot.id) AS outputs
+      FROM forecast_snapshots snapshot WHERE snapshot.household_id = 'hh_demo'`;
+    const source = await fixture.database
       .prepare(
-        "SELECT * FROM forecast_snapshots WHERE household_id = 'hh_demo' ORDER BY created_at DESC, id DESC LIMIT 1",
+        `${forecastCounts} ORDER BY snapshot.created_at DESC, snapshot.id DESC LIMIT 1`,
       )
-      .first<Record<string, string | number | null>>();
-    if (!snapshot) throw new Error("Synthetic forecast missing");
-    const children = await Promise.all(
-      ["company_forecasts", "liquidity_curves", "forecast_outputs"].map(
-        async (table) => ({
-          table,
-          rows: (
-            await fixture.database
-              .prepare(`SELECT * FROM ${table} WHERE forecast_snapshot_id = ?`)
-              .bind(snapshot.id)
-              .all<Record<string, string | number | null>>()
-          ).results,
-        }),
-      ),
+      .first<{
+        id: string;
+        version: number;
+        created_at: string;
+        companies: number;
+        curves: number;
+        outputs: number;
+      }>();
+    if (
+      !source ||
+      Math.min(source.companies, source.curves, source.outputs) === 0
+    )
+      throw new Error("Expected a populated synthetic forecast to copy");
+    expect(source.id).not.toMatch(/^synthetic-cost-history-/);
+    expect(await fixture.setup({ operation: "forecast-history" })).toEqual({
+      operation: "forecast-history",
+      completed: true,
+    });
+    const history = await fixture.database
+      .prepare(
+        `${forecastCounts} AND snapshot.id GLOB 'synthetic-cost-history-*' ORDER BY snapshot.version`,
+      )
+      .all();
+    expect(history.results).toEqual(
+      Array.from({ length: 120 }, (_, index) => ({
+        ...source,
+        id: `synthetic-cost-history-${index}`,
+        version: source.version + index + 1,
+      })),
     );
-    const writes: D1PreparedStatement[] = [];
-    const insert = (
-      table: string,
-      row: Record<string, string | number | null>,
-    ) => {
-      writes.push(
-        fixture.database
-          .prepare(
-            `INSERT INTO ${table} (${Object.keys(row).join(", ")}) VALUES (${Object.keys(
-              row,
-            )
-              .map(() => "?")
-              .join(", ")})`,
-          )
-          .bind(...Object.values(row)),
-      );
-    };
-    for (let index = 0; index < 120; index++) {
-      const id = `synthetic-cost-history-${index}`;
-      insert("forecast_snapshots", {
-        ...snapshot,
-        id,
-        version: Number(snapshot.version) + index + 1,
-        input_hash: syntheticDigest(50_000 + index),
-      });
-      for (const child of children)
-        for (const row of child.rows) {
-          insert(child.table, {
-            ...row,
-            id: `${row.id}-cost-${index}`,
-            forecast_snapshot_id: id,
-          });
-        }
-    }
-    await fixture.database.batch(writes);
     await readWithin(
       "alpha after 120 snapshots",
       () => alpha.getAlphaData(COST_SUBJECT),

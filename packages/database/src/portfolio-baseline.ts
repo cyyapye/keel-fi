@@ -41,7 +41,13 @@ type SourcePositionRow = {
   snapshot_id: string;
   snapshot_fingerprint: string;
   provider:
-    "angellist" | "tokenfolio" | "sydecar" | "wefunder" | "plaid_investments";
+    | "angellist"
+    | "tokenfolio"
+    | "sydecar"
+    | "wefunder"
+    | "plaid_investments"
+    | "manual";
+  classification?: "public_market" | "private_paper";
   legal_vehicle_name: string;
   owner_label: string;
   exposure_label: string | null;
@@ -331,12 +337,15 @@ function sourcePositions(
               ? "Tokenfolio"
               : row.provider === "wefunder"
                 ? "Wefunder"
-                : "Sydecar",
+                : row.provider === "manual"
+                  ? "Entered by you"
+                  : "Sydecar",
       provider: row.provider,
       classification:
-        row.provider === "plaid_investments"
+        row.classification ??
+        (row.provider === "plaid_investments"
           ? "public_market"
-          : "private_paper",
+          : "private_paper"),
       valueMinor: row.unrealized_value_minor,
       valueState: row.unrealized_value_state,
       observedAt: row.observed_at,
@@ -603,7 +612,10 @@ function sourcePositionRows(view: InvestmentExposureView): SourcePositionRow[] {
                 ? "wefunder"
                 : position.institutionKey === "sydecar"
                   ? "sydecar"
-                  : null;
+                  : position.institutionKey === "manual" &&
+                      position.manualContext?.classification === "private_paper"
+                    ? "manual"
+                    : null;
       if (
         provider === null ||
         (provider === "plaid_investments" &&
@@ -618,6 +630,9 @@ function sourcePositionRows(view: InvestmentExposureView): SourcePositionRow[] {
           snapshot_id: position.snapshotId,
           snapshot_fingerprint: position.snapshotFingerprint,
           provider,
+          ...(provider === "manual"
+            ? { classification: position.manualContext!.classification }
+            : {}),
           legal_vehicle_name: position.legalVehicleName,
           owner_label: position.containerLabel,
           exposure_label: position.reportedExposureName,
@@ -1409,9 +1424,10 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             row.position_id,
             row.snapshot_id,
             row.provider,
-            row.provider === "plaid_investments"
-              ? "public_market"
-              : "private_paper",
+            row.classification ??
+              (row.provider === "plaid_investments"
+                ? "public_market"
+                : "private_paper"),
             row.unrealized_value_minor,
             row.unrealized_value_state,
             row.observed_at,

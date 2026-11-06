@@ -2157,11 +2157,11 @@ export const holdingImportRows = sqliteTable(
     providerStatus: text("provider_status").notNull(),
     investedOn: text("invested_on"),
     investedOnState: text("invested_on_state").notNull().default("reported"),
-    investedMinor: integer("invested_minor").notNull(),
-    allocationMinor: integer("allocation_minor").notNull(),
+    investedMinor: integer("invested_minor"),
+    allocationMinor: integer("allocation_minor"),
     unrealizedValueMinor: integer("unrealized_value_minor"),
     unrealizedValueState: text("unrealized_value_state").notNull(),
-    realizedValueMinor: integer("realized_value_minor").notNull(),
+    realizedValueMinor: integer("realized_value_minor"),
     netValueMinor: integer("net_value_minor"),
     netValueState: text("net_value_state").notNull(),
     instrumentType: text("instrument_type").notNull(),
@@ -2515,11 +2515,11 @@ export const holdingPositionSnapshots = sqliteTable(
       .references(() => holdingImportRows.id, { onDelete: "restrict" }),
     snapshotFingerprint: text("snapshot_fingerprint").notNull(),
     providerStatus: text("provider_status").notNull(),
-    investedMinor: integer("invested_minor").notNull(),
-    allocationMinor: integer("allocation_minor").notNull(),
+    investedMinor: integer("invested_minor"),
+    allocationMinor: integer("allocation_minor"),
     unrealizedValueMinor: integer("unrealized_value_minor"),
     unrealizedValueState: text("unrealized_value_state").notNull(),
-    realizedValueMinor: integer("realized_value_minor").notNull(),
+    realizedValueMinor: integer("realized_value_minor"),
     netValueMinor: integer("net_value_minor"),
     netValueState: text("net_value_state").notNull(),
     instrumentType: text("instrument_type").notNull(),
@@ -3073,7 +3073,7 @@ export const portfolioBaselineItems = sqliteTable(
     ),
     check(
       "portfolio_baseline_items_provider_check",
-      sql`${table.provider} IN ('angellist', 'tokenfolio', 'sydecar', 'wefunder', 'plaid_investments')`,
+      sql`${table.provider} IN ('angellist', 'tokenfolio', 'sydecar', 'wefunder', 'manual', 'plaid_investments')`,
     ),
     check(
       "portfolio_baseline_items_classification_check",
@@ -3089,7 +3089,7 @@ export const portfolioBaselineItems = sqliteTable(
     ),
     check(
       "portfolio_baseline_items_provider_classification_check",
-      sql`(${table.provider} = 'plaid_investments' AND ${table.classification} = 'public_market') OR (${table.provider} IN ('angellist', 'tokenfolio', 'sydecar', 'wefunder') AND ${table.classification} = 'private_paper')`,
+      sql`(${table.provider} = 'plaid_investments' AND ${table.classification} = 'public_market') OR (${table.provider} IN ('angellist', 'tokenfolio', 'sydecar', 'wefunder', 'manual') AND ${table.classification} = 'private_paper')`,
     ),
     check(
       "portfolio_baseline_items_value_state_check",
@@ -4174,6 +4174,231 @@ export const automaticInvestmentReviews = sqliteTable(
     check(
       "automatic_investment_reviews_summary_check",
       sql`json_extract(${table.summaryJson}, '$.id') = ${table.id} AND json_extract(${table.summaryJson}, '$.snapshotId') = ${table.snapshotId}`,
+    ),
+  ],
+);
+
+export const holdingPurchaseReviews = sqliteTable(
+  "holding_purchase_reviews",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id),
+    priorId: text("prior_id"),
+    receiptJson: text("receipt_json").notNull(),
+    reviewerUserId: text("reviewer_user_id")
+      .notNull()
+      .references(() => users.id),
+    acceptedAt: timestamp("accepted_at"),
+  },
+  (table) => [
+    foreignKey({ columns: [table.priorId], foreignColumns: [table.id] }),
+    index("holding_purchase_reviews_position").on(
+      table.householdId,
+      table.positionId,
+      table.acceptedAt,
+      table.id,
+    ),
+    check(
+      "holding_purchase_reviews_receipt_check",
+      sql`json_valid(${table.receiptJson}) AND json_extract(${table.receiptJson}, '$.id') IS ${table.id} AND json_extract(${table.receiptJson}, '$.positionId') IS ${table.positionId} AND json_extract(${table.receiptJson}, '$.snapshotId') IS ${table.snapshotId} AND json_extract(${table.receiptJson}, '$.acceptedAt') IS ${table.acceptedAt} AND json_extract(${table.receiptJson}, '$.currency') IS 'USD'`,
+    ),
+  ],
+);
+
+export const holdingPositionExposureHeads = sqliteTable(
+  "holding_position_exposure_heads",
+  {
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id),
+    exposureId: text("exposure_id")
+      .notNull()
+      .references(() => canonicalExposures.id),
+    mappingId: text("mapping_id")
+      .notNull()
+      .references(() => holdingPositionExposureMappings.id),
+    status: text("status").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.positionId, table.exposureId] }),
+    index("holding_exposure_heads_active_idx").on(
+      table.householdId,
+      table.exposureId,
+      table.status,
+      table.positionId,
+    ),
+    index("holding_exposure_heads_current_position_idx").on(
+      table.householdId,
+      table.positionId,
+      table.status,
+      table.mappingId,
+    ),
+    check(
+      "holding_position_exposure_heads_status_check",
+      sql`${table.status} IN ('active', 'withdrawn')`,
+    ),
+  ],
+);
+
+export const manualHoldingIdentityVersions = sqliteTable(
+  "manual_holding_identity_versions",
+  {
+    id: id("id"),
+    householdId: householdReference(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    containerId: text("container_id")
+      .notNull()
+      .references(() => ownershipContainers.id, { onDelete: "restrict" }),
+    legalVehicleName: text("legal_vehicle_name").notNull(),
+    ownerLabel: text("owner_label").notNull(),
+    positionKind: text("position_kind").notNull(),
+    openedOn: text("opened_on"),
+    classification: text("classification").notNull(),
+    version: integer("version").notNull(),
+    priorId: text("prior_id").unique(),
+    priorCompanyMappingIdsJson: text(
+      "prior_company_mapping_ids_json",
+    ).notNull(),
+    sourceDocumentId: text("source_document_id")
+      .notNull()
+      .references(() => sourceDocuments.id, { onDelete: "restrict" }),
+    recordedByUserId: text("recorded_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    recordedAt: timestamp("recorded_at"),
+    immutable: integer("immutable").notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.priorId],
+      foreignColumns: [table.id],
+    }).onDelete("restrict"),
+    uniqueIndex("manual_holding_identity_versions_position_version_unique").on(
+      table.positionId,
+      table.version,
+    ),
+    index("manual_holding_identity_versions_household_position_idx").on(
+      table.householdId,
+      table.positionId,
+      table.version,
+    ),
+    index("manual_holding_identity_versions_history_idx").on(
+      table.householdId,
+      table.positionId,
+      sql`${table.recordedAt} DESC`,
+      sql`${table.id} DESC`,
+    ),
+    check(
+      "manual_holding_identity_versions_kind_check",
+      sql`${table.positionKind} IN ('direct', 'spv_interest', 'fund_interest')`,
+    ),
+    check(
+      "manual_holding_identity_versions_classification_check",
+      sql`${table.classification} = 'private_paper'`,
+    ),
+    check(
+      "manual_holding_identity_versions_names_check",
+      sql`length(${table.legalVehicleName}) BETWEEN 1 AND 1000 AND length(${table.ownerLabel}) BETWEEN 1 AND 1000`,
+    ),
+    check(
+      "manual_holding_identity_versions_opened_check",
+      sql`${table.openedOn} IS NULL OR ${table.openedOn} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
+    ),
+    check(
+      "manual_holding_identity_versions_version_check",
+      sql`${table.version} > 0 AND ((${table.version} = 1 AND ${table.priorId} IS NULL) OR (${table.version} > 1 AND ${table.priorId} IS NOT NULL))`,
+    ),
+    check(
+      "manual_holding_identity_versions_mapping_ids_check",
+      sql`json_valid(${table.priorCompanyMappingIdsJson}) AND json_type(${table.priorCompanyMappingIdsJson}) = 'array' AND json_array_length(${table.priorCompanyMappingIdsJson}) <= 500`,
+    ),
+    check(
+      "manual_holding_identity_versions_immutable_check",
+      sql`${table.immutable} = 1`,
+    ),
+  ],
+);
+
+export const manualHoldingIdentityHeads = sqliteTable(
+  "manual_holding_identity_heads",
+  {
+    positionId: text("position_id")
+      .primaryKey()
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    householdId: householdReference(),
+    versionId: text("version_id")
+      .notNull()
+      .unique()
+      .references(() => manualHoldingIdentityVersions.id, {
+        onDelete: "restrict",
+      }),
+  },
+  (table) => [
+    index("manual_holding_identity_heads_household_idx").on(
+      table.householdId,
+      table.positionId,
+    ),
+  ],
+);
+
+export const manualHoldingSubmissions = sqliteTable(
+  "manual_holding_submissions",
+  {
+    submissionId: text("submission_id").notNull(),
+    householdId: householdReference(),
+    requestHash: text("request_hash").notNull(),
+    positionId: text("position_id")
+      .notNull()
+      .references(() => holdingPositions.id, { onDelete: "restrict" }),
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => holdingPositionSnapshots.id, { onDelete: "restrict" }),
+    purchaseReviewId: text("purchase_review_id")
+      .notNull()
+      .references(() => holdingPurchaseReviews.id, { onDelete: "restrict" }),
+    identityVersionId: text("identity_version_id")
+      .notNull()
+      .references(() => manualHoldingIdentityVersions.id, {
+        onDelete: "restrict",
+      }),
+    declarationJson: text("declaration_json").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    acceptedAt: timestamp("accepted_at"),
+  },
+  (table) => [
+    primaryKey({ columns: [table.householdId, table.submissionId] }),
+    index("manual_holding_submissions_position_idx").on(
+      table.householdId,
+      table.positionId,
+      table.acceptedAt,
+      table.submissionId,
+    ),
+    uniqueIndex("manual_holding_submissions_identity_idx").on(
+      table.identityVersionId,
+    ),
+    check(
+      "manual_holding_submissions_id_check",
+      sql`length(${table.submissionId}) = 36`,
+    ),
+    check(
+      "manual_holding_submissions_hash_check",
+      sql`length(${table.requestHash}) = 64 AND ${table.requestHash} NOT GLOB '*[^0-9a-f]*'`,
+    ),
+    check(
+      "manual_holding_submissions_json_check",
+      sql`json_valid(${table.declarationJson})`,
     ),
   ],
 );

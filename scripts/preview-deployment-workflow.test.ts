@@ -59,11 +59,9 @@ describe("post-merge preview deployment workflow", () => {
       postMergeSecretScanStart,
     );
 
-    expect(
-      pullRequestWorkflow.match(
-        /runs-on: \[self-hosted, Linux, X64, keel-ci\]/g,
-      ),
-    ).toHaveLength(4);
+    expect(pullRequestWorkflow.match(/^ {4}runs-on: .*$/gm)).toEqual(
+      Array<string>(5).fill("    runs-on: [self-hosted, Linux, X64, keel-ci]"),
+    );
     expect(
       verification.match(/runs-on: \[self-hosted, Linux, X64, keel-ci\]/g),
     ).toHaveLength(2);

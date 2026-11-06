@@ -4,24 +4,157 @@
     {
       "id": "source-quality",
       "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
-      "argv": ["make", "-j2", "data-scan", "format-check", "lint", "typecheck"],
+      "argv": [
+        "make",
+        "-j2",
+        "data-scan",
+        "format-check",
+        "lint-typecheck",
+        "d1-migration-check"
+      ],
       "timeout_seconds": 600,
       "sources": [
         "Makefile",
         "package.json",
         "scripts/check-public-data.mjs",
+        "docs/engineering/ci-performance.md",
         "eslint.config.mjs",
         "tsconfig.json",
         ".prettierignore",
-        "e2e/ui-catalogue/tsconfig.json"
+        "e2e/ui-catalogue/tsconfig.json",
+        "scripts/d1-migration-safety.ts",
+        ".tugling/d1-migrations.json",
+        ".codex/skills/keel-d1-safety/SKILL.md",
+        "AGENTS.md",
+        ".github/workflows/post-merge.yml",
+        ".github/workflows/private-document-backup.yml",
+        "scripts/lint-typecheck.mjs",
+        "scripts/lint-typecheck.test.ts",
+        "pnpm-workspace.yaml",
+        "scripts/test-support/lint-typecheck-fixture.mjs"
       ],
       "runtime": null,
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
+      "id": "compose-configuration",
+      "description": "Validate the existing isolated synthetic development stack configuration.",
+      "argv": ["docker", "compose", "config", "--quiet"],
+      "timeout_seconds": 30,
+      "sources": ["compose.yaml"],
+      "runtime": null,
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
+      "id": "gate-and-artifact-integrity",
+      "description": "Run strict CPU workloads without competing native flows, then reject substituted source, incomplete cases and unsafe cleanup.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "preflight"],
+      "timeout_seconds": 120,
+      "sources": [
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py",
+        "scripts/ci-case-timings.py",
+        "scripts/test_linux_test_run.py",
+        "scripts/linux-test-run.py",
+        ".tugling/pilot-cases.json",
+        "scripts/tugling-pilot.py",
+        "scripts/ci-verification.py",
+        "scripts/test_ci_verification.py",
+        "scripts/ci-draft-plan.py",
+        "scripts/ci-draft-checks.py",
+        ".github/workflows/native-verification.yml",
+        ".github/actions/verify-native-receipt/action.yml",
+        "scripts/ci-resource-sampler.py",
+        "scripts/test_pdf_sandbox_owner.py",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/ci-diagnostics.py",
+        "scripts/test_ci_diagnostics.py",
+        "vitest.config.ts",
+        "scripts/pilot-vitest-reporter.ts",
+        "scripts/runtime-work-inventory.test.ts",
+        "scripts/__snapshots__/runtime-work-inventory.test.ts.snap",
+        "tsconfig.json",
+        "packages/database/src/cash-accounts.test.ts",
+        "apps/api/src/position-routes.test.ts",
+        "scripts/provider-agent-usage.test.ts",
+        "packages/database/src/exposures.test.ts",
+        "packages/database/src/manual-holdings-migration.test.ts",
+        "scripts/seed-scenarios.test.ts",
+        "scripts/seed-entity-review.ts",
+        "scripts/seed-position-links.ts",
+        "packages/database/src/price-proxies.test.ts",
+        "scripts/public-company-worker-runtime.test.ts",
+        "packages/database/src/provider-portfolio-agent.test.ts",
+        "packages/database/migrations/0089_manual_holdings.sql",
+        "scripts/test-support/sqlite-fixture.ts",
+        "scripts/test-support/sqlite-snapshot.ts",
+        "scripts/test-support/sqlite-vitest-global.ts",
+        "scripts/test-support/sqlite-vitest-worker.ts",
+        "scripts/test-support/legal-documents.ts",
+        "scripts/test-support/cost-fixtures.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "A one-worker Vitest preflight executes the strict files before the Python ownership and accounting cases. Every other native flow waits for this gate. A same-source, same-attempt, same-coordinator proof binds its complete report for one main-phase consumer.",
+        "health": "Preflight and main Vitest partitions must form the complete reviewed unit inventory exactly once. Existing five-second deadlines, real hashes, Python failure controls and exact case accounting remain. Quota-owner tests stay with the deferred runtime implementation.",
+        "cleanup": "Owned leases prevent report replacement. Main claims the preflight proof once; missing, stale, mismatched or overlapping results fail. Existing temporary checkout and process cleanup remains mandatory."
+      },
       "depends_on": []
     },
     {
+      "id": "pdf-sandbox-build",
+      "description": "Build the daily-refreshed isolated PDF reader, adversarial probe and malware scanner images on the provisioned rootless daemon.",
+      "argv": ["make", "pdf-sandbox-build"],
+      "timeout_seconds": 1200,
+      "sources": [
+        "Makefile",
+        "package.json",
+        "pnpm-lock.yaml",
+        "scripts/pdf-sandbox-build.ts",
+        "scripts/pdf-sandbox.ts",
+        "scripts/pdf-sandbox/Dockerfile",
+        "scripts/pdf-sandbox/boundary.py",
+        "scripts/pdf-sandbox/probe.py",
+        "scripts/pdf-sandbox/reader.py",
+        "scripts/pdf-sandbox/scanner.py",
+        "scripts/pdf-sandbox/freshclam.conf",
+        "scripts/test-support/legal-documents.ts",
+        "scripts/pdf-sandbox-owner.ts",
+        "scripts/pdf-sandbox-owner.py",
+        "scripts/pdf-sandbox-error.ts"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native command builds immutable reader, probe and scanner targets on the provisioned rootless socket, retaining the daily security-package and malware-signature refresh.",
+        "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
+        "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
+      "id": "migration-and-seed",
+      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
+      "timeout_seconds": 300,
+      "sources": [
+        "Makefile",
+        "scripts/local-seed-scenarios.ts",
+        "packages/database/seed/synthetic.sql",
+        "scripts/pilot_native.py",
+        "scripts/test_tugling_pilot.py"
+      ],
+      "runtime": {
+        "owner": "native-command",
+        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
+        "health": "Scenario readback assertions check migrations, seeds and relationships.",
+        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
+      },
+      "depends_on": ["gate-and-artifact-integrity"]
+    },
+    {
       "id": "native-unit-and-cost",
-      "description": "Exercise all native domain, API, database, client, workflow, resource and billing assertions with exact individual case accounting.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest"],
+      "description": "Execute the complementary native domain, API, database, client, workflow, resource and billing cases, then validate the complete preflight/main unit union.",
+      "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest-main"],
       "timeout_seconds": 1500,
       "sources": [
         "vitest.config.ts",
@@ -29,6 +162,7 @@
         ".tugling/pilot-cases.json",
         "scripts/shared-ui-usage.test.ts",
         "scripts/d1-query-cost.test.ts",
+        "scripts/test-support/query-plan-worker.ts",
         "scripts/d1-read-budgets.test.ts",
         "scripts/holding-history-d1-cost.test.ts",
         "scripts/portfolio-baseline-d1-cost.test.ts",
@@ -40,6 +174,7 @@
         "packages/database/src/provider-browser-sessions.test.ts",
         "apps/api/src/app.test.ts",
         "scripts/keel-session-check.test.ts",
+        "scripts/test-support/session-check-cost-worker.ts",
         "scripts/cash-request-d1-cost.test.ts",
         "scripts/automatic-investment-review-d1-cost.test.ts",
         "scripts/portfolio-watch-d1-cost.test.ts",
@@ -84,6 +219,9 @@
         "scripts/test-support/purchase-cost-worker.ts",
         "scripts/purchase-details-d1-cost.test.ts",
         "scripts/test-support/sqlite-fixture.ts",
+        "scripts/test-support/sqlite-snapshot.ts",
+        "scripts/test-support/sqlite-vitest-global.ts",
+        "scripts/test-support/sqlite-vitest-worker.ts",
         "scripts/test-support/sqlite-fixture.test.ts",
         "scripts/prepare-d1-cost-seed.ts",
         "scripts/test-support/d1-cost-seed.ts",
@@ -95,6 +233,7 @@
         "scripts/sydecar-session-expiry.test.ts",
         "scripts/position-link-suggestion.test.ts",
         "apps/web/src/collection-search.test.ts",
+        "apps/web/src/portfolio-watch-format.test.ts",
         "scripts/ui-design-review.test.ts",
         "scripts/ui-design-review.ts",
         "scripts/watchdog-removal.test.ts",
@@ -103,102 +242,22 @@
         "scripts/ci-artifact-budget.test.ts",
         ".github/actions/upload-bounded-artifact/action.yml",
         ".github/workflows/post-merge.yml",
-        ".github/workflows/tugling-pilot.yml"
+        ".github/workflows/tugling-pilot.yml",
+        "scripts/d1-migration-safety.ts",
+        "scripts/d1-migration-safety.test.ts",
+        "scripts/populated-migration-d1-cost.test.ts",
+        "scripts/test-support/populated-migration.ts",
+        ".tugling/d1-migrations.json",
+        "scripts/test-support/synthetic-historical-foreign-key-indexes.sql",
+        "scripts/test-support/query-inventory.ts",
+        "scripts/test-support/query-inventory.test.ts",
+        "scripts/test-support/lint-typecheck-fixture.mjs"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "Vitest starts after integrity checks, before migrations and PDF isolation take their slots. Unit tests receive an explicitly absent owned PDF configuration; real PDF/Chromium verification is enforced by separate required flows, so image builds are not a unit prerequisite. Three workers admit strict workload fixtures first, followed by measured cost priorities. Before Vitest starts, the command prepares and seals a closed real D1 migration/seed snapshot; each cost fixture verifies and copies it into its own fresh runtime. The owned seed is removed on success, failure or cancellation.",
-        "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior.",
+        "launch": "After the isolated gate, Vitest runs every remaining unit case with three workers. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. The unchanged first-ready map order controls admission; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
+        "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Shared quota admission is deferred to its runtime draft.",
         "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
-      },
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
-      "id": "compose-configuration",
-      "description": "Validate the existing isolated synthetic development stack configuration.",
-      "argv": ["docker", "compose", "config", "--quiet"],
-      "timeout_seconds": 30,
-      "sources": ["compose.yaml"],
-      "runtime": null,
-      "depends_on": ["gate-and-artifact-integrity"]
-    },
-    {
-      "id": "gate-and-artifact-integrity",
-      "description": "Reject substituted candidate code and omitted/filtered native cases; exercise owned temporary checkout success, failure and cancellation.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "python"],
-      "timeout_seconds": 120,
-      "sources": [
-        "scripts/pilot_native.py",
-        "scripts/test_tugling_pilot.py",
-        "scripts/test_linux_test_run.py",
-        "scripts/linux-test-run.py",
-        ".tugling/pilot-cases.json",
-        "scripts/tugling-pilot.py",
-        "scripts/ci-verification.py",
-        "scripts/test_ci_verification.py",
-        ".github/workflows/native-verification.yml",
-        ".github/actions/verify-native-receipt/action.yml",
-        "scripts/ci-resource-sampler.py",
-        "scripts/test_pdf_sandbox_owner.py",
-        "scripts/pdf-sandbox-owner.py",
-        "scripts/ci-diagnostics.py",
-        "scripts/test_ci_diagnostics.py"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "unittest owns synthetic Git and native runner fixtures in temporary directories.",
-        "health": "Real runner exit and case outcomes are checked against the reviewed inventory.",
-        "cleanup": "TemporaryDirectory and linux-test-run finally blocks remove only their owned paths and process groups."
-      },
-      "depends_on": []
-    },
-    {
-      "id": "pdf-sandbox-build",
-      "description": "Build the daily-refreshed isolated PDF reader, adversarial probe and malware scanner images on the provisioned rootless daemon.",
-      "argv": ["make", "pdf-sandbox-build"],
-      "timeout_seconds": 1200,
-      "sources": [
-        "Makefile",
-        "package.json",
-        "pnpm-lock.yaml",
-        "scripts/pdf-sandbox-build.ts",
-        "scripts/pdf-sandbox.ts",
-        "scripts/pdf-sandbox/Dockerfile",
-        "scripts/pdf-sandbox/boundary.py",
-        "scripts/pdf-sandbox/probe.py",
-        "scripts/pdf-sandbox/reader.py",
-        "scripts/pdf-sandbox/scanner.py",
-        "scripts/pdf-sandbox/freshclam.conf",
-        "scripts/test-support/legal-documents.ts",
-        "scripts/pdf-sandbox-owner.ts",
-        "scripts/pdf-sandbox-owner.py",
-        "scripts/pdf-sandbox-error.ts"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native command builds immutable reader, probe and scanner targets on the provisioned rootless socket, retaining the daily security-package and malware-signature refresh.",
-        "health": "Rootless engine policy, immutable image digests and a clean synthetic scanner preflight must pass before owner-only runtime configurations are atomically replaced.",
-        "cleanup": "The builder removes its bounded temporary iid files; the immutable images and owner-only digest configurations remain for dependent verification flows."
-      },
-      "depends_on": []
-    },
-    {
-      "id": "migration-and-seed",
-      "description": "Replay all migrations and verify canonical synthetic scenario invariants in owned local D1.",
-      "argv": ["python3", "-I", "scripts/pilot_native.py", "migration-seed"],
-      "timeout_seconds": 300,
-      "sources": [
-        "Makefile",
-        "scripts/local-seed-scenarios.ts",
-        "packages/database/seed/synthetic.sql",
-        "scripts/pilot_native.py",
-        "scripts/test_tugling_pilot.py"
-      ],
-      "runtime": {
-        "owner": "native-command",
-        "launch": "The native seed runner resets the default synthetic scenario and replays every migration. After the base synthetic seed closes, it exports an isolated browser copy before applying default-only additions and checking all canonical invariants. It then verifies the browser binding/readback and seals all source inputs and persisted bytes.",
-        "health": "Scenario readback assertions check migrations, seeds and relationships.",
-        "cleanup": "Wrangler exits; disposable synthetic state remains under ignored .keel-local."
       },
       "depends_on": ["gate-and-artifact-integrity"]
     },
@@ -261,7 +320,7 @@
         "scripts/check-web-entry-budget.mjs"
       ],
       "runtime": null,
-      "depends_on": []
+      "depends_on": ["gate-and-artifact-integrity"]
     },
     {
       "id": "browser-workflows",
@@ -301,12 +360,14 @@
         "apps/web/vite.config.ts",
         "e2e/ui-catalogue.visual.spec.ts",
         "e2e/ui-catalogue/keel-ui-catalogue.tsx",
-        "e2e/ui-catalogue/keel-ui-candidates.tsx"
+        "e2e/ui-catalogue/keel-ui-candidates.tsx",
+        "e2e/collection-search-module.ts",
+        "apps/web/src/collection-search.ts"
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The sealed, verified and closed synthetic D1 fixture is copied into three independent profiles without rerunning setup. Three one-worker stateful shards and the one-worker production-served API-mocked lane start on distinct ports; only after all four validate and release their runtimes does the four-worker development-served API-mocked lane start.",
-        "health": "Development lanes finish and validate the initial Vite module graph; stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers.",
+        "launch": "The sealed, verified and closed synthetic D1 fixture is copied into three independent profiles without rerunning setup. Three one-worker stateful shards and one production-served API-mocked worker start on distinct ports. Once the mocked worker validates its report and releases its runtime, the remaining mocked specs use its single worker slot while the three stateful shards finish.",
+        "health": "The development stateful lane validates the initial Vite module graph; all stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers.",
         "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
       },
       "depends_on": [
@@ -338,14 +399,15 @@
       ],
       "runtime": {
         "owner": "native-command",
-        "launch": "The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
+        "launch": "Source checks complete before scanner isolation starts. The verifier shares one cross-process capacity owner per daemon across its scanner/reader and kernel-probe sequences, with unchanged container limits and explicit caller-death/contending-reader proof.",
         "health": "Inspect plus kernel handshake and synthetic reader/scanner probes establish the runtime policy.",
         "cleanup": "The independent owner removes its exact container and proves absence before releasing capacity; caller death cannot bypass cleanup. Dirty ownership refuses admission; no shared daemon or image cleanup."
       },
       "depends_on": [
         "gate-and-artifact-integrity",
         "pdf-sandbox-build",
-        "provider-document-runtime"
+        "provider-document-runtime",
+        "source-quality"
       ]
     }
   ],

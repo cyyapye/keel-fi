@@ -1,5 +1,8 @@
-import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
-import { readFileSync } from "node:fs";
+import {
+  createSqliteFixture,
+  type FixtureDatabase,
+} from "../../../scripts/test-support/sqlite-fixture";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +29,7 @@ import {
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1LegalEntityRepository } from "./legal-entities";
 
-const migrationFiles = [
+const legacyMigrationFiles = [
   "packages/database/migrations/0001_keel_core.sql",
   "packages/database/migrations/0002_versioned_goals.sql",
   "packages/database/migrations/0003_evidence_applications.sql",
@@ -97,6 +100,13 @@ const migrationFiles = [
   "packages/database/migrations/0088_wefunder_exact_entity_links.sql",
   "packages/database/seed/synthetic.sql",
 ] as const;
+const migrationFiles = [
+  ...readdirSync("packages/database/migrations")
+    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+    .sort()
+    .map((file) => `packages/database/migrations/${file}`),
+  "packages/database/seed/synthetic.sql",
+];
 
 const robinhoodConnectionId = "connection_synthetic_robinhood";
 const robinhoodAccountKey = "6".repeat(64);
@@ -107,7 +117,7 @@ describe("nullable private investment date migration", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
       sqlite.exec("PRAGMA foreign_keys = ON");
-      migrationFiles
+      legacyMigrationFiles
         .filter(
           (file) =>
             ![
@@ -117,6 +127,7 @@ describe("nullable private investment date migration", () => {
               "packages/database/migrations/0078_reviewed_position_links.sql",
               "packages/database/migrations/0087_wefunder_holdings.sql",
               "packages/database/migrations/0088_wefunder_exact_entity_links.sql",
+              "packages/database/migrations/0089_manual_holdings.sql",
               "packages/database/migrations/0079_unified_investment_details.sql",
               "packages/database/migrations/0080_renamed_investment_links.sql",
               "packages/database/migrations/0068_exception_baseline_empty.sql",
@@ -269,7 +280,7 @@ describe("nullable private investment date migration", () => {
 
 class TestD1Statement {
   public constructor(
-    private readonly database: DatabaseSync,
+    private readonly database: FixtureDatabase,
     private readonly sql: string,
     private readonly values: readonly SQLInputValue[] = [],
     private readonly recordRoundTrip: () => void = () => undefined,
@@ -287,25 +298,25 @@ class TestD1Statement {
   public first<T>(): Promise<T | null> {
     this.recordRoundTrip();
     return Promise.resolve(
-      (this.database.prepare(this.sql).get(...this.values) as T) ?? null,
+      (this.database.statement(this.sql).get(...this.values) as T) ?? null,
     );
   }
 
   public all<T>(): Promise<{ results: T[] }> {
     this.recordRoundTrip();
     return Promise.resolve({
-      results: this.database.prepare(this.sql).all(...this.values) as T[],
+      results: this.database.statement(this.sql).all(...this.values) as T[],
     });
   }
 
   public run(): Promise<{ meta: { changes: number } }> {
     this.recordRoundTrip();
-    const result = this.database.prepare(this.sql).run(...this.values);
+    const result = this.database.statement(this.sql).run(...this.values);
     return Promise.resolve({ meta: { changes: Number(result.changes) } });
   }
 
   public execute(): void {
-    this.database.prepare(this.sql).run(...this.values);
+    this.database.statement(this.sql).run(...this.values);
   }
 }
 
@@ -313,7 +324,7 @@ class TestD1Database {
   public roundTripCount = 0;
   public readonly preparedSql: string[] = [];
 
-  public constructor(private readonly database: DatabaseSync) {}
+  public constructor(private readonly database: FixtureDatabase) {}
 
   public prepare(sql: string): TestD1Statement {
     this.preparedSql.push(sql);
@@ -581,7 +592,7 @@ function providerTemplateStageInput(
 }
 
 describe("AngelList holding import persistence", () => {
-  let sqlite: DatabaseSync;
+  let sqlite: FixtureDatabase;
   let database: TestD1Database;
   let repository: D1HoldingImportRepository;
 
@@ -905,14 +916,16 @@ describe("AngelList holding import persistence", () => {
 
   it("backfills current legal names without rewriting profile history", async () => {
     const legacy = createSqliteFixture(
-      migrationFiles.filter((path) => !path.includes("0088_")),
+      migrationFiles.filter(
+        (path) =>
+          !path.startsWith("packages/database/migrations/") ||
+          path.split("/").at(-1)!.slice(0, 4) <= "0087",
+      ),
     );
     try {
       const d1 = new TestD1Database(legacy) as unknown as D1Database;
       const entities = new D1LegalEntityRepository(d1);
-      const view = await new D1InvestmentPositionViewRepository(d1).list(
-        "synthetic-access-subject",
-      );
+      const view = { asOf: "2026-09-01T12:00:00.000Z", connections: [] };
       const previous = (
         await entities.getState("synthetic-access-subject", view)
       ).entities[0]!;
@@ -2669,7 +2682,7 @@ describe("AngelList holding import persistence", () => {
 });
 
 describe("exception-based source updates", () => {
-  let sqlite: DatabaseSync;
+  let sqlite: FixtureDatabase;
   let database: TestD1Database;
   let imports: D1HoldingImportRepository;
   let baselines: D1PortfolioBaselineRepository;
@@ -3093,7 +3106,7 @@ describe("exception-based source updates", () => {
 });
 
 describe("reviewed portfolio baseline persistence", () => {
-  let sqlite: DatabaseSync;
+  let sqlite: FixtureDatabase;
   let database: TestD1Database;
   let holdingImports: D1HoldingImportRepository;
   let baselines: D1PortfolioBaselineRepository;
@@ -4130,7 +4143,9 @@ describe("reviewed portfolio baseline persistence", () => {
     ).toBe(true);
     expect(
       baselineItemsPlan.some((row) =>
-        row.detail.includes("portfolio_baseline_cash_items_baseline_idx"),
+        row.detail.includes(
+          "SEARCH item USING INDEX sqlite_autoindex_portfolio_baseline_cash_items_2 (baseline_id=?)",
+        ),
       ),
     ).toBe(true);
   });

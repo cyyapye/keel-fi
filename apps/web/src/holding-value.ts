@@ -124,7 +124,7 @@ export function holdingValueSummary(
   const historical = reconcileHistoricalProceeds({
     review: receiptReview,
     providerSnapshotId: context.snapshotId,
-    realizedValueMinor: holding.realizedValueMinor ?? 0,
+    realizedValueMinor: holding.realizedValueMinor ?? null,
     includedRefundMinor: investment?.includedReturnedCapitalMinor ?? 0,
     excludedRefundMinor: investment?.additionalReturnedCapitalMinor ?? 0,
     refundReconciliationPending:
@@ -137,7 +137,7 @@ export function holdingValueSummary(
       : calculatePositionPerformance({
           currentValueMinor: valueMinor,
           currentValueReported: true,
-          realizedValueMinor: holding.realizedValueMinor ?? 0,
+          realizedValueMinor: holding.realizedValueMinor ?? null,
           providerCostBasisMinor: holding.costBasisMinor ?? null,
           fundedMinor: holding.investedMinor ?? null,
           economicsContext: {
@@ -151,7 +151,7 @@ export function holdingValueSummary(
             snapshotId: context.snapshotId,
             reviewedInvestment: investment,
           },
-          allowFundedAmountEstimate: true,
+          allowFundedAmountEstimate: !holding.manualContext,
           valuationDate,
         });
   return {
@@ -192,6 +192,8 @@ export function carryUnavailableReason(reason: UnavailableReason): string {
         "Estimated carry exceeds the remaining value.",
       precision: "The amount exceeds supported precision.",
       unknown_refund_inclusion: "Refund inclusion is unknown.",
+      unknown_provider_distributions:
+        "The provider-reported distribution total is unknown.",
       provider_amount_mismatch:
         "Provider-reported distributions and complete distribution history do not reconcile. Review which distributions are already included before calculating total return.",
       provider_binding_stale:

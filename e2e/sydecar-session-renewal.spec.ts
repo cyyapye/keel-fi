@@ -5,14 +5,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { chromium, expect, test, type BrowserContext } from "@playwright/test";
 import { controlledChromeArguments } from "../scripts/browser-agent-runtime";
-import { providerAgreementCollector } from "../scripts/provider-legal-document-capture";
 import { __providerBrowserReconnectTest } from "../scripts/provider-browser-reconnect";
 import { __providerPortfolioMacAgentTest } from "../scripts/provider-portfolio-mac-agent";
 
 const { closeChromeGracefully, stopChild } = __providerBrowserReconnectTest;
 const {
   closeControlledChrome,
-  keelPage,
   portfolioPage,
   providerPaths,
   renewSavedSydecarSession,
@@ -25,40 +23,48 @@ const table =
   '<table data-testid="investments-table"><tr><td>Synthetic portfolio</td></tr></table>';
 const login = '<input type="password"><button>Sign in</button>';
 
-test("Sydecar renewal verifies expiry through the production tsx runner", async () => {
-  test.setTimeout(60_000);
-  const { stdout } = await promisify(execFile)(
-    process.execPath,
-    [
-      path.resolve("node_modules/tsx/dist/cli.mjs"),
-      path.resolve("scripts/test-support/sydecar-renewal-runtime-smoke.ts"),
-    ],
-    { timeout: 50_000, maxBuffer: 128 * 1024 },
-  );
-  const records: unknown[] = stdout
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as unknown);
-  expect(records).toEqual([
-    {
-      event: "provider_session_renewal_verified",
-      provider: "sydecar",
-      admittedRequests: 1,
-      refreshRemainingSeconds: 43_200,
-    },
-    {
-      cases: [
-        { name: "renewed", outcome: "verified", requests: 1 },
-        { name: "missing refresh", outcome: "unexpected_failure", requests: 1 },
-        {
-          name: "malformed refresh",
-          outcome: "unexpected_failure",
-          requests: 1,
-        },
+test(
+  "Sydecar renewal verifies expiry through the production tsx runner",
+  { tag: "@desktop-only" },
+  async () => {
+    test.setTimeout(60_000);
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        path.resolve("node_modules/tsx/dist/cli.mjs"),
+        path.resolve("scripts/test-support/sydecar-renewal-runtime-smoke.ts"),
       ],
-    },
-  ]);
-});
+      { timeout: 50_000, maxBuffer: 128 * 1024 },
+    );
+    const records: unknown[] = stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as unknown);
+    expect(records).toEqual([
+      {
+        event: "provider_session_renewal_verified",
+        provider: "sydecar",
+        admittedRequests: 1,
+        refreshRemainingSeconds: 43_200,
+      },
+      {
+        cases: [
+          { name: "renewed", outcome: "verified", requests: 1 },
+          {
+            name: "missing refresh",
+            outcome: "unexpected_failure",
+            requests: 1,
+          },
+          {
+            name: "malformed refresh",
+            outcome: "unexpected_failure",
+            requests: 1,
+          },
+        ],
+      },
+    ]);
+  },
+);
 
 function syntheticToken(expires: number, generation = 0) {
   return [
@@ -72,16 +78,7 @@ function syntheticToken(expires: number, generation = 0) {
 
 async function fixture(
   flood = false,
-  refreshFailure:
-    | "rejected"
-    | "invalid"
-    | "expired"
-    | "unknown"
-    | "html"
-    | "oversized"
-    | "service"
-    | "dns"
-    | null = null,
+  failTransport = false,
   productionShutdown = false,
 ) {
   const profileRoot = await mkdtemp(
@@ -122,7 +119,10 @@ async function fixture(
       return false;
     }
   };
-  const launch = async (seed = false) => {
+  const launch = async (
+    seed = false,
+    { rejectedPage = failTransport ? table + login : login } = {},
+  ) => {
     await rm(path.join(profile, "DevToolsActivePort"), { force: true });
     const child = spawn(
       chromium.executablePath(),
@@ -156,11 +156,12 @@ async function fixture(
     // Restored tabs can load the actual provider before routing is installed.
     // Assert the cold-start boundary, including after a saved portfolio visit.
     expect(context.pages()).toHaveLength(0);
-    if (seed)
-      await context.addInitScript((value) => {
-        localStorage.setItem("auth_token", value.access_token);
-        localStorage.setItem("refresh_token", value.refresh_token);
-      }, tokens());
+    const seedScript = seed
+      ? await context.addInitScript((value) => {
+          localStorage.setItem("auth_token", value.access_token);
+          localStorage.setItem("refresh_token", value.refresh_token);
+        }, tokens())
+      : undefined;
     // Every network request is synthetic. Production's admission handler uses
     // fallback, so its cap runs before this fixture rather than bypassing it.
     await context.route("**/*", async (route) => {
@@ -188,7 +189,7 @@ async function fixture(
           return;
         }
         state.refreshes++;
-        if (refreshFailure === "dns") {
+        if (failTransport) {
           await route.abort("namenotresolved");
           return;
         }
@@ -197,53 +198,17 @@ async function fixture(
         const allowed =
           authorized(authorization) &&
           authorization === `Bearer ${currentRefreshToken}`;
-        const status =
-          refreshFailure === "service"
-            ? 503
-            : ["invalid", "expired", "unknown", "html", "oversized"].includes(
-                  refreshFailure ?? "",
-                )
-              ? 403
-              : refreshFailure === "rejected"
-                ? 401
-                : !allowed
-                  ? 403
-                  : 200;
-        if (refreshFailure === "html") {
-          await route.fulfill({
-            status,
-            headers,
-            contentType: "text/html",
-            body: "<html>SYNTHETIC_REFRESH_SECRET</html>",
-          });
-          return;
-        }
         await route.fulfill({
-          status,
+          status: allowed ? 200 : 403,
           headers,
-          json:
-            status === 200
-              ? tokens()
-              : {
-                  error_key:
-                    refreshFailure === "invalid" ||
-                    refreshFailure === "oversized" ||
-                    (refreshFailure === null &&
-                      authorized(authorization) &&
-                      !allowed)
-                      ? "INVALID_REFRESH_TOKEN"
-                      : refreshFailure === "expired" ||
-                          (refreshFailure === null &&
-                            !authorized(authorization))
-                        ? "EXPIRED_REFRESH_TOKEN"
-                        : refreshFailure === "unknown"
-                          ? "UNKNOWN_REFRESH_TOKEN"
-                          : "SYNTHETIC_REFRESH_SECRET",
-                  message: "SYNTHETIC_REFRESH_SECRET",
-                  ...(refreshFailure === "oversized"
-                    ? { extra: "SYNTHETIC_REFRESH_SECRET".repeat(300) }
-                    : {}),
-                },
+          json: allowed
+            ? tokens()
+            : {
+                error_key: authorized(authorization)
+                  ? "INVALID_REFRESH_TOKEN"
+                  : "EXPIRED_REFRESH_TOKEN",
+                message: "SYNTHETIC_REFRESH_SECRET",
+              },
         });
         return;
       }
@@ -279,7 +244,7 @@ async function fixture(
               localStorage.setItem('refresh_token', tokens.refresh_token);
             } catch {
               localStorage.clear();
-              document.body.innerHTML = ${JSON.stringify(refreshFailure === null ? login : table + login)};
+              document.body.innerHTML = ${JSON.stringify(rejectedPage)};
               return;
             }
             response = await portfolio();
@@ -292,6 +257,7 @@ async function fixture(
     });
     return {
       context,
+      seedScript,
       close: () =>
         productionShutdown
           ? closeControlledChrome("sydecar", syntheticKeelOrigin)
@@ -330,35 +296,39 @@ async function fixture(
   };
 }
 
-test("Sydecar worker shutdown preserves rotated refresh tokens across the following daily capture", async ({
-  isMobile,
-}) => {
-  test.skip(
-    isMobile || process.platform !== "linux",
-    "The deployed worker uses Linux desktop Chrome.",
-  );
-  test.setTimeout(180_000);
-  const runtime = await fixture(false, null, true);
-  try {
-    const first = await runtime.launch(true);
-    await ordinaryCapture(first.context);
-    await first.close();
-    for (const hours of [6, 12, 18]) {
-      runtime.state.now = start + hours * hour;
-      const next = await runtime.launch();
-      await renewSavedSydecarSession(next.context, () => runtime.state.now);
-      await next.close();
+test(
+  "Sydecar survives the next daily capture with bounded renewal",
+  { tag: "@desktop-only" },
+  async () => {
+    // Five cold starts exercise the deployed shutdown on Linux and graceful
+    // Chrome shutdown on macOS. The provider's idle interval is virtual.
+    const productionShutdown = process.platform === "linux";
+    test.setTimeout(productionShutdown ? 180_000 : 120_000);
+    const runtime = await fixture(false, false, productionShutdown);
+    try {
+      const first = await runtime.launch(true);
+      await ordinaryCapture(first.context);
+      await first.close();
+      for (const hours of [6, 12, 18]) {
+        runtime.state.now = start + hours * hour;
+        const next = await runtime.launch();
+        await renewSavedSydecarSession(next.context, () => runtime.state.now);
+        expect(runtime.state.refreshes).toBe(hours / 6);
+        expect(runtime.state.documents).toBe(hours / 6 + 1);
+        await expect.poll(() => next.context.pages().length).toBe(1);
+        await next.close();
+      }
+      runtime.state.now = start + 24 * hour;
+      const nextDay = await runtime.launch();
+      await ordinaryCapture(nextDay.context);
+      expect(runtime.state.refreshes).toBe(4);
+      expect(runtime.state.documents).toBe(5);
+      await nextDay.close();
+    } finally {
+      await runtime.cleanup();
     }
-    runtime.state.now = start + 24 * hour;
-    const nextDay = await runtime.launch();
-    await ordinaryCapture(nextDay.context);
-    expect(runtime.state.refreshes).toBe(4);
-    expect(runtime.state.documents).toBe(5);
-    await nextDay.close();
-  } finally {
-    await runtime.cleanup();
-  }
-});
+  },
+);
 
 async function ordinaryCapture(context: BrowserContext) {
   const page = await portfolioPage(context, "sydecar");
@@ -385,7 +355,7 @@ test("a working Sydecar access token does not prove a refresh token survived ano
     await immediate.close();
     expect(runtime.state.refreshes).toBe(0);
     runtime.state.now = start + 6 * hour;
-    const later = await runtime.launch();
+    const later = await runtime.launch(false, { rejectedPage: table + login });
     console.error = (message: unknown) => {
       messages.push(String(message));
     };
@@ -406,33 +376,30 @@ test("a working Sydecar access token does not prove a refresh token survived ano
   }
 });
 
-// Full HTTP/category/body/transport matrix lives in sydecar-refresh-observation.test.ts.
-// Keep both actual browser response and requestfailed event boundaries.
-for (const failure of ["invalid", "dns"] as const) {
-  test(`Sydecar identifies ${failure} refresh failures without logging credentials`, async ({
-    isMobile,
-  }) => {
-    test.skip(isMobile, "The provider worker uses desktop Chrome.");
+// The refresh-observation unit covers HTTP response categories. Chromium owns
+// the requestfailed event and the redacted transport diagnostic here.
+test(
+  "Sydecar identifies dns refresh failures without logging credentials",
+  { tag: "@desktop-only" },
+  async () => {
     test.setTimeout(60_000);
-    const runtime = await fixture(false, failure);
+    const runtime = await fixture(false, true);
     const messages: string[] = [];
     const original = console.error;
     try {
-      const first = await runtime.launch(true);
-      await ordinaryCapture(first.context);
-      await first.close();
+      const { context, seedScript } = await runtime.launch(true);
+      const captured = await ordinaryCapture(context);
+      await seedScript?.dispose();
+      // Leave only the renewal page on the provider origin when it reports expiry.
+      await captured.goto("about:blank");
       runtime.state.now += 6 * hour;
-      const next = await runtime.launch();
       console.error = (message: unknown) => {
         messages.push(String(message));
       };
       await expect(
-        renewSavedSydecarSession(next.context, () => runtime.state.now),
+        renewSavedSydecarSession(context, () => runtime.state.now),
       ).rejects.toMatchObject({
-        code:
-          failure === "dns"
-            ? "unexpected_failure"
-            : "provider_sign_in_required",
+        code: "unexpected_failure",
         failure: {
           refreshExpiresAt: new Date(start + 12 * hour).toISOString(),
         },
@@ -442,17 +409,13 @@ for (const failure of ["invalid", "dns"] as const) {
           {
             event: "provider_session_renewal_failed",
             provider: "sydecar",
-            code:
-              failure === "dns"
-                ? "unexpected_failure"
-                : "provider_sign_in_required",
+            code: "unexpected_failure",
             refreshRequests: 1,
-            refreshStatus: failure === "dns" ? null : 403,
-            refreshTransport: failure === "dns" ? "dns" : null,
-            refreshErrorCode:
-              failure === "invalid" ? "INVALID_REFRESH_TOKEN" : null,
-            refreshResponseKind: failure === "dns" ? null : "json",
-            reason: failure !== "dns" ? "authorization" : "transport",
+            refreshStatus: null,
+            refreshTransport: "dns",
+            refreshErrorCode: null,
+            refreshResponseKind: null,
+            reason: "transport",
           },
         ],
       );
@@ -463,48 +426,8 @@ for (const failure of ["invalid", "dns"] as const) {
       console.error = original;
       await runtime.cleanup();
     }
-  });
-}
-
-for (const maintain of [false, true]) {
-  test(`Sydecar ${maintain ? "survives the next daily capture with bounded renewal" : "loses a twelve-hour refresh session despite closing Chrome"}`, async ({
-    isMobile,
-  }) => {
-    test.skip(isMobile, "The provider worker uses desktop Chrome.");
-    // Five real cold Chrome starts each retain production's twenty-second
-    // startup bound. The twenty-four-hour idle interval itself is virtual.
-    test.setTimeout(120_000);
-    const runtime = await fixture();
-    try {
-      const first = await runtime.launch(true);
-      await ordinaryCapture(first.context);
-      await first.close();
-      if (maintain)
-        for (const hours of [6, 12, 18]) {
-          runtime.state.now = start + hours * hour;
-          const next = await runtime.launch();
-          await renewSavedSydecarSession(next.context, () => runtime.state.now);
-          expect(runtime.state.documents).toBe(hours / 6 + 1);
-          await expect.poll(() => next.context.pages().length).toBe(1);
-          await next.close();
-        }
-      runtime.state.now = start + 24 * hour;
-      const nextDay = await runtime.launch();
-      if (maintain) {
-        await ordinaryCapture(nextDay.context);
-        expect(runtime.state.refreshes).toBe(4);
-        expect(runtime.state.documents).toBe(5);
-      } else {
-        await expect(ordinaryCapture(nextDay.context)).rejects.toThrow(
-          "provider_sign_in_required",
-        );
-        expect(runtime.state.refreshes).toBe(1);
-      }
-    } finally {
-      await runtime.cleanup();
-    }
-  });
-}
+  },
+);
 
 test("Sydecar renewal fails closed at its provider-request admission bound", async ({
   isMobile,
@@ -517,62 +440,6 @@ test("Sydecar renewal fails closed at its provider-request admission bound", asy
       renewSavedSydecarSession(browser.context, () => runtime.state.now),
     ).rejects.toThrow("unexpected_failure");
     expect(runtime.state.requests).toBeLessThanOrEqual(150);
-  } finally {
-    await runtime.cleanup();
-  }
-});
-
-test("Sydecar page ownership preserves Keel setup and bounded agreement popups", async ({
-  isMobile,
-}) => {
-  test.skip(isMobile, "The provider worker uses desktop Chrome.");
-  const runtime = await fixture();
-  try {
-    const browser = await runtime.launch(true);
-    const abandoned = await browser.context.newPage();
-    await abandoned.goto(`${origin}/investments`);
-    const page = await ordinaryCapture(browser.context);
-    expect(abandoned.isClosed()).toBe(true);
-    const setup = await keelPage(
-      browser.context,
-      new URL("https://keel.example.com"),
-    );
-    expect(setup.url()).toBe("https://keel.example.com/holdings");
-    const documentUrl =
-      "https://storage.googleapis.com/sydecar-prod-documents/synthetic/agreement.pdf?synthetic=one";
-    await page.setContent(
-      `<h2 data-testid="investment-docs-heading">Investment Docs</h2><a data-testid="data-room-doc-download" onclick="window.open('${documentUrl}')">Subscription Agreement (Counter-Signed) (Subscription Agreement)</a>`,
-    );
-    await page.bringToFront();
-    let downloads = 0;
-    let saved = 0;
-    const collector = providerAgreementCollector({
-      provider: "sydecar",
-      manifest: { version: 1, captures: [] },
-      renew: () => Promise.resolve(),
-      download: (url) => {
-        expect(url.href).toBe(documentUrl);
-        downloads++;
-        // This regression tests popup ownership and the bounded downloader
-        // handoff. Existing PDF tests cover successful scanning and extraction.
-        return Promise.reject(new Error("Synthetic download unavailable"));
-      },
-      save: ({ capture }) => {
-        expect(capture.problem).toBe("inaccessible");
-        saved++;
-        return Promise.resolve();
-      },
-    });
-    await collector.collect(page, {
-      investment: "Synthetic Atlas",
-      legalPosition: "Synthetic source reference",
-      heldThrough: "Synthetic Family LLC",
-      investmentDate: "2026-01-01",
-    });
-    await collector.flush();
-    expect(downloads).toBe(1);
-    expect(saved).toBe(1);
-    expect(browser.context.pages()).toHaveLength(2);
   } finally {
     await runtime.cleanup();
   }

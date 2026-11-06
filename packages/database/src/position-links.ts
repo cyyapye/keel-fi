@@ -53,18 +53,27 @@ export class D1PositionLinkRepository {
           ? connection.institutionKey.replace(/^reviewed-history:/u, "")
           : connection.institutionKey;
         if (
-          !["tokenfolio", "sydecar", "angellist", "wefunder"].includes(
-            sourceProvider,
-          )
+          ![
+            "tokenfolio",
+            "sydecar",
+            "angellist",
+            "wefunder",
+            "manual",
+          ].includes(sourceProvider)
         )
           return [];
         return connection.containers.flatMap((container) =>
-          container.positions.map((position) => ({
-            ...position,
-            ownershipContainerId: container.id,
-            sourceProvider,
-            reviewedHistory,
-          })),
+          container.positions
+            .filter(
+              (position) =>
+                sourceProvider !== "manual" || position.manualContext != null,
+            )
+            .map((position) => ({
+              ...position,
+              ownershipContainerId: container.id,
+              sourceProvider,
+              reviewedHistory,
+            })),
         );
       }),
       links: links.results.map((r) => ({
@@ -107,12 +116,16 @@ export class D1PositionLinkRepository {
         "The records changed. Reload and review the link again.",
       );
     if (input.state === "linked") {
+      if (source.manualContext != null && input.useSourceValue)
+        throw new PositionLinkError(
+          "A manual estimate stays with its investment. Keep the linked source value unchanged or review the surviving valuation separately.",
+        );
       if (
-        target.kind !== "spv_interest" ||
+        (target.kind !== "spv_interest" && target.manualContext == null) ||
         (input.relationship === "replaced" &&
           !includesCurrentInvestment(target))
       )
-        throw new PositionLinkError("Keep a current SPV as the investment.");
+        throw new PositionLinkError("Keep a current SPV or manual investment.");
       if (
         input.relationship === "same_investment" &&
         effectiveParticipation(source) !== effectiveParticipation(target)

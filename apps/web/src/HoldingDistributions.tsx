@@ -67,6 +67,7 @@ export function HoldingDistributions({
     }
   }, [editing]);
   const start = () => {
+    if (holding.realizedValueMinor == null) return;
     setEditor({
       phase: "editing",
       error: null,
@@ -74,7 +75,7 @@ export function HoldingDistributions({
       draft: draftDistributions({
         snapshotId: context.snapshotId,
         receiptId: context.receipt?.id ?? null,
-        realizedValueMinor: holding.realizedValueMinor ?? 0,
+        realizedValueMinor: holding.realizedValueMinor,
         review,
       }),
     });
@@ -194,11 +195,22 @@ export function HoldingDistributions({
       <div className="holding-section-heading distribution-heading">
         <h4>Received distributions</h4>
         {!editor && (
-          <Button ref={edit} tone="quiet" disabled={disabled} onClick={start}>
+          <Button
+            ref={edit}
+            tone="quiet"
+            disabled={disabled || holding.realizedValueMinor == null}
+            onClick={start}
+          >
             {review ? "Edit distributions" : "Record distributions"}
           </Button>
         )}
       </div>
+      {!editor && holding.realizedValueMinor == null && (
+        <p className="holding-metadata">
+          Recording distributions requires a known provider-reported
+          distribution total.
+        </p>
+      )}
       {editor?.phase === "refresh_failed" || editor?.phase === "refreshing" ? (
         <>
           <FormMessage tone="error">{editor.error}</FormMessage>

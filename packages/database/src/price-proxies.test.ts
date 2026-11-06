@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 import {
   legalDocumentTestDatabase,
   type LegalDocumentTestD1,
@@ -41,10 +41,15 @@ const prices = (
   shareClass: "Common",
   shareBasis: { ...basis, unitsPerOriginal: units },
 });
-beforeEach(async () => {
+async function setUpRepository() {
   vi.useFakeTimers({ toFake: ["Date"] });
+  onTestFinished(() => {
+    vi.useRealTimers();
+  });
   vi.setSystemTime(new Date("2026-10-01T12:00:00.000Z"));
   db = legalDocumentTestDatabase();
+  const { sqlite } = db;
+  onTestFinished(() => sqlite.close());
   await seedCostHoldings(db.asD1(), COST_SUBJECT, 1, false, {
     sharePrices: prices(200_000_000, null),
   });
@@ -60,11 +65,7 @@ beforeEach(async () => {
     FROM holding_position_exposure_mappings WHERE id LIKE 'cost-mapping-%-withdrawn';`);
   repo = new D1PositionPurchaseRepository(db.asD1());
   await readPositions();
-});
-afterEach(() => {
-  db.sqlite.close();
-  vi.useRealTimers();
-});
+}
 async function readPositions() {
   positions = (
     await new D1InvestmentPositionViewRepository(db.asD1()).list(COST_SUBJECT)
@@ -213,6 +214,7 @@ const value = (index: number) =>
     ?.valueMinor;
 
 it("uses the saved reviewed date instead of an undated import, follows accepted imports, and preserves independent records", async () => {
+  await setUpRepository();
   const source = await reviewQuote();
   const initial: PurchaseReceipt[] = [];
   for (const [i, q] of [84_400_000, 23_625_000, 7_875_000].entries())
@@ -319,6 +321,7 @@ it("uses the saved reviewed date instead of an undated import, follows accepted 
 it.each([5, 10])(
   "normalizes a %i-for-1 split once, corrects provisional quantities once, and retains reconstructable receipts",
   async (factor) => {
+    await setUpRepository();
     const splitPrice = Number(200_000_000n / BigInt(factor));
     await reviewQuote();
     const original = await link(0);
@@ -384,6 +387,7 @@ it.each([5, 10])(
 );
 
 it("rejects older or incomplete source updates without reviving manual estimates and isolates household access", async () => {
+  await setUpRepository();
   await reviewQuote();
   await link(0);
   const initial = current(0)!;
@@ -475,6 +479,7 @@ it("explains distinct missing input and compatibility failures", () => {
 });
 
 it("keeps refresh queries independent of receipt and quote history", async () => {
+  await setUpRepository();
   await reviewQuote();
   await link(0);
   const start = db.statements.length;
@@ -494,6 +499,7 @@ it("keeps refresh queries independent of receipt and quote history", async () =>
 });
 
 it("backfills previously reviewed dates from the append-only ledger without changing balances", async () => {
+  await setUpRepository();
   const reviewed = await reviewQuote();
   // Rebuild the new projections over an existing ledger, as the forward
   // migration does. No receipt is edited or replaced during the backfill.
@@ -526,6 +532,7 @@ it("backfills previously reviewed dates from the append-only ledger without chan
 });
 
 it("projects the complete latest application order when both timestamps tie", async () => {
+  await setUpRepository();
   await seedCostHoldings(db.asD1(), COST_SUBJECT, 2, false, {
     sharePrices: prices(210_000_000, "2026-09-11"),
   });
@@ -544,6 +551,7 @@ it("projects the complete latest application order when both timestamps tie", as
 });
 
 it("preserves distributions across valuation saves and preserves quantity provenance across unrelated investment edits", async () => {
+  await setUpRepository();
   await reviewQuote();
   const linked = await link(0);
   const distributions = await repo.acceptDistributions(

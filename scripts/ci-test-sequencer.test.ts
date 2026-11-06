@@ -17,6 +17,8 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
       moduleId:
         "/synthetic/scripts/automatic-investment-review-d1-cost.test.ts",
     },
+    { moduleId: "/synthetic/apps/api/src/position-routes.test.ts" },
+    { moduleId: "/synthetic/packages/database/src/position-purchases.test.ts" },
   ];
   const original = [...files];
   const ordered = prioritizeCostFiles(files);
@@ -25,6 +27,7 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
     files[10],
     files[9],
     files[8],
+    files[11],
     files[6],
     files[5],
     files[2],
@@ -32,6 +35,7 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
     files[1],
     files[0],
     files[3],
+    files[12],
   ]);
   expect(files).toEqual(original);
   expect(new Set(ordered)).toEqual(new Set(files));

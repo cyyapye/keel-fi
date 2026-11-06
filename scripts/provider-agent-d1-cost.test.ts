@@ -3,7 +3,9 @@ import { build } from "esbuild";
 import { createApp } from "../apps/api/src/app";
 import { D1ProviderBrowserSessionRepository } from "../packages/database/src/provider-browser-sessions";
 import { createSqliteTrace } from "./test-support/sqlite-trace";
-import { handleRequest } from "../apps/web/src/worker";
+import { handleRequest, type WebWorkerBindings } from "../apps/web/src/worker";
+import type { Env } from "../apps/api/src/types";
+import { MacAgentAccessError } from "./mac-agent-auth";
 import { D1AngelListMacAgentRepository } from "../packages/database/src/angellist-mac-agent";
 import { D1MacAgentCredentialRepository } from "../packages/database/src/mac-agent-credentials";
 import { D1ProviderPortfolioAgentRepository } from "../packages/database/src/provider-portfolio-agent";
@@ -47,21 +49,31 @@ it.each([
       logLevel: "silent",
     });
     const bundledAt = performance.now();
-    const fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
-    const trace = createSqliteTrace();
-    const initializedAt = performance.now();
-    let clock = START;
-    const now = () => new Date(clock);
-    const credentials = new D1MacAgentCredentialRepository(trace.database, now);
-    const angellist = new D1AngelListMacAgentRepository(trace.database, now);
-    const portfolios = new D1ProviderPortfolioAgentRepository(
-      trace.database,
-      now,
-    );
-    const authorizations: MacAgentAuthorization[] = [];
-    const log = console.info.bind(console);
-    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const fixture = await createCostDatabase(bundled.outputFiles[0]!.text, {
+      sharedMemoryParent:
+        process.env.CI === "true"
+          ? process.env.KEEL_PROVIDER_DAY_SCRATCH
+          : undefined,
+    });
+    let closeTrace: (() => void) | undefined;
     try {
+      const trace = createSqliteTrace();
+      closeTrace = trace.close;
+      const initializedAt = performance.now();
+      let clock = START;
+      const now = () => new Date(clock);
+      const credentials = new D1MacAgentCredentialRepository(
+        trace.database,
+        now,
+      );
+      const angellist = new D1AngelListMacAgentRepository(trace.database, now);
+      const portfolios = new D1ProviderPortfolioAgentRepository(
+        trace.database,
+        now,
+      );
+      const authorizations: MacAgentAuthorization[] = [];
+      const log = console.info.bind(console);
+      vi.spyOn(console, "info").mockImplementation(() => undefined);
       for (const provider of ["angellist", "tokenfolio", "sydecar"] as const) {
         if (provider === "angellist") {
           await angellist.register(SUBJECT);
@@ -99,34 +111,42 @@ it.each([
       let workerInvocations = 0;
       let maxRoundTrips = 0;
       let sessionLeaseRequests = 0;
+      let harnessFailure: Error | undefined;
+      const failHarness = (message: string): never => {
+        const error = new Error(message);
+        harnessFailure ??= error;
+        throw error;
+      };
+      const assertHarness = (condition: boolean, message: string) => {
+        if (!condition) failHarness(message);
+      };
+      const apiEnv: Env = {
+        DB: trace.database,
+        ENVIRONMENT: "preview",
+        MAC_AGENT_API_ORIGIN: ORIGIN,
+        DOCUMENTS: {} as R2Bucket,
+        INGESTION_QUEUE: {} as Queue,
+      };
+      const bridge: WebWorkerBindings = {
+        MAC_AGENT_API_HOST: new URL(ORIGIN).hostname,
+        API: {
+          fetch: async (request) => {
+            workerInvocations++;
+            return app.fetch(request, apiEnv);
+          },
+        },
+        ASSETS: { fetch: () => failHarness("Idle client requested an asset") },
+      };
       vi.stubGlobal(
         "fetch",
         async (input: RequestInfo | URL, init?: RequestInit) => {
-          expect(++http).toBeLessThanOrEqual(10_000);
-          if (new Request(input, init).url.endsWith("/session-renewal/lease"))
+          assertHarness(++http <= 10_000, "Agent day exceeded its HTTP budget");
+          const request = new Request(input, init);
+          if (request.url.endsWith("/session-renewal/lease"))
             sessionLeaseRequests++;
           const before = trace.roundTrips;
           workerInvocations++;
-          const response = await handleRequest(new Request(input, init), {
-            MAC_AGENT_API_HOST: new URL(ORIGIN).hostname,
-            API: {
-              fetch: async (request) => {
-                workerInvocations++;
-                return app.fetch(request, {
-                  DB: trace.database,
-                  ENVIRONMENT: "preview",
-                  MAC_AGENT_API_ORIGIN: ORIGIN,
-                  DOCUMENTS: {} as R2Bucket,
-                  INGESTION_QUEUE: {} as Queue,
-                });
-              },
-            },
-            ASSETS: {
-              fetch: () => {
-                throw new Error("Idle client requested an asset");
-              },
-            },
-          });
+          const response = await handleRequest(request, bridge);
           maxRoundTrips = Math.max(maxRoundTrips, trace.roundTrips - before);
           return response;
         },
@@ -192,7 +212,10 @@ it.each([
                     authorization,
                     async (_provider, _origin, operation) => {
                       browserStarts++;
-                      expect(browserStarts).toBeLessThanOrEqual(9);
+                      assertHarness(
+                        browserStarts <= 9,
+                        "Agent day exceeded its browser budget",
+                      );
                       if (transportRecovery && browserStarts <= 3)
                         throw new __providerPortfolioMacAgentTest.SessionRenewalFailure(
                           {
@@ -228,14 +251,14 @@ it.each([
               }
             : {}),
           checkReconnect: async () => {
-            expect(
-              (
-                await leaseProviderBrowserSession(
-                  authorization,
-                  authorization.target,
-                )
-              ).session,
-            ).toBeNull();
+            const lease = await leaseProviderBrowserSession(
+              authorization,
+              authorization.target,
+            );
+            assertHarness(
+              lease.session === null,
+              "Idle reconnect returned a session",
+            );
             return "idle";
           },
           checkUpdates: async () => {
@@ -246,18 +269,20 @@ it.each([
                     authorization,
                     authorization.target,
                   );
-            expect(leased.run).toBeNull();
+            assertHarness(leased.run === null, "Idle update returned a run");
           },
           updateIntervalMs: authorization.target === "angellist" ? DAY : 60_000,
           onError: (error) => {
+            if (harnessFailure) throw harnessFailure;
+            if (rejected && error instanceof MacAgentAccessError)
+              return "authorization";
             if (
-              !rejected &&
-              !renewalFailure &&
-              !intermittentFailure &&
-              !transportRecovery
+              (renewalFailure || intermittentFailure || transportRecovery) &&
+              error instanceof
+                __providerPortfolioMacAgentTest.SessionRenewalFailure
             )
-              throw error;
-            return rejected ? "authorization" : "retryable";
+              return "retryable";
+            throw error;
           },
           now: () => clock,
           sleep: (milliseconds) => {
@@ -268,6 +293,7 @@ it.each([
           signal: controller.signal,
         });
       }
+      if (harnessFailure) throw harnessFailure;
       expect(http).toBeLessThanOrEqual(rejected ? 300 : 10_000);
       expect(workerInvocations).toBeLessThanOrEqual(rejected ? 600 : 20_000);
       expect(maxRoundTrips).toBeLessThanOrEqual(10);
@@ -306,6 +332,7 @@ it.each([
         JSON.stringify({
           actualD1AgentDay: {
             scenario,
+            storage: fixture.storage,
             sessionLeaseRequests,
             browserStarts,
             rejected,
@@ -323,8 +350,11 @@ it.each([
         }),
       );
     } finally {
-      trace.close();
-      await fixture.close();
+      try {
+        closeTrace?.();
+      } finally {
+        await fixture.close();
+      }
     }
   },
   180_000,
