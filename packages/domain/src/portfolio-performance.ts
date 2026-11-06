@@ -1,6 +1,9 @@
 import type { InvestmentExposurePosition } from "./exposure-read-model";
 import type { InvestmentHoldingsView } from "./investment-holdings-view";
-import { estimateProceedsAfterCarry } from "./investment-details";
+import {
+  assessInvestmentCarry,
+  reconcileHistoricalProceeds,
+} from "./investment-details";
 import { calculatePositionPerformance } from "./position-economics";
 import { effectivePositionValuation } from "./position-purchases";
 
@@ -128,6 +131,7 @@ export function calculatePortfolioPerformance(
       position.valueSource === "share_price_estimate" ||
       position.valueSource === "portfolio_watch_estimate";
 
+    let valuationDate = position.valueEffectiveDate ?? null;
     if (privatePosition) {
       const selected = effectivePositionValuation(
         record?.purchaseReceipt,
@@ -143,42 +147,52 @@ export function calculatePortfolioPerformance(
                 (record?.linkedReportedValue?.snapshotId ?? position.snapshotId)
             ? review.carryStatus
             : "unknown";
-      const carryCash =
-        reviewed?.cashPaidMinor == null
-          ? null
-          : BigInt(reviewed.cashPaidMinor) -
-            BigInt(reviewed.additionalPaidFeesMinor ?? 0) -
-            BigInt(reviewed.returnedCapitalMinor ?? 0);
-      const afterCarry = estimateProceedsAfterCarry({
+      valuationDate =
+        selected?.valueMinor === valueMinor
+          ? selected.effectiveDate
+          : position.valueSource === "provider" &&
+              review?.valueMinor === valueMinor &&
+              review.sourceSnapshotId ===
+                (record?.linkedReportedValue?.snapshotId ?? position.snapshotId)
+            ? review.effectiveDate
+            : valuationDate;
+      const afterCarry = assessInvestmentCarry({
         valueMinor,
         carryStatus,
-        cashPaidMinor:
-          carryCash !== null && carryCash >= 0n ? integer(carryCash) : null,
-        netCapitalMinor:
-          reviewed?.netCapitalMinor ??
-          reviewed?.estimatedNetCapitalMinor ??
-          null,
-        carryPpm: reviewed?.terms.carryPpm ?? null,
-        carryBasis: reviewed?.terms.carryBasis ?? "unknown",
+        investment: reviewed,
+        valuationDate,
       });
-      valueMinor = afterCarry?.proceedsMinor ?? null;
-      estimated ||= afterCarry !== null && !afterCarry.alreadyAfterCarry;
-
-      // Paid-in capital includes reviewed paid fees and is NOT net invested.
-      // Refunds remain cash returned in this basis. Add only refunds the source
-      // explicitly excludes; a refund already reported must not be counted twice.
+      valueMinor =
+        afterCarry.status === "available" ? afterCarry.proceedsMinor : null;
+      estimated ||=
+        afterCarry.status === "available" && !afterCarry.alreadyAfterCarry;
+      const historical = reconcileHistoricalProceeds({
+        review: reviewed?.distributionReview,
+        providerSnapshotId: position.snapshotId,
+        realizedValueMinor: position.realizedValueMinor,
+        includedRefundMinor: reviewed?.includedReturnedCapitalMinor ?? 0,
+        excludedRefundMinor: reviewed?.additionalReturnedCapitalMinor ?? 0,
+        refundReconciliationPending:
+          reviewed?.returnedCapitalReconciliationPending ?? false,
+        asOfDate: reviewed?.distributionReview?.coverage.throughDate ?? null,
+      });
+      const valueHistorical = reconcileHistoricalProceeds({
+        review: reviewed?.distributionReview,
+        providerSnapshotId: position.snapshotId,
+        realizedValueMinor: position.realizedValueMinor,
+        includedRefundMinor: reviewed?.includedReturnedCapitalMinor ?? 0,
+        excludedRefundMinor: reviewed?.additionalReturnedCapitalMinor ?? 0,
+        refundReconciliationPending:
+          reviewed?.returnedCapitalReconciliationPending ?? false,
+        asOfDate: valuationDate,
+      });
       if (
         position.realizedValueMinor !== null &&
         reviewed?.cashPaidMinor != null &&
         reviewed.cashPaidMinor > 0 &&
-        !reviewed.returnedCapitalReconciliationPending &&
-        (reviewed.includedReturnedCapitalMinor ?? 0) <=
-          position.realizedValueMinor
+        historical.status === "available"
       ) {
-        const distributions = add(
-          position.realizedValueMinor,
-          reviewed.additionalReturnedCapitalMinor ?? 0,
-        );
+        const distributions = historical.paidInDistributionsMinor;
         privateDpi.eligibleCount += 1;
         privateDpi.paidInMinor = add(
           privateDpi.paidInMinor,
@@ -188,7 +202,7 @@ export function calculatePortfolioPerformance(
           privateDpi.distributionsMinor,
           distributions,
         );
-        if (valueMinor !== null) {
+        if (valueMinor !== null && valueHistorical.status === "available") {
           privateTvpi.eligibleCount += 1;
           privateTvpi.estimatedCount += estimated ? 1 : 0;
           privateTvpi.paidInMinor = add(
@@ -225,6 +239,7 @@ export function calculatePortfolioPerformance(
             }
           : null,
       allowFundedAmountEstimate: false,
+      valuationDate,
     });
     if (
       performance.totalReturnPpm !== null &&

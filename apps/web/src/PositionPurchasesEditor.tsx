@@ -599,6 +599,9 @@ function InvestmentDetailsEditor({
     expectedTermsId:
       holding.positionEconomicsContext?.acceptedTerms?.id ?? null,
     details: {
+      ...(receipt?.details.distributionReview
+        ? { distributionReview: receipt.details.distributionReview }
+        : {}),
       investmentTerms,
       cashCoversPosition,
       coversPosition,
@@ -657,6 +660,7 @@ function InvestmentDetailsEditor({
     estimate && holding.realizedValueMinor != null
       ? calculatePositionPerformance({
           currentValueMinor: estimate.valueMinor,
+          valuationDate: estimate.effectiveDate,
           currentValueReported: true,
           realizedValueMinor: holding.realizedValueMinor,
           providerCostBasisMinor: null,

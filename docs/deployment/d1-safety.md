@@ -27,11 +27,21 @@ its snapshot DROP reads 5,864,077 rows. Installing missing inbound child-key
 indexes before the rebuild reduces that DROP to 11,207 reads. These are local
 synthetic counters, not production measurements.
 
-This change adds no production DDL. The indexed correction remains test-only.
-Permanent indexes increased existing capture and participation write costs
-beyond their unchanged limits. Installing them after already-applied 0089 would
-not protect that earlier rebuild. Applied SQL remains byte-identical, and
-populated frontiers before 0089 with 0089 pending are refused.
+The indexed correction remains test-only. Permanent indexes increased existing
+capture and participation write costs beyond their unchanged limits. Installing
+them after already-applied 0089 would not protect that earlier rebuild. Applied
+SQL remains byte-identical, and populated frontiers before 0089 with 0089
+pending are refused.
+
+The distribution-review upgrade starts at applied 0089 and runs
+`0090_distribution_reviews.sql`. Its six trigger DDL statements change no table
+data. Both 12- and 24-capture profiles measure 1,891 D1 rows read and four rows
+written, within the 2,000-read and 100-write envelope. The proof preserves all
+137 tables and 691 prior schema objects, including unknown manual distribution
+totals. The terminal baseline has 693 schema objects, no foreign-key violations
+and passing immutable-record probes. Destructive-table foreign-key plans do not
+apply to this trigger-only upgrade. The earlier 0089 regression remains a
+separate historical test.
 
 `.tugling/d1-migrations.json` binds ordered SQL hashes, the current baseline and
 reviewed upgrade cases. Receipts bind Git SHA, fixture/tool sources, history

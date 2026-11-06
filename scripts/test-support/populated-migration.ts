@@ -24,7 +24,7 @@ const SchemaObject = z.object({
   sql: z.string().nullable(),
 });
 const FixtureSchema = z.object({
-  frontier: z.enum(["0088", "0089"]),
+  frontier: z.enum(["0088", "0089", "0090"]),
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
   unrelatedPositions: z.literal(120),
@@ -314,7 +314,7 @@ async function buildFixture(
       }
     }
     if (captureOld) captureOld(snapshotFixture("0088"));
-    if (frontier === "0089") {
+    if (frontier !== "0088") {
       statements.clear();
       const priorIndexes = new Set(
         db
@@ -358,6 +358,16 @@ async function buildFixture(
         investmentDate: null,
         valuation: { state: "unknown" },
       });
+    }
+    if (frontier === "0090") {
+      if (captureOld) captureOld(snapshotFixture("0089"));
+      statements.clear();
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0090_distribution_reviews.sql",
+          "utf8",
+        ),
+      );
     }
     return snapshotFixture(frontier);
   } finally {
@@ -482,26 +492,27 @@ function packFixture(fixture: PopulatedMigrationFixture) {
   return gzipSync(json, { level: 1 }).toString("base64");
 }
 
-// Only the expected SQLite history is shared. Each D1 trial unpacks its own
-// fixture and initializes its own independently metered database.
 export function populatedMigrationFixtures() {
-  let pair: Promise<Record<Frontier, string>> | undefined;
+  const fixtures = new Map<12 | 24, Promise<Record<Frontier, string>>>();
 
   return async (history: 12 | 24, frontier: Frontier) => {
-    let text: string;
-    if (history === 24) {
-      pair ??= fixtureOutput(history, "both").then((stdout) =>
+    let result = fixtures.get(history);
+    if (!result) {
+      result = fixtureOutput(history, "both").then((stdout) =>
         z
-          .object({ "0088": z.string(), "0089": z.string() })
+          .object({
+            "0088": z.string(),
+            "0089": z.string(),
+            "0090": z.string(),
+          })
           .strict()
           .parse(JSON.parse(stdout)),
       );
-      text = gunzipSync(Buffer.from((await pair)[frontier], "base64"), {
-        maxOutputLength: fixtureByteLimit,
-      }).toString("utf8");
-    } else {
-      text = await fixtureOutput(history, frontier);
+      fixtures.set(history, result);
     }
+    const text = gunzipSync(Buffer.from((await result)[frontier], "base64"), {
+      maxOutputLength: fixtureByteLimit,
+    }).toString("utf8");
     const fixture = FixtureSchema.parse(JSON.parse(text));
     if (fixture.history !== history || fixture.frontier !== frontier)
       throw new Error("Unexpected populated migration fixture boundary");
@@ -927,14 +938,15 @@ if (
   const history = z
     .union([z.literal(12), z.literal(24)])
     .parse(Number(process.argv[3]));
-  const frontier = z.enum(["0088", "0089", "both"]).parse(process.argv[4]);
+  const frontier = z
+    .enum(["0088", "0089", "0090", "both"])
+    .parse(process.argv[4]);
   if (frontier === "both") {
-    z.literal(24).parse(history);
-    let old: string | undefined;
-    const terminal = await buildFixture(history, "0089", (fixture) => {
-      old = packFixture(fixture);
+    const fixtures: Partial<Record<Frontier, string>> = {};
+    const terminal = await buildFixture(history, "0090", (fixture) => {
+      fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ "0088": old, "0089": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0090": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

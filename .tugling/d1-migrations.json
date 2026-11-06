@@ -359,11 +359,29 @@
       "sha256": "ee26f2377d723ca9e7d4752b1e1d56de675a9fb4d3b7fbdc05e32d9877281ea2"
     }
   ],
-  "cases": [],
+  "cases": [
+    {
+      "kind": "upgrade",
+      "id": "distribution-reviews-v1",
+      "frontier": "0089_manual_holdings.sql",
+      "migrations": [
+        {
+          "name": "0090_distribution_reviews.sql",
+          "sha256": "34fde7d6679b849a82fa2f35a90fc41a3c5ec265c060f8eee875d3742a33d1a4"
+        }
+      ],
+      "fixture": "holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 2000,
+      "maxRowsWritten": 100
+    }
+  ],
   "baseline": {
     "kind": "baseline",
-    "id": "applied-schema-v1",
-    "frontier": "0089_manual_holdings.sql",
+    "id": "distribution-schema-v1",
+    "frontier": "0090_distribution_reviews.sql",
     "pending": [],
     "fixture": "holding-history-v1",
     "mainPositions": 120,

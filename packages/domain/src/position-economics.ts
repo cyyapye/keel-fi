@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { ReviewedInvestmentSchema } from "./investment-details";
+import {
+  ReviewedInvestmentSchema,
+  reconcileHistoricalProceeds,
+} from "./investment-details";
 
 const PARTS_PER_MILLION = 1_000_000n;
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
@@ -281,6 +284,7 @@ export function calculatePositionPerformance(input: {
   fundedMinor: number | null;
   economicsContext: PositionEconomicsContext | null;
   allowFundedAmountEstimate: boolean;
+  valuationDate?: string | null;
 }): PositionPerformance {
   const economics =
     input.economicsContext === null
@@ -347,26 +351,31 @@ export function calculatePositionPerformance(input: {
     };
   }
 
-  // Received refunds already reduce net capital. Remove refunds included in
-  // provider distributions; never add an excluded refund to the numerator.
-  const includedRefund = BigInt(
-    currentReview?.includedReturnedCapitalMinor ?? 0,
-  );
-  const realized = BigInt(input.realizedValueMinor);
+  const historical = reconcileHistoricalProceeds({
+    review: currentReview?.distributionReview,
+    providerSnapshotId: input.economicsContext?.snapshotId ?? "",
+    realizedValueMinor: input.realizedValueMinor,
+    includedRefundMinor: currentReview?.includedReturnedCapitalMinor ?? 0,
+    excludedRefundMinor: currentReview?.additionalReturnedCapitalMinor ?? 0,
+    refundReconciliationPending:
+      currentReview?.returnedCapitalReconciliationPending ?? false,
+    asOfDate: input.valuationDate ?? null,
+  });
+  if (historical.status === "unavailable")
+    return {
+      costBasisMinor,
+      costBasisSource,
+      totalValueMinor: null,
+      totalGainMinor: null,
+      totalReturnPpm: null,
+    };
   const totalValue =
-    BigInt(input.currentValueMinor) +
-    realized -
-    (includedRefund <= realized ? includedRefund : 0n);
+    BigInt(input.currentValueMinor) + BigInt(historical.netDistributionsMinor);
   const totalValueMinor = safeNonNegativeNumber(
     totalValue,
     "Position total value",
   );
-  if (
-    costBasisMinor === null ||
-    currentReview?.returnedCapitalReconciliationPending ||
-    (currentReview?.includedReturnedCapitalMinor ?? 0) >
-      input.realizedValueMinor
-  ) {
+  if (costBasisMinor === null)
     return {
       costBasisMinor,
       costBasisSource,
@@ -374,7 +383,6 @@ export function calculatePositionPerformance(input: {
       totalGainMinor: null,
       totalReturnPpm: null,
     };
-  }
 
   const gain = totalValue - BigInt(costBasisMinor);
   const totalGainMinor = Number(gain);

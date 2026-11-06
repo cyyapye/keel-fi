@@ -84,7 +84,7 @@ export const MigrationSafetyBaselineScenarioSchema = z
     ...commonScenario,
     history: z.literal(24),
     tablesPreserved: z.literal(137),
-    schemaObjectsPreserved: z.literal(691),
+    schemaObjectsPreserved: z.literal(693),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -98,16 +98,24 @@ export const MigrationSafetyScenarioSchema = z
   .object({
     ...commonScenario,
     statements: safeInteger.positive(),
-    rowsRead: safeInteger.positive(),
-    rowsWritten: safeInteger.positive(),
+    rowsRead: safeInteger,
+    rowsWritten: safeInteger,
     measuredFromFirstStatement: z.literal(true),
     counterSource: z.literal("local-workerd-d1-meta"),
-    inboundForeignKeyPlans: z.literal(
+    inboundForeignKeyPlans: z.enum([
       "indexed-positive-and-empty-before-destructive-statements",
-    ),
+      "not-applicable-trigger-only-no-table-dml",
+    ]),
     completeSequence: z.literal("preparation-through-cleanup"),
   })
-  .strict();
+  .strict()
+  .refine(
+    (scenario) =>
+      scenario.inboundForeignKeyPlans ===
+        "not-applicable-trigger-only-no-table-dml" ||
+      (scenario.rowsRead > 0 && scenario.rowsWritten > 0),
+    "A destructive migration needs positive measured counters",
+  );
 export type MigrationSafetyScenario = z.infer<
   typeof MigrationSafetyScenarioSchema
 >;
@@ -136,8 +144,12 @@ export const MigrationSafetyReceiptSchema = z
           pending: z.array(migrationName).min(1),
           scenarios: z
             .tuple([
-              MigrationSafetyScenarioSchema.extend({ history: z.literal(12) }),
-              MigrationSafetyScenarioSchema.extend({ history: z.literal(24) }),
+              MigrationSafetyScenarioSchema.safeExtend({
+                history: z.literal(12),
+              }),
+              MigrationSafetyScenarioSchema.safeExtend({
+                history: z.literal(24),
+              }),
             ])
             .refine(
               ([first, second]) => first.fixtureHash !== second.fixtureHash,
@@ -406,14 +418,23 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "applied-schema-v1" ||
-    registry.baseline.frontier !== "0089_manual_holdings.sql" ||
+    registry.baseline.id !== "distribution-schema-v1" ||
+    registry.baseline.frontier !== "0090_distribution_reviews.sql" ||
     registry.baseline.fixture !== "holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
-  if (registry.cases.length !== 0)
+  if (
+    registry.cases.length !== 1 ||
+    registry.cases[0]?.id !== "distribution-reviews-v1" ||
+    registry.cases[0].frontier !== "0089_manual_holdings.sql" ||
+    registry.cases[0].fixture !== "holding-history-v1" ||
+    !same(
+      registry.cases[0].migrations.map((item) => item.name),
+      ["0090_distribution_reviews.sql"],
+    )
+  )
     throw new Error(
       "New migration case needs an implemented OLD-schema fixture and canonical runner, not a metadata-only approval",
     );
@@ -533,7 +554,9 @@ export function validateMigrationSafetyReceipt(
       actual.scenarios.some(
         (scenario) =>
           scenario.rowsRead > review.maxRowsRead ||
-          scenario.rowsWritten > review.maxRowsWritten,
+          scenario.rowsWritten > review.maxRowsWritten ||
+          scenario.inboundForeignKeyPlans !==
+            "not-applicable-trigger-only-no-table-dml",
       )
     )
       throw new Error(

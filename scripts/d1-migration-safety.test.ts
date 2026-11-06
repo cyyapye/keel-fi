@@ -28,8 +28,9 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0090_unmeasured.sql";
-const frontier = "0089_manual_holdings.sql";
+const futureMigration = "0091_unmeasured.sql";
+const immutableFrontier = "0089_manual_holdings.sql";
+const frontier = "0090_distribution_reviews.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -67,7 +68,7 @@ function receipt(): MigrationSafetyReceipt {
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "applied-schema-v1",
+      id: "distribution-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -78,7 +79,7 @@ function receipt(): MigrationSafetyReceipt {
           fixtureHash: "d".repeat(64),
           tableRows: tableRows(24),
           tablesPreserved: 137,
-          schemaObjectsPreserved: 691,
+          schemaObjectsPreserved: 693,
           foreignKeyViolations: 0,
           immutableProbes: 3,
           validation: "applied-schema-preservation",
@@ -96,7 +97,31 @@ function receipt(): MigrationSafetyReceipt {
         },
       ],
     },
-    cases: [],
+    cases: [
+      {
+        kind: "upgrade",
+        id: "distribution-reviews-v1",
+        frontier: immutableFrontier,
+        pending: [frontier],
+        scenarios: [
+          {
+            ...upgradeScenario(),
+            rowsRead: 10,
+            rowsWritten: 4,
+            inboundForeignKeyPlans: "not-applicable-trigger-only-no-table-dml",
+          },
+          {
+            ...upgradeScenario(),
+            history: 24,
+            fixtureHash: "d".repeat(64),
+            tableRows: tableRows(24),
+            rowsRead: 10,
+            rowsWritten: 4,
+            inboundForeignKeyPlans: "not-applicable-trigger-only-no-table-dml",
+          },
+        ],
+      },
+    ],
   };
 }
 function futureCase(root: string) {
@@ -131,7 +156,7 @@ function upgradeScenario() {
     fixtureHash: "c".repeat(64),
     tableRows: tableRows(12),
     tablesPreserved: 137,
-    schemaObjectsPreserved: 691,
+    schemaObjectsPreserved: 693,
     foreignKeyViolations: 0 as const,
     immutableProbes: 3 as const,
     physicalIntegrity: "unsupported-in-local-d1" as const,
@@ -157,14 +182,20 @@ describe("populated D1 migration evidence", () => {
   it("registers every migration and keeps applied SQL byte-identical", () => {
     const registry = readMigrationSafetyRegistry();
     expect(registry.immutableMigrations.at(-1)).toEqual({
-      name: frontier,
+      name: immutableFrontier,
       sha256:
         "ee26f2377d723ca9e7d4752b1e1d56de675a9fb4d3b7fbdc05e32d9877281ea2",
     });
-    expect(registry.cases).toEqual([]);
+    expect(registry.cases).toMatchObject([
+      {
+        id: "distribution-reviews-v1",
+        frontier: immutableFrontier,
+        migrations: [{ name: frontier }],
+      },
+    ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "applied-schema-v1",
+      id: "distribution-schema-v1",
       frontier,
       pending: [],
     });
@@ -200,7 +231,7 @@ describe("populated D1 migration evidence", () => {
 
   it("blocks changed historical SQL and missing reviewed migration bytes", () => {
     const root = isolatedRegistry();
-    const file = join(root, "packages/database/migrations", frontier);
+    const file = join(root, "packages/database/migrations", immutableFrontier);
     writeFileSync(
       file,
       readFileSync(file, "utf8") + "\n-- Changed historical SQL.\n",
@@ -243,7 +274,7 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "applied-schema-v1",
+      caseId: "distribution-schema-v1",
       migrationCost: null,
       footprint: { households: 2, holding_position_snapshots: 3121 },
     });
@@ -255,13 +286,48 @@ describe("populated D1 migration evidence", () => {
     expect(admitted).not.toHaveProperty("rowsWritten");
   });
 
+  it("admits the measured trigger-only upgrade and enforces its complete actual counter budget", () => {
+    const evidence = receipt();
+    const admitted = admit(evidence, {
+      frontier: immutableFrontier,
+      pending: [frontier],
+      gitSha,
+    });
+    expect(admitted).toMatchObject({
+      kind: "upgrade",
+      caseId: "distribution-reviews-v1",
+      migrationCost: { rowsRead: 10, rowsWritten: 4 },
+    });
+    for (const patch of [
+      { rowsRead: 2001 },
+      { rowsWritten: 101 },
+      {
+        inboundForeignKeyPlans:
+          "indexed-positive-and-empty-before-destructive-statements" as const,
+      },
+    ]) {
+      const invalid = receipt();
+      Object.assign(invalid.cases[0]!.scenarios[0], patch);
+      expect(() => admit(invalid)).toThrow("actual D1 row budget");
+    }
+    const zero = receipt();
+    for (const scenario of zero.cases[0]!.scenarios) {
+      scenario.rowsRead = 0;
+      scenario.rowsWritten = 0;
+    }
+    expect(
+      admit(zero, { frontier: immutableFrontier, pending: [frontier], gitSha })
+        .migrationCost,
+    ).toEqual({ rowsRead: 0, rowsWritten: 0 });
+  });
+
   it("refuses a populated legacy upgrade because forward indexes would run too late", () => {
     const legacyFrontier =
       readMigrationSafetyRegistry().immutableMigrations.at(-2)!.name;
     expect(() =>
       admit(undefined, {
         frontier: legacyFrontier,
-        pending: [frontier],
+        pending: [immutableFrontier, frontier],
         gitSha,
       }),
     ).toThrow("forward indexes run after the unsafe rebuild");

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   reconcileInvestmentCapital,
-  estimateProceedsAfterCarry,
+  DistributionReviewSchema,
+  assessInvestmentCarry,
+  summarizeInvestmentCarryCapital,
+  reconcileHistoricalProceeds,
+  type ReviewedInvestment,
   unknownInvestmentTerms,
 } from "./investment-details";
 import {
@@ -398,38 +402,450 @@ describe("unified investment details", () => {
       reviewedInvestmentFromReceipt(r)?.estimatedNetCapitalMinor,
     ).toBeNull();
   });
-  it("calculates carry on positive gains only and never charges an after-carry mark again", () => {
+  it("calculates the unreviewed-history illustration without charging an after-carry value again", () => {
+    const investment = {
+      snapshotId: "synthetic-snapshot",
+      receiptId: "synthetic-receipt",
+      cashPaidMinor: 240000,
+      netCapitalMinor: 211234,
+      upfrontDeductionsMinor: 28766,
+      terms: {
+        ...unknownInvestmentTerms(),
+        carryPpm: 200000,
+        carryBasis: "net_capital" as const,
+      },
+    };
     const input = {
       valueMinor: 420000,
       carryStatus: "before_carry" as const,
-      cashPaidMinor: 240000,
-      netCapitalMinor: 211234,
-      carryPpm: 200000,
-      carryBasis: "net_capital" as const,
+      valuationDate: null,
+      investment,
     };
-    expect(estimateProceedsAfterCarry(input)).toMatchObject({
+    expect(assessInvestmentCarry(input)).toMatchObject({
+      method: "legacy_remaining_only",
       carryMinor: 41753,
       proceedsMinor: 378247,
     });
     expect(
-      estimateProceedsAfterCarry({ ...input, valueMinor: 200000 }),
+      assessInvestmentCarry({ ...input, valueMinor: 200000 }),
     ).toMatchObject({ carryMinor: 0, proceedsMinor: 200000 });
     expect(
-      estimateProceedsAfterCarry({ ...input, carryBasis: "gross_cash" }),
+      assessInvestmentCarry({
+        ...input,
+        investment: {
+          ...investment,
+          terms: { ...investment.terms, carryBasis: "gross_cash" },
+        },
+      }),
     ).toMatchObject({ carryMinor: 36000 });
     expect(
-      estimateProceedsAfterCarry({ ...input, carryStatus: "after_carry" }),
+      assessInvestmentCarry({ ...input, carryStatus: "after_carry" }),
     ).toMatchObject({
       carryMinor: null,
       proceedsMinor: 420000,
       alreadyAfterCarry: true,
     });
+    expect(assessInvestmentCarry({ ...input, carryStatus: "unknown" })).toEqual(
+      { status: "unavailable", reason: "unknown_source_carry" },
+    );
     expect(
-      estimateProceedsAfterCarry({ ...input, carryStatus: "unknown" }),
-    ).toBeNull();
+      assessInvestmentCarry({
+        ...input,
+        investment: {
+          ...investment,
+          terms: { ...investment.terms, carryBasis: "unknown" },
+        },
+      }),
+    ).toEqual({ status: "unavailable", reason: "unknown_capital" });
     expect(
-      estimateProceedsAfterCarry({ ...input, carryBasis: "unknown" }),
+      assessInvestmentCarry({
+        ...input,
+        investment: {
+          ...investment,
+          terms: { ...investment.terms, carryPpm: null },
+        },
+      }),
+    ).toEqual({ status: "unavailable", reason: "unknown_carry_rate" });
+  });
+});
+
+describe("distribution-aware carry", () => {
+  const review = () =>
+    DistributionReviewSchema.parse({
+      method: "capital_return_first_v1",
+      events: [
+        {
+          id: "synthetic-cash",
+          kind: "cash",
+          receivedOn: "2026-01-15",
+          investorValueMinor: 900000,
+          sourceLabel: "Synthetic distribution notice",
+          sourceUrl: null,
+          note: "",
+        },
+      ],
+      coverage: { status: "complete", throughDate: "2026-09-01" },
+      priorCarry: { status: "known", amountMinor: 0 },
+      provider: {
+        inclusion: "none",
+        sourceSnapshotId: "synthetic-snapshot",
+        realizedValueMinor: 0,
+      },
+      sourceLabel: "Synthetic reviewed history",
+      sourceUrl: null,
+      note: "",
+    });
+  const investment = (): ReviewedInvestment => ({
+    snapshotId: "synthetic-snapshot",
+    receiptId: "synthetic-receipt",
+    cashPaidMinor: 3000000,
+    netCapitalMinor: 2700000,
+    upfrontDeductionsMinor: 300000,
+    terms: {
+      ...unknownInvestmentTerms(),
+      carryPpm: 200000,
+      carryBasis: "gross_cash",
+    },
+    distributionReview: review(),
+  });
+  const assess = (
+    changes: Partial<Parameters<typeof assessInvestmentCarry>[0]> = {},
+  ) =>
+    assessInvestmentCarry({
+      valueMinor: 4000000,
+      carryStatus: "before_carry",
+      valuationDate: "2026-09-01",
+      investment: investment(),
+      ...changes,
+    });
+  const reconcile = (
+    changes: Partial<Parameters<typeof reconcileHistoricalProceeds>[0]> = {},
+  ) =>
+    reconcileHistoricalProceeds({
+      review: review(),
+      providerSnapshotId: "synthetic-snapshot",
+      realizedValueMinor: 0,
+      includedRefundMinor: 0,
+      excludedRefundMinor: 0,
+      refundReconciliationPending: false,
+      asOfDate: "2026-09-01",
+      ...changes,
+    });
+
+  it("uses contributed capital once and returns the canonical cumulative proceeds", () => {
+    expect(assess()).toEqual({
+      status: "available",
+      method: "cumulative",
+      carryMinor: 380000,
+      proceedsMinor: 3620000,
+      alreadyAfterCarry: false,
+    });
+    const fees = investment();
+    fees.cashPaidMinor = 3100000;
+    fees.additionalPaidFeesMinor = 100000;
+    expect(assess({ investment: fees })).toMatchObject({ carryMinor: 380000 });
+    fees.cashPaidMinor = 3200000;
+    fees.returnedCapitalMinor = 100000;
+    expect(assess({ investment: fees })).toMatchObject({ carryMinor: 380000 });
+  });
+  it("keeps investor capital still to return known independently of prior GP carry", () => {
+    const value = investment();
+    value.distributionReview!.priorCarry = { status: "unknown" };
+    expect(
+      summarizeInvestmentCarryCapital({
+        investment: value,
+        asOfDate: "2026-09-01",
+      }),
+    ).toEqual({
+      capitalBasisMinor: 3000000,
+      investorDistributionsMinor: 900000,
+      capitalRemainingMinor: 2100000,
+      historyReason: null,
+    });
+    expect(assess({ investment: value })).toEqual({
+      status: "unavailable",
+      reason: "unknown_prior_carry",
+    });
+    value.distributionReview!.priorCarry = {
+      status: "known",
+      amountMinor: 100000,
+    };
+    expect(
+      summarizeInvestmentCarryCapital({
+        investment: value,
+        asOfDate: "2026-09-01",
+      }).capitalRemainingMinor,
+    ).toBe(2100000);
+    value.distributionReview!.events[0]!.investorValueMinor = 4000000;
+    expect(
+      summarizeInvestmentCarryCapital({
+        investment: value,
+        asOfDate: "2026-09-01",
+      }).capitalRemainingMinor,
+    ).toBe(0);
+    value.distributionReview!.events[0]!.investorValueMinor = null;
+    expect(
+      summarizeInvestmentCarryCapital({
+        investment: value,
+        asOfDate: "2026-09-01",
+      }).capitalRemainingMinor,
     ).toBeNull();
-    expect(estimateProceedsAfterCarry({ ...input, carryPpm: null })).toBeNull();
+    delete value.distributionReview;
+    expect(
+      summarizeInvestmentCarryCapital({
+        investment: value,
+        asOfDate: "2026-09-01",
+      }),
+    ).toMatchObject({
+      capitalBasisMinor: 3000000,
+      investorDistributionsMinor: null,
+      capitalRemainingMinor: null,
+      historyReason: "unreviewed_history",
+    });
+  });
+
+  it("reconstructs gross historical proceeds with prior carry and never credits a clawback", () => {
+    const value = investment();
+    value.distributionReview!.priorCarry = {
+      status: "known",
+      amountMinor: 100000,
+    };
+    expect(assess({ investment: value })).toMatchObject({
+      carryMinor: 300000,
+      proceedsMinor: 3700000,
+    });
+    expect(assess({ investment: value, valueMinor: 1 })).toMatchObject({
+      carryMinor: 0,
+      proceedsMinor: 1,
+    });
+    value.distributionReview!.events[0]!.investorValueMinor = 10000000;
+    expect(assess({ investment: value, valueMinor: 100 })).toEqual({
+      status: "unavailable",
+      reason: "carry_exceeds_remaining_value",
+    });
+  });
+  it("supports zero and exact hurdles and rounds cumulative carry once", () => {
+    expect(assess({ valueMinor: 2100000 })).toMatchObject({
+      carryMinor: 0,
+      proceedsMinor: 2100000,
+    });
+    expect(assess({ valueMinor: 1000000 })).toMatchObject({ carryMinor: 0 });
+    expect(assess({ valueMinor: 2100003 })).toMatchObject({
+      carryMinor: 1,
+      proceedsMinor: 2100002,
+    });
+  });
+  it.each([
+    [
+      "incomplete_history",
+      (v: ReviewedInvestment) => {
+        v.distributionReview!.coverage.status = "incomplete";
+      },
+    ],
+    [
+      "unknown_distribution_value",
+      (v: ReviewedInvestment) => {
+        v.distributionReview!.events[0]!.investorValueMinor = null;
+      },
+    ],
+    [
+      "unknown_prior_carry",
+      (v: ReviewedInvestment) => {
+        v.distributionReview!.priorCarry = { status: "unknown" };
+      },
+    ],
+    [
+      "history_coverage",
+      (v: ReviewedInvestment) => {
+        v.distributionReview!.coverage.throughDate = "2026-08-01";
+      },
+    ],
+  ] as const)(
+    "withholds cumulative carry for %s without burdening after-carry or zero-rate marks",
+    (reason, change) => {
+      const value = investment();
+      change(value);
+      expect(assess({ investment: value })).toEqual({
+        status: "unavailable",
+        reason,
+      });
+      expect(
+        assess({ investment: value, carryStatus: "after_carry" }),
+      ).toMatchObject({
+        status: "available",
+        method: "reported_after_carry",
+        proceedsMinor: 4000000,
+      });
+      value.terms.carryPpm = 0;
+      expect(assess({ investment: value })).toMatchObject({
+        status: "available",
+        method: "zero_carry",
+      });
+    },
+  );
+  it("preserves unknown source status, actual valuation dates and explicitly labeled legacy behavior", () => {
+    expect(assess({ carryStatus: "unknown" })).toEqual({
+      status: "unavailable",
+      reason: "unknown_source_carry",
+    });
+    expect(assess({ valuationDate: null })).toEqual({
+      status: "unavailable",
+      reason: "missing_valuation_date",
+    });
+    expect(assess({ valuationDate: "2026-01-01" })).toEqual({
+      status: "unavailable",
+      reason: "valuation_predates_distribution",
+    });
+    const value = investment();
+    delete value.distributionReview;
+    expect(assess({ investment: value })).toMatchObject({
+      status: "available",
+      method: "legacy_remaining_only",
+      carryMinor: 200000,
+    });
+    value.distributionReview = review();
+    value.distributionReview.events = [];
+    expect(assess({ investment: value })).toMatchObject({
+      status: "available",
+      method: "cumulative",
+      carryMinor: 200000,
+    });
+  });
+  it("saves unknown-value stock events while retaining strict bounds and dated coverage", () => {
+    const value = review();
+    value.events = [
+      {
+        ...value.events[0]!,
+        kind: "in_kind",
+        securityLabel: "Synthetic common stock",
+        quantityMicros: null,
+        investorValueMinor: null,
+      },
+    ];
+    expect(DistributionReviewSchema.safeParse(value).success).toBe(true);
+    expect(
+      assess({ investment: { ...investment(), distributionReview: value } }),
+    ).toMatchObject({
+      status: "unavailable",
+      reason: "unknown_distribution_value",
+    });
+    expect(
+      DistributionReviewSchema.safeParse({
+        ...value,
+        events: Array.from({ length: 101 }, (_, id) => ({
+          ...value.events[0],
+          id: `synthetic-${id}`,
+        })),
+      }).success,
+    ).toBe(false);
+    expect(
+      DistributionReviewSchema.safeParse({
+        ...value,
+        events: [value.events[0], value.events[0]],
+      }).success,
+    ).toBe(false);
+    expect(
+      DistributionReviewSchema.safeParse({
+        ...value,
+        coverage: { status: "complete", throughDate: "2025-01-01" },
+      }).success,
+    ).toBe(false);
+    expect(
+      DistributionReviewSchema.safeParse({
+        ...value,
+        events: Array.from({ length: 100 }, (_, id) => ({
+          ...value.events[0],
+          id: `synthetic-${id}`,
+          note: "界".repeat(300),
+        })),
+      }).success,
+    ).toBe(false);
+    expect(
+      DistributionReviewSchema.safeParse({
+        ...value,
+        events: [
+          { ...value.events[0], investorValueMinor: Number.MAX_SAFE_INTEGER },
+        ],
+        priorCarry: { status: "known", amountMinor: 1 },
+      }).success,
+    ).toBe(false);
+  });
+  it("counts included and excluded distributions once and keeps refunds out of net-capital returns", () => {
+    expect(reconcile()).toEqual({
+      status: "available",
+      netDistributionsMinor: 900000,
+      paidInDistributionsMinor: 900000,
+    });
+    const included = review();
+    included.provider.inclusion = "all";
+    included.provider.realizedValueMinor = 1000000;
+    expect(
+      reconcile({
+        review: included,
+        realizedValueMinor: 1000000,
+        includedRefundMinor: 100000,
+        excludedRefundMinor: 50000,
+      }),
+    ).toEqual({
+      status: "available",
+      netDistributionsMinor: 900000,
+      paidInDistributionsMinor: 1050000,
+    });
+    const excluded = review();
+    excluded.provider.realizedValueMinor = 100000;
+    expect(
+      reconcile({
+        review: excluded,
+        realizedValueMinor: 100000,
+        includedRefundMinor: 100000,
+        excludedRefundMinor: 50000,
+      }),
+    ).toEqual({
+      status: "available",
+      netDistributionsMinor: 900000,
+      paidInDistributionsMinor: 1050000,
+    });
+    excluded.priorCarry = { status: "unknown" };
+    expect(
+      reconcile({
+        review: excluded,
+        realizedValueMinor: 100000,
+        includedRefundMinor: 100000,
+      }),
+    ).toMatchObject({ status: "available" });
+  });
+  it.each(["unknown", "unsupported_mixed"] as const)(
+    "withholds dependent performance for %s inclusion independently of carry",
+    (inclusion) => {
+      const value = review();
+      value.provider.inclusion = inclusion;
+      expect(reconcile({ review: value }).status).toBe("unavailable");
+      expect(
+        assess({ investment: { ...investment(), distributionReview: value } })
+          .status,
+      ).toBe("available");
+    },
+  );
+  it("rejects stale source bindings and unexplained provider residuals", () => {
+    expect(reconcile({ realizedValueMinor: null })).toEqual({
+      status: "unavailable",
+      reason: "unknown_provider_distributions",
+    });
+    expect(
+      reconcile({ providerSnapshotId: "new-synthetic-snapshot" }),
+    ).toMatchObject({
+      status: "unavailable",
+      reason: "provider_binding_stale",
+    });
+    expect(reconcile({ realizedValueMinor: 1 })).toMatchObject({
+      status: "unavailable",
+      reason: "provider_binding_stale",
+    });
+    const value = review();
+    value.provider.realizedValueMinor = 1;
+    expect(reconcile({ review: value, realizedValueMinor: 1 })).toMatchObject({
+      status: "unavailable",
+      reason: "provider_amount_mismatch",
+    });
   });
 });

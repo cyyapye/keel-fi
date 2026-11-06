@@ -81,11 +81,39 @@ export default {
     for (let version = 0; version < 8; version++) {
       for (const position of input.positions) {
         meter.reset();
-        const receipt = await purchases.accept(input.subject, position.id, {
-          expectedSnapshotId: position.snapshotId,
-          expectedReceiptId: heads.get(position.id) ?? null,
-          details: { coversPosition: true, lots: [] },
-        });
+        const receipt =
+          version === 0 || version === 4
+            ? await purchases.acceptDistributions(input.subject, position.id, {
+                expectedSnapshotId: position.snapshotId,
+                expectedReceiptId: heads.get(position.id) ?? null,
+                distributionReview: {
+                  method: "capital_return_first_v1",
+                  events: Array.from({ length: 100 }, (_, index) => ({
+                    id: `synthetic-distribution-${index}`,
+                    kind: "cash" as const,
+                    receivedOn: "2026-01-01",
+                    investorValueMinor: index + version,
+                    sourceLabel: "Synthetic distribution notice",
+                    sourceUrl: null,
+                    note: "",
+                  })),
+                  coverage: { status: "complete", throughDate: "2026-09-01" },
+                  priorCarry: { status: "known", amountMinor: 0 },
+                  provider: {
+                    inclusion: "none",
+                    sourceSnapshotId: position.snapshotId,
+                    realizedValueMinor: 0,
+                  },
+                  sourceLabel: "Synthetic reviewed history",
+                  sourceUrl: null,
+                  note: "",
+                },
+              })
+            : await purchases.accept(input.subject, position.id, {
+                expectedSnapshotId: position.snapshotId,
+                expectedReceiptId: heads.get(position.id) ?? null,
+                details: { coversPosition: true, lots: [] },
+              });
         heads.set(position.id, receipt.id);
         acceptances.push({
           version,

@@ -9,6 +9,9 @@ import type {
   InvestmentPositionRecord,
   InvestmentPositionView,
 } from "./position-read-model";
+import { unknownInvestmentTerms } from "./investment-details";
+import { calculatePositionPerformance } from "./position-economics";
+import { calculatePortfolioPerformance } from "./portfolio-performance";
 
 const asOf = "2026-08-16T12:00:00.000Z";
 const evidenceSha256 = "a".repeat(64);
@@ -88,6 +91,85 @@ function positionView(
   };
 }
 
+function reviewedProviderPosition(
+  id: string,
+  effectiveDate: string | null,
+  valueMinor = 18_000,
+): InvestmentPositionRecord {
+  const record = position(id, valueMinor);
+  record.kind = "spv_interest";
+  record.snapshot.realizedValueMinor = 3_000;
+  record.purchaseReceipt = {
+    id: `receipt_${id}`,
+    positionId: id,
+    snapshotId: record.snapshot.id,
+    currency: "USD",
+    acceptedAt: asOf,
+    details: {
+      coversPosition: true,
+      cashCoversPosition: true,
+      investmentTerms: {
+        ...unknownInvestmentTerms(),
+        reportedValueReview: {
+          sourceSnapshotId: record.snapshot.id,
+          valueMinor,
+          sourceLabel: "Synthetic reviewed GP statement",
+          effectiveDate,
+          carryStatus: "after_carry",
+        },
+      },
+      lots: [
+        {
+          id: `lot_${id}`,
+          purchasedOn: "2026-01-15",
+          shareClass: null,
+          priceMicros: null,
+          referencePriceMicros: null,
+          grossCashMinor: 12_000,
+          netCapitalMinor: 10_000,
+          upfrontDeductionsMinor: 2_000,
+          feePpm: null,
+          feeBasis: null,
+          feeLabel: null,
+          remainingSharesMicros: null,
+          sharesAsOf: null,
+          originalSharesUnchanged: false,
+          sourceLabel: "Synthetic subscription",
+          sourceUrl: null,
+          mark: null,
+        },
+      ],
+      distributionReview: {
+        method: "capital_return_first_v1",
+        events: [
+          {
+            id: `distribution_${id}`,
+            kind: "in_kind",
+            receivedOn: "2026-08-10",
+            investorValueMinor: 3_000,
+            securityLabel: "Synthetic distributed shares",
+            quantityMicros: 1_000_000,
+            sourceLabel: "Synthetic distribution notice",
+            sourceUrl: null,
+            note: "",
+          },
+        ],
+        coverage: { status: "complete", throughDate: "2026-08-31" },
+        priorCarry: { status: "known", amountMinor: 0 },
+        provider: {
+          inclusion: "all",
+          sourceSnapshotId: record.snapshot.id,
+          realizedValueMinor: 3_000,
+        },
+        sourceLabel: "Synthetic reviewed history",
+        sourceUrl: null,
+        note: "",
+      },
+    },
+  };
+  return record;
+}
+
 function exposure(id: string, canonicalName: string): CanonicalExposure {
   return {
     id,
@@ -139,8 +221,16 @@ describe("investment exposure read model", () => {
       companyId: "company_synthetic",
       resolutionMethod: "reviewed_company",
     };
-    const publicPositions = Array.from({ length: 120 }, (_, index) =>
-      position(`public_${String(index).padStart(3, "0")}`, 1_000),
+    const publicPositions: InvestmentPositionRecord[] = Array.from(
+      { length: 120 },
+      (_, index) => ({
+        ...reviewedProviderPosition(
+          `public_${String(index).padStart(3, "0")}`,
+          index % 2 === 0 ? null : "2026-08-12",
+          1_000,
+        ),
+        kind: "direct" as const,
+      }),
     );
     publicPositions.push(position("public_locked", null, "locked"));
     const spv = position("spv_1", 25_000);
@@ -171,6 +261,13 @@ describe("investment exposure read model", () => {
       ],
     });
     expect(canonical.exposures).toHaveLength(2);
+    expect(
+      canonical.positions.slice(0, 120).map((item) => item.valueEffectiveDate),
+    ).toEqual(
+      Array.from({ length: 120 }, (_, index) =>
+        index % 2 === 0 ? null : "2026-08-12",
+      ),
+    );
     expect(grouped).toHaveLength(1);
     expect(grouped[0]?.exposure.id).toBe(privateCompany.id);
     expect(grouped[0]?.contributions).toHaveLength(122);
@@ -461,6 +558,7 @@ describe("investment exposure read model", () => {
       valueState: "reported",
       valueMinor: 1_500_000,
       valueSource: "portfolio_watch_estimate",
+      valueEffectiveDate: "2026-08-15",
       valueSourceLabel: "Portfolio Watch + Synthetic GP portal",
       privateValueEstimate: {
         costBasisMinor: 1_000_000,
@@ -727,3 +825,225 @@ it("uses a reviewed share estimate while preserving the provider mark separately
       ?.shareValueEstimate,
   ).toBeNull();
 });
+
+it.each([false, true])(
+  "preserves a bound provider review date and canonical distribution identity with linked NAV %s",
+  (linked) => {
+    for (const effectiveDate of [null, "2026-08-09", "2026-08-12"] as const) {
+      const p = reviewedProviderPosition("provider_1", effectiveDate);
+      if (linked) {
+        p.snapshot.unrealizedValue.minor = 9_000;
+        p.linkedReportedValue = {
+          state: "reported",
+          minor: 18_000,
+          reviewId: "synthetic-nav-link",
+          sourcePositionId: "synthetic-nav-position",
+          snapshotId: "synthetic-nav-snapshot",
+          sourceLabel: "Synthetic linked NAV",
+          observedAt: "2026-08-16T00:00:00.000Z",
+        };
+        p.purchaseReceipt!.snapshotId = "synthetic-prior-receipt-snapshot";
+        p.purchaseReceipt!.details.investmentSnapshotId = p.snapshot.id;
+        p.purchaseReceipt!.details.investmentTerms!.reportedValueReview!.sourceSnapshotId =
+          p.linkedReportedValue.snapshotId;
+      }
+      const source = positionView([p]);
+      const before = structuredClone(source);
+      const projected = createInvestmentExposureView(source, [], []);
+      const value = projected.positions[0]!;
+      expect(value).toMatchObject({
+        snapshotId: p.snapshot.id,
+        valueSource: "provider",
+        valueMinor: 18_000,
+        realizedValueMinor: 3_000,
+        valueEffectiveDate: effectiveDate,
+        reviewedInvestment: { netCapitalMinor: 10_000 },
+      });
+      const performance = calculatePositionPerformance({
+        currentValueMinor: value.valueMinor,
+        currentValueReported: value.valueState === "reported",
+        realizedValueMinor: value.realizedValueMinor,
+        providerCostBasisMinor: value.providerCostBasisMinor ?? null,
+        fundedMinor: value.investedMinor,
+        economicsContext: {
+          snapshotId: value.snapshotId,
+          currency: value.currency,
+          committedMinor: value.committedMinor!,
+          fundedMinor: value.investedMinor!,
+          acceptedTerms: null,
+          reportedTerms: null,
+          reviewedInvestment: value.reviewedInvestment,
+        },
+        allowFundedAmountEstimate: true,
+        valuationDate: value.valueEffectiveDate ?? null,
+      });
+      expect(performance).toMatchObject({
+        costBasisMinor: 10_000,
+        totalValueMinor: effectiveDate === "2026-08-12" ? 21_000 : null,
+        totalGainMinor: effectiveDate === "2026-08-12" ? 11_000 : null,
+        totalReturnPpm: effectiveDate === "2026-08-12" ? 1_100_000 : null,
+      });
+      const portfolio = calculatePortfolioPerformance(
+        {
+          version: 1,
+          authorizationStatus: "available",
+          positionView: source,
+          exposureView: projected,
+        },
+        "USD",
+      );
+      expect(portfolio.privateDpi).toMatchObject({
+        eligibleCount: 1,
+        paidInMinor: 12_000,
+        distributionsMinor: 3_000,
+        multiplePpm: 250_000,
+      });
+      expect(portfolio.privateTvpi.multiplePpm).toBe(
+        effectiveDate === "2026-08-12" ? 1_750_000 : null,
+      );
+      expect(source).toEqual(before);
+      if (linked && effectiveDate === "2026-08-12") {
+        value.reviewedInvestment!.distributionReview!.provider.sourceSnapshotId =
+          p.linkedReportedValue!.snapshotId;
+        const wrongRealizedOwner = calculatePortfolioPerformance(
+          {
+            version: 1,
+            authorizationStatus: "available",
+            positionView: source,
+            exposureView: projected,
+          },
+          "USD",
+        );
+        expect(wrongRealizedOwner.holdingReturn.returnPpm).toBeNull();
+        expect(wrongRealizedOwner.privateDpi.multiplePpm).toBeNull();
+      }
+    }
+  },
+);
+
+it.each([
+  "stale_investment_snapshot",
+  "stale_receipt_snapshot",
+  "stale_source_snapshot",
+  "value_mismatch",
+  "missing_review",
+] as const)("keeps the provider observation date for %s", (invalid) => {
+  for (const linked of [false, true]) {
+    const p = reviewedProviderPosition("provider_2", null);
+    const receipt = p.purchaseReceipt!;
+    const review = receipt.details.investmentTerms!.reportedValueReview!;
+    if (linked) {
+      p.linkedReportedValue = {
+        state: "reported",
+        minor: 18_000,
+        reviewId: "synthetic-nav-link",
+        sourcePositionId: "synthetic-nav-position",
+        snapshotId: "synthetic-nav-snapshot",
+        sourceLabel: "Synthetic linked NAV",
+        observedAt: "2026-08-16T00:00:00.000Z",
+      };
+      review.sourceSnapshotId = p.linkedReportedValue.snapshotId;
+    }
+    if (invalid === "stale_investment_snapshot")
+      receipt.details.investmentSnapshotId = "synthetic-prior-snapshot";
+    if (invalid === "stale_receipt_snapshot")
+      receipt.snapshotId = "synthetic-prior-snapshot";
+    if (invalid === "stale_source_snapshot")
+      review.sourceSnapshotId = linked
+        ? p.snapshot.id
+        : "synthetic-prior-snapshot";
+    if (invalid === "value_mismatch") review.valueMinor = 19_000;
+    if (invalid === "missing_review")
+      receipt.details.investmentTerms!.reportedValueReview = null;
+    expect(
+      createInvestmentExposureView(positionView([p]), [], []).positions[0],
+    ).toMatchObject({
+      valueSource: "provider",
+      valueMinor: 18_000,
+      valueEffectiveDate: linked ? "2026-08-16" : "2026-08-15",
+    });
+  }
+});
+
+it.each(["selected", "adjustment", "share_estimate", "invested"] as const)(
+  "keeps the value owner's date for %s instead of a provider review date",
+  (owner) => {
+    const p = reviewedProviderPosition("provider_3", null);
+    const receipt = p.purchaseReceipt!;
+    if (owner === "selected") {
+      receipt.details.valuation = {
+        snapshotId: p.snapshot.id,
+        selected: {
+          recordId: "synthetic-estimate",
+          method: "total",
+          sharesKey: null,
+        },
+        records: [
+          {
+            id: "synthetic-estimate",
+            origin: "judgment",
+            totalMinor: 18_000,
+            priceMicros: null,
+            priceDate: null,
+            effectiveDate: "2026-08-13",
+            shareClass: null,
+            carryStatus: "after_carry",
+            sourceLabel: "Synthetic selected estimate",
+            sourceUrl: null,
+            sourceEvidenceId: null,
+            sourcePositionId: null,
+            sourceCapturedAt: null,
+            watchEvidenceId: null,
+          },
+        ],
+      };
+    }
+    if (owner === "adjustment") {
+      p.acceptedValueAdjustment = {
+        id: "synthetic-adjustment",
+        positionId: p.id,
+        snapshotId: p.snapshot.id,
+        priorValueState: "reported",
+        priorValueMinor: 18_000,
+        valueMinor: 18_000,
+        currency: "USD",
+        effectiveDate: "2026-08-13",
+        sourceKind: "gp_update",
+        sourceLabel: "Synthetic GP update",
+        sourceUrl: null,
+        commentary: "Synthetic reviewed update.",
+        acceptedAt: asOf,
+      };
+    }
+    if (owner === "share_estimate") {
+      Object.assign(receipt.details.lots[0]!, {
+        shareClass: "Series A",
+        remainingSharesMicros: 10_000_000,
+        sharesAsOf: "2026-08-11",
+        mark: {
+          priceMicros: 18_000_000,
+          effectiveDate: "2026-08-13",
+          shareClass: "Series A",
+          sourceLabel: "Synthetic GP quote",
+          sourceUrl: null,
+        },
+      });
+    }
+    if (owner === "invested") {
+      p.snapshot.unrealizedValue = { state: "not_reported", minor: null };
+      p.snapshot.netValue = { state: "not_reported", minor: null };
+    }
+    expect(
+      createInvestmentExposureView(positionView([p]), [], []).positions[0],
+    ).toMatchObject({
+      valueMinor: owner === "invested" ? 100_000 : 18_000,
+      valueSource:
+        owner === "selected" || owner === "adjustment"
+          ? "reviewed_adjustment"
+          : owner === "share_estimate"
+            ? "share_price_estimate"
+            : "invested_amount",
+      valueEffectiveDate: owner === "invested" ? "2026-08-15" : "2026-08-13",
+    });
+  },
+);

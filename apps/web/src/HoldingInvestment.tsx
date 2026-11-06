@@ -10,6 +10,7 @@ import {
 } from "@keel/domain/position-purchases";
 import { type InvestmentFee } from "@keel/domain/investment-fees";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
+import { HoldingDistributions } from "./HoldingDistributions";
 import {
   ActionGroup,
   Button,
@@ -20,8 +21,14 @@ import {
   DataList,
   DisclosureIndicator,
   Notice,
+  Spinner,
 } from "@keel/ui";
-import { HoldingDate, HoldingInput, HoldingSelect } from "./HoldingFields";
+import {
+  HoldingDate,
+  HoldingInput,
+  HoldingSelect,
+  HoldingShareBasis,
+} from "./HoldingFields";
 import {
   blankFee,
   feesFor,
@@ -213,7 +220,7 @@ function parsedLot(d: LotDraft) {
     remainingSharesMicros: scaled(d.shares, 6),
     quantityDetails:
       d.quantityStatus ||
-      d.shareBasis ||
+      d.shareBasis.trim() ||
       d.quantityDerivation ||
       d.quantityEvidence
         ? {
@@ -223,7 +230,7 @@ function parsedLot(d: LotDraft) {
             shareBasis: {
               key:
                 d.original.quantityDetails?.shareBasis.key ?? "issuer-original",
-              unitsPerOriginal: Number(d.shareBasis),
+              unitsPerOriginal: scaled(d.shareBasis, 0),
             },
           }
         : undefined,
@@ -261,6 +268,7 @@ export function HoldingInvestment({
   disabled,
   onAccepted,
   onEditingChange,
+  onReadbackPendingChange,
   editorRef,
   omitCashPaid = false,
 }: {
@@ -268,6 +276,7 @@ export function HoldingInvestment({
   disabled: boolean;
   onAccepted: () => Promise<void>;
   onEditingChange: (editing: boolean) => void;
+  onReadbackPendingChange: (pending: boolean) => void;
   editorRef?: Ref<HoldingInvestmentHandle>;
   omitCashPaid?: boolean;
 }) {
@@ -284,6 +293,7 @@ export function HoldingInvestment({
       context.snapshotId;
   const terms = receipt?.details.investmentTerms ?? unknownInvestmentTerms();
   const [draft, setDraft] = useState<LotDraft[] | null>(null);
+  const [distributionsEditing, setDistributionsEditing] = useState(false);
   const [carry, setCarry] = useState("");
   const [carryBasis, setCarryBasis] = useState("unknown");
   const [coverage, setCoverage] = useState(false);
@@ -369,6 +379,10 @@ export function HoldingInvestment({
       investmentTerms: { ...terms, carryPpm: scaled(carry, 4), carryBasis },
     },
   });
+  const validationError = parsed.success
+    ? null
+    : parsed.error.issues.find(({ path }) => path.at(-1) !== "unitsPerOriginal")
+        ?.message;
   const feeError = parsed.success
     ? parsed.data.details.lots.find(
         (l) => l.feesComplete && purchaseFeeSummary(l) === null,
@@ -436,7 +450,7 @@ export function HoldingInvestment({
           <Button
             tone="quiet"
             aria-label="Edit investment"
-            disabled={disabled}
+            disabled={disabled || distributionsEditing}
             onClick={start}
           >
             Edit
@@ -663,24 +677,15 @@ export function HoldingInvestment({
                           { value: "confirmed", label: "Confirmed allocation" },
                         ]}
                       />
-                      <HoldingSelect
+                      <HoldingShareBasis
                         label="Quantity share basis"
                         value={d.shareBasis}
+                        required={Boolean(
+                          d.quantityStatus ||
+                          d.quantityDerivation ||
+                          d.quantityEvidence,
+                        )}
                         onChange={(v) => update(i, "shareBasis", v)}
-                        options={[
-                          { value: "", label: "Not documented" },
-                          { value: "1", label: "Before split" },
-                          { value: "10", label: "After 10-for-1 split" },
-                          ...(d.shareBasis &&
-                          !["1", "10"].includes(d.shareBasis)
-                            ? [
-                                {
-                                  value: d.shareBasis,
-                                  label: `${d.shareBasis} shares per original share`,
-                                },
-                              ]
-                            : []),
-                        ]}
                       />
                       <HoldingInput
                         label="Quantity derivation"
@@ -758,8 +763,8 @@ export function HoldingInvestment({
                   />
                 )}
             </div>
-            {changed && !parsed.success && (
-              <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
+            {changed && validationError && (
+              <Notice tone="error">{validationError}</Notice>
             )}
             {feeError && (
               <Notice>Complete the fee basis and prepaid duration.</Notice>
@@ -767,6 +772,7 @@ export function HoldingInvestment({
             {error && <Notice tone="error">{error}</Notice>}
             <ActionGroup>
               <Button type="submit" tone="primary" disabled={!ready || busy}>
+                {busy && <Spinner />}
                 {busy ? "Saving…" : "Save"}
               </Button>
               <Button tone="quiet" disabled={busy} onClick={close}>
@@ -845,6 +851,16 @@ export function HoldingInvestment({
           )}
         </>
       )}
+      <HoldingDistributions
+        holding={holding}
+        disabled={disabled || draft !== null}
+        onAccepted={onAccepted}
+        onReadbackPendingChange={onReadbackPendingChange}
+        onEditingChange={(editing) => {
+          setDistributionsEditing(editing);
+          onEditingChange(editing);
+        }}
+      />
     </section>
   );
 }
