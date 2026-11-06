@@ -7,7 +7,7 @@ export default defineConfig({
     // Real workerd fixtures spawn native processes beyond these three workers.
     maxWorkers: 3,
     sequence: { sequencer: CiTestSequencer },
-    exclude: ["e2e/**", "**/node_modules/**", "**/dist/**"],
+    exclude: [".keel-local/**", "e2e/**", "**/node_modules/**", "**/dist/**"],
     include: ["**/*.test.ts", "**/*.test.tsx"],
   },
 });

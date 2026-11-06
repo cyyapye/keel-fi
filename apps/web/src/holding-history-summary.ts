@@ -146,6 +146,23 @@ export function holdingHistorySummary(
     )
   )
     changes.push("Coverage reviewed");
+  const distributionReview = receipt.details.distributionReview;
+  const priorDistributionReview = previous?.details.distributionReview;
+  if (differs(distributionReview, priorDistributionReview)) {
+    const events = distributionReview?.events ?? [];
+    const priorEvents = priorDistributionReview?.events ?? [];
+    changes.push(
+      !priorDistributionReview
+        ? "Distribution history recorded"
+        : events.length < priorEvents.length
+          ? "Distribution removed"
+          : events.some(
+                (event) => !priorEvents.some((prior) => prior.id === event.id),
+              )
+            ? "Distribution added"
+            : "Distribution history updated",
+    );
+  }
   const valuationChanged = differs(
     receipt.details.valuation,
     previous?.details.valuation,

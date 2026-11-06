@@ -15,9 +15,10 @@ import {
   StatGroup,
 } from "@keel/ui";
 import {
-  estimateProceedsAfterCarry,
+  assessInvestmentCarry,
   type ReviewedInvestment,
 } from "@keel/domain/investment-details";
+import { carryUnavailableReason } from "./holding-value";
 import type { TermsDraft } from "./investment-terms-draft";
 import { rateText } from "./investment-terms-draft";
 import {
@@ -241,26 +242,13 @@ export function InvestmentCalculationPreview({
     value.sourceSnapshotId === currentReportedValueSnapshotId
       ? value
       : null;
-  const estimate = boundValue
-    ? estimateProceedsAfterCarry({
-        valueMinor: boundValue.valueMinor,
-        carryStatus: boundValue.carryStatus,
-        cashPaidMinor:
-          reviewed.cashPaidMinor === null
-            ? null
-            : Number(
-                BigInt(reviewed.cashPaidMinor) -
-                  BigInt(reviewed.returnedCapitalMinor ?? 0),
-              ),
-        netCapitalMinor: reviewed.netCapitalMinor,
-        carryPpm: terms.carryPpm,
-        carryBasis: terms.carryBasis,
-      })
-    : null;
-  const unknownAnnual =
-    terms.annualManagementFeePpm === null ||
-    (terms.annualManagementFeePpm > 0 &&
-      terms.annualManagementBasis === "unknown");
+  const assessment = assessInvestmentCarry({
+    valueMinor: boundValue?.valueMinor ?? null,
+    carryStatus: boundValue?.carryStatus ?? "unknown",
+    valuationDate: boundValue?.effectiveDate ?? null,
+    investment: current ? reviewed : undefined,
+  });
+  const estimate = assessment.status === "available" ? assessment : null;
   const cashSummary = capitalSummary ?? {
     amountMinor:
       reviewed.netCapitalMinor ??
@@ -405,26 +393,32 @@ export function InvestmentCalculationPreview({
               />
               {estimate.carryMinor !== null && (
                 <DataItem
-                  label="Estimated carry on unrealized gains"
+                  label="Estimated remaining carry"
                   value={formatCurrency(estimate.carryMinor, "USD")}
                 />
               )}
             </DataList>
           )}
-          {view === "full" && estimate && !estimate.alreadyAfterCarry && (
+          {view === "full" && estimate?.method === "legacy_remaining_only" && (
             <p>
-              Carry on remaining value above{" "}
-              {terms.carryBasis === "gross_cash" ? "cash paid" : "net capital"}.
-              Excludes distributions, fees, taxes and exit expenses.
+              Distribution history has not been reviewed. This illustration uses
+              remaining value only.
+            </p>
+          )}
+          {view === "full" && estimate?.method === "cumulative" && (
+            <p>
+              Carry is calculated on cumulative gains across received investor
+              value, carry already charged and remaining value, less carry
+              already charged.
             </p>
           )}
         </>
       )}
       {view !== "terms" &&
-        (view !== "cash" ||
-          (!compact && reviewed.returnedCapitalReconciliationPending) ||
+        ((!compact && reviewed.returnedCapitalReconciliationPending) ||
           !current ||
-          reviewed.cashPaidMinor === null) && (
+          reviewed.cashPaidMinor === null ||
+          (view === "full" && assessment.status === "unavailable")) && (
           <Notice>
             {!current
               ? "The source changed. Review these details again."
@@ -432,13 +426,9 @@ export function InvestmentCalculationPreview({
                 ? "Confirm cash contributions to complete the investment record."
                 : reviewed.returnedCapitalReconciliationPending
                   ? "Return stays unknown until you confirm whether the reported distributions include this refund."
-                  : !estimate
-                    ? "A reliable estimate after carry needs a reported value basis, carry rate and capital basis."
-                    : unknownAnnual
-                      ? "Annual management fees are unknown. Reliable net proceeds are unavailable."
-                      : (terms.annualManagementFeePpm ?? 0) > 0
-                        ? "Remaining annual fees and the exit date are not modeled. Reliable net proceeds are unavailable."
-                        : "Proceeds remain an illustration; other exit expenses and taxes are not modeled."}
+                  : assessment.status === "unavailable"
+                    ? carryUnavailableReason(assessment.reason)
+                    : null}
           </Notice>
         )}
       {view === "full" && terms.importedAmountBasis === "unknown" && (

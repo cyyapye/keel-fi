@@ -533,6 +533,18 @@ export function createInvestmentExposureView(
                 : investedAmountFallback
                   ? position.snapshot.investedMinor
                   : reportedPositionValue(position).minor;
+        const receipt = position.purchaseReceipt;
+        const providerReview =
+          receipt?.details.investmentTerms?.reportedValueReview;
+        const currentProviderReview =
+          (receipt?.details.investmentSnapshotId ?? receipt?.snapshotId) ===
+            position.snapshot.id &&
+          providerReview?.valueMinor ===
+            reportedPositionValue(position).minor &&
+          providerReview.sourceSnapshotId ===
+            (position.linkedReportedValue?.snapshotId ?? position.snapshot.id)
+            ? providerReview
+            : null;
         const allocatedValues: number[] = [];
         const mappingViews = positionMappings.map((mapping) => {
           const allocatedValueMinor =
@@ -636,10 +648,12 @@ export function createInvestmentExposureView(
             (useShareEstimate
               ? shareValueEstimate.effectiveDate
               : (privateValueEstimate?.effectiveDate ??
-                (
-                  position.linkedReportedValue?.observedAt ??
-                  position.snapshot.observedAt
-                ).slice(0, "YYYY-MM-DD".length))),
+                (currentProviderReview && !investedAmountFallback
+                  ? currentProviderReview.effectiveDate
+                  : (
+                      position.linkedReportedValue?.observedAt ??
+                      position.snapshot.observedAt
+                    ).slice(0, "YYYY-MM-DD".length)))),
           valueSourceLabel: selected
             ? selected.origin === "proxy"
               ? `Proxy estimate · ${selected.sourceLabel}`

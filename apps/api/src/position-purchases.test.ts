@@ -2,6 +2,10 @@ import { expect, it, vi } from "vitest";
 import { createApp } from "./app";
 import type { Env } from "./types";
 import {
+  PurchaseReceiptSchema,
+  InvestmentHistorySchema,
+} from "@keel/domain/position-purchases";
+import {
   D1InvestmentPositionViewRepository,
   PositionPurchaseError,
 } from "@keel/database";
@@ -180,6 +184,148 @@ it("validates optional purchase details and scopes accepted writes to the authen
         )
       ).status,
     ).not.toBe(200);
+  } finally {
+    database.sqlite.close();
+  }
+});
+
+it("validates and authenticates distribution-only saves with CAS and household ownership", async () => {
+  const database = legalDocumentTestDatabase();
+  try {
+    await seedCostHoldings(database.asD1(), "synthetic-access-subject");
+    const position = database.sqlite
+      .prepare(
+        "SELECT head.position_id,head.snapshot_id FROM holding_import_application_heads head JOIN holding_positions p ON p.id=head.position_id WHERE p.household_id='hh_demo' LIMIT 1",
+      )
+      .get() as { position_id: string; snapshot_id: string };
+    database.sqlite.exec(`
+      INSERT INTO users VALUES('synthetic-foreign-user','synthetic-foreign-subject','foreign@example.test','Synthetic foreign owner','2026-09-01T00:00:00.000Z');
+      INSERT INTO households VALUES('synthetic-foreign-household','synthetic-foreign-user','Synthetic foreign household','USD','2026-09-01T00:00:00.000Z');
+    `);
+    await seedCostHoldings(database.asD1(), "synthetic-foreign-subject");
+    const foreignPosition = database.sqlite
+      .prepare(
+        "SELECT id FROM holding_positions WHERE household_id='synthetic-foreign-household' LIMIT 1",
+      )
+      .get() as { id: string };
+    const app = createApp();
+    const body = {
+      expectedSnapshotId: position.snapshot_id,
+      expectedReceiptId: null,
+      distributionReview: {
+        method: "capital_return_first_v1",
+        events: [
+          {
+            id: "synthetic-stock",
+            kind: "in_kind",
+            receivedOn: "2026-03-01",
+            investorValueMinor: null,
+            securityLabel: null,
+            quantityMicros: null,
+            sourceLabel: "Synthetic notice",
+            sourceUrl: null,
+            note: "",
+          },
+        ],
+        coverage: { status: "incomplete", throughDate: "2026-09-01" },
+        priorCarry: { status: "unknown" },
+        provider: {
+          inclusion: "unknown",
+          sourceSnapshotId: position.snapshot_id,
+          realizedValueMinor: 0,
+        },
+        sourceLabel: "Synthetic history",
+        sourceUrl: null,
+        note: "",
+      },
+    };
+    const post = (
+      input: unknown,
+      id = position.position_id,
+      targetEnv: Env = { ...env, DB: database.asD1() },
+    ) =>
+      app.request(
+        `/api/investment-positions/${id}/distributions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        },
+        targetEnv,
+      );
+    expect((await post({ ...body, unknown: true })).status).toBe(400);
+    expect(
+      (
+        await post({
+          ...body,
+          distributionReview: {
+            ...body.distributionReview,
+            events: [
+              { ...body.distributionReview.events[0], investorValueMinor: -1 },
+            ],
+          },
+        })
+      ).status,
+    ).toBe(400);
+    for (const id of ["synthetic-missing-position", foreignPosition.id]) {
+      for (const expectedReceiptId of [null, "synthetic-prior-receipt"]) {
+        expect
+          .soft(
+            (await post({ ...body, expectedReceiptId }, id)).status,
+            `unowned position ${id} with expected receipt ${expectedReceiptId}`,
+          )
+          .toBe(404);
+      }
+    }
+    expect(
+      (
+        await post({
+          ...body,
+          expectedReceiptId: "synthetic-prior-receipt",
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      database.sqlite
+        .prepare("SELECT COUNT(*) AS count FROM holding_purchase_reviews")
+        .get()?.count,
+    ).toBe(0);
+    const saved = await post(body);
+    expect(saved.status).toBe(201);
+    expect(saved.headers.get("Cache-Control")).toBe("private, no-store");
+    const receipt = PurchaseReceiptSchema.parse(await saved.json());
+    expect(receipt.details).toMatchObject({
+      distributionReview: body.distributionReview,
+      coversPosition: false,
+      lots: [],
+    });
+    expect((await post(body)).status).toBe(409);
+    expect(
+      (
+        await post({
+          ...body,
+          expectedReceiptId: "synthetic-prior-receipt",
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await post(body, position.position_id, {
+          ...env,
+          ENVIRONMENT: "preview",
+          DB: database.asD1(),
+        })
+      ).status,
+    ).toBe(401);
+    const read = await app.request(
+      `/api/investment-positions/${position.position_id}/history`,
+      {},
+      { ...env, DB: database.asD1() },
+    );
+    expect(read.status).toBe(200);
+    expect(
+      InvestmentHistorySchema.parse(await read.json()).entries[0]?.receipt.id,
+    ).toBe(receipt.id);
   } finally {
     database.sqlite.close();
   }

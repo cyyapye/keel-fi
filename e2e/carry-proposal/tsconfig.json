@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "paths": {
+      "@keel/ui": ["../../packages/ui/src/index.tsx"]
+    }
+  },
+  "include": ["*.ts", "*.tsx"]
+}

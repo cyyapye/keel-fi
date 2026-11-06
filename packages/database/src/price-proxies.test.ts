@@ -16,10 +16,14 @@ import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import {
   PurchaseLotSchema,
   PurchaseReceiptSchema,
+  type PurchaseReceipt,
   assessValuationFromShares,
   selectedPositionValuation,
 } from "@keel/domain/position-purchases";
-import { unknownInvestmentTerms } from "@keel/domain/investment-details";
+import {
+  DistributionReviewSchema,
+  unknownInvestmentTerms,
+} from "@keel/domain/investment-details";
 import { holdingValueSummary } from "../../../apps/web/src/holding-value";
 import { type ValuationRecord } from "@keel/domain/valuation-record";
 
@@ -210,9 +214,44 @@ const value = (index: number) =>
 
 it("uses the saved reviewed date instead of an undated import, follows accepted imports, and preserves independent records", async () => {
   const source = await reviewQuote();
-  const initial = [];
+  const initial: PurchaseReceipt[] = [];
   for (const [i, q] of [84_400_000, 23_625_000, 7_875_000].entries())
     initial.push(await link(i, q));
+  for (let index = 0; index < initial.length; index++) {
+    const prior = initial[index]!;
+    initial[index] = await repo.acceptDistributions(
+      COST_SUBJECT,
+      prior.positionId,
+      {
+        expectedSnapshotId: prior.snapshotId,
+        expectedReceiptId: prior.id,
+        distributionReview: DistributionReviewSchema.parse({
+          method: "capital_return_first_v1",
+          events: Array.from({ length: 100 }, (_, event) => ({
+            id: `synthetic-distribution-${event}`,
+            kind: "cash",
+            receivedOn: "2025-06-01",
+            investorValueMinor: event,
+            sourceLabel: "Synthetic notice",
+            sourceUrl: null,
+            note: "",
+          })),
+          coverage: { status: "complete", throughDate: "2026-10-01" },
+          priorCarry: { status: "known", amountMinor: 0 },
+          provider: {
+            inclusion: "none",
+            sourceSnapshotId: prior.snapshotId,
+            realizedValueMinor: 0,
+          },
+          sourceLabel: "Synthetic reviewed history",
+          sourceUrl: null,
+          note: "",
+        }),
+      },
+    );
+    expect(initial[index]!.details.valuation).toEqual(prior.details.valuation);
+    expect(initial[index]!.details.lots).toEqual(prior.details.lots);
+  }
   expect([value(0), value(1), value(2)]).toEqual([1_688_000, 472_500, 157_500]);
   expect(initial[0]!.details.valuation!.calculation?.estimatedShares).toBe(
     true,
@@ -228,6 +267,12 @@ it("uses the saved reviewed date instead of an undated import, follows accepted 
   expect([value(0), value(1), value(2)]).toEqual([2_110_000, 590_625, 196_875]);
   for (let i = 0; i < 3; i++) {
     expect(current(i)!.details.lots).toEqual(initial[i]!.details.lots);
+    expect(current(i)!.details.distributionReview).toEqual(
+      initial[i]!.details.distributionReview,
+    );
+    expect(current(i)!.details.valuation!.calculation!.quantityReceiptId).toBe(
+      initial[i]!.details.valuation!.calculation!.quantityReceiptId,
+    );
     expect(current(i)!.details.investmentTerms).toEqual(
       initial[i]!.details.investmentTerms,
     );
@@ -236,7 +281,7 @@ it("uses the saved reviewed date instead of an undated import, follows accepted 
     );
     expect(
       (await repo.history(COST_SUBJECT, positions[i]!.id)).entries,
-    ).toHaveLength(4);
+    ).toHaveLength(5);
   }
   expect(current(3)).toEqual(source);
   expect(current(3)!.details.valuation!.records[0]).toMatchObject({
@@ -253,54 +298,90 @@ it("uses the saved reviewed date instead of an undated import, follows accepted 
       (p) => p.id === positions[0]!.id,
     )?.valueMinor,
   ).toBe(2_110_000);
-  expect(
-    holdingValueSummary(page.holdings.find((p) => p.id === positions[0]!.id)!)
-      .after?.proceedsMinor,
-  ).toBe(1_928_500);
+  const summary = holdingValueSummary(
+    page.holdings.find((p) => p.id === positions[0]!.id)!,
+  );
+  expect(summary.capital).toEqual({
+    capitalBasisMinor: 900_000,
+    investorDistributionsMinor: 4_950,
+    capitalRemainingMinor: 895_050,
+    historyReason: null,
+  });
+  expect(summary.after).toEqual({
+    status: "available",
+    method: "cumulative",
+    carryMinor: 182_243,
+    proceedsMinor: 1_927_757,
+    alreadyAfterCarry: false,
+  });
 });
 
-it("normalizes a split once, corrects provisional quantities once, and retains reconstructable receipts", async () => {
-  await reviewQuote();
-  const original = await link(0);
-  await reviewQuote(20_000_000, "2026-09-15", 10);
-  expect(value(0)).toBe(1_688_000);
-  const split = current(0)!;
-  expect(split.details.valuation!.calculation?.quantityMicros).toBe(
-    844_000_000,
-  );
-  await new D1PriceProxyRepository(db.asD1()).refresh(COST_SUBJECT);
-  expect(current(0)!.id).toBe(split.id);
-  await reviewQuote(20_000_000, "2026-09-15", 10);
-  expect(current(0)!.id).toBe(split.id);
-  const corrected = structuredClone(split.details);
-  corrected.lots[0]!.remainingSharesMicros = 850_000_000;
-  corrected.lots[0]!.quantityDetails = {
-    ...corrected.lots[0]!.quantityDetails!,
-    status: "confirmed",
-    derivation: "Synthetic final administrator allocation",
-    shareBasis: { ...basis, unitsPerOriginal: 10 },
-  };
-  await repo.accept(COST_SUBJECT, positions[0]!.id, {
-    expectedSnapshotId: positions[0]!.snapshotId,
-    expectedReceiptId: split.id,
-    details: corrected,
-  });
-  expect(value(0)).toBe(1_700_000);
-  expect(current(0)!.details.valuation!.calculation?.estimatedShares).toBe(
-    false,
-  );
-  expect(
-    selectedPositionValuation(original, original.snapshotId)?.valueMinor,
-  ).toBe(1_688_000);
-  expect(current(0)!.details.lots).toHaveLength(1);
-  await expect(
-    repo.accept(COST_SUBJECT, positions[0]!.id, {
+it.each([5, 10])(
+  "normalizes a %i-for-1 split once, corrects provisional quantities once, and retains reconstructable receipts",
+  async (factor) => {
+    const splitPrice = Number(200_000_000n / BigInt(factor));
+    await reviewQuote();
+    const original = await link(0);
+    await reviewQuote(splitPrice, "2026-09-15", factor);
+    expect(value(0)).toBe(1_688_000);
+    const split = current(0)!;
+    expect(split.details.valuation!.calculation).toMatchObject({
+      quantityMicros: Number(84_400_000n * BigInt(factor)),
+      estimatedShares: true,
+    });
+    expect(
+      split.details.valuation!.records.find((r) => r.followSource)?.shareBasis,
+    ).toEqual({ ...basis, unitsPerOriginal: factor });
+    await new D1PriceProxyRepository(db.asD1()).refresh(COST_SUBJECT);
+    expect(current(0)!.id).toBe(split.id);
+    await reviewQuote(splitPrice, "2026-09-15", factor);
+    expect(current(0)!.id).toBe(split.id);
+    const corrected = structuredClone(split.details);
+    corrected.lots[0]!.remainingSharesMicros = Number(
+      85_000_000n * BigInt(factor),
+    );
+    corrected.lots[0]!.quantityDetails = {
+      ...corrected.lots[0]!.quantityDetails!,
+      status: "confirmed",
+      derivation: "Synthetic final administrator allocation",
+      shareBasis: { ...basis, unitsPerOriginal: factor },
+    };
+    await repo.accept(COST_SUBJECT, positions[0]!.id, {
       expectedSnapshotId: positions[0]!.snapshotId,
       expectedReceiptId: split.id,
       details: corrected,
-    }),
-  ).rejects.toMatchObject({ code: "stale" });
-});
+    });
+    expect(value(0)).toBe(1_700_000);
+    expect(current(0)!.details.valuation!.calculation?.estimatedShares).toBe(
+      false,
+    );
+    expect(current(0)!.details.lots[0]!.quantityDetails?.shareBasis).toEqual({
+      ...basis,
+      unitsPerOriginal: factor,
+    });
+    const page = await new D1HoldingsPageRepository(db.asD1()).getPage(
+      COST_SUBJECT,
+      "configuration_required",
+    );
+    const reloaded = page.holdings.find((p) => p.id === positions[0]!.id)!;
+    expect(
+      reloaded.purchaseContext?.receipt?.details.lots[0]?.quantityDetails
+        ?.shareBasis,
+    ).toEqual({ ...basis, unitsPerOriginal: factor });
+    expect(holdingValueSummary(reloaded).record?.valueMinor).toBe(1_700_000);
+    expect(
+      selectedPositionValuation(original, original.snapshotId)?.valueMinor,
+    ).toBe(1_688_000);
+    expect(current(0)!.details.lots).toHaveLength(1);
+    await expect(
+      repo.accept(COST_SUBJECT, positions[0]!.id, {
+        expectedSnapshotId: positions[0]!.snapshotId,
+        expectedReceiptId: split.id,
+        details: corrected,
+      }),
+    ).rejects.toMatchObject({ code: "stale" });
+  },
+);
 
 it("rejects older or incomplete source updates without reviving manual estimates and isolates household access", async () => {
   await reviewQuote();
@@ -460,4 +541,66 @@ it("projects the complete latest application order when both timestamps tie", as
     )
     .get()!;
   expect(mismatches.n).toBe(0);
+});
+
+it("preserves distributions across valuation saves and preserves quantity provenance across unrelated investment edits", async () => {
+  await reviewQuote();
+  const linked = await link(0);
+  const distributions = await repo.acceptDistributions(
+    COST_SUBJECT,
+    linked.positionId,
+    {
+      expectedSnapshotId: linked.snapshotId,
+      expectedReceiptId: linked.id,
+      distributionReview: {
+        method: "capital_return_first_v1",
+        events: [],
+        coverage: { status: "complete", throughDate: "2026-10-01" },
+        priorCarry: { status: "known", amountMinor: 0 },
+        provider: {
+          inclusion: "none",
+          sourceSnapshotId: linked.snapshotId,
+          realizedValueMinor: 0,
+        },
+        sourceLabel: "Synthetic reviewed empty history",
+        sourceUrl: null,
+        note: "",
+      },
+    },
+  );
+  const investment = await repo.accept(COST_SUBJECT, linked.positionId, {
+    expectedSnapshotId: linked.snapshotId,
+    expectedReceiptId: distributions.id,
+    details: {
+      ...distributions.details,
+      investmentTerms: {
+        ...distributions.details.investmentTerms!,
+        note: "Synthetic metadata correction",
+      },
+    },
+  });
+  expect(investment.details.distributionReview).toEqual(
+    distributions.details.distributionReview,
+  );
+  expect(investment.details.valuation?.calculation?.quantityReceiptId).toBe(
+    linked.details.valuation?.calculation?.quantityReceiptId,
+  );
+  const valuation = await repo.acceptValuation(
+    COST_SUBJECT,
+    linked.positionId,
+    {
+      expectedSnapshotId: linked.snapshotId,
+      expectedReceiptId: investment.id,
+      record: {
+        ...gp(),
+        id: "mine",
+        origin: "judgment",
+        sourceLabel: "Synthetic manual estimate",
+      },
+      method: "total",
+    },
+  );
+  expect(valuation.details.distributionReview).toEqual(
+    distributions.details.distributionReview,
+  );
 });

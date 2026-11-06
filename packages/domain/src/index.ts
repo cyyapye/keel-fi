@@ -4,6 +4,9 @@ import {
   ShareValueEstimateSchema,
 } from "./position-purchases";
 import { z } from "zod";
+import { HttpsSourceUrlSchema } from "./source-url";
+
+export { HttpsSourceUrlSchema } from "./source-url";
 
 export { portfolioBaselineReviewReasons } from "./portfolio-baseline-policy";
 
@@ -2927,16 +2930,6 @@ export const FinancingAnnouncementFactsSchema = z
       facts.ambiguities.length > 0,
     { message: "Financing facts must contain at least one meaningful term." },
   );
-
-export const HttpsSourceUrlSchema = z
-  .url()
-  .max(2_048)
-  .refine((value) => {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" && url.username === "" && url.password === ""
-    );
-  }, "Source URLs must use HTTPS without credentials.");
 
 export const EvidenceInboxItemSchema = z.object({
   id: z.string().min(1),

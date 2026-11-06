@@ -12,7 +12,11 @@ import {
   TextLink,
 } from "@keel/ui";
 import { investmentFeeAmount } from "@keel/domain/investment-fees";
-import { holdingValueSummary, signedReturn } from "./holding-value";
+import {
+  carryUnavailableReason,
+  holdingValueSummary,
+  signedReturn,
+} from "./holding-value";
 import { HoldingHistory } from "./HoldingHistory";
 import { HoldingLinkButton } from "./HoldingLinkButton";
 import { HoldingInvestment } from "./HoldingInvestment";
@@ -39,6 +43,8 @@ export function SpvHoldingDetail({
   const [payment, setPayment] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [investmentEditing, setInvestmentEditing] = useState(false);
+  const [distributionReadbackPending, setDistributionReadbackPending] =
+    useState(false);
   const [historyRevision, setHistoryRevision] = useState(0);
   const acceptedChange = async () => {
     await onAccepted();
@@ -46,8 +52,15 @@ export function SpvHoldingDetail({
   };
   const heading = useRef<HTMLHeadingElement>(null);
   const edit = useRef<HTMLButtonElement>(null);
-  const { record, reviewed, after, beforeReturn, afterReturn } =
-    holdingValueSummary(holding);
+  const {
+    record,
+    reviewed,
+    after,
+    beforeReturn,
+    afterReturn,
+    carry,
+    historical,
+  } = holdingValueSummary(holding);
   const unpaid =
     holding.purchaseContext?.receipt?.details.lots.flatMap((lot) =>
       (lot.fees ?? [])
@@ -86,10 +99,26 @@ export function SpvHoldingDetail({
           : "Reported value";
   const source = record && (
     <p className="holding-metadata">
-      {formatDate(record.effectiveDate)}
-      {record.origin !== "judgment" && record.origin !== "proxy"
-        ? ` · ${record.sourceLabel}`
-        : ""}
+      {record.effectiveDate
+        ? formatDate(record.effectiveDate)
+        : "Value date unknown"}
+      {record.sourceUrl ? (
+        <>
+          {" · "}
+          <TextLink
+            className="holding-source-link"
+            href={record.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {record.sourceLabel}
+          </TextLink>
+        </>
+      ) : record.origin !== "judgment" && record.origin !== "proxy" ? (
+        ` · ${record.sourceLabel}`
+      ) : (
+        ""
+      )}
       {record.origin === "proxy" &&
       "estimatedShares" in record &&
       record.estimatedShares
@@ -97,6 +126,14 @@ export function SpvHoldingDetail({
         : ""}
     </p>
   );
+  const remainingLabel =
+    record?.origin === "judgment"
+      ? "My estimate of remaining value"
+      : record?.origin === "proxy"
+        ? `${record.sourceLabel} proxy remaining value`
+        : record?.method === "shares"
+          ? "Estimated remaining value"
+          : "Reported remaining value";
   const editButton = !editing && (
     <Button
       ref={edit}
@@ -124,12 +161,25 @@ export function SpvHoldingDetail({
       {performance?.totalReturnPpm != null && (
         <strong
           className="holding-value-return"
-          aria-label={`Return ${title.toLowerCase().includes("before") ? "before" : "after"} carry ${signedReturn(performance.totalReturnPpm)}`}
+          aria-label={`Return ${title.toLowerCase().includes("before") ? "before remaining" : "after"} carry ${signedReturn(performance.totalReturnPpm)}`}
         >
           {signedReturn(performance.totalReturnPpm)}
+          <small className="holding-return-treatment">
+            Total return ·{" "}
+            {title.toLowerCase().includes("before")
+              ? "Before remaining carry"
+              : "After carry"}
+          </small>
         </strong>
       )}
       {provenance && source}
+      {title.includes("After carry") &&
+        after?.method === "legacy_remaining_only" && (
+          <p className="holding-metadata">
+            Illustration based on remaining value only. Distribution history has
+            not been reviewed.
+          </p>
+        )}
       {provenance && record?.origin === "proxy" && record.crossClassProxy && (
         <p className="holding-metadata">
           Indicative cross-class proxy · Security rights may differ
@@ -236,133 +286,170 @@ export function SpvHoldingDetail({
         )}
       </header>
       {companyGroupingAction}
-      <section aria-label="Position summary" className="holding-value-summary">
-        {record?.carryStatus === "before_carry" &&
-          value(
-            record.valueMinor,
-            `${label} · Before carry`,
-            beforeReturn,
-            true,
-            true,
-          )}
-        {after &&
-          value(
-            after.proceedsMinor,
-            `${record?.carryStatus === "after_carry" ? label : "Estimated value"} · After carry`,
-            afterReturn,
-            record?.carryStatus === "after_carry",
-            record?.carryStatus === "after_carry",
-          )}
-        {record?.carryStatus === "unknown" &&
-          value(
-            record.valueMinor,
-            `${label} · Carry unspecified`,
-            null,
-            true,
-            true,
-          )}
-        {capital?.amountMinor != null ? (
-          <div
-            role="group"
-            aria-label="Invested capital"
-            className="holding-value-metric"
-          >
-            <p>{capitalSummaryLabel(capital)}</p>
-            <strong className="holding-value-amount">
-              {formatMoney(capital.amountMinor)}
-            </strong>
-          </div>
-        ) : !record && holding.investedMinor != null ? (
-          <div className="holding-value-metric">
-            <p>Cash paid</p>
-            <strong className="holding-value-amount">
-              {formatMoney(holding.investedMinor)}
-            </strong>
-          </div>
-        ) : null}
-      </section>
-      {editing ? (
-        <HoldingValuationEditor
-          key={holding.id}
-          holding={holding}
-          onAccepted={acceptedChange}
-          onClose={close}
-        />
-      ) : !record ? (
-        <Button
-          tone="quiet"
-          disabled={investmentEditing}
-          onClick={() => setEditing(true)}
-        >
-          Add valuation
-        </Button>
+      {distributionReadbackPending ? (
+        <p role="status" className="distribution-result-limit">
+          Distributions were saved. Updated values and returns will appear after
+          reload.
+        </p>
       ) : (
-        <Collapsible className="holding-calculation">
-          <CollapsibleTrigger layout="inline">
-            Calculation
-            <DisclosureIndicator />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <DataList layout="rows">
-              <DataItem label={label} value={formatMoney(record.valueMinor)} />
-              {record.method === "shares" && (
-                <DataItem
-                  label="Shares × price"
-                  value={`${decimal(record.quantityMicros, 6)} × ${formatSharePrice(record.priceMicros!)}`}
-                />
+        <>
+          {investmentEditing && <p className="eyebrow">Saved values</p>}
+          <section
+            aria-label="Position summary"
+            className="holding-value-summary"
+          >
+            {record?.carryStatus === "before_carry" &&
+              value(
+                record.valueMinor,
+                `${remainingLabel} · Before carry`,
+                beforeReturn,
+                true,
+                true,
               )}
-              {after?.carryMinor != null && (
-                <DataItem
-                  label="Estimated carry"
-                  value={formatMoney(after.carryMinor)}
-                />
+            {after &&
+              value(
+                after.proceedsMinor,
+                `${record?.carryStatus === "after_carry" ? remainingLabel : "Estimated remaining value"} · After carry`,
+                afterReturn,
+                record?.carryStatus === "after_carry",
+                record?.carryStatus === "after_carry",
               )}
-              {(beforeReturn?.costBasisMinor ?? afterReturn?.costBasisMinor) !=
-                null && (
-                <DataItem
-                  label={
-                    (beforeReturn?.costBasisSource ??
-                      afterReturn?.costBasisSource) === "reviewed_spv_estimate"
-                      ? "Estimated net capital"
-                      : "Net capital"
-                  }
-                  value={formatMoney(
-                    (beforeReturn?.costBasisMinor ??
-                      afterReturn?.costBasisMinor)!,
+            {record?.carryStatus === "unknown" &&
+              value(
+                record.valueMinor,
+                `${remainingLabel} · Carry unspecified`,
+                null,
+                true,
+                true,
+              )}
+            {capital?.amountMinor != null ? (
+              <div
+                role="group"
+                aria-label="Invested capital"
+                className="holding-value-metric"
+              >
+                <p>{capitalSummaryLabel(capital)}</p>
+                <strong className="holding-value-amount">
+                  {formatMoney(capital.amountMinor)}
+                </strong>
+              </div>
+            ) : !record && holding.investedMinor != null ? (
+              <div className="holding-value-metric">
+                <p>Cash paid</p>
+                <strong className="holding-value-amount">
+                  {formatMoney(holding.investedMinor)}
+                </strong>
+              </div>
+            ) : null}
+          </section>
+          {!editing &&
+            !investmentEditing &&
+            carry.status === "unavailable" &&
+            record && (
+              <p className="distribution-result-limit">
+                No after-carry estimate
+                {historical.status === "unavailable" &&
+                historical.reason === carry.reason
+                  ? " or total return"
+                  : ""}
+                . {carryUnavailableReason(carry.reason)}
+              </p>
+            )}
+          {!editing &&
+            !investmentEditing &&
+            historical.status === "unavailable" &&
+            (carry.status !== "unavailable" ||
+              historical.reason !== carry.reason) && (
+              <p className="distribution-result-limit">
+                Total return unavailable.{" "}
+                {carryUnavailableReason(historical.reason)}
+              </p>
+            )}
+          {editing ? (
+            <HoldingValuationEditor
+              key={holding.id}
+              holding={holding}
+              onAccepted={acceptedChange}
+              onClose={close}
+            />
+          ) : !record ? (
+            <Button
+              tone="quiet"
+              disabled={investmentEditing}
+              onClick={() => setEditing(true)}
+            >
+              Add valuation
+            </Button>
+          ) : (
+            <Collapsible className="holding-calculation">
+              <CollapsibleTrigger layout="inline">
+                Calculation
+                <DisclosureIndicator />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <DataList layout="rows">
+                  <DataItem
+                    label={label}
+                    value={formatMoney(record.valueMinor)}
+                  />
+                  {record.method === "shares" && (
+                    <DataItem
+                      label="Shares × price"
+                      value={`${decimal(record.quantityMicros, 6)} × ${formatSharePrice(record.priceMicros!)}`}
+                    />
                   )}
-                />
-              )}
-              {(holding.realizedValueMinor ?? 0) > 0 && (
-                <DataItem
-                  label="Reported distributions"
-                  value={formatMoney(holding.realizedValueMinor!)}
-                />
-              )}
-              {(reviewed?.includedReturnedCapitalMinor ?? 0) > 0 && (
-                <DataItem
-                  label="Capital refunds in distributions"
-                  value={formatMoney(reviewed!.includedReturnedCapitalMinor!)}
-                />
-              )}
-            </DataList>
-            {(beforeReturn?.totalReturnPpm != null ||
-              afterReturn?.totalReturnPpm != null) && (
-              <p className="holding-metadata">
-                (Value + distributions
-                {(reviewed?.includedReturnedCapitalMinor ?? 0) > 0
-                  ? " − capital refunds in distributions"
-                  : ""}{" "}
-                − net capital) ÷ net capital
-              </p>
-            )}
-            {reviewed?.returnedCapitalReconciliationPending && (
-              <p>
-                Refund inclusion in reported distributions is unknown. Review it
-                in Investment to calculate return.
-              </p>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
+                  {after?.carryMinor != null && (
+                    <DataItem
+                      label="Estimated carry"
+                      value={formatMoney(after.carryMinor)}
+                    />
+                  )}
+                  {(beforeReturn?.costBasisMinor ??
+                    afterReturn?.costBasisMinor) != null && (
+                    <DataItem
+                      label={
+                        (beforeReturn?.costBasisSource ??
+                          afterReturn?.costBasisSource) ===
+                        "reviewed_spv_estimate"
+                          ? "Estimated net capital"
+                          : "Net capital"
+                      }
+                      value={formatMoney(
+                        (beforeReturn?.costBasisMinor ??
+                          afterReturn?.costBasisMinor)!,
+                      )}
+                    />
+                  )}
+                  {historical.status === "available" &&
+                    historical.netDistributionsMinor > 0 && (
+                      <DataItem
+                        label="Distributions excluding capital refunds"
+                        value={formatMoney(historical.netDistributionsMinor)}
+                      />
+                    )}
+                  {(reviewed?.includedReturnedCapitalMinor ?? 0) > 0 && (
+                    <DataItem
+                      label="Capital refunds in distributions"
+                      value={formatMoney(
+                        reviewed!.includedReturnedCapitalMinor!,
+                      )}
+                    />
+                  )}
+                </DataList>
+                {(beforeReturn?.totalReturnPpm != null ||
+                  afterReturn?.totalReturnPpm != null) && (
+                  <p className="holding-metadata">
+                    (Value + distributions excluding capital refunds − net
+                    capital) ÷ net capital
+                  </p>
+                )}
+                {historical.status === "unavailable" && (
+                  <p>{carryUnavailableReason(historical.reason)}</p>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+        </>
       )}
       {unpaid.map((f) => (
         <div
@@ -384,17 +471,15 @@ export function SpvHoldingDetail({
         </div>
       ))}
       <HoldingInvestment
-        key={`${holding.id}:${holding.purchaseContext?.receipt?.id ?? "new"}`}
+        key={holding.id}
         holding={holding}
         disabled={editing}
         onAccepted={acceptedChange}
         onEditingChange={setInvestmentEditing}
+        onReadbackPendingChange={setDistributionReadbackPending}
       />
       <Collapsible className="holding-history">
-        <CollapsibleTrigger
-          layout="inline"
-          disabled={editing || investmentEditing}
-        >
+        <CollapsibleTrigger layout="inline">
           <h3>Sources &amp; history</h3>
           <DisclosureIndicator />
         </CollapsibleTrigger>
@@ -406,10 +491,15 @@ export function SpvHoldingDetail({
             key={`${holding.id}:${historyRevision}`}
             positionId={holding.id}
           />
-          <PositionLinksEditor
-            positionId={holding.id}
-            onAccepted={acceptedChange}
-          />
+          <fieldset
+            className="holding-form-fieldset"
+            disabled={editing || investmentEditing}
+          >
+            <PositionLinksEditor
+              positionId={holding.id}
+              onAccepted={acceptedChange}
+            />
+          </fieldset>
         </CollapsibleContent>
       </Collapsible>
     </section>

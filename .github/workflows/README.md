@@ -56,6 +56,22 @@ Keel's pin. Review the upstream release proof and run the synthetic Keel dogfood
 case before accepting a new revision. Live model evaluation does not run on pull
 requests.
 
+## Functional tests and canonical visual comparisons
+
+Local Playwright runs default to `KEEL_SCREENSHOT_MODE=functional`. They execute
+behavior assertions without snapshot comparisons. The native CI job requires
+`KEEL_SCREENSHOT_MODE=canonical` on its existing Linux x64 renderer. A
+functional CI override, unknown mode, unsupported canonical renderer or
+canonical `--ignore-snapshots` override fails closed. Baseline updates require
+canonical mode. Do not interpret local functional success as a canonical visual
+pass.
+
+Playwright's `ignoreSnapshots` applies to image, text and accessibility snapshot
+matchers. Keep the functional contract in direct role, value and state
+assertions. Preserve exact-revision receipts, native coverage, retries, artifact
+retention and spending stops. See the
+[visual verification procedure](../../.codex/skills/keel-ui-quality/references/visual-verification.md).
+
 ## Self-hosted runner lanes
 
 The private repository uses two isolated Linux x64 runner services on the

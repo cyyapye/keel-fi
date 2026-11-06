@@ -9815,6 +9815,16 @@ h1,
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
+
+.holding-return-treatment {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
 .holding-value-metric .holding-metadata {
   margin-top: 14px;
 }
@@ -9822,6 +9832,13 @@ h1,
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+.holding-metadata .holding-source-link {
+  max-width: 100%;
+  font: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
 }
 .holding-related {
   margin-top: 16px;
@@ -9863,9 +9880,14 @@ h1,
 }
 .holding-fields {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px 28px;
   margin: 20px 0;
+}
+
+.holding-distributions :is(input, button) {
+  scroll-margin-block: 8px;
 }
 .holding-form-fieldset {
   border: 0;
@@ -9901,12 +9923,21 @@ h1,
 .holding-receipt-history {
   margin-top: 24px;
 }
-.holding-history-entry {
-  display: grid;
-  gap: 6px;
+.holding-history-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+}
+.holding-history-entry[data-slot="collapsible-trigger"] {
+  max-width: 100%;
   text-align: left;
 }
-.holding-history-entry time {
+.holding-history-entry > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.holding-history-line time {
   color: var(--muted);
   font-size: 12px;
 }
@@ -10021,4 +10052,114 @@ h1,
 
 .import-row-selection {
   margin-top: var(--space-2);
+}
+
+.holding-distributions .distribution-heading {
+  margin: 28px 0 16px;
+}
+.holding-distributions h4 {
+  margin: 0;
+  font-size: 16px;
+}
+.distribution-summary {
+  max-width: 720px;
+  margin-block: 24px;
+}
+.distribution-summary-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px 28px;
+}
+.distribution-identity h4 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.distribution-amount {
+  text-align: right;
+}
+.distribution-amount strong {
+  display: block;
+  font-size: 24px;
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.distribution-amount .holding-metadata,
+.distribution-identity .holding-metadata {
+  margin-top: 6px;
+}
+.distribution-summary > .holding-metadata {
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.distribution-basis {
+  max-width: 720px;
+  margin-top: 28px;
+}
+.carry-details {
+  margin-top: 20px;
+}
+.distribution-event-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.distribution-event-heading > .button {
+  margin-left: auto;
+}
+.distribution-event + .distribution-event {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.distribution-coverage-fields {
+  margin-top: 32px;
+}
+.distribution-preview {
+  margin-block: 32px 24px;
+}
+.distribution-preview-values {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px 28px;
+  max-width: 720px;
+  margin-top: 12px;
+}
+.distribution-preview-values strong {
+  display: block;
+  margin-top: 8px;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.distribution-preview-amount {
+  font-size: 28px;
+}
+.distribution-preview-carry {
+  font-size: 20px;
+}
+.distribution-result-limit {
+  max-width: 720px;
+  font-size: 14px;
+  font-weight: 500;
+  margin-block: 16px;
+}
+@media (max-width: 760px) {
+  .holding-distributions .distribution-heading {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .distribution-amount strong {
+    font-size: 22px;
+  }
+}
+@media (max-width: 420px) {
+  .distribution-preview-values {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

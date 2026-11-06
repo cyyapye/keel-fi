@@ -35,6 +35,91 @@ function facts(receipt: PurchaseReceipt | null, multiple: boolean) {
       result.set(key, { label, value: format(value as never) });
   };
   const { details } = receipt;
+  const review = details.distributionReview;
+  if (review) {
+    put(
+      "distributions:method",
+      "Distribution carry calculation",
+      "Capital returned first",
+    );
+    put(
+      "distributions:coverage",
+      "Distribution history",
+      review.coverage.status === "complete"
+        ? "All received distributions recorded"
+        : "Only some distributions recorded",
+    );
+    put(
+      "distributions:through",
+      "History through",
+      review.coverage.throughDate,
+      formatDate,
+    );
+    put(
+      "distributions:priorCarry",
+      "Carry already charged",
+      review.priorCarry.status === "known"
+        ? formatMoney(review.priorCarry.amountMinor)
+        : "Unknown",
+    );
+    put(
+      "distributions:inclusion",
+      "Recorded distributions in provider total",
+      {
+        all: "Already included",
+        none: "Not included",
+        unknown: "Unknown",
+        unsupported_mixed: "Mixed · only some included",
+      }[review.provider.inclusion],
+    );
+    put(
+      "distributions:provider",
+      "Provider-reported distributions",
+      review.provider.realizedValueMinor,
+      formatMoney,
+    );
+    put(
+      "distributions:source",
+      "Distribution review evidence",
+      review.sourceLabel,
+    );
+    put(
+      "distributions:url",
+      "Distribution review source link",
+      review.sourceUrl,
+    );
+    put("distributions:note", "Distribution review note", review.note);
+    for (const [i, event] of review.events.entries()) {
+      const key = `distribution:${event.id}:`;
+      const label = `Distribution ${i + 1} · `;
+      put(
+        key + "kind",
+        label + "Received as",
+        event.kind === "cash" ? "Cash" : "Stock",
+      );
+      put(key + "date", label + "Received on", event.receivedOn, formatDate);
+      put(
+        key + "amount",
+        label + "Historical investor value",
+        event.investorValueMinor === null
+          ? "Unknown"
+          : formatMoney(event.investorValueMinor),
+      );
+      if (event.kind === "in_kind") {
+        put(key + "security", label + "Security received", event.securityLabel);
+        put(
+          key + "quantity",
+          label + "Shares received",
+          event.quantityMicros,
+          (value) => decimal(value, 6),
+        );
+      }
+      put(key + "source", label + "Evidence", event.sourceLabel);
+      put(key + "url", label + "Source link", event.sourceUrl);
+      put(key + "note", label + "Note", event.note);
+    }
+  }
+
   for (const [i, lot] of details.lots.entries()) {
     const key = `lot:${lot.id}:`;
     const label = multiple ? `Acquisition ${i + 1} · ` : "";

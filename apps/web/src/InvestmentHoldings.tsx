@@ -478,6 +478,7 @@ function exposureValueSourceLabel(
 function exposurePositionPerformance(position: InvestmentExposurePosition) {
   return calculatePositionPerformance({
     currentValueMinor: position.valueMinor,
+    valuationDate: position.valueEffectiveDate ?? null,
     currentValueReported:
       position.valueState === "reported" &&
       position.valueSource !== "invested_amount",

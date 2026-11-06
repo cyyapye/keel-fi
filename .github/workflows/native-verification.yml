@@ -22,6 +22,7 @@ jobs:
       run:
         working-directory: keel
     env:
+      KEEL_SCREENSHOT_MODE: canonical
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
       TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v7
     steps:

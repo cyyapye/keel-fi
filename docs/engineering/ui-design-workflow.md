@@ -25,6 +25,19 @@ bypasses; browser tests cover interaction and geometry; the reviewer challenges
 meaning, repetition, composition and fidelity to approved references. An LLM
 judgment supplements these checks and does not replace them.
 
+## Choose evidence for the claim
+
+The
+[product contract](../product/ui-and-copy.md#verify-behavior-and-appearance-separately)
+separates behavior and persistence proof from appearance review. Select direct
+assertions, real synthetic API/D1 roundtrips and representative images according
+to the changed behavior or visual meaning. Reuse approved component coverage.
+Follow the
+[visual verification procedure](../../.codex/skills/keel-ui-quality/references/visual-verification.md)
+for renderer selection and deliberate baseline updates. Run the final broad gate
+after implementation and review fixes settle, and report functional and
+canonical pixel results separately.
+
 ## Discover components before coding
 
 The adapter's `agentGuide` points to `make ui-guide`. Query a known component or

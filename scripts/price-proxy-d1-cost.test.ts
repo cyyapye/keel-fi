@@ -57,6 +57,28 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     const receipts = positions.map((p, i) => {
       const source = positions[i === 0 ? 1 : 0]!;
       const details = {
+        distributionReview: {
+          method: "capital_return_first_v1" as const,
+          events: Array.from({ length: 100 }, (_, index) => ({
+            id: `synthetic-distribution-${index}`,
+            kind: "cash" as const,
+            receivedOn: "2025-01-01",
+            investorValueMinor: index,
+            sourceLabel: "Synthetic notice",
+            sourceUrl: null,
+            note: "",
+          })),
+          coverage: { status: "complete" as const, throughDate: "2026-10-01" },
+          priorCarry: { status: "known" as const, amountMinor: 0 },
+          provider: {
+            inclusion: "none" as const,
+            sourceSnapshotId: p.snapshot_id,
+            realizedValueMinor: 0,
+          },
+          sourceLabel: "Synthetic reviewed history",
+          sourceUrl: null,
+          note: "",
+        },
         investmentTerms: unknownInvestmentTerms(),
         coversPosition: true,
         lots: [
@@ -207,6 +229,25 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
       expect(measured.cost.rowsRead).toBeLessThanOrEqual(6_000);
       expect(measured.cost.rowsWritten).toBeLessThanOrEqual(1_000);
       costs.push({ ...measured.cost });
+      const preserved = await db
+        .prepare(
+          `SELECT r.receipt_json FROM holding_purchase_heads head
+        JOIN holding_purchase_reviews r ON r.id=head.review_id WHERE head.household_id='hh_demo' ORDER BY head.position_id`,
+        )
+        .all<{ receipt_json: string }>();
+      expect(preserved.results).toHaveLength(120);
+      for (const [index, row] of preserved.results.entries()) {
+        const receipt = PurchaseReceiptSchema.parse(
+          JSON.parse(row.receipt_json),
+        );
+        expect(receipt.details.distributionReview).toEqual(
+          receipts[index]!.details.distributionReview,
+        );
+        expect(receipt.details.valuation!.calculation!.quantityReceiptId).toBe(
+          "synthetic-original-quantity",
+        );
+      }
+
       measured.reset();
       expect(await propagator.refresh(COST_SUBJECT)).toEqual({
         recalculated: 0,

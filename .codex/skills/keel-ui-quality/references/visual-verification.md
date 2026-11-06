@@ -1,46 +1,91 @@
 # Visual verification
 
-Use this procedure for material UI changes and any screenshot-baseline update.
-The [product contract](../../../../docs/product/ui-and-copy.md) defines visual
-acceptance; a passing pixel comparison does not replace that judgment.
+Use visual checks to detect appearance regressions. Use behavior assertions and
+stored-value readback to establish that the application works. A matching image
+cannot prove a save or a financial calculation.
 
-## Coverage and baselines
+## Select coverage by the claim
 
-- Material changes need deterministic Playwright coverage of the affected states
-  on both configured desktop and mobile projects. Add missing coverage.
-- Keep visual fixtures inside browser tests, using fixed synthetic values.
-  Retain separate functional coverage for real application behavior and the
-  product contract's stored-value readback requirements.
-- Keep one expected baseline per covered state, project, and supported platform.
-  Preflight the renderer/platform before generating images. For temporary
-  Linux/Colima runs, use the
-  [managed Linux runner](../../../../docs/deployment/linux-test-cleanup.md).
-- Keep browser tests serialized when they share seeded local D1 state. Use the
-  repository's isolated test profile; do not reset the user's practice scenario.
+- Exercise the affected behavior on both configured desktop and mobile projects.
+  Assert values, validation, rejected drafts, pending controls, reloads and
+  changed saves through user-facing roles and labels.
+- For financial editors, include an unmocked browser flow through the local API
+  and isolated D1 profile for each affected write path. Prepare synthetic state
+  through supported ingestion and recorded acceptance. Check the stored receipt,
+  projected value and preserved predecessor decisions. Keep mocks for controlled
+  transient failures, not as the only persistence proof.
+- Check keyboard focus with the real navigation present. Do not hide chrome,
+  focus the target programmatically or center it before claiming natural focus
+  behavior. Use retrying assertions for visibility, containment, hit targets,
+  overlap and overflow. Avoid exact form heights, coordinates or row-gap
+  equality unless those dimensions are the product requirement.
+- Reuse the approved component baselines for standard controls. Keep page
+  baselines for important compositions and financial meaning. Add a baseline
+  when it covers a distinct appearance risk. Do not duplicate an entire form for
+  every factor, validation result or save state.
+- Keep fixtures inside browser tests and use fixed synthetic values. Serialize
+  tests that share seeded D1 state. Never reset the user's practice scenario.
 
-## Update and replay
+## Use the canonical renderer for pixel comparisons
 
-After confirming that the rendered change is intentional, update the affected
-visual spec from the repository root:
+`KEEL_SCREENSHOT_MODE=functional` is the local default. It runs behavior checks
+without snapshot comparisons. Playwright's `ignoreSnapshots` disables every
+snapshot matcher, including image, text and accessibility snapshots. Use direct
+role, value and state assertions for the functional contract.
+
+`KEEL_SCREENSHOT_MODE=canonical` enables snapshot comparisons on Linux x64. CI
+requires this mode and rejects a functional override. Keep the existing locked
+Playwright browser, Node and pnpm environment used by the CI lane. Do not
+compare images produced by different operating systems, fonts, browser versions
+or pixel scales. Developer screenshots are review evidence, not replacement
+Linux baselines.
+
+Keep one expected baseline per covered state and project in the canonical
+renderer. Existing platform images may remain as approved references; they are
+not an obligation to maintain a second pixel gate. Do not delete unrelated
+references as part of a small repair.
+
+For temporary Linux or Colima runs use the
+[managed Linux runner](../../../../docs/deployment/linux-test-cleanup.md). An
+ARM or emulated run is not a substitute for verified canonical rendering. Report
+an unavailable renderer as unverified rather than changing thresholds.
+
+## Capture, review and replay
+
+Run focused behavior tests while iterating:
 
 ```sh
-make e2e E2E_ARGS='e2e/<visual-spec> --update-snapshots=all'
+make e2e E2E_ARGS='e2e/<affected-spec>'
 ```
 
-Inspect every generated PNG with an image-viewing tool. Check the product
-contract's hierarchy and copy criteria, contrast, clipping, sticky navigation,
-transient states, and horizontal overflow. Fix unintended rendering or
-interaction before accepting a new baseline; never update merely to turn a test
-green. For material changes, compare current-run desktop and mobile images with
-the chosen Keel reference screen.
+Capture current desktop and mobile images when they help judge changed
+appearance. Use CSS-pixel scale, fixed data and time, disabled animations and
+settled fonts. Scope any chrome masking to the image capture so later behavior
+checks still exercise the real page. Transient-state images are diagnostic
+artifacts unless the state introduces a distinct visual contract.
 
-Rerun with `make e2e E2E_ARGS='e2e/<visual-spec>'` without snapshot-update mode.
-These commands select the isolated synthetic D1 profile. Run `make verify` for
-material UI handoff; focused replay does not replace that gate.
+Inspect the changed composition against its closest approved Keel reference.
+Check hierarchy, copy, contrast, clipping, navigation, focus and overflow. For a
+routine use of an approved control, inspect representative states and reuse the
+component's existing visual coverage. A new composition or changed state
+presentation needs its affected visual states reviewed.
 
-Commit only expected baselines, overwriting canonical files instead of creating
-dated copies. Remove obsolete baselines when their state, test, project, or
-platform is removed. Never commit `test-results/`, actual/diff images, traces,
-Playwright reports, or downloaded CI artifacts. Report the reference screen,
-inspected screenshots, functional checks, and verification result for material
-changes; keep financial and personal data out of artifacts and logs.
+After confirming the intended rendering, update only affected baselines on the
+canonical renderer:
+
+```sh
+KEEL_SCREENSHOT_MODE=canonical make e2e E2E_ARGS='e2e/<affected-spec> --update-snapshots=all'
+```
+
+Replay without update mode. Keep baseline updates deliberate and inspect every
+changed image. Never increase thresholds, add sleeps or add retries to hide a
+capture or application defect. Capture failure diagnostics when they help
+explain an assertion; do not make routine image dumps the correctness gate.
+
+Run the required broad verification after the source and visual review settle.
+`make verify` remains the local gate. Its functional mode does not claim a
+canonical pixel pass; publication requires the exact-revision CI gate with
+canonical comparisons. Report both boundaries explicitly.
+
+Commit only expected canonical images. Never commit test results, actual or diff
+images, traces, Playwright reports, downloaded CI artifacts or real data.

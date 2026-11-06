@@ -26,13 +26,18 @@ const secretPatterns = [
   /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/,
 ];
 
-const paths = execFileSync(
-  "git",
-  ["ls-files", "--cached", "--others", "--exclude-standard"],
-  { encoding: "utf8" },
-)
-  .split("\n")
-  .filter(Boolean);
+function gitPaths(...args) {
+  return execFileSync("git", ["ls-files", "-z", ...args], {
+    encoding: "utf8",
+  })
+    .split("\0")
+    .filter(Boolean);
+}
+
+const deletedPaths = new Set(gitPaths("--deleted"));
+const paths = [
+  ...new Set(gitPaths("--cached", "--others", "--exclude-standard")),
+].filter((path) => !deletedPaths.has(path));
 
 const findings = [];
 

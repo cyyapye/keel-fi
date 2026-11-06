@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { PrivatePositionValueEstimateSchema } from "./private-position-value-estimate";
+import { HttpsSourceUrlSchema } from "./source-url";
 
 const IsoDateSchema = z.iso.date();
 const IsoTimestampSchema = z.iso.datetime({ offset: true });
@@ -13,16 +14,7 @@ export const PositionValueSourceKindSchema = z.enum([
   "other",
 ]);
 
-const OptionalHttpsSourceUrlSchema = z
-  .url()
-  .max(2_048)
-  .refine((value) => {
-    const url = new URL(value);
-    return (
-      url.protocol === "https:" && url.username === "" && url.password === ""
-    );
-  }, "Source URLs must use HTTPS without credentials.")
-  .nullable();
+const OptionalHttpsSourceUrlSchema = HttpsSourceUrlSchema.nullable();
 
 export const PositionValueAdjustmentSchema = z.object({
   id: z.string().min(1),

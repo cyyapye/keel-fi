@@ -15,12 +15,15 @@ import {
   COST_SUBJECT,
 } from "../../../scripts/test-support/cost-fixtures";
 import { D1PositionPurchaseRepository } from "./position-purchases";
+import { D1PositionLinkRepository } from "./position-links";
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1HoldingsPageRepository } from "./holdings-page";
 import {
   PurchaseLotSchema,
   reviewedInvestmentFromReceipt,
   estimatePurchaseCapital,
+  estimatePurchaseValue,
+  type PurchaseReceipt,
 } from "@keel/domain/position-purchases";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
 import { automaticEconomics as proposeEconomics } from "@keel/domain/automatic-investment-review";
@@ -814,10 +817,388 @@ it("projects only owned source prices with one bounded query across 120 position
           ...saved,
           id: "raced-price",
           snapshotId: latest.snapshot_id,
+          acceptedAt: "2026-09-03",
+          details: {
+            ...saved.details,
+            investmentSnapshotId: latest.snapshot_id,
+          },
         }),
       ),
   ).toThrow(/purchase price evidence stale/u);
 
   expect(await repo.evidence("unrelated-subject", p.id)).toEqual([]);
   expect(await repo.evidence(COST_SUBJECT, "missing")).toEqual([]);
+});
+
+const distributionReview = (snapshotId: string) => ({
+  method: "capital_return_first_v1" as const,
+  events: [
+    {
+      id: "synthetic-distribution",
+      kind: "cash" as const,
+      receivedOn: "2026-03-01",
+      investorValueMinor: 900000,
+      sourceLabel: "Synthetic distribution notice",
+      sourceUrl: null,
+      note: "",
+    },
+  ],
+  coverage: { status: "complete" as const, throughDate: "2026-09-01" },
+  priorCarry: { status: "known" as const, amountMinor: 0 },
+  provider: {
+    inclusion: "none" as const,
+    sourceSnapshotId: snapshotId,
+    realizedValueMinor: 0,
+  },
+  sourceLabel: "Synthetic reviewed history",
+  sourceUrl: null,
+  note: "",
+});
+
+it("appends distribution-only decisions, preserves omitted purchase partitions, and rejects stale, foreign and duplicate effects", async () => {
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const position = (
+    await new D1InvestmentPositionViewRepository(db.asD1()).list(COST_SUBJECT)
+  ).connections.flatMap((c) => c.containers.flatMap((c) => c.positions))[0]!;
+  const input = {
+    expectedSnapshotId: position.snapshot.id,
+    expectedReceiptId: null,
+    distributionReview: distributionReview(position.snapshot.id),
+  };
+  const first = await repo.acceptDistributions(
+    COST_SUBJECT,
+    position.id,
+    input,
+  );
+  expect(first.details).toEqual({
+    coversPosition: false,
+    lots: [],
+    investmentSnapshotId: position.snapshot.id,
+    distributionReview: input.distributionReview,
+  });
+  expect(first.details.investmentTerms).toBeUndefined();
+  await expect(
+    repo.acceptDistributions(COST_SUBJECT, position.id, input),
+  ).rejects.toMatchObject({ code: "stale" });
+  await expect(
+    repo.acceptDistributions("synthetic-foreign-subject", position.id, {
+      ...input,
+      expectedReceiptId: null,
+    }),
+  ).rejects.toMatchObject({ code: "not_found" });
+  await expect(
+    repo.acceptDistributions(COST_SUBJECT, position.id, {
+      ...input,
+      expectedReceiptId: first.id,
+      expectedSnapshotId: "synthetic-stale-snapshot",
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const changed = {
+    ...input.distributionReview,
+    events: [
+      { ...input.distributionReview.events[0]!, investorValueMinor: 800000 },
+    ],
+  };
+  await expect(
+    repo.accept(COST_SUBJECT, position.id, {
+      expectedSnapshotId: position.snapshot.id,
+      expectedReceiptId: first.id,
+      details: { ...first.details, distributionReview: changed },
+    }),
+  ).rejects.toMatchObject({ code: "unsupported" });
+  const purchase = await repo.accept(COST_SUBJECT, position.id, {
+    expectedSnapshotId: position.snapshot.id,
+    expectedReceiptId: first.id,
+    details: {
+      coversPosition: false,
+      lots: [],
+      investmentTerms: unknownInvestmentTerms(),
+    },
+  });
+  expect(purchase.details.distributionReview).toEqual(input.distributionReview);
+  const page = await new D1HoldingsPageRepository(db.asD1()).getPage(
+    COST_SUBJECT,
+    "configuration_required",
+  );
+  const projected = page.holdings.find(
+    (holding) => holding.id === position.id,
+  )!;
+  expect(
+    projected.purchaseContext?.receipt?.details.distributionReview,
+  ).toEqual(input.distributionReview);
+  expect(
+    projected.positionEconomicsContext?.reviewedInvestment?.distributionReview,
+  ).toEqual(input.distributionReview);
+
+  const stock = await repo.acceptDistributions(COST_SUBJECT, position.id, {
+    ...input,
+    expectedReceiptId: purchase.id,
+    distributionReview: {
+      ...input.distributionReview,
+      events: [
+        {
+          ...input.distributionReview.events[0]!,
+          kind: "in_kind",
+          investorValueMinor: null,
+          securityLabel: "Synthetic common stock",
+          quantityMicros: null,
+        },
+      ],
+    },
+  });
+  expect(
+    stock.details.distributionReview?.events[0]?.investorValueMinor,
+  ).toBeNull();
+  const correction = await repo.acceptDistributions(COST_SUBJECT, position.id, {
+    ...input,
+    expectedReceiptId: stock.id,
+    distributionReview: { ...input.distributionReview, events: [] },
+  });
+  expect(correction.details.distributionReview?.events).toEqual([]);
+  const history = await repo.history(COST_SUBJECT, position.id);
+  expect(history.entries).toHaveLength(4);
+  expect(
+    history.entries.find(
+      (entry) => entry.kind === "investment" && entry.receipt.id === first.id,
+    ),
+  ).toMatchObject({
+    receipt: JSON.parse(JSON.stringify(first)),
+    previous: null,
+  });
+  expect(
+    db.sqlite
+      .prepare("SELECT receipt_json FROM holding_purchase_reviews WHERE id=?")
+      .get(first.id)?.receipt_json,
+  ).toBe(JSON.stringify(first));
+  expect(() =>
+    db.sqlite
+      .prepare(
+        "UPDATE holding_purchase_reviews SET receipt_json=receipt_json WHERE id=?",
+      )
+      .run(first.id),
+  ).toThrow(/immutable/u);
+  expect(() =>
+    db.sqlite
+      .prepare("DELETE FROM holding_purchase_reviews WHERE id=?")
+      .run(first.id),
+  ).toThrow(/immutable/u);
+});
+
+it("preserves legacy valuation and investment bindings while retaining stale accepted evidence", async () => {
+  db.sqlite.close();
+  db = legalDocumentTestDatabase();
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 1, false, {
+    sharePrices: {
+      costMicros: null,
+      markMicros: 200000000,
+      markDate: "2026-09-01",
+      shareClass: "Common",
+    },
+  });
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const position = (
+    await new D1InvestmentPositionViewRepository(db.asD1()).list(COST_SUBJECT)
+  ).connections.flatMap((c) => c.containers.flatMap((c) => c.positions))[0]!;
+  const source = (await repo.evidence(COST_SUBJECT, position.id))[0]!;
+  const lot = PurchaseLotSchema.parse({
+    id: "synthetic-legacy-lot",
+    purchasedOn: "2025-01-01",
+    shareClass: "Common",
+    priceMicros: null,
+    referencePriceMicros: null,
+    grossCashMinor: 3000000,
+    netCapitalMinor: 2700000,
+    upfrontDeductionsMinor: 300000,
+    feePpm: null,
+    feeBasis: null,
+    feeLabel: null,
+    remainingSharesMicros: 200000000,
+    sharesAsOf: "2026-01-01",
+    sourceLabel: "Synthetic purchase",
+    sourceUrl: null,
+    mark: {
+      priceMicros: source.markMicros,
+      effectiveDate: source.markDate,
+      shareClass: "Common",
+      sourceLabel: source.sourceLabel,
+      sourceUrl: null,
+      sourceEvidenceId: source.id,
+      comparableConfirmed: true,
+    },
+  });
+  const legacy: PurchaseReceipt = {
+    id: "synthetic-legacy-distribution",
+    positionId: position.id,
+    snapshotId: position.snapshot.id,
+    currency: "USD",
+    acceptedAt: "2026-09-01T00:00:00.000Z",
+    details: {
+      coversPosition: true,
+      cashCoversPosition: true,
+      lots: [lot],
+      investmentTerms: {
+        ...unknownInvestmentTerms(),
+        carryPpm: 200000,
+        carryBasis: "gross_cash",
+        reportedValueReview: {
+          sourceSnapshotId: position.snapshot.id,
+          valueMinor: position.snapshot.unrealizedValue.minor!,
+          sourceLabel: "Synthetic source",
+          effectiveDate: "2026-09-01",
+          carryStatus: "before_carry",
+        },
+      },
+    },
+  };
+  db.sqlite
+    .prepare(
+      "INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,'hh_demo',?,?,NULL,?,'usr_demo',?)",
+    )
+    .run(
+      legacy.id,
+      position.id,
+      legacy.snapshotId,
+      JSON.stringify(legacy),
+      legacy.acceptedAt,
+    );
+  expect(estimatePurchaseValue(legacy, legacy.snapshotId)?.valueMinor).toBe(
+    4000000,
+  );
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 2, false, {
+    sharePrices: {
+      costMicros: null,
+      markMicros: 250000000,
+      markDate: "2026-09-02",
+      shareClass: "Common",
+    },
+  });
+  const current = db.sqlite
+    .prepare(
+      "SELECT snapshot_id FROM holding_import_application_heads WHERE position_id=?",
+    )
+    .get(position.id) as { snapshot_id: string };
+  const saved = await repo.acceptDistributions(COST_SUBJECT, position.id, {
+    expectedSnapshotId: current.snapshot_id,
+    expectedReceiptId: legacy.id,
+    distributionReview: distributionReview(current.snapshot_id),
+  });
+  expect(saved.details).toEqual({
+    ...legacy.details,
+    investmentSnapshotId: legacy.snapshotId,
+    distributionReview: distributionReview(current.snapshot_id),
+  });
+  expect(estimatePurchaseValue(saved, current.snapshot_id)).toBeNull();
+  expect(reviewedInvestmentFromReceipt(saved)?.snapshotId).toBe(
+    legacy.snapshotId,
+  );
+  const changedEvidence = {
+    ...saved.details,
+    lots: [
+      {
+        ...saved.details.lots[0]!,
+        mark: {
+          ...saved.details.lots[0]!.mark!,
+          sourceLabel: "Synthetic changed evidence",
+        },
+      },
+    ],
+  };
+  await expect(
+    repo.accept(COST_SUBJECT, position.id, {
+      expectedSnapshotId: current.snapshot_id,
+      expectedReceiptId: saved.id,
+      details: changedEvidence,
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+});
+
+it("rejects malformed distribution partitions at the D1 insertion boundary", async () => {
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const position = (
+    await new D1InvestmentPositionViewRepository(db.asD1()).list(COST_SUBJECT)
+  ).connections.flatMap((c) => c.containers.flatMap((c) => c.positions))[0]!;
+  const receipt = await repo.acceptDistributions(COST_SUBJECT, position.id, {
+    expectedSnapshotId: position.snapshot.id,
+    expectedReceiptId: null,
+    distributionReview: distributionReview(position.snapshot.id),
+  });
+  const invalid = (review: unknown) =>
+    db.sqlite
+      .prepare(
+        "INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES('synthetic-forged-distribution','hh_demo',?,?,?,?,'usr_demo',?)",
+      )
+      .run(
+        position.id,
+        receipt.snapshotId,
+        receipt.id,
+        JSON.stringify({
+          ...receipt,
+          id: "synthetic-forged-distribution",
+          details: { ...receipt.details, distributionReview: review },
+        }),
+        receipt.acceptedAt,
+      );
+  const good = distributionReview(position.snapshot.id);
+  for (const review of [
+    null,
+    { ...good, events: [...good.events, ...good.events] },
+    { ...good, events: [{ ...good.events[0], investorValueMinor: -1 }] },
+    { ...good, events: [{ ...good.events[0], receivedOn: "2026-02-31" }] },
+    {
+      ...good,
+      priorCarry: { status: "known", amountMinor: Number.MAX_SAFE_INTEGER },
+    },
+    {
+      ...good,
+      provider: {
+        ...good.provider,
+        sourceSnapshotId: "synthetic-foreign-snapshot",
+      },
+    },
+    {
+      ...good,
+      events: Array.from({ length: 101 }, (_, index) => ({
+        ...good.events[0],
+        id: `synthetic-${index}`,
+      })),
+    },
+  ])
+    expect(() => invalid(review)).toThrow(/purchase distribution invalid/u);
+});
+
+it("binds distribution review to canonical realized proceeds independently of a linked NAV source", async () => {
+  const positions = (
+    await new D1InvestmentPositionViewRepository(db.asD1()).list(COST_SUBJECT)
+  ).connections.flatMap((c) => c.containers.flatMap((c) => c.positions));
+  const [target, source] = positions;
+  await new D1PositionLinkRepository(db.asD1()).accept(COST_SUBJECT, {
+    sourcePositionId: source!.id,
+    targetPositionId: target!.id,
+    expectedSourceSnapshotId: source!.snapshot.id,
+    expectedTargetSnapshotId: target!.snapshot.id,
+    expectedSourceParticipationReviewId: source!.investmentReview?.id ?? null,
+    expectedTargetParticipationReviewId: target!.investmentReview?.id ?? null,
+    expectedReviewId: null,
+    relationship: "same_investment",
+    state: "linked",
+    useSourceValue: true,
+    note: "Synthetic linked NAV",
+    companyRenamed: false,
+  });
+  const repo = new D1PositionPurchaseRepository(db.asD1());
+  const first = await repo.acceptDistributions(COST_SUBJECT, target!.id, {
+    expectedSnapshotId: target!.snapshot.id,
+    expectedReceiptId: null,
+    distributionReview: distributionReview(target!.snapshot.id),
+  });
+  expect(first.details.distributionReview?.provider.sourceSnapshotId).toBe(
+    target!.snapshot.id,
+  );
+  await expect(
+    repo.acceptDistributions(COST_SUBJECT, target!.id, {
+      expectedSnapshotId: target!.snapshot.id,
+      expectedReceiptId: first.id,
+      distributionReview: distributionReview(source!.snapshot.id),
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
 });

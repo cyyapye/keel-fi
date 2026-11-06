@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { InvestmentHistorySchema } from "@keel/domain/position-purchases";
 import {
   Button,
@@ -16,6 +16,7 @@ import { holdingHistorySummary } from "./holding-history-summary";
 import { holdingHistoryChanges } from "./holding-history-changes";
 type History = ReturnType<typeof InvestmentHistorySchema.parse>;
 export function HoldingHistory({ positionId }: { positionId: string }) {
+  const historyId = useId();
   const [page, setPage] = useState<History | null>(null);
   const [cursor, setCursor] = useState<History["next"]>(null);
   const [failed, setFailed] = useState(false);
@@ -51,7 +52,7 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
   if (!page) return <LoadingStatus>Loading history…</LoadingStatus>;
   return (
     <div className="holding-receipt-history">
-      {page.entries.map((entry) => {
+      {page.entries.map((entry, index) => {
         const receipt = entry.receipt;
         const changes =
           entry.kind === "investment"
@@ -61,22 +62,35 @@ export function HoldingHistory({ positionId }: { positionId: string }) {
           entry.kind === "investment"
             ? holdingHistorySummary(entry.receipt, entry.previous)
             : `${entry.receipt.state === "linked" ? "Linked" : "Unlinked"} · ${entry.sourceLabel} → ${entry.targetLabel}`;
-        const heading = (
-          <span className="holding-history-entry">
-            <span>{summary}</span>
-            <time dateTime={receipt.acceptedAt}>
-              {formatSavedAt(receipt.acceptedAt)}
-            </time>
-          </span>
+        const timeId = `${historyId}-${index}-time`;
+        const time = (
+          <time id={timeId} dateTime={receipt.acceptedAt}>
+            {formatSavedAt(receipt.acceptedAt)}
+          </time>
         );
         if (entry.kind === "investment" && changes.length === 0)
-          return <div key={`${entry.kind}:${receipt.id}`}>{heading}</div>;
+          return (
+            <div
+              className="holding-history-line"
+              key={`${entry.kind}:${receipt.id}`}
+            >
+              <span>{summary}</span>
+              {time}
+            </div>
+          );
         return (
           <Collapsible key={`${entry.kind}:${receipt.id}`}>
-            <CollapsibleTrigger layout="inline">
-              {heading}
-              <DisclosureIndicator />
-            </CollapsibleTrigger>
+            <div className="holding-history-line">
+              <CollapsibleTrigger
+                layout="inline"
+                className="holding-history-entry"
+                aria-describedby={timeId}
+              >
+                <span>{summary}</span>
+                <DisclosureIndicator />
+              </CollapsibleTrigger>
+              {time}
+            </div>
             <CollapsibleContent>
               {entry.kind === "investment" ? (
                 <DataList layout="rows">

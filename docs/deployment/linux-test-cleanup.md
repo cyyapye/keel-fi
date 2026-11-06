@@ -7,7 +7,7 @@ the running default Colima VM (the checkout must be visible in the guest):
 ```sh
 colima ssh -- python3 /absolute/keel/scripts/linux-test-run.py \
   --source /absolute/keel -- bash -lc \
-  'pnpm install --frozen-lockfile --store-dir ../pnpm-store && pnpm exec playwright install chromium && pnpm test:e2e'
+  'pnpm install --frozen-lockfile --store-dir ../pnpm-store && pnpm exec playwright install chromium && KEEL_SCREENSHOT_MODE=canonical pnpm test:e2e'
 ```
 
 The guest needs Python 3.9+, Git, Node/pnpm matching `package.json`, and browser
@@ -19,8 +19,10 @@ and browser caches; the example pins the pnpm store inside the run as well.
 Linux browser screenshots must use the x86-64 renderer used by CI. An ARM64
 Colima guest or container can produce different glyph rasterization with the
 same Chromium version; those images must not replace the canonical `*-linux.png`
-baselines. Playwright fails early on non-x64 Linux hosts. Native macOS uses its
-separate `*-darwin.png` baselines.
+baselines. Canonical mode fails early outside Linux x64. Local runs default to
+functional checks without pixel comparisons, including on ARM64 and macOS.
+Existing `*-darwin.png` images remain references. See the
+[visual verification procedure](../../.codex/skills/keel-ui-quality/references/visual-verification.md).
 
 Before generating Linux baselines, record the architecture, distribution, Node,
 pnpm and Chromium versions, match the CI environment, and confirm a known

@@ -6,7 +6,6 @@ import {
   type ValuationRecord,
 } from "@keel/domain/valuation-record";
 import {
-  calculateValuationFromShares,
   assessValuationFromShares,
   PositionValuationEvidenceSchema,
   PurchaseReceiptSchema,
@@ -24,7 +23,12 @@ import {
   Spinner,
   TextLink,
 } from "@keel/ui";
-import { HoldingDate, HoldingInput, HoldingSelect } from "./HoldingFields";
+import {
+  HoldingDate,
+  HoldingInput,
+  HoldingSelect,
+  HoldingShareBasis,
+} from "./HoldingFields";
 import { decimal, scaled } from "./decimal-input";
 import { formatDate, formatMoney, formatSharePrice } from "./format";
 
@@ -196,12 +200,12 @@ export function HoldingValuationEditor({
         : "");
   const candidate = {
     ...draft.record,
-    ...(draft.basis || draft.record.shareBasis !== undefined
+    ...(draft.basis.trim() || draft.record.shareBasis !== undefined
       ? {
-          shareBasis: draft.basis
+          shareBasis: draft.basis.trim()
             ? {
                 key: draft.record.shareBasis?.key ?? "issuer-original",
-                unitsPerOriginal: Number(draft.basis),
+                unitsPerOriginal: scaled(draft.basis, 0),
               }
             : null,
         }
@@ -282,15 +286,21 @@ export function HoldingValuationEditor({
     record: candidate,
     method: draft.method,
   });
+  const validationError = parsed.success
+    ? null
+    : parsed.error.issues.find(({ path }) => path.at(-1) !== "unitsPerOriginal")
+        ?.message;
   const details = receipt?.details ?? { coversPosition: false, lots: [] };
+  const assessment = parsed.success
+    ? assessValuationFromShares(details, parsed.data.record)
+    : null;
   const calculation =
-    parsed.success &&
     (record.followSource ||
       (details.investmentSnapshotId ?? receipt?.snapshotId) ===
-        context.snapshotId)
-      ? calculateValuationFromShares(details, parsed.data.record)
+        context.snapshotId) &&
+    assessment?.ok
+      ? assessment.calculation
       : null;
-  const assessment = assessValuationFromShares(details, candidate);
   const crossClass = details.lots.some(
     (lot) =>
       lot.shareClass?.trim().toLowerCase() !==
@@ -505,23 +515,10 @@ export function HoldingValuationEditor({
                     value={draft.shareClass}
                     onChange={(v) => update("shareClass", v)}
                   />
-                  <HoldingSelect
+                  <HoldingShareBasis
                     label="Price share basis"
                     value={draft.basis}
                     onChange={(v) => update("basis", v)}
-                    options={[
-                      { value: "", label: "Not documented" },
-                      { value: "1", label: "Before split" },
-                      { value: "10", label: "After 10-for-1 split" },
-                      ...(draft.basis && !["1", "10"].includes(draft.basis)
-                        ? [
-                            {
-                              value: draft.basis,
-                              label: `${draft.basis} shares per original share`,
-                            },
-                          ]
-                        : []),
-                    ]}
                   />
                   {record.origin === "gp" && (
                     <HoldingInput
@@ -633,15 +630,18 @@ export function HoldingValuationEditor({
             </p>
           </div>
         )}
-        {draft.method === "shares" && draft.price.trim() && !calculation && (
-          <p>
-            {!assessment.ok
-              ? assessment.message
-              : "The investment source changed. Review share coverage in Investment."}
-          </p>
-        )}
-        {drafts[source] && !parsed.success && (
-          <Notice tone="error">{parsed.error.issues[0]?.message}</Notice>
+        {draft.method === "shares" &&
+          draft.price.trim() &&
+          !calculation &&
+          assessment && (
+            <p>
+              {!assessment.ok
+                ? assessment.message
+                : "The investment source changed. Review share coverage in Investment."}
+            </p>
+          )}
+        {drafts[source] && validationError && (
+          <Notice tone="error">{validationError}</Notice>
         )}
         {(error || stale) && (
           <Notice tone="error">
