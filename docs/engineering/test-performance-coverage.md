@@ -1259,3 +1259,26 @@ work after the long idle gap and added an extra storage read. Production source
 was restored byte-for-byte after each experiment. No long benchmark is added to
 the ordinary gate because there is no production performance decision for it to
 support.
+
+### Reconnect tab-resume ordering
+
+The first post-merge run at `c73b1e37` rejected a flaky reconnect case and
+skipped preview deployment. The visibility event could start a request while the
+fixture still returned `ready`. Advancing the fake clock before that response
+completed could leave the next poll beyond the stopped clock. The expected
+`opened` state then never arrived during the real five-second assertion
+deadline.
+
+The fixture now moves to `opened` before the tab becomes visible and waits for
+that rendered state before advancing to `connected`. The same request cadence,
+focus storm, hidden-tab suppression, provider URL, terminal-state and stopped
+polling assertions remain. No production code, case identity, screenshot, worker
+limit or deadline changes.
+
+A controlled tab-resume response reproduced the same missing-status failure in
+the former test. The corrected ordering passed that control and five normal runs
+with retries disabled. The control snapshots the response when the request
+arrives and holds delivery until immediately before the status assertion. This
+proves the fixture no longer needs a timely `ready` response while its clock is
+advancing. It does not claim that a trace captured the original CI response's
+exact delivery time.

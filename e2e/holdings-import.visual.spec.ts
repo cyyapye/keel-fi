@@ -1317,6 +1317,7 @@ test(
     const hiddenCount = reconnectChecks;
     await page.clock.runFor(60_000);
     expect(reconnectChecks).toBe(hiddenCount);
+    sessionStatus = "opened";
     await page.evaluate(() => {
       Object.defineProperty(document, "visibilityState", {
         configurable: true,
@@ -1326,10 +1327,6 @@ test(
     });
     await page.clock.runFor(1);
     expect(alphaChecks).toBe(0);
-
-    sessionStatus = "opened";
-    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-    await page.clock.runFor(5_100);
     await expect(
       page.getByText(
         "Finish signing in to AngelList. When the private screen closes, return to Keel.",
