@@ -27,7 +27,7 @@ async function select(page: Page, label: string, option: string) {
   await page.getByRole("option", { name: option, exact: true }).click();
 }
 async function screenshot(page: Page, name: string) {
-  await expect(page.locator(".spv-holding")).toHaveScreenshot(name, {
+  await expect.soft(page.locator(".spv-holding")).toHaveScreenshot(name, {
     animations: "disabled",
     stylePath: fileURLToPath(
       new URL("./purchase-details.capture.css", import.meta.url),
