@@ -1,3 +1,4 @@
+import { D1ServiceUnavailableError } from "../packages/domain/src/d1-service";
 import { spawn, spawnSync } from "node:child_process";
 import { createReadStream } from "node:fs";
 import {
@@ -778,7 +779,9 @@ async function reportFailure(
       },
       body: JSON.stringify({ errorCode: code }),
     },
-  ).catch(() => undefined);
+  ).catch((error: unknown) => {
+    if (error instanceof D1ServiceUnavailableError) throw error;
+  });
 }
 
 async function executeRun(
@@ -831,7 +834,10 @@ async function executeRun(
     const bytes = await readCapturedDownload(downloadDirectory, download.guid);
     await uploadCompletion(authorization, run, filename, bytes);
   } catch (error) {
-    if (error instanceof MacAgentAccessError) {
+    if (
+      error instanceof MacAgentAccessError ||
+      error instanceof D1ServiceUnavailableError
+    ) {
       throw error;
     }
     const code =
@@ -1098,15 +1104,21 @@ async function handleManagedReconnect(
   session: NonNullable<
     Awaited<ReturnType<typeof leaseProviderBrowserSession>>["session"]
   >,
+  runtime = {
+    closeControlledChrome,
+    chromeExecutable,
+    runProviderBrowserSession,
+    storeMacAgentAuthorization,
+  },
 ): Promise<boolean> {
-  await closeControlledChrome(keelOrigin);
+  await runtime.closeControlledChrome(keelOrigin);
   const paths = agentPaths(keelOrigin, "linux");
   const portfolioUrl = await readAngelListPortfolioUrl(keelOrigin);
   let remoteContext: BrowserContext | null = null;
-  const result = await runProviderBrowserSession({
+  const result = await runtime.runProviderBrowserSession({
     appDirectory: paths.appDirectory,
     authorization,
-    chromePath: await chromeExecutable({ platform: "linux" }),
+    chromePath: await runtime.chromeExecutable({ platform: "linux" }),
     isProviderReady: async (endpointUrl) => {
       if (remoteContext?.browser()?.isConnected() !== true) {
         const browser = await chromium.connectOverCDP(endpointUrl, {
@@ -1145,14 +1157,17 @@ async function handleManagedReconnect(
         authorization,
         "angellist",
       );
-      storeMacAgentAuthorization(keelOrigin, replacement);
+      runtime.storeMacAgentAuthorization(keelOrigin, replacement);
       updateAuthorization = replacement;
-    } catch {
+    } catch (error) {
+      if (error instanceof D1ServiceUnavailableError) throw error;
       console.error(
         JSON.stringify({ event: "angellist_agent_rotation_deferred" }),
       );
     }
-    await requestRun(updateAuthorization).catch(() => undefined);
+    await requestRun(updateAuthorization).catch((error: unknown) => {
+      if (error instanceof D1ServiceUnavailableError) throw error;
+    });
     return true;
   }
   return false;
@@ -1200,13 +1215,15 @@ async function serve(
     },
     onError: (error) => {
       const code =
-        error instanceof MacAgentAccessError
-          ? "mac_access_required"
-          : error instanceof ProviderBrowserRuntimeError
-            ? error.code
-            : error instanceof AgentFailure
+        error instanceof D1ServiceUnavailableError
+          ? error.code
+          : error instanceof MacAgentAccessError
+            ? "mac_access_required"
+            : error instanceof ProviderBrowserRuntimeError
               ? error.code
-              : "unexpected_failure";
+              : error instanceof AgentFailure
+                ? error.code
+                : "unexpected_failure";
       console.error(
         JSON.stringify({ event: "angellist_agent_poll_failed", code }),
       );
@@ -1234,6 +1251,8 @@ async function main(): Promise<void> {
 }
 
 export const __angellistMacAgentTest = {
+  handleManagedReconnect,
+  executeRun,
   queuedUpdatePollIntervalMs: POLL_INTERVAL_MS,
   lease,
   agentPaths,

@@ -1670,6 +1670,7 @@ describe("Keel API", () => {
         run: null,
       });
     const app = createApp({
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
       macAgentCredentialRepository: macAgentCredentialRepository({
         authenticate,
       }),
@@ -1828,6 +1829,7 @@ describe("Keel API", () => {
         ),
       );
     const app = createApp({
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
       macAgentCredentialRepository: macAgentCredentialRepository({
         authenticate,
       }),
@@ -1888,6 +1890,7 @@ describe("Keel API", () => {
       .fn<MacAgentCredentialRepository["rotateToken"]>()
       .mockResolvedValue(replacement);
     const app = createApp({
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
       macAgentCredentialRepository: macAgentCredentialRepository({
         rotateToken,
       }),

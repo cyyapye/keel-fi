@@ -3,7 +3,7 @@
   "baselineRevision": "1ee7afcccd464510c26b88f64ef6acb22fd1d211",
   "baselineBrowserInventorySha256": "dcc91fae51ceae887cc8d27246dee895af82a62b4cbac6da8b56f910370fa7e4",
   "baselineBrowserCases": 396,
-  "retiredBrowserCaseCount": 350,
+  "retiredBrowserCaseCount": 351,
   "addedBrowserCases": [
     "e2e/provider-legal-documents.spec.ts :: chromium :: sydecar: follows the provider popup, captures original bytes and never persists signed URLs",
     "e2e/provider-legal-documents.spec.ts :: chromium :: tokenfolio: follows the provider popup, captures original bytes and never persists signed URLs",
@@ -1216,6 +1216,19 @@
       "assertions": "The domain keeps conflicting issuers unresolved. Desktop retains the ordinary recommended issuer, stale recommendation refresh, correction and readback. The ambiguous mobile picker, absent Approve button and form count retire."
     },
     {
+      "id": "source-quota-pause-mobile",
+      "retiredBrowserCases": [
+        "e2e/holdings-import.visual.spec.ts :: chromium :: pauses running source status checks until the database reset"
+      ],
+      "unitCases": [
+        "apps/web/src/bounded-polling.test.ts :: browser request budgets > honors a quota pause across focus events and stops at the existing deadline"
+      ],
+      "browserCases": [
+        "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: pauses running source status checks until the database reset"
+      ],
+      "assertions": "Mobile verifies exactly two requests per source for three private agents and Investments, the loaded quota message, no more requests over 20 simulated minutes, repeated focus events, and no overflow. The polling unit advances its own clock through the precise D1 retry timestamp and deadline. The optional capture command still generates the unchecked image for both widths."
+    },
+    {
       "id": "angellist-phone-updates",
       "retiredBrowserCases": [
         "e2e/holdings-import.visual.spec.ts :: chromium :: requests an AngelList update from the phone-safe Holdings flow"
@@ -1244,6 +1257,7 @@
         "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: starts a provider-scoped browser reconnect without terminal handoff"
       ],
       "unitCases": [
+        "apps/web/src/bounded-polling.test.ts :: browser request budgets > honors a quota pause across focus events and stops at the existing deadline",
         "apps/web/src/bounded-polling.test.ts :: browser request budgets > pauses hidden tabs and cannot turn focus events into extra requests",
         "scripts/provider-reconnect-access.test.ts :: authenticated reconnect admission > refuses an expired or overlong lease before listening"
       ],

@@ -26,8 +26,20 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: ./.github/actions/setup-node-pnpm
+      - name: Prove populated migration cost on the exact revision
+        env:
+          KEEL_MIGRATION_SAFETY_RECEIPT:
+            ${{ runner.temp }}/keel-migration-safety.json
+        run: |
+          pnpm exec tsx scripts/d1-migration-safety.ts check
+          pnpm exec vitest run scripts/populated-migration-d1-cost.test.ts --maxWorkers=1
       - name: Encrypt, restore-check, store privately, and verify read-back
         env:
+          KEEL_D1_MAINTENANCE_PLAN: ${{ secrets.KEEL_D1_MAINTENANCE_PLAN }}
+          KEEL_D1_QUOTA_R2_CONFIG: ${{ secrets.KEEL_D1_QUOTA_R2_CONFIG }}
+          KEEL_D1_QUOTA_KEY: ${{ secrets.KEEL_D1_QUOTA_KEY }}
+          KEEL_MIGRATION_SAFETY_RECEIPT:
+            ${{ runner.temp }}/keel-migration-safety.json
           KEEL_PRIVATE_DOCUMENT_BACKUPS_ENABLED: "true"
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           KEEL_PREVIEW_D1_ID: ${{ secrets.KEEL_PREVIEW_D1_ID }}
@@ -47,3 +59,6 @@ jobs:
           KEEL_DOCUMENT_BACKUP_PASSPHRASE:
             ${{ secrets.KEEL_DOCUMENT_BACKUP_PASSPHRASE }}
         run: pnpm exec tsx scripts/private-document-backup-job.ts
+      - name: Remove owned migration evidence
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/keel-migration-safety.json"

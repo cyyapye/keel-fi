@@ -37,7 +37,11 @@ describe("restricted backup object boundary", () => {
   });
   it("requires explicit activation before using any credentials", async () => {
     vi.stubEnv("KEEL_PRIVATE_DOCUMENT_BACKUPS_ENABLED", "false");
-    await expect(runPrivateDocumentBackupJob()).rejects.toThrow("activation");
+    const exportDatabase = vi.fn();
+    await expect(
+      runPrivateDocumentBackupJob({ exportDatabase }),
+    ).rejects.toThrow("activation");
+    expect(exportDatabase).not.toHaveBeenCalled();
   });
   it("requires complete encrypted read-back and uses a fresh conditional key on each attempt", async () => {
     const dir = await mkdtemp(join(tmpdir(), "keel-backup-publish-test-"));

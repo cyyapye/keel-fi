@@ -161,6 +161,7 @@ describe("preview deployment smoke", () => {
   it("exposes the resource check only in preview and behind both auth layers", async () => {
     const bindings = deploymentEnv();
     const app = createApp({
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
       deploymentSmokeAlphaLoader: bindings.alphaProjectionLoader,
       verifyAccess: vi.fn(() =>
         Promise.resolve({

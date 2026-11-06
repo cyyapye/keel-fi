@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./d1-service": "./src/d1-service.ts",
     "./agreement-economics": "./src/agreement-economics.ts",
     "./automatic-investment-review": "./src/automatic-investment-review.ts",
     "./exposure-read-model": "./src/exposure-read-model.ts",

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, openAsBlob } from "node:fs";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
@@ -8,6 +7,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { privateR2, PrivateR2ConfigSchema } from "./private-document-r2";
 import { BackupPassphraseSchema } from "./private-document-backup";
+import { runMaintenanceCommand } from "./d1-maintenance-command";
 
 export async function publishEncryptedBackup(
   archive: string,
@@ -60,18 +60,15 @@ export async function publishEncryptedBackup(
 }
 
 // One bounded job, one D1 snapshot, no pagination or deletion of live originals.
-export async function runPrivateDocumentBackupJob() {
+export async function runPrivateDocumentBackupJob(dependencies: {
+  exportDatabase: (output: string) => Promise<unknown>;
+}) {
   if (process.env.KEEL_PRIVATE_DOCUMENT_BACKUPS_ENABLED !== "true")
     throw new Error("Private backups need explicit operator activation.");
   const account = z
     .string()
     .regex(/^[a-f0-9]{32}$/u)
     .parse(process.env.CLOUDFLARE_ACCOUNT_ID);
-  const databaseId = z.string().uuid().parse(process.env.KEEL_PREVIEW_D1_ID);
-  const d1Token = z
-    .string()
-    .min(20)
-    .parse(process.env.KEEL_DOCUMENT_D1_READ_TOKEN);
   const source = PrivateR2ConfigSchema.parse({
     account,
     bucket: process.env.KEEL_PREVIEW_R2_BUCKET,
@@ -96,68 +93,14 @@ export async function runPrivateDocumentBackupJob() {
   );
   const directory = await mkdtemp(join(tmpdir(), "keel-private-backup-"));
   const baseEnv = { PATH: process.env.PATH, LANG: "C.UTF-8" };
-  const invoke = async (args: string[], env: NodeJS.ProcessEnv) => {
-    const child = spawn(process.execPath, args, { stdio: "ignore", env });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 25 * 60_000);
-    try {
-      await new Promise<void>((accept, reject) => {
-        child.once("error", () =>
-          reject(new Error("Backup prerequisite unavailable")),
-        );
-        child.once("close", (code) =>
-          code === 0
-            ? accept()
-            : reject(new Error("Backup prerequisite failed")),
-        );
-      });
-    } finally {
-      clearTimeout(timer);
-      child.kill();
-    }
-  };
   try {
-    const config = join(directory, "wrangler.json");
     const sql = join(directory, "state.sql");
     const key = join(directory, "key");
     const archive = join(directory, "documents.gpg");
-    await writeFile(
-      config,
-      JSON.stringify({
-        name: "keel-private-backup",
-        account_id: account,
-        d1_databases: [
-          {
-            binding: "DB",
-            database_name: "keel-private-backup",
-            database_id: databaseId,
-          },
-        ],
-      }),
-      { mode: 0o600 },
-    );
     await writeFile(key, secret, { mode: 0o600 });
-    await invoke(
-      [
-        resolve("node_modules/wrangler/bin/wrangler.js"),
-        "d1",
-        "export",
-        "DB",
-        "--remote",
-        "--config",
-        config,
-        "--output",
-        sql,
-        "--skip-confirmation",
-      ],
-      {
-        ...baseEnv,
-        CLOUDFLARE_ACCOUNT_ID: account,
-        CLOUDFLARE_API_TOKEN: d1Token,
-        WRANGLER_SEND_METRICS: "false",
-        XDG_CONFIG_HOME: directory,
-      },
-    );
-    await invoke(
+    await dependencies.exportDatabase(sql);
+    await runMaintenanceCommand(
+      process.execPath,
       [
         "--import",
         "tsx",
@@ -196,10 +139,12 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  runPrivateDocumentBackupJob().catch(() => {
-    console.error(
-      "Private document backup failed. Check the private recovery runbook; no success claim was recorded.",
-    );
-    process.exitCode = 1;
-  });
+  import("./d1-maintenance")
+    .then((module) => module.runD1Maintenance("daily-backup"))
+    .catch(() => {
+      console.error(
+        "Private document backup failed. Check the private recovery runbook; no success claim was recorded.",
+      );
+      process.exitCode = 1;
+    });
 }

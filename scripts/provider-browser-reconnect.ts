@@ -1,3 +1,4 @@
+import { D1ServiceUnavailableError } from "../packages/domain/src/d1-service";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
@@ -712,11 +713,47 @@ async function reportFailure(
     options.lease.id,
     "fail",
     { leaseToken: options.lease.leaseToken, errorCode },
-  ).catch(() => undefined);
+  ).catch((error: unknown) => {
+    if (error instanceof D1ServiceUnavailableError) throw error;
+  });
 }
 
 export async function runProviderBrowserSession(
   options: ProviderBrowserRuntimeOptions,
+  run = runProviderBrowserRuntime,
+): Promise<"connected" | "terminated"> {
+  let stage: ProviderBrowserRuntimeStage = "private_storage";
+  try {
+    return await run(options, (next) => {
+      stage = next;
+    });
+  } catch (error) {
+    if (error instanceof D1ServiceUnavailableError) throw error;
+    const errorCode =
+      error instanceof ProviderBrowserRuntimeError
+        ? error.code
+        : "browser_unavailable";
+    console.error(
+      JSON.stringify({
+        event: "provider_browser_reconnect_failed",
+        provider: options.provider,
+        stage,
+        code: errorCode,
+      }),
+    );
+    await reportFailure(options, errorCode);
+    throw error instanceof ProviderBrowserRuntimeError
+      ? error
+      : new ProviderBrowserRuntimeError(
+          errorCode,
+          "Managed provider reconnect could not start.",
+        );
+  }
+}
+
+async function runProviderBrowserRuntime(
+  options: ProviderBrowserRuntimeOptions,
+  onStage: (stage: ProviderBrowserRuntimeStage) => void,
 ): Promise<"connected" | "terminated"> {
   if (process.platform !== "linux") {
     await reportFailure(options, "browser_unavailable");
@@ -731,7 +768,6 @@ export async function runProviderBrowserSession(
   let cloudflared: ChildProcess | null = null;
   let chrome: ChildProcess | null = null;
   let gateway: ReconnectAccessGateway | null = null;
-  let stage: ProviderBrowserRuntimeStage = "private_storage";
   try {
     const access = await loadReconnectAccess(
       options.authorization.apiOrigin,
@@ -781,7 +817,7 @@ export async function runProviderBrowserSession(
     }
     await chmod(xauthority, 0o600);
 
-    stage = "private_display";
+    onStage("private_display");
     xvfb = spawn(
       xvfbPath,
       [
@@ -798,7 +834,7 @@ export async function runProviderBrowserSession(
     );
     await waitForFile(`/tmp/.X11-unix/X${display.toString()}`, xvfb);
 
-    stage = "private_vnc";
+    onStage("private_vnc");
     x11vnc = spawn(
       x11vncPath,
       x11VncArguments(display, xauthority, passwordFile, vncPort),
@@ -807,7 +843,7 @@ export async function runProviderBrowserSession(
     await waitForPort(vncPort, x11vnc);
     viewerProxy = await startViewerProxy(vncPort);
 
-    stage = "browser_stream";
+    onStage("browser_stream");
     const web = await prepareWebRoot(
       temporaryDirectory,
       noVncDirectory,
@@ -826,7 +862,7 @@ export async function runProviderBrowserSession(
     );
     await waitForPort(webPort, websockify);
 
-    stage = "secure_tunnel";
+    onStage("secure_tunnel");
     const nonce = randomBytes(32).toString("base64url");
     gateway = await startReconnectAccessGateway({
       config: access.config,
@@ -853,14 +889,14 @@ export async function runProviderBrowserSession(
       `${web.accessToken}.html`,
       access.config.publicOrigin,
     );
-    stage = "public_tunnel";
+    onStage("public_tunnel");
     await waitForPublicTunnel(
       new URL(`/_keel/ready/${nonce}`, access.config.publicOrigin),
       cloudflared,
       { ...access.probe, nonce },
     );
 
-    stage = "provider_browser";
+    onStage("provider_browser");
     chrome = spawn(
       options.chromePath,
       remoteChromeArguments(
@@ -879,7 +915,7 @@ export async function runProviderBrowserSession(
     );
     await waitForDevTools(debuggingPort, chrome);
 
-    stage = "session_ready";
+    onStage("session_ready");
     await sessionApi(
       options.authorization,
       options.provider,
@@ -910,7 +946,7 @@ export async function runProviderBrowserSession(
         ).status,
       onOpened: async () => {
         if (!activeViewer.connected()) return false;
-        stage = "provider_sign_in";
+        onStage("provider_sign_in");
         if (!entryPageRemoved) {
           await unlink(path.join(web.webRoot, `${web.accessToken}.html`)).catch(
             () => undefined,
@@ -922,7 +958,7 @@ export async function runProviderBrowserSession(
         );
       },
       complete: () => {
-        stage = "session_verification";
+        onStage("session_verification");
         return completeBrowserSession(options, () =>
           closeChromeGracefully(
             chrome!,
@@ -931,26 +967,6 @@ export async function runProviderBrowserSession(
         );
       },
     });
-  } catch (error) {
-    const errorCode =
-      error instanceof ProviderBrowserRuntimeError
-        ? error.code
-        : "browser_unavailable";
-    console.error(
-      JSON.stringify({
-        event: "provider_browser_reconnect_failed",
-        provider: options.provider,
-        stage,
-        code: errorCode,
-      }),
-    );
-    await reportFailure(options, errorCode);
-    throw error instanceof ProviderBrowserRuntimeError
-      ? error
-      : new ProviderBrowserRuntimeError(
-          errorCode,
-          "Managed provider reconnect could not start.",
-        );
   } finally {
     await gateway?.close();
     await stopChild(chrome);
@@ -967,6 +983,7 @@ export async function runProviderBrowserSession(
 
 export const __providerBrowserReconnectTest = {
   pollActiveBrowserSession,
+  sessionApi,
   closeChromeGracefully,
   completeBrowserSession,
   publicTunnelResponds,

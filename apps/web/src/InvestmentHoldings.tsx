@@ -1,3 +1,4 @@
+import { D1ServiceUnavailableError } from "@keel/domain/d1-service";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import {
   addMinorUnits,
@@ -2139,7 +2140,7 @@ export function InvestmentHoldings({
     () => new Set(holdings.map((holding) => holding.id)),
     [holdings],
   );
-  const reloadConnections = useCallback(async () => {
+  const reloadConnections = useCallback(async (propagateError = false) => {
     try {
       const next = await loadInvestmentConnections();
       setConnectionState(next);
@@ -2147,8 +2148,13 @@ export function InvestmentHoldings({
         current === INVESTMENT_OAUTH_RECONNECT_MESSAGE ? current : null,
       );
       return next;
-    } catch {
-      setError("Keel could not check investment institutions right now.");
+    } catch (error) {
+      setError(
+        error instanceof D1ServiceUnavailableError
+          ? error.message
+          : "Keel could not check investment institutions right now.",
+      );
+      if (propagateError) throw error;
       return null;
     }
   }, []);
@@ -2241,7 +2247,7 @@ export function InvestmentHoldings({
     identity: "investment-status",
     intervalMs: 10_000,
     check: async () => {
-      const next = await reloadConnections();
+      const next = await reloadConnections(true);
       if (next === null) throw new Error("Status unavailable");
       return next.connections.some(
         (connection) => connection.status === "syncing",

@@ -122,6 +122,7 @@ check:
 .PHONY: d1-migration-check
 d1-migration-check:
 	node --import tsx scripts/d1-migration-safety.ts check
+	node --import tsx scripts/d1-maintenance.ts check
 
 .PHONY: ci-storage-test
 ci-storage-test:

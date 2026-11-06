@@ -53,20 +53,15 @@ nonempty review, baseline and evidence chains. Report unsupported integrity
 checks as unavailable. Never substitute SQLite timing, returned row counts or
 mock metadata for actual D1 billing counters.
 
-The synthetic regression is not a bound on an unknown target database. Fresh
-target footprint evidence and a reviewed export bound belong to operational
-admission. The standalone CI proof does not provide that authority.
+The synthetic regression is not a bound on an unknown target database. Require
+fresh complete target footprint evidence within the measured envelope and a
+reviewed export bound. Missing target evidence blocks maintenance before export.
 
 Run the focused registered cases and then required repository verification.
 Include new native case identities without removing existing cases, changing
 exclusions or relaxing the verification deadline to obtain a pass.
 
-## Design quota activation
-
-Shared quota enforcement and its release, backup and client integration remain
-in draft PR #340. The CI split adds migration proof while preserving the
-existing deployed paths. Apply the following requirements before activating that
-deferred owner.
+## Admit maintenance and recurring work
 
 Capacity permission must precede the first remote D1 operation, including backup
 export and frontier inspection. Cover export, migration, smoke checks and every

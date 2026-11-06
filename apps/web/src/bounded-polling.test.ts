@@ -1,3 +1,4 @@
+import { D1ServiceUnavailableError } from "@keel/domain/d1-service";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startBoundedPolling } from "./bounded-polling";
 
@@ -31,6 +32,38 @@ function fixture() {
 }
 
 describe("browser request budgets", () => {
+  it("honors a quota pause across focus events and stops at the existing deadline", async () => {
+    const clock = fixture();
+    const check = vi.fn(() =>
+      Promise.reject(
+        new D1ServiceUnavailableError({
+          error: "Synthetic quota pause",
+          code: "d1_quota_exhausted",
+          retryAt: new Date(DAY).toISOString(),
+          outcome: "unknown",
+        }),
+      ),
+    );
+    const timeout = vi.fn();
+    startBoundedPolling({
+      environment: clock.environment,
+      intervalMs: 5_000,
+      deadline: 900_000,
+      check,
+      onError: () => undefined,
+      onTimeout: timeout,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    for (let index = 0; index < 10; index++) {
+      clock.focus();
+      clock.visibility(false);
+      clock.visibility(true);
+    }
+    await vi.advanceTimersByTimeAsync(DAY);
+    expect(check).toHaveBeenCalledOnce();
+    expect(timeout).toHaveBeenCalledOnce();
+  });
+
   it("caps every active browser loop across a full healthy and failure day", async () => {
     const clock = fixture();
     const calls = [0, 0];

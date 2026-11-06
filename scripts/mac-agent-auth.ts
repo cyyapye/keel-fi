@@ -1,3 +1,4 @@
+import { d1ServiceError } from "../packages/domain/src/d1-service";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -413,10 +414,10 @@ export async function macAgentApi(
   if (response.status === 401 || response.status === 403) {
     throw new MacAgentAccessError();
   }
-  return {
-    status: response.status,
-    body: await response.json().catch(() => null),
-  };
+  const body: unknown = await response.json().catch(() => null);
+  const failure = response.status === 503 ? d1ServiceError(body) : null;
+  if (failure !== null) throw failure;
+  return { status: response.status, body };
 }
 
 export const __macAgentAuthTest = {

@@ -34,6 +34,7 @@ BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"
 BROWSER_SEED = ROOT / ".keel-local/pilot-browser-seed"
 BROWSER_SEED_SEAL = ROOT / ".keel-local/pilot-browser-seed.json"
 STRICT_VITEST_FILES = (
+    "packages/database/src/d1-capacity.test.ts",
     "scripts/runtime-work-inventory.test.ts",
     "packages/database/src/cash-accounts.test.ts",
     "apps/api/src/position-routes.test.ts",

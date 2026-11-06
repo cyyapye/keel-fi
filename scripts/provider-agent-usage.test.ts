@@ -146,6 +146,7 @@ async function fixture() {
     });
   }
   const app = createApp({
+    capacityWork: (env, _producer, _operationId, execute) => execute(env),
     macAgentCredentialRepository: credentials,
     angelListMacAgentRepository: angellist,
     providerPortfolioAgentRepository: portfolios,

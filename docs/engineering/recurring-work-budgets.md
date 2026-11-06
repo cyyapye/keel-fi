@@ -43,10 +43,11 @@ those paths:
 Read the workload sections affected by the change; the measured envelopes below
 do not automatically apply to another producer or deployment.
 
-Migration changes also follow the populated OLD-schema proof in the
-[D1 safety contract](../deployment/d1-safety.md). Shared account admission is
-deferred to its separate runtime draft. These workload measurements and R2
-storage budgets alone do not reserve D1 account capacity.
+D1-producing changes also follow the
+[D1 safety contract](../deployment/d1-safety.md). Shared account admission,
+populated OLD-schema evidence and fail-closed activation prerequisites apply in
+addition to these measurements. Per-call ceilings and R2 storage budgets do not
+reserve D1 account capacity.
 
 ## Preview release storage
 

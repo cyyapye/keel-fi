@@ -127,6 +127,7 @@ async function fixture() {
     KEEL_PREVIEW_BACKUP_MANIFEST_PATH: join(root, "manifest.json"),
     KEEL_PREVIEW_BACKUP_STORAGE_RECEIPT_PATH: join(root, "storage.json"),
     KEEL_PREVIEW_RELEASE_EVIDENCE_PATH: join(root, "release.json"),
+    KEEL_D1_MAINTENANCE_RECEIPT_PATH: join(root, "maintenance.json"),
     GITHUB_STEP_SUMMARY: join(root, "summary.md"),
     GITHUB_SERVER_URL: "https://github.com",
     GITHUB_REPOSITORY: "synthetic/keel",
@@ -144,6 +145,25 @@ async function fixture() {
     "synthetic-only ciphertext bytes",
   );
   await writeBackupManifest(env);
+  await writeFile(
+    env.KEEL_D1_MAINTENANCE_RECEIPT_PATH,
+    JSON.stringify({
+      version: 1,
+      state: "admitted",
+      gitSha,
+      runId: "123",
+      runAttempt: "1",
+      frontier: "0089_manual_holdings.sql",
+      pending: [],
+      migrationSafetyKind: "baseline",
+      migrationCost: null,
+      sourceDigest: "c".repeat(64),
+      migrationReceiptDigest: "d".repeat(64),
+      capacityEvidenceHash: "e".repeat(64),
+      chargedEnvelope: { reads: 100_000, writes: 10_000 },
+      actualBilledRows: "unavailable",
+    }),
+  );
   return { root, env };
 }
 

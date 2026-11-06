@@ -253,6 +253,9 @@ export type PlaidWebhookReceipt =
   "accepted" | "duplicate" | "ignored" | "unknown_item";
 
 export async function receivePlaidWebhook(input: {
+  admit?: (
+    execute: () => Promise<PlaidWebhookReceipt>,
+  ) => Promise<PlaidWebhookReceipt>;
   client: PlaidInvestmentsClient;
   env: Env;
   now?: () => Date;
@@ -314,34 +317,43 @@ export async function receivePlaidWebhook(input: {
   } catch {
     throw new PlaidWebhookRequestError(503, "configuration_invalid");
   }
-  const claim = await input.repository.claimPlaidWebhookDelivery({
-    providerAccountKey: accountKey,
-    signatureSha256: verified.signatureSha256,
-    bodySha256: verified.bodySha256,
-    issuedAt: verified.issuedAt,
-    receivedAt: now.toISOString(),
-  });
-  if (claim.status === "unknown") {
-    return "unknown_item";
-  }
-  if (claim.status === "duplicate") {
-    return "duplicate";
-  }
+  const execute = async (): Promise<PlaidWebhookReceipt> => {
+    const claim = await input.repository.claimPlaidWebhookDelivery({
+      providerAccountKey: accountKey,
+      signatureSha256: verified.signatureSha256,
+      bodySha256: verified.bodySha256,
+      issuedAt: verified.issuedAt,
+      receivedAt: now.toISOString(),
+    });
+    if (claim.status === "unknown") {
+      return "unknown_item";
+    }
+    if (claim.status === "duplicate") {
+      return "duplicate";
+    }
 
-  try {
-    await input.env.INGESTION_QUEUE.send(
-      PlaidHoldingsWebhookJobMessageSchema.parse({
-        type: "plaid_holdings_webhook",
-        messageId: crypto.randomUUID(),
-        deliveryId: claim.deliveryId,
-        requestedAt: now.toISOString(),
-      }),
-    );
-    await input.repository.markPlaidWebhookDelivery(claim.deliveryId, "queued");
-  } catch {
+    try {
+      await input.env.INGESTION_QUEUE.send(
+        PlaidHoldingsWebhookJobMessageSchema.parse({
+          type: "plaid_holdings_webhook",
+          messageId: crypto.randomUUID(),
+          deliveryId: claim.deliveryId,
+          requestedAt: now.toISOString(),
+        }),
+      );
+      await input.repository.markPlaidWebhookDelivery(
+        claim.deliveryId,
+        "queued",
+      );
+    } catch {
+      throw new PlaidWebhookRequestError(503, "temporary_failure");
+    }
+    return "accepted";
+  };
+  if (input.admit !== undefined) return input.admit(execute);
+  if (input.env.ENVIRONMENT !== "local")
     throw new PlaidWebhookRequestError(503, "temporary_failure");
-  }
-  return "accepted";
+  return execute();
 }
 
 export async function processPlaidHoldingsWebhookJob(

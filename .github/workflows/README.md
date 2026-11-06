@@ -96,11 +96,12 @@ requests.
 
 ## Self-hosted runner lanes
 
-The complete native gate includes populated OLD-schema migration cost and
-preservation evidence. Deployment and independent document backup retain their
-existing execution paths. Shared quota admission and its activation requirements
-remain in draft PR #340. See [D1 safety](../../docs/deployment/d1-safety.md) for
-the proof scope and deferred runtime boundary.
+Release and independent document backup enter one D1 maintenance owner before
+their first frontier read or export. Both regenerate populated OLD-schema cost
+evidence on the exact checked-out revision. Missing shared capacity, fresh
+usage, target footprint or migration evidence blocks maintenance. See
+[D1 safety](../../docs/deployment/d1-safety.md) for activation prerequisites and
+the distinction between a synthetic regression and target bounds.
 
 The private repository uses two isolated Linux x64 runner services on the
 existing OVH host:

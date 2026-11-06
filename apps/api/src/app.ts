@@ -1,3 +1,12 @@
+import {
+  assertCapacityRouteCoverage,
+  capacityFailure,
+  capacityRoute,
+  observeD1,
+  quotaResponse,
+  runRuntimeD1Work,
+  type D1Observation,
+} from "./d1-capacity";
 import { bodyLimit } from "hono/body-limit";
 import {
   D1ManualHoldingRepository,
@@ -270,6 +279,7 @@ import type { AccessIdentity, Env } from "./types";
 import { registerProviderLegalDocumentRoutes } from "./provider-legal-documents";
 
 type Variables = {
+  d1Observation: D1Observation;
   identity: AccessIdentity;
   macAgentTarget: MacAgentTarget | null;
   requestId: string;
@@ -281,6 +291,7 @@ export type AppEnvironment = {
 };
 
 type AppOptions = {
+  capacityWork?: typeof runRuntimeD1Work;
   angelListMacAgentRepository?: AngelListMacAgentRepository;
   providerPortfolioAgentRepository?: ProviderPortfolioAgentRepository;
   holdingImportRepository?: Pick<
@@ -919,6 +930,7 @@ function macAgentApiOrigin(env: Env, requestUrl: string): string | null {
 export function createApp(options: AppOptions = {}) {
   const app = new Hono<AppEnvironment>();
   const verifier = options.verifyAccess ?? verifyAccessToken;
+  const capacityWork = options.capacityWork ?? runRuntimeD1Work;
   const manualHoldingRepositoryFor = (env: Env) =>
     options.manualHoldingRepository ??
     new D1ManualHoldingRepository(env.DB, env.DOCUMENTS);
@@ -1076,8 +1088,14 @@ export function createApp(options: AppOptions = {}) {
       context.req.header("X-Request-Id") ??
       crypto.randomUUID();
     context.set("requestId", requestId);
+    const observation = observeD1(context.env.DB);
+    context.set("d1Observation", observation);
+    context.env = { ...context.env, DB: observation.database };
 
     await next();
+
+    if (observation.failure !== null)
+      context.res = quotaResponse(capacityFailure(observation.failure)!);
 
     console.info(
       JSON.stringify({
@@ -1087,6 +1105,10 @@ export function createApp(options: AppOptions = {}) {
         route: context.req.routePath || "unmatched",
         status: context.res.status,
         durationMs: Date.now() - startedAt,
+        producer:
+          capacityRoute(context.req.method, context.req.path) ?? "unclassified",
+        revision: context.env.DEPLOYED_GIT_SHA ?? null,
+        d1: observation.cost,
       }),
     );
   });
@@ -1107,6 +1129,14 @@ export function createApp(options: AppOptions = {}) {
     }
     try {
       const result = await receivePlaidWebhook({
+        admit: (execute) =>
+          capacityWork(
+            context.env,
+            "plaid-webhook",
+            crypto.randomUUID(),
+            execute,
+            context.get("d1Observation"),
+          ),
         request: context.req.raw,
         env: context.env,
         repository: investmentConnectionsRepositoryFor(context.env),
@@ -1123,6 +1153,8 @@ export function createApp(options: AppOptions = {}) {
         "Cache-Control": "no-store",
       });
     } catch (error) {
+      const failure = capacityFailure(error);
+      if (failure !== null) return quotaResponse(failure);
       const status =
         error instanceof PlaidWebhookRequestError ? error.status : 503;
       console.error(
@@ -1158,11 +1190,19 @@ export function createApp(options: AppOptions = {}) {
       }
       const bearer = /^Bearer (.+)$/u.exec(authorization)?.[1] ?? "";
       const parsedToken = MacAgentTokenSchema.safeParse(bearer);
-      const accessSubject = parsedToken.success
-        ? await macAgentCredentialRepositoryFor(context.env)
-            .authenticate(target, parsedToken.data)
-            .catch(() => null)
-        : null;
+      let accessSubject: string | null = null;
+      try {
+        if (parsedToken.success)
+          accessSubject = await macAgentCredentialRepositoryFor(
+            context.env,
+          ).authenticate(target, parsedToken.data);
+      } catch {
+        return context.json(
+          { error: "Portfolio agent access is temporarily unavailable." },
+          503,
+          { "Cache-Control": "no-store" },
+        );
+      }
       if (accessSubject === null) {
         return context.json(
           { error: "Portfolio agent access could not be validated." },
@@ -1200,27 +1240,51 @@ export function createApp(options: AppOptions = {}) {
       );
     }
 
+    let identity: AccessIdentity;
     try {
-      const identity = await verifier(token, context.env);
-      if (
-        identity.kind === "service" &&
-        (context.req.method !== "POST" ||
-          context.req.path !== "/api/deployment-smoke")
-      ) {
-        return context.json(
-          { error: "Access identity is not authorized for this route." },
-          403,
-        );
-      }
-      context.set("identity", identity);
-      context.set("macAgentTarget", null);
-      await next();
-      return;
+      identity = await verifier(token, context.env);
     } catch {
       return context.json(
         { error: "Access identity could not be validated." },
         401,
       );
+    }
+    if (
+      identity.kind === "service" &&
+      (context.req.method !== "POST" ||
+        context.req.path !== "/api/deployment-smoke")
+    ) {
+      return context.json(
+        { error: "Access identity is not authorized for this route." },
+        403,
+      );
+    }
+    context.set("identity", identity);
+    context.set("macAgentTarget", null);
+    await next();
+    return;
+  });
+
+  app.use("/api/*", async (context, next) => {
+    const producer = capacityRoute(context.req.method, context.req.path);
+    if (producer === "protected" || producer === "deployment-smoke")
+      return next();
+    if (producer === null) return context.json({ error: "Not found." }, 404);
+    try {
+      await capacityWork(
+        context.env,
+        producer,
+        crypto.randomUUID(),
+        async (env) => {
+          context.env = env;
+          await next();
+        },
+        context.get("d1Observation"),
+      );
+    } catch (error) {
+      const failure = capacityFailure(error);
+      if (failure === null) throw error;
+      context.res = quotaResponse(failure);
     }
   });
 
@@ -1239,9 +1303,12 @@ export function createApp(options: AppOptions = {}) {
 
     try {
       return context.json(
-        await runDeploymentSmoke(
+        await capacityWork(
           context.env,
-          options.deploymentSmokeAlphaLoader,
+          "deployment-smoke",
+          crypto.randomUUID(),
+          (env) => runDeploymentSmoke(env, options.deploymentSmokeAlphaLoader),
+          context.get("d1Observation"),
         ),
         200,
         {
@@ -1249,6 +1316,8 @@ export function createApp(options: AppOptions = {}) {
         },
       );
     } catch (error) {
+      const failure = capacityFailure(error);
+      if (failure !== null) return quotaResponse(failure);
       console.error(
         JSON.stringify({
           event: "deployment_smoke_failed",
@@ -1275,9 +1344,13 @@ export function createApp(options: AppOptions = {}) {
         { "Cache-Control": "private, no-store" },
       );
     } catch {
-      return context.json({ authenticated: false }, 503, {
-        "Cache-Control": "private, no-store",
-      });
+      return context.json(
+        { error: "Session availability could not be checked." },
+        503,
+        {
+          "Cache-Control": "private, no-store",
+        },
+      );
     }
   });
 
@@ -5554,5 +5627,6 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
   app.notFound((context) => context.json({ error: "Not found." }, 404));
 
   registerProviderLegalDocumentRoutes(app);
+  assertCapacityRouteCoverage(app.routes);
   return app;
 }

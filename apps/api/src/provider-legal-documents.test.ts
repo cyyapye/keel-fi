@@ -277,6 +277,7 @@ describe("private provider agreement API", () => {
       "INSERT INTO users VALUES ('user_other', 'other-subject', 'other@example.test', 'Synthetic Other', '2026-09-01'); INSERT INTO households VALUES ('hh_other', 'user_other', 'Synthetic Other', 'USD', '2026-09-01');",
     );
     const app = createApp({
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
       verifyAccess: () =>
         Promise.resolve({
           kind: "user",
@@ -493,7 +494,9 @@ describe("private provider agreement API", () => {
       Authorization: `Bearer ${credential}`,
       "X-Keel-Agent-Lease": token,
     };
-    const app = createApp();
+    const app = createApp({
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
+    });
     expect(
       (
         await app.request(

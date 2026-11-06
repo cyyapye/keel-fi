@@ -455,6 +455,9 @@ describe("reviewed cash accounts", () => {
       );
       let token = `${header}.${payload}.${Buffer.from(signature).toString("base64url")}`;
       const app = createApp({
+        // Keep the signed-JWT SQL workload independent of the shared account
+        // owner, which has its own real-D1/R2 admission integration tests.
+        capacityWork: (env, _producer, _operationId, execute) => execute(env),
         cashAccountsRepository: repository,
         cashPlaidClient: client,
       });

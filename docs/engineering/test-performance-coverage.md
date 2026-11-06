@@ -1,11 +1,5 @@
 # Test performance and retained proof
 
-The current CI split keeps runtime quota admission in draft PR #340. Earlier
-measurements below describe the combined branch at their recorded revisions. Its
-quota-owner tests are deferred with that implementation. The current registered
-inventory and required receipt define executable coverage for the CI-only
-branch.
-
 The comparison starts at `525cfab1`, whose complete Linux run used 884.478 of
 900 active seconds. That near-limit result is the baseline to improve. The
 900-second gate, individual deadlines and worker limits remain unchanged. The
@@ -1265,28 +1259,6 @@ work after the long idle gap and added an extra storage read. Production source
 was restored byte-for-byte after each experiment. No long benchmark is added to
 the ordinary gate because there is no production performance decision for it to
 support.
-
-### CI split from runtime quota activation
-
-The CI branch retains the reviewed test reductions, fixture reuse, shared
-compiler work, exact-revision receipts, selective draft policy and per-case
-Linux timing inventory. It also retains populated migration cost and
-preservation tests, immutable applied SQL checks and the small validator reuse.
-
-The runtime quota owner, its API and agent integrations, release and backup
-wrappers, and new configuration requirements remain in draft PR #340. The CI
-branch restores those runtime and deployment files to the current main base. Its
-inventory defers 101 quota-specific unit cases and the mobile source-pause
-browser case with their implementation. The uncertain manual-save regression
-still exercises existing draft retention and rejects automatic replay of a 503
-response. The remaining inventory has 1,557 unit identities, 127 required Linux
-browser executions, 15 explicit browser exclusions and 51 Python cases.
-
-The split does not retire financial journeys, real scanner isolation, D1
-billing-counter tests or populated migration preservation. The 900-second full
-native budget and existing worker limits remain. New local and Linux receipts
-must cover this separated tree before merge; earlier combined-branch receipts
-cannot authorize it.
 
 ### Reconnect tab-resume ordering
 

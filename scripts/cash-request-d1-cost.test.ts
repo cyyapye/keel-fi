@@ -76,6 +76,7 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
     } as unknown as Env;
     let authenticated = 0;
     const app = createApp({
+      capacityWork: (env, _producer, _operationId, execute) => execute(env),
       cashAccountsRepository: repository,
       cashPlaidClient: client,
       verifyAccess: () => {

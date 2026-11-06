@@ -1,11 +1,5 @@
 # CI performance contract
 
-The current CI split keeps runtime quota admission in draft PR #340. Earlier
-measurements below describe the combined branch at their recorded revisions. Its
-quota-owner tests are deferred with that implementation. The current registered
-inventory and required receipt define executable coverage for the CI-only
-branch.
-
 Each ordinary workflow executes the complete native suite once for its exact
 revision. The full requirement map, individual case accounting, expected
 platform exclusions, native assertions and no-flaky-success policy remain

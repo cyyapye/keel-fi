@@ -146,40 +146,40 @@ describe("post-merge preview deployment workflow", () => {
       );
     }
 
-    const backup = deployment.indexOf("wrangler d1 export");
-    const backupVerification = deployment.indexOf("cmp --silent");
-    const backupUpload = deployment.indexOf(
-      "Retain encrypted pre-migration D1 backup",
+    expect(deployment).toContain("scripts/d1-maintenance.ts release");
+    expect(deployment).toContain("scripts/populated-migration-d1-cost.test.ts");
+    expect(deployment).not.toMatch(/wrangler d1|preview-deployment-smoke\.ts/u);
+    const owner = await readFile("scripts/d1-maintenance.ts", "utf8");
+    const release = owner.slice(
+      owner.indexOf("export async function runRelease"),
     );
-    const migrations = deployment.indexOf("wrangler d1 migrations apply");
-    const apiDeploy = deployment.indexOf("Deploy private API Worker");
-    const webDeploy = deployment.indexOf("Build and deploy web Worker");
-    const smokes = deployment.indexOf("Run protected post-deploy smokes");
-    const evidence = deployment.indexOf("Record exact deployment evidence");
-    const evidenceUpload = deployment.indexOf(
-      "Retain preview release evidence",
-    );
-    const cleanup = deployment.indexOf("Remove private runner files");
-
-    expect(backup).toBeGreaterThan(-1);
-    expect(backupVerification).toBeGreaterThan(backup);
-    expect(backupUpload).toBeGreaterThan(backupVerification);
-    expect(deployment.slice(backupUpload, migrations)).toContain(
-      "scripts/preview-deployment-storage.ts backup",
-    );
-    expect(deployment.slice(evidenceUpload, cleanup)).toContain(
-      "scripts/preview-deployment-storage.ts release",
-    );
+    const order = [
+      "export",
+      "backup-integrity",
+      "migration",
+      "api-deploy",
+      "web-deploy",
+      "smokes",
+      "release-evidence",
+    ];
+    let previous = -1;
+    for (const stage of order) {
+      const current = release.search(
+        new RegExp(`scope\\.stage\\(\\s*"${stage}"`),
+      );
+      expect(current, stage).toBeGreaterThan(previous);
+      previous = current;
+    }
+    expect(release).toMatch(/invoke\(\s*"cmp"/u);
+    expect(release).toContain('storePreviewEvidence("backup"');
+    expect(release).toContain('storePreviewEvidence("release"');
     expect(deployment).toContain("KEEL_PREVIEW_BACKUP_BUCKET");
     expect(deployment).not.toContain("BACKUP_SECRET_ACCESS_KEY");
     expect(deployment).not.toContain("continue-on-error");
-    expect(migrations).toBeGreaterThan(backupUpload);
-    expect(apiDeploy).toBeGreaterThan(migrations);
-    expect(webDeploy).toBeGreaterThan(apiDeploy);
-    expect(smokes).toBeGreaterThan(webDeploy);
-    expect(evidence).toBeGreaterThan(smokes);
-    expect(evidenceUpload).toBeGreaterThan(evidence);
-    expect(cleanup).toBeGreaterThan(evidenceUpload);
+    const cleanup = deployment.indexOf("Remove private runner files");
+    expect(cleanup).toBeGreaterThan(
+      deployment.indexOf("scripts/d1-maintenance.ts release"),
+    );
 
     const cleanupStep = deployment.slice(cleanup);
     expect(cleanupStep).toContain('"$KEEL_API_WRANGLER_OUTPUT_PATH"');
