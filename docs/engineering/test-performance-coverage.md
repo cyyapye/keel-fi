@@ -1219,3 +1219,43 @@ confirmation and cancelling it must produce zero review writes. Choosing
 Scenario only must send one POST for the selected evidence event with the
 `scenario_only` decision. The previous case passed both a deliberately wrong
 `accepted` payload and a write on Cancel. The stronger case rejects both faults.
+
+### Capacity accounting boundaries replace the full-day soak
+
+The reservation owner needs to prevent concurrent overspending, preserve charges
+through cleanup and keep its storage work bounded. The former 1,440-attempt JSON
+test repeated one synthetic successful reservation every minute. Its five-second
+process CPU assertion had no demonstrated production requirement. The CPU
+assertion could fail after every accounting assertion passed.
+
+The replacement executes 120 consecutive minute reservations through the same
+production entry point, real hashing and in-memory JSON conditional-write store.
+Every attempt checks cumulative row charges, operation count, the exact
+45-minute retention boundary and ledger bytes. One final reservation jumps to
+23:59 and checks that expired entries disappear while all 121 charges remain.
+The complete trace requires 242 storage reads and 242 writes. The separate
+size-limit test keeps its oversized-ledger and contention checks with one setup
+reservation, removing its duplicate 120-operation accounting trace.
+
+Existing tests retain competing callers, duplicate execution, uncertain work,
+exhausted row and operation budgets, expiration, midnight and real R2
+conditional writes. The real authenticated agent-day and D1 billing tests
+remain. This change gives up the repeated middle-of-day soak beyond 120
+consecutive minutes and removes the five-second CPU benchmark. The replacement
+uses Vitest's normal five-second timeout. Production quota code and policy
+limits are unchanged.
+
+Five alternating local pairs on Darwin with Node 22.13.0 passed all 20 owner
+tests on each side. The replacement case had a median duration of 64.052 ms,
+with a range of 63.712 to 64.112 ms. The former case took 517.080 ms, with a
+range of 508.561 to 520.333 ms. These measure the test workload on this machine
+and do not predict the complete Linux gate's duration. JSON ledger processing
+and hashing are repeated 121 times instead of 1,440 times.
+
+Private mutation checks made the replacement fail independently for six faults.
+They disabled completed-entry cleanup, retained an entry at its expiration
+boundary, reset daily charges, reset operation counts after cleanup, rejected
+work after the long idle gap and added an extra storage read. Production source
+was restored byte-for-byte after each experiment. No long benchmark is added to
+the ordinary gate because there is no production performance decision for it to
+support.

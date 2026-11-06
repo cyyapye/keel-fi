@@ -440,69 +440,57 @@ describe("shared D1 capacity owner", () => {
     ).rejects.toMatchObject({ reason: "capacity" });
   });
 
-  it("bounds a full virtual day of minute attempts without claiming unchanged freshness", async () => {
-    const startedAt = performance.now();
-    const initialCpu = process.cpuUsage();
+  it("bounds JSON accounting through repeated compaction and a late-day reservation", async () => {
     const store = new JsonStore();
-    let completed = 0;
-    for (let minute = 0; minute < 1440; minute++) {
-      try {
-        await runCapacityWork(
+    const midnight = Date.parse("2026-08-20T00:00:00.000Z");
+    for (let minute = 0; minute < 120; minute++) {
+      const instant = midnight + minute * 60_000;
+      await expect(
+        runCapacityWork(
           {
             ...options(store, `synthetic-minute-${minute}`),
-            operationCreatedAt: new Date(
-              Date.parse("2026-08-20T00:00:00.000Z") + minute * 60_000,
-            ).toISOString(),
-            now: () => Date.parse("2026-08-20T00:00:00.000Z") + minute * 60_000,
+            operationCreatedAt: new Date(instant).toISOString(),
+            now: () => instant,
           },
           () => Promise.resolve("done"),
-        );
-        completed++;
-      } catch (error) {
-        expect(error).toBeInstanceOf(CapacityUnavailableError);
-      }
-      if ((minute + 1) % 360 === 0) {
-        const cpu = process.cpuUsage(initialCpu);
-        console.info(
-          JSON.stringify({
-            event: "capacity_virtual_day_progress",
-            attempts: minute + 1,
-            cpuMicros: cpu.user + cpu.system,
-            elapsedMs: Math.round(performance.now() - startedAt),
-          }),
-        );
-      }
+        ),
+      ).resolves.toBe("done");
+      const ledger = store.value;
+      expect(ledger.charged).toEqual({
+        reads: (minute + 1) * 100,
+        writes: (minute + 1) * 10,
+      });
+      expect(ledger.producerCharges[0]?.operations).toBe(minute + 1);
+      expect(ledger.entries).toHaveLength(Math.min(minute + 1, 45));
+      expect(
+        new TextEncoder().encode(JSON.stringify(ledger)).length,
+      ).toBeLessThanOrEqual(CAPACITY_MAX_BYTES);
     }
-    expect(completed).toBeGreaterThan(120);
-    expect(completed).toBe(1440);
-    expect(store.reads).toBe(1440 + completed);
-    expect(store.writes).toBe(2 * completed);
-    expect(
-      new TextEncoder().encode(JSON.stringify(store.value)).length,
-    ).toBeLessThanOrEqual(CAPACITY_MAX_BYTES);
-    expect(store.value?.charged).toEqual({
-      reads: completed * 100,
-      writes: completed * 10,
+    const late = midnight + 1439 * 60_000;
+    await expect(
+      runCapacityWork(
+        {
+          ...options(store, "synthetic-late-day"),
+          operationCreatedAt: new Date(late).toISOString(),
+          now: () => late,
+        },
+        () => Promise.resolve("done"),
+      ),
+    ).resolves.toBe("done");
+    expect(store.reads).toBe(242);
+    expect(store.writes).toBe(242);
+    const ledger = store.value;
+    expect(ledger.charged).toEqual({ reads: 12_100, writes: 1_210 });
+    expect(ledger.producerCharges[0]?.operations).toBe(121);
+    expect(ledger.entries).toHaveLength(1);
+    expect(ledger.entries[0]).toMatchObject({
+      state: "completed",
+      operationCreatedAt: new Date(late).toISOString(),
     });
-    expect(store.value?.entries).toHaveLength(45);
-    const cpu = process.cpuUsage(initialCpu);
     expect(
-      cpu.user + cpu.system,
-      "Full virtual day CPU time (microseconds)",
-    ).toBeLessThanOrEqual(5_000_000);
-    console.info(
-      JSON.stringify({
-        event: "capacity_virtual_day",
-        attempts: 1440,
-        admitted: completed,
-        reads: store.reads,
-        writes: store.writes,
-        ledgerBytes: new TextEncoder().encode(JSON.stringify(store.value))
-          .length,
-        storage: "simulated-CAS",
-      }),
-    );
-  }, 8_000);
+      new TextEncoder().encode(JSON.stringify(ledger)).length,
+    ).toBeLessThanOrEqual(CAPACITY_MAX_BYTES);
+  });
 
   it("compacts expired completed entries atomically without refunds or executable old requests", async () => {
     const store = new MemoryStore();
@@ -810,15 +798,9 @@ describe("shared D1 capacity owner", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("bounds ledger bytes entries CAS retries and complete virtual-day object work", async () => {
+  it("bounds ledger bytes entries and CAS retries", async () => {
     const store = new MemoryStore();
-    for (let index = 0; index < 120; index++)
-      await runCapacityWork(options(store, `synthetic-day-${index}`), () =>
-        Promise.resolve("done"),
-      );
-    expect(store.reads).toBe(240);
-    expect(store.writes).toBe(240);
-    expect(store.value?.charged).toEqual({ reads: 12_000, writes: 1_200 });
+    await runCapacityWork(options(store), () => Promise.resolve("done"));
     const template = store.value!.entries[0]!;
     store.value!.entries = Array.from(
       { length: CAPACITY_MAX_ENTRIES },

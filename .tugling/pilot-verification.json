@@ -100,7 +100,7 @@
       "runtime": {
         "owner": "native-command",
         "launch": "A one-worker Vitest preflight executes the strict files before the Python ownership and accounting cases. Every other native flow waits for this gate. A same-source, same-attempt, same-coordinator proof binds its complete report for one main-phase consumer.",
-        "health": "Preflight and main Vitest partitions must form the complete reviewed unit inventory exactly once. Existing five-second deadlines, all 1,440 minute attempts, real hashes, JSON CAS accounting and Python failure controls remain.",
+        "health": "Preflight and main Vitest partitions must form the complete reviewed unit inventory exactly once. Existing five-second deadlines, real hashes, deterministic JSON accounting across repeated compaction and a late-day reservation, and Python failure controls remain.",
         "cleanup": "Owned leases prevent report replacement. Main claims the preflight proof once; missing, stale, mismatched or overlapping results fail. Existing temporary checkout and process cleanup remains mandatory."
       },
       "depends_on": []
