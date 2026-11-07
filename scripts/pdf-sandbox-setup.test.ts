@@ -10,15 +10,12 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:net";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { it, expect } from "vitest";
 import { type SandboxCommand } from "./pdf-sandbox";
-import {
-  bootstrapPdfSandbox,
-  checkPdfSandbox,
-  registerPdfSandbox,
-} from "./pdf-sandbox-setup";
+import { bootstrapPdfSandbox, registerPdfSandbox } from "./pdf-sandbox-setup";
 
 const engine = {
   OSType: "linux",
@@ -96,7 +93,7 @@ async function prepare() {
     throw new Error("Setup may only inspect the existing daemon and images");
   };
   const options = { configPath, sharedPath, transport: () => command };
-  return { root, server, bindings, file, write, calls, options };
+  return { root, server, file, calls, options };
 }
 
 it("reuses one registered PDF runtime across worktrees without replacing existing bindings", async () =>
@@ -234,16 +231,29 @@ it("leaves a fresh worktree unbound when PDF configuration or runtime readiness 
     await expect(lstat(configPath)).rejects.toMatchObject({ code: "ENOENT" });
   }));
 
-it("honors an explicit PDF configuration override and reports the recovery command", async () =>
-  fixture(async ({ root, options }) => {
-    await expect(checkPdfSandbox(options)).resolves.toHaveProperty(
-      "version",
-      1,
-    );
+it("honors an explicit PDF configuration override and reports the recovery command", async () => {
+  const root = await mkdtemp(join(tmpdir(), "kp-cli-"));
+  try {
+    // Ignoring the override must produce an invalid-default error, not the
+    // same missing-config error expected from the explicit path.
+    const fallback = join(root, ".keel-local", "pdf-sandbox.json");
+    await mkdir(dirname(fallback), { mode: 0o700 });
+    for (const profile of profiles)
+      await writeFile(
+        fallback + (profile === "reader" ? "" : `.${profile}`),
+        "{}",
+        { mode: 0o600 },
+      );
     const result = spawnSync(
       process.execPath,
-      ["--import", "tsx", resolve("scripts/pdf-sandbox-setup.ts"), "bootstrap"],
+      [
+        "--import",
+        createRequire(import.meta.url).resolve("tsx"),
+        resolve("scripts/pdf-sandbox-setup.ts"),
+        "bootstrap",
+      ],
       {
+        cwd: root,
         env: {
           ...process.env,
           KEEL_PDF_SANDBOX_CONFIG: join(root, "missing.json"),
@@ -253,6 +263,11 @@ it("honors an explicit PDF configuration override and reports the recovery comma
       },
     );
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Missing PDF");
+    expect(result.stderr).toMatch(
+      /Missing PDF (?:probe|scanner|reader) configuration\./u,
+    );
     expect(result.stderr).toContain("make pdf-sandbox-register");
-  }));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
