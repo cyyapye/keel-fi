@@ -75,6 +75,25 @@ async function openHolding(page: Page, id: string) {
   await expect(workspace(page)).toBeVisible();
 }
 
+async function readOverview(page: Page, fresh = false) {
+  const menu = page.getByRole("button", { name: "Open navigation menu" });
+  if (await menu.isVisible()) await menu.click();
+  const response = fresh
+    ? page.waitForResponse(
+        (result) => new URL(result.url()).pathname === "/api/alpha",
+        { timeout: 5_000 },
+      )
+    : null;
+  await page.getByRole("button", { name: /\bOverview$/u }).click();
+  if (response) {
+    const result = await response;
+    expect(result.status(), await result.text()).toBe(200);
+  }
+  await expect(
+    page.getByRole("region", { name: "Portfolio snapshot" }),
+  ).toBeVisible();
+}
+
 async function fillReview(
   page: Page,
   options: {
@@ -1134,6 +1153,16 @@ for (const carryStatus of ["unknown", "after_carry"] as const)
       carryStatus,
     });
     await openHolding(page, prepared.positionId);
+    let unrelatedReads = 0;
+    if (carryStatus === "after_carry") {
+      await readOverview(page);
+      await page.goBack();
+      await expect(workspace(page)).toBeVisible();
+      await page.route("**/api/alpha", async (route) => {
+        unrelatedReads++;
+        await route.abort("failed");
+      });
+    }
     await fillReview(page, {
       kind: "Cash",
       amount: "",
@@ -1142,6 +1171,13 @@ for (const carryStatus of ["unknown", "after_carry"] as const)
     });
     const accepted = await saveReview(page, prepared.positionId);
     expectPreserved(accepted, prepared.receipt);
+    if (carryStatus === "after_carry") {
+      expect(unrelatedReads).toBe(0);
+      await page.unroute("**/api/alpha");
+      await readOverview(page, true);
+      await page.goBack();
+      await expect(workspace(page)).toBeVisible();
+    }
     await page.reload();
     if (carryStatus === "unknown") {
       await expect(

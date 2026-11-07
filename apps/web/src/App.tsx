@@ -9296,7 +9296,11 @@ export function App() {
         );
       }
       const refreshReviewedHoldings = async () => {
-        await Promise.all([refreshHoldingsPage(true), refreshAlphaData(true)]);
+        // Accepted changes invalidate other screens even if this readback fails.
+        alphaRequestRef.current = null;
+        setData(null);
+        setLoadError(null);
+        await refreshHoldingsPage(true);
       };
       return (
         <Holdings
