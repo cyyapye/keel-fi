@@ -51,7 +51,15 @@ def check(relative):
     report = json.loads(result.stdout)
     if report["status"] != "PASS" or report["flow_verification"]["state"] != "REQUIRED_PASS":
         raise ValueError("complete native evidence did not pass")
-    return report["flow_verification"]["evidence"]
+    evidence = report["flow_verification"]["evidence"]
+    browser = next(row for row in evidence["results"] if row["id"] == "browser-workflows")
+    limit = next(flow["timeout_seconds"] for flow in report["verification"]["flows"]
+                 if flow["id"] == "browser-workflows")
+    # A completed process can be observed after its deadline. Validate the full
+    # measured duration even when the launcher reports an otherwise valid pass.
+    if browser["duration_seconds"] > limit:
+        raise ValueError(f"Browser verification exceeded its {limit}-second budget")
+    return evidence
 
 
 def main():

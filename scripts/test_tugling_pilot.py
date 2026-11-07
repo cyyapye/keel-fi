@@ -1210,6 +1210,9 @@ with native.cost_seed_directory() as seed:
         self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', workflow)
         self.assertIn("runs-on: [self-hosted, Linux, X64, keel-ci]", workflow)
         self.assertEqual(workflow.count("make pilot-verify"), 1)
+        isolated_browser = probe.split("      - name: Time the complete browser process\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("timeout-minutes: 5", isolated_browser)
+        self.assertIn("if elapsed > 300:", isolated_browser)
         self.assertIn("scripts/ci-verification.py publish", workflow)
         self.assertEqual(ci.count("needs: [secret-scan, native]"), 3)
         self.assertEqual(ci.count("!cancelled() && (needs.secret-scan.result != 'success' ||"), 3)
@@ -1280,7 +1283,7 @@ with native.cost_seed_directory() as seed:
             'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
             'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
             'build-and-entry-budget': (['make', 'build'], 300),
-            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 1800),
+            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 300),
             'pdf-isolation': (['make', 'pdf-sandbox-verify'], 600),
         }
         self.assertEqual(flow_order, list(expected_commands))

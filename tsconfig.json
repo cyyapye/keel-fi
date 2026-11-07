@@ -10,5 +10,11 @@
     "scripts/**/*.ts",
     "vitest.config.ts",
     "e2e/**/*.ts"
+  ],
+  "exclude": [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/jspm_packages/**",
+    "e2e/carry-proposal/**"
   ]
 }

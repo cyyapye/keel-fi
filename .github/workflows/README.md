@@ -32,6 +32,14 @@ complete receipt from that attempt. A failed or cancelled native run cannot
 supply that receipt. The separate Tugling candidate workflow runs on manual
 dispatch. See [CI performance](../../docs/engineering/ci-performance.md).
 
+The complete required browser flow has a 300-second elapsed budget. Its launcher
+times out and cleans up an overrun; receipt publication and validation also
+reject a late success. Quality, D1, browser checks and preview cannot pass with
+an over-budget browser receipt. The clock covers the browser command's profile
+copies, server/browser startup, tests, reporting and teardown. The optional
+isolated browser timing step has the same five-minute cap and rejects a late
+successful completion.
+
 For browser timing, dispatch the Tugling candidate workflow with
 `isolated_browser` enabled. It prepares the same build and synthetic seed and
 times the complete browser process on `keel-ci` while the other native flows are

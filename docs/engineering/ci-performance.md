@@ -36,6 +36,33 @@ Exceeding that budget fails required verification without silently dropping
 checks. Watchdogs remain independent safety ceilings. Do not raise the budget to
 hide a regression.
 
+The complete `browser-workflows` command has a separate **300-second elapsed
+budget** in `.tugling/pilot-verification.json`. It includes profile copies,
+server/browser startup, all registered cases, report validation and owned
+runtime teardown. Queue time and the existing build/seed prerequisite flows
+remain separate. The native launcher terminates an overrun. Receipt publication
+and every downstream receipt check also compare the measured duration with the
+declared limit, so observing an exit-code-zero process just after its deadline
+cannot produce a green check. The 900-second whole-gate budget remains.
+
+Keep browser lanes balanced as coverage grows. The carry/share-basis change
+added 24 executions to one serial production lane, taking its passing count from
+38 to 62. Required browsers grew from 240.149 seconds to 341.573 seconds on that
+feature's merge candidate, then 338.356 seconds on `f5b1034a`. Purchase-details,
+share-basis and legal-name-resolution specs now move to the other equivalent
+production lane. The observed case-body loads predict roughly 237/239 seconds
+instead of 312/165. These are scheduling estimates, not a measured CI
+improvement. Every case, assertion, snapshot and platform exclusion remains;
+each stateful lane still has one worker and the global cap stays four. The
+active required gate must establish the resulting Linux timing.
+
+The complete local functional replay on macOS passes all 151 executions and the
+same 15 exclusions in 96.717 seconds through the actual 300-second launcher
+deadline, including report accounting and cleanup. This isolated run does not
+establish canonical Linux pixels or elapsed time under concurrent CI work.
+Functional mode accepts the native runner's read-only `--update-snapshots=none`;
+actual snapshot-update modes remain rejected.
+
 Use Actions job creation/start/completion timestamps to measure queue and setup
 time separately. Compare complete successful workflows at the same coverage; do
 not count cancelled or filtered runs as speed improvements. Desired future
@@ -104,12 +131,15 @@ cutoff. The map restores the previous order.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It
-retains every root, workspace, catalogue and synthetic proposal context, all
-lint files and rules, and the zero-warning limit. Standalone `make lint` and
-`make typecheck` remain available. Both type-check paths include
-`e2e/carry-proposal/tsconfig.json`. The combined command validates canonical
-context discovery, configuration syntax, CLI options, complete roots and
-supported source types. Missing contexts and unsupported compiler modes fail
+retains every active root, workspace and catalogue context, their lint files and
+rules, and the zero-warning limit. Standalone `make lint` and `make typecheck`
+remain available. The historical
+[carry proposal](../../e2e/carry-proposal/README.md) has opt-in replay checks;
+its compiler context and dummy fixture are retired from ordinary CI now that the
+shipped feature has domain, API, D1 and browser coverage. The public-data scan
+and formatting checks still include the archive. The combined command validates
+canonical context discovery, configuration syntax, CLI options, complete roots
+and supported source types. Missing contexts and unsupported compiler modes fail
 rather than silently reducing coverage. Alternative parsers and processors are
 refused because transformed input can hide diagnostics from the original source.
 It creates no persistent cache or receipt.

@@ -13,6 +13,8 @@ export default tseslint.config(
       "**/playwright-report/**",
       "**/test-results/**",
       "**/.wrangler/**",
+      // Frozen review artifact; standalone replay checks live in its README.
+      "e2e/carry-proposal/**",
       // These Git-ignored directories can change while independent CI flows run.
       ".tugling/local/**",
       ".tugling/checkouts/**",

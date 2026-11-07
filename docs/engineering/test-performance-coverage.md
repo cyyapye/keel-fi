@@ -1,5 +1,46 @@
 # Test performance and retained proof
 
+## Active checks and historical proposal replay
+
+After #345, ordinary CI still compiled the historical carry proposal alongside
+its shipped replacement. The proposal has no production import or ordinary
+browser/unit execution. Its separate compiler context and always-created dummy
+compiler fixture did not protect an additional application behavior. They now
+run only through the documented opt-in replay commands. The original artifact,
+public-data scan and formatting remain. Every active application, workspace and
+UI catalogue context keeps full compiler diagnostics and typed lint.
+
+The source-link schema now has two behavior owners covering ten representative
+inputs instead of 21 table registrations. Repeated scheme prefixes, malformed
+URL variants and extra non-HTTPS protocols shared the same rejection condition.
+The smaller set retains blank/incomplete input, HTTP and executable URLs,
+independent username/password rejection and the length boundary. It also accepts
+exactly 2,048 characters and rejects 2,049. Before the change, all 21 cases
+passed when the password guard was removed or the limit incorrectly became
+2,047. Both faults now fail, along with missing username/protocol/length guards
+and a throwing malformed-input path. These are in-memory mutations of the actual
+source module; production code is unchanged.
+
+Registered unit identities fall from 1,671 to 1,652. Browser inventory, D1 cost
+and migration proof, authentication, acceptance, append-only checks, worker
+limits and deadlines remain unchanged. The three compiler-fixture cases retain
+CLI diagnostics, active-context completeness, command/host rejection, cache
+freshness, child deadlines, output bounds and cleanup. Only the retired
+proposal-specific setup and controls are removed.
+
+Three alternating macOS pairs compare the combined source checker and the two
+affected unit files separately, using fresh processes and identical commands per
+side. Source-check peak RSS has a median of 3,868 MiB before and 3,526 MiB
+after; ranges are 3,847–3,872 and 3,490–3,679 MiB. Source wall-time ranges
+overlap (32.708–37.099 versus 31.949–35.553 seconds), so no source wall-time
+gain is established. The unit-file comparison has non-overlapping wall-time
+ranges; its exact medians and ranges are recorded below. These local component
+checks do not establish ordinary Linux CI timing.
+
+The two unit files fall from a median 8.581 seconds (range 8.414–8.828) to 7.744
+seconds (range 7.728–7.747). Every comparison passes its complete selected
+inventory.
+
 ## Test necessity
 
 Keep a test when it catches a named Keel failure. Use the cheapest layer that

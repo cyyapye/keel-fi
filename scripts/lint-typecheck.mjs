@@ -7,7 +7,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 const rootTypecheck =
-  "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck && tsc --noEmit -p e2e/ui-catalogue/tsconfig.json && tsc --noEmit -p e2e/carry-proposal/tsconfig.json";
+  "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck && tsc --noEmit -p e2e/ui-catalogue/tsconfig.json";
 const emissionOptions = [
   "declaration",
   "declarationMap",
@@ -50,11 +50,7 @@ function discoverContexts(cwd) {
   if (workspace !== "packages:\n  - apps/*\n  - packages/*\n  - connectors/*") {
     throw new Error("Unsupported workspace selection");
   }
-  const configs = [
-    "tsconfig.json",
-    "e2e/ui-catalogue/tsconfig.json",
-    "e2e/carry-proposal/tsconfig.json",
-  ];
+  const configs = ["tsconfig.json", "e2e/ui-catalogue/tsconfig.json"];
   for (const family of ["apps", "packages"]) {
     for (const entry of readdirSync(resolve(cwd, family), {
       withFileTypes: true,
