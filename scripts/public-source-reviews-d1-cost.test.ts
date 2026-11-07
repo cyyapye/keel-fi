@@ -39,35 +39,24 @@ for (const history of [12, 24] as const) {
       let version = 0;
       const receiptIds = new Map<string, string>();
       let receiptCost = { rowsRead: 0, rowsWritten: 0 };
+      const sqlText = (value: string | null) =>
+        value === null ? "NULL" : `'${value.replaceAll("'", "''")}'`;
       for (let round = 0; round < history; round++) {
         const statements = anchors.map((anchor, index) => {
           const id = `synthetic-source-cost-${round}-${index}`;
           const prior = receiptIds.get(anchor.position_id) ?? null;
           receiptIds.set(anchor.position_id, id);
-          return db
-            .prepare(
-              `INSERT INTO public_holding_source_reviews(id,household_id,review_key,import_row_id,position_id,source_snapshot_id,prior_position_id,prior_snapshot_id,prior_review_id,expected_household_version,decision,decision_source,policy_version,reviewer_user_id,created_at,initial_acceptance)
-            VALUES (?,'hh_demo',?,?,?,?,NULL,NULL,?,?,'separate','manual',NULL,'usr_demo','2026-08-25T12:00:00.000Z',0)`,
-            )
-            .bind(
-              id,
-              `${anchor.container_id}:${anchor.protected_position_key}`,
-              anchor.row_id,
-              anchor.position_id,
-              anchor.snapshot_id,
-              prior,
-              version++,
-            );
+          return `INSERT INTO public_holding_source_reviews(id,household_id,review_key,import_row_id,position_id,source_snapshot_id,prior_position_id,prior_snapshot_id,prior_review_id,expected_household_version,decision,decision_source,policy_version,reviewer_user_id,created_at,initial_acceptance)
+            VALUES (${sqlText(id)},'hh_demo',${sqlText(`${anchor.container_id}:${anchor.protected_position_key}`)},${sqlText(anchor.row_id)},${sqlText(anchor.position_id)},${sqlText(anchor.snapshot_id)},NULL,NULL,${sqlText(prior)},${version++},'separate','manual',NULL,'usr_demo','2026-08-25T12:00:00.000Z',0)`;
         });
-        const results = await db.batch(statements);
+        // Prepare fixture-history statements inside workerd. The host proxy's
+        // per-statement handles are not part of this D1 billing holdout.
+        const results = await runtime.execute(statements);
         if (round === history - 1)
-          receiptCost = results.reduce(
-            (total, result) => ({
-              rowsRead: total.rowsRead + result.meta.rows_read,
-              rowsWritten: total.rowsWritten + result.meta.rows_written,
-            }),
-            { rowsRead: 0, rowsWritten: 0 },
-          );
+          receiptCost = {
+            rowsRead: results.rowsRead,
+            rowsWritten: results.rowsWritten,
+          };
       }
       expect(receiptCost.rowsWritten).toBeLessThanOrEqual(5000);
       expect(receiptCost.rowsRead).toBeLessThanOrEqual(12000);
