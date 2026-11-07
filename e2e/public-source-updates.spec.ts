@@ -100,9 +100,11 @@ test("keeps safe updates automatic and records each selected identity correction
   expect(confirmBox!.x + confirmBox!.width).toBeLessThanOrEqual(320);
   await page.setViewportSize(viewport);
   await captureSource(source, "decision");
-  await expect(page).toHaveScreenshot("public-source-decision.png", {
-    fullPage: true,
+  // Other stateful journeys add independent connections to this shared D1
+  // profile. Bind this composition's image to the source under review.
+  await expect(source).toHaveScreenshot("public-source-decision.png", {
     animations: "disabled",
+    stylePath: resolve("e2e/purchase-details.capture.css"),
   });
   await form
     .getByRole("button", { name: "Confirm same holding", exact: true })
@@ -228,9 +230,9 @@ test("a unique verified security match needs no human decision and keeps omissio
     }),
   ).toBeVisible();
   await captureSource(source, "automatic");
-  await expect(page).toHaveScreenshot("public-source-automatic.png", {
-    fullPage: true,
+  await expect(source).toHaveScreenshot("public-source-automatic.png", {
     animations: "disabled",
+    stylePath: resolve("e2e/purchase-details.capture.css"),
   });
 });
 
