@@ -212,12 +212,26 @@ test("keeps the Overview masthead swipeable without a duplicate goals section", 
       ),
     ).toBeLessThanOrEqual(1);
   }
-  await expect(portfolioBase).toHaveScreenshot("overview-portfolio-base.png", {
-    animations: "disabled",
-    caret: "hide",
-    maxDiffPixelRatio: 0.025,
-    threshold: 0.25,
+  // The chart above can place this crop at a fractional CSS pixel. Align only
+  // the capture origin so equivalent layouts do not gain a blank pixel row.
+  const captureStyle = await page.addStyleTag({
+    content: `.portfolio-outlook__base { transform: translateY(${Math.ceil(portfolioBaseBox!.y) - portfolioBaseBox!.y}px); }`,
   });
+  try {
+    await expect(portfolioBase).toHaveScreenshot(
+      "overview-portfolio-base.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
+  } finally {
+    await captureStyle.evaluate((element) => {
+      element.parentNode?.removeChild(element);
+    });
+  }
 
   await page.evaluate(() => window.scrollTo(0, 0));
   await goalDots.first().focus();
