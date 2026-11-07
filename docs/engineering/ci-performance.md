@@ -56,6 +56,22 @@ improvement. Every case, assertion, snapshot and platform exclusion remains;
 each stateful lane still has one worker and the global cap stays four. The
 active required gate must establish the resulting Linux timing.
 
+The first required attempt, `42339574169`, reached the new browser deadline and
+failed closed. Its 303.050-second duration includes termination and owned
+cleanup; remaining cases did not run and no complete receipt was published. The
+rebalance alone is insufficient under that run's concurrent load. Host samples
+show memory pressure and 2,398.6 MiB of swap in use; sampled process RSS peaks
+were 8,242 MiB for browsers, 3,667 MiB for source checks and 2,638 MiB for
+unit/D1 work. These peaks are not additive physical-memory measurements.
+Browsers now wait for source checks and unit/D1 verification to release their
+resources. Their existing work remains required within the same 900-second
+native gate, and browser execution still has its 300-second limit.
+
+The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
+208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions
+and the same 15 exclusions. This supports removing competing heavy work; the
+required gate must still establish both elapsed budgets with the new schedule.
+
 The complete local functional replay on macOS passes all 151 executions and the
 same 15 exclusions in 96.717 seconds through the actual 300-second launcher
 deadline, including report accounting and cleanup. This isolated run does not
@@ -114,13 +130,14 @@ overlapping preflight evidence fails verification.
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
 most three native flows run concurrently. Admission follows the reviewed map's
-first-ready order. Unit and browser work may overlap source checks after their
-own prerequisites pass. PDF isolation waits for source checks, so its scanner
-cannot overlap the compiler flow. Source checks still must pass in the same
-complete receipt. Configured scanner and compiler limits do not establish
-observed memory use or available host capacity. The 900-second active budget and
-per-case deadlines remain. Native main units and standalone execution use three
-workers after the two-worker trial below failed the complete budget.
+first-ready order. Unit work may overlap source checks. Browsers wait for both
+flows to complete, avoiding three competing heavy phases. PDF isolation waits
+for source checks, so its scanner cannot overlap the compiler flow; it may
+overlap browsers after the unit flow completes. Source checks still must pass in
+the same complete receipt. Configured scanner and compiler limits do not
+establish observed memory use or available host capacity. The 900-second active
+budget and per-case deadlines remain. Native main units and standalone execution
+use three workers after the two-worker trial below failed the complete budget.
 
 Draft PR #340 tried admitting the workspace build before the main unit suite in
 [run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
