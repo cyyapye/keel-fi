@@ -160,6 +160,9 @@ export function createSqliteTrace() {
   } as unknown as D1Database;
   return {
     database,
+    get queries(): readonly string[] {
+      return queries;
+    },
     get roundTrips() {
       return roundTrips;
     },

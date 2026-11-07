@@ -31,7 +31,8 @@
         "scripts/lint-typecheck.mjs",
         "scripts/lint-typecheck.test.ts",
         "pnpm-workspace.yaml",
-        "scripts/test-support/lint-typecheck-fixture.mjs"
+        "scripts/test-support/lint-typecheck-fixture.mjs",
+        "scripts/pdf-sandbox-setup.ts"
       ],
       "runtime": null,
       "depends_on": ["gate-and-artifact-integrity"]
@@ -121,7 +122,8 @@
         "scripts/test-support/legal-documents.ts",
         "scripts/pdf-sandbox-owner.ts",
         "scripts/pdf-sandbox-owner.py",
-        "scripts/pdf-sandbox-error.ts"
+        "scripts/pdf-sandbox-error.ts",
+        "scripts/pdf-sandbox-setup.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -251,7 +253,9 @@
         "scripts/test-support/synthetic-historical-foreign-key-indexes.sql",
         "scripts/test-support/query-inventory.ts",
         "scripts/test-support/query-inventory.test.ts",
-        "scripts/test-support/lint-typecheck-fixture.mjs"
+        "scripts/test-support/lint-typecheck-fixture.mjs",
+        "scripts/pdf-sandbox-setup.ts",
+        "scripts/pdf-sandbox-setup.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
@@ -525,7 +529,10 @@
       "sources": [
         "CONTRIBUTING.md",
         "Makefile",
-        "scripts/check-web-entry-budget.mjs"
+        "scripts/check-web-entry-budget.mjs",
+        "scripts/pdf-sandbox-setup.ts",
+        "scripts/pdf-sandbox-setup.test.ts",
+        "docs/deployment/pdf-sandbox.md"
       ],
       "flows": [
         "source-quality",

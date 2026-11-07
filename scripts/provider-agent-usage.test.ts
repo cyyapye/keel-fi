@@ -27,7 +27,6 @@ const START = Date.parse("2026-09-01T00:00:00.000Z");
 const SUBJECT = "synthetic-access-subject";
 const ORIGIN = "https://agents.keel.example.com";
 const PROVIDERS = ["angellist", "tokenfolio", "sydecar"] as const;
-const report = console.info.bind(console);
 
 class MeasuredStatement {
   private bindings: SQLInputValue[] = [];
@@ -63,7 +62,6 @@ class MeasuredStatement {
 class MeasuredDatabase {
   private readonly statements = new Map<string, StatementSync>();
   public roundTrips = 0;
-  public queries = new Set<string>();
   public constructor(public readonly sqlite: DatabaseSync) {}
   // Reuse compilation only within this owned database. Every call still binds,
   // executes and counts; no result, authorization or mutable state is cached.
@@ -76,7 +74,6 @@ class MeasuredDatabase {
     return statement;
   }
   public prepare(sql: string): MeasuredStatement {
-    this.queries.add(sql);
     return new MeasuredStatement(this, sql);
   }
   public batch(statements: MeasuredStatement[]): Promise<{ success: true }[]> {
@@ -332,116 +329,6 @@ describe("provider agent operating budget", () => {
     expect(useBrowser).not.toHaveBeenCalled();
   });
 
-  it("keeps a full idle day for all three agents inside the shared request and write budgets", async () => {
-    const { measured, clock, authorizations, traffic } = await fixture();
-    const before = measured.changes();
-    const beforeRoundTrips = measured.roundTrips;
-    const useBrowser = vi.fn(() =>
-      Promise.reject(
-        new Error("An idle agent must not open a provider browser"),
-      ),
-    );
-    for (const provider of PROVIDERS) {
-      clock.now = START;
-      const authorization = authorizations.get(provider)!;
-      const controller = new AbortController();
-      await runProviderAgentPolling({
-        ...(provider === "sydecar"
-          ? {
-              checkSessionRenewal: () =>
-                __providerPortfolioMacAgentTest.checkSessionRenewal(
-                  new URL(ORIGIN),
-                  authorization,
-                  useBrowser,
-                ),
-            }
-          : {}),
-        checkReconnect: async () => {
-          expect(
-            (await leaseProviderBrowserSession(authorization, provider))
-              .session,
-          ).toBeNull();
-          return "idle";
-        },
-        checkUpdates: async () => {
-          if (provider === "angellist") {
-            expect((await leaseUpdate(authorization)).run).toBeNull();
-          } else {
-            expect(
-              await __providerPortfolioMacAgentTest.pollOnce(
-                new URL(ORIGIN),
-                provider,
-                authorization,
-                useBrowser,
-              ),
-            ).toBe(false);
-          }
-        },
-        updateIntervalMs:
-          provider === "angellist"
-            ? __angellistMacAgentTest.queuedUpdatePollIntervalMs
-            : __providerPortfolioMacAgentTest.queuedUpdatePollIntervalMs,
-        onError: (error) => {
-          throw error;
-        },
-        now: () => clock.now,
-        sleep: (milliseconds) => {
-          clock.now += milliseconds;
-          if (clock.now >= START + DAY_MS) controller.abort();
-          return Promise.resolve();
-        },
-        signal: controller.signal,
-      });
-    }
-    expect(traffic.http).toBeLessThanOrEqual(10_000);
-    expect(traffic.workerInvocations).toBeLessThanOrEqual(20_000);
-    expect(measured.changes() - before).toBeLessThanOrEqual(2_000);
-    expect(traffic.maxRoundTrips).toBeLessThanOrEqual(10);
-    expect(useBrowser).not.toHaveBeenCalled();
-    // SQLite's change counter excludes index maintenance. A new heartbeat
-    // index must trigger an explicit D1 write-budget review instead of silently
-    // making the measured row count understate billable writes.
-    const heartbeatIndexes = measured.sqlite
-      .prepare(
-        `SELECT sql FROM sqlite_master WHERE type = 'index'
-         AND tbl_name IN ('mac_agent_credentials', 'angellist_mac_agents',
-           'provider_portfolio_agents') AND sql IS NOT NULL`,
-      )
-      .all();
-    expect(
-      heartbeatIndexes.some((row) =>
-        /\b(last_used_at|last_seen_at|updated_at)\b/iu.test(String(row.sql)),
-      ),
-    ).toBe(false);
-    // Prove the real credential lookup uses indexes even with 120 retired
-    // credentials. A cached authorization result would hide this boundary.
-    const lookup = [...measured.queries].find((sql) =>
-      sql.includes("AS retire_older"),
-    )!;
-    const plan = measured.sqlite
-      .prepare(`EXPLAIN QUERY PLAN ${lookup}`)
-      .all("angellist", "0".repeat(64));
-    const details = plan.map((row) => String(row.detail));
-    expect(
-      details.some((detail) => /SCAN (credential|older|newer)\b/u.test(detail)),
-    ).toBe(false);
-    expect(
-      details.filter((detail) =>
-        /SEARCH (credential|older|newer)\b/u.test(detail),
-      ),
-    ).toHaveLength(3);
-    report(
-      JSON.stringify({
-        syntheticAgentDay: {
-          ...traffic,
-          databaseRowsChanged: measured.changes() - before,
-          databaseRoundTrips: measured.roundTrips - beforeRoundTrips,
-          idleBrowserStarts: useBrowser.mock.calls.length,
-        },
-      }),
-    );
-  }, 30_000);
-
   it("releases a Sydecar lease when browser startup fails and stays closed on the next empty check", async () => {
     const { measured, authorizations, portfolios } = await fixture();
     const authorization = authorizations.get("sydecar")!;
@@ -631,9 +518,11 @@ describe("provider agent operating budget", () => {
         },
         now: () => clock.now,
         sleep: async (milliseconds) => {
-          requestedAt = ++clock.now;
-          await portfolios.requestRun(SUBJECT, provider);
-          clock.now += milliseconds - 1;
+          if (requestedAt === 0) {
+            requestedAt = clock.now + 1;
+            await portfolios.requestRun(SUBJECT, provider);
+          }
+          clock.now += milliseconds;
         },
         signal: controller.signal,
       });

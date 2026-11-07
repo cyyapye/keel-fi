@@ -26,7 +26,7 @@ export npm_config_cache npm_config_prefer_offline npm_config_update_notifier WRA
 
 help:
 	@echo "Keel developer commands"
-	@echo "  make bootstrap     Install dependencies, seed local D1, install Chromium"
+	@echo "  make bootstrap     Install dependencies, bind the PDF runtime, seed D1 and install Chromium"
 	@echo "  make dev           Seed default local data and start API + web"
 	@echo "  make dev SCENARIO=empty-holdings  Start a named data scenario"
 	@echo "  make dev-up        Build and start the Docker development stack"
@@ -38,6 +38,8 @@ help:
 	@echo "  make verify        Run the complete local verification suite"
 	@echo "  make pilot-verify  Run the isolated Tugling pilot required gate (TUGLING_PILOT_SOURCE required)"
 	@echo "  make pdf-sandbox-build   Build the PDF reader using a provisioned rootless Docker socket"
+	@echo "  make pdf-sandbox-register  Share this checkout's existing PDF runtime with future worktrees"
+	@echo "  make pdf-sandbox-check   Check PDF bindings, daemon policy and image availability"
 	@echo "  make pdf-sandbox-verify  Prove PDF isolation with synthetic adversarial probes"
 	@echo "  make check         Run source checks, unit tests, and builds"
 	@echo "  make ui-review-prepare BRIEF=... OUT=...   Package current design-review evidence"
@@ -59,6 +61,7 @@ help:
 bootstrap:
 	node scripts/check-toolchain.mjs
 	$(PNPM) install --frozen-lockfile
+	$(MAKE) pdf-sandbox-bootstrap
 	KEEL_LOCAL_SCENARIO="$(SCENARIO)" $(PNPM) db:reset:local
 	$(PNPM) exec playwright install chromium
 
@@ -196,6 +199,16 @@ e2e:
 	$(MAKE) db-verify-e2e
 	KEEL_E2E_ISOLATED=1 KEEL_LOCAL_PERSIST_TO="$(E2E_PERSIST_TO)" $(PNPM) test:e2e $(E2E_ARGS)
 
+.PHONY: pdf-sandbox-bootstrap pdf-sandbox-register pdf-sandbox-check
+pdf-sandbox-bootstrap:
+	node --import tsx scripts/pdf-sandbox-setup.ts bootstrap
+
+pdf-sandbox-register:
+	node --import tsx scripts/pdf-sandbox-setup.ts register
+
+pdf-sandbox-check:
+	node --import tsx scripts/pdf-sandbox-setup.ts check
+
 pdf-sandbox-build:
 	$(PNPM) exec tsx scripts/pdf-sandbox-build.ts
 
@@ -206,6 +219,7 @@ pdf-sandbox-verify:
 	node --import tsx scripts/pdf-sandbox-verify.ts
 
 verify:
+	$(MAKE) pdf-sandbox-check
 	$(MAKE) provider-document-runtime-verify
 	$(MAKE) pdf-sandbox-verify
 	$(MAKE) check

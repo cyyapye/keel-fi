@@ -16,6 +16,7 @@ import {
   runDocumentScan,
 } from "./pdf-sandbox";
 import { syntheticAgreementPdf } from "./test-support/legal-documents";
+import { registerPdfSandbox } from "./pdf-sandbox-setup";
 
 // An explicit operator/build step. Capture never builds/pulls an image, starts a
 // daemon, installs packages, or falls back to the host PDF reader.
@@ -91,6 +92,12 @@ async function main() {
       });
       await rename(staged, file);
       console.log(`PDF sandbox ${target}: ${config.image}`);
+    }
+    if (process.env.CI !== "true" && !process.env.KEEL_PDF_SANDBOX_CONFIG) {
+      await registerPdfSandbox();
+      console.log(
+        "Registered this PDF runtime for future development worktrees.",
+      );
     }
   } finally {
     await rm(temporary, { recursive: true, force: true });

@@ -89,27 +89,29 @@ def main():
         report = json.loads(report_path.read_text())
         receipt = report["flow_verification"]["evidence"]
         failed = [flow["id"] for flow in receipt["results"] if flow["failure"] is not None]
+        failed_commands = [flow["id"] for flow in receipt["results"]
+                           if type(flow["exit_code"]) is int and flow["exit_code"] > 0]
         if (exit_code == 0 or receipt["state"] != "REQUIRED_FAIL"
                 or receipt["project_revision"] != summary["regression_revision"]
-                or not receipt["worktree_unchanged"] or failed != ["native-unit-and-cost"]):
-            raise ValueError("the real required gate did not reject the intended native cost regression")
-        cost_result = receipt["results"][-1]
-        if (cost_result["failure"] != "command-failed"
-                or type(cost_result["exit_code"]) is not int or cost_result["exit_code"] <= 0
-                or cost_result["forced_cleanup"] is not False):
-            raise ValueError("the cost gate must finish with an assertion failure, not timeout or forced cleanup")
-        native = json.loads((local / "pilot/vitest.json").read_text())
-        idle_cases = [case for suite in native["testResults"]
+                or not receipt["worktree_unchanged"] or failed_commands != ["gate-and-artifact-integrity"]):
+            raise ValueError("the real required gate did not reject the polling regression in preflight")
+        preflight_result = next(flow for flow in receipt["results"]
+                                if flow["id"] == "gate-and-artifact-integrity")
+        if (preflight_result["failure"] != "command-failed"
+                or preflight_result["forced_cleanup"] is not False):
+            raise ValueError("preflight must finish with an assertion failure, not timeout or forced cleanup")
+        native = json.loads((local / "pilot/vitest-preflight.json").read_text())
+        polling_cases = [case for suite in native["testResults"]
                       if suite["name"].endswith("/scripts/provider-agent-usage.test.ts")
                       for case in suite["assertionResults"]
-                      if case["title"] == "keeps a full idle day for all three agents inside the shared request and write budgets"]
-        failure = "\n".join(idle_cases[0].get("failureMessages", [])) if len(idle_cases) == 1 else ""
-        exceeded = re.search(r"expected (\d+) to be less than or equal to 10000", failure)
-        if (len(idle_cases) != 1 or idle_cases[0]["status"] != "failed"
-                or not exceeded or int(exceeded[1]) <= 10_000):
-            raise ValueError("the rejection does not prove the intended 10000-request idle-budget violation")
+                      if case["title"] == "keeps recovery responsive when only update checks fail all day"]
+        failure = "\n".join(polling_cases[0].get("failureMessages", [])) if len(polling_cases) == 1 else ""
+        exceeded = re.search(r"expected (\d+) to be less than or equal to 1440", failure)
+        if (len(polling_cases) != 1 or polling_cases[0]["status"] != "failed"
+                or not exceeded or int(exceeded[1]) <= 1_440):
+            raise ValueError("the rejection does not prove the intended reconnect-check budget violation")
         summary.update(state="EXPECTED_REGRESSION_REJECTED", failed_flows=failed,
-                       idle_requests=int(exceeded[1]), idle_request_limit=10_000,
+                       reconnect_checks=int(exceeded[1]), reconnect_check_limit=1_440,
                        required_receipt=report["flow_verification"]["path"])
     finally:
         # Restore only the exact source this probe owns, then return to its input

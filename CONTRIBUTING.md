@@ -26,6 +26,12 @@ a later commit is not sufficient.
 6. Explain calculation, migration, security, and data-provenance effects in the
    pull request.
 
+Bootstrap reuses the host's registered PDF runtime. On a host with an existing
+configured checkout, run `make pdf-sandbox-register` there once. For a new host,
+follow the
+[PDF runtime setup](docs/deployment/pdf-sandbox.md#development-worktree-bootstrap).
+Bootstrap reports missing or inaccessible infrastructure before seeding D1.
+
 The isolated [Tugling candidate pilot](docs/engineering/tugling-pilot.md) adds
 `make pilot-verify` for complete native case accounting on a committed revision.
 Its separate source pin and PR-head evidence do not promote the candidate or

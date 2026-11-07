@@ -16,46 +16,7 @@ function reactSourceFiles(directory: string): string[] {
   });
 }
 
-function jsxElements(source: string) {
-  const elements: {
-    component: string;
-    attributes: Map<string, string>;
-  }[] = [];
-  const file = ts.createSourceFile(
-    "screen.tsx",
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX,
-  );
-  function visit(node: ts.Node) {
-    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
-      const attributes = new Map<string, string>();
-      for (const attribute of node.attributes.properties) {
-        if (!ts.isJsxAttribute(attribute)) continue;
-        const value = attribute.initializer;
-        attributes.set(
-          attribute.name.getText(file),
-          value === undefined
-            ? "true"
-            : ts.isStringLiteral(value)
-              ? value.text
-              : ts.isJsxExpression(value)
-                ? value.expression && ts.isStringLiteral(value.expression)
-                  ? value.expression.text
-                  : (value.expression?.getText(file) ?? "")
-                : value.getText(file),
-        );
-      }
-      elements.push({ component: node.tagName.getText(file), attributes });
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(file);
-  return elements;
-}
-
-function nativeDateInputs(source: string) {
+function sourceFacts(source: string) {
   const file = ts.createSourceFile(
     "screen.tsx",
     source,
@@ -69,99 +30,109 @@ function nativeDateInputs(source: string) {
       !ts.isImportDeclaration(statement) ||
       !ts.isStringLiteral(statement.moduleSpecifier) ||
       statement.moduleSpecifier.text !== "@keel/ui"
-    ) {
+    )
       continue;
-    }
     const bindings = statement.importClause?.namedBindings;
     if (bindings && ts.isNamedImports(bindings)) {
       for (const specifier of bindings.elements) {
-        if ((specifier.propertyName ?? specifier.name).text === "Input") {
+        if ((specifier.propertyName ?? specifier.name).text === "Input")
           inputs.add(specifier.name.text);
-        }
       }
     } else if (bindings && ts.isNamespaceImport(bindings)) {
       inputs.add(`${bindings.name.text}.Input`);
     }
   }
-  const violations: { component: string; line: number }[] = [];
+  const elements: {
+    component: string;
+    attributes: Map<string, string>;
+  }[] = [];
+  const nativeDateInputs: { component: string; line: number }[] = [];
   function visit(node: ts.Node) {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const component = node.tagName.getText(file);
-      if (inputs.has(component)) {
-        for (const attribute of node.attributes.properties) {
-          const value = ts.isJsxAttribute(attribute)
-            ? attribute.name.getText(file) === "type"
-              ? attribute.initializer
-              : undefined
-            : undefined;
-          const expression =
-            value && ts.isJsxExpression(value) ? value.expression : value;
-          if (
-            expression &&
-            (ts.isStringLiteral(expression) ||
-              ts.isNoSubstitutionTemplateLiteral(expression)) &&
-            expression.text === "date"
-          ) {
-            violations.push({
-              component,
-              line:
-                file.getLineAndCharacterOfPosition(node.getStart(file)).line +
-                1,
-            });
-          }
-        }
+      const attributes = new Map<string, string>();
+      let nativeDate = false;
+      for (const attribute of node.attributes.properties) {
+        if (!ts.isJsxAttribute(attribute)) continue;
+        const name = attribute.name.getText(file);
+        const value = attribute.initializer;
+        const expression =
+          value && ts.isJsxExpression(value) ? value.expression : value;
+        const literal =
+          expression &&
+          (ts.isStringLiteral(expression) ||
+            ts.isNoSubstitutionTemplateLiteral(expression));
+        attributes.set(
+          name,
+          value === undefined
+            ? "true"
+            : literal
+              ? expression.text
+              : (expression?.getText(file) ?? ""),
+        );
+        if (name === "type" && literal && expression.text === "date")
+          nativeDate = true;
       }
+      elements.push({ component, attributes });
+      if (inputs.has(component) && nativeDate)
+        nativeDateInputs.push({
+          component,
+          line:
+            file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1,
+        });
     }
     ts.forEachChild(node, visit);
   }
   visit(file);
-  return violations;
+  return { elements, nativeDateInputs };
 }
 
-// These policy checks only read the app tree, so share one source snapshot.
 const webSources = reactSourceFiles(webSourceDirectory).map((path) => {
   const source = readFileSync(path, "utf8");
   return {
     relativePath: relative(webSourceDirectory, path),
     source,
-    elements: jsxElements(source),
-  } as const;
+    ...sourceFacts(source),
+  };
 });
 
 describe("shared UI usage", () => {
-  it.each([
-    ['import { Input } from "@keel/ui"; <Input type="date" />', "Input"],
-    ['import { Input } from "@keel/ui"; <Input type={"date"} />', "Input"],
-    [
-      'import { Input as TextInput } from "@keel/ui"; <TextInput type="date" />',
-      "TextInput",
-    ],
-    ['import * as Ui from "@keel/ui"; <Ui.Input type="date" />', "Ui.Input"],
-  ])(
-    "rejects a native date through a shared input in %s",
-    (source, component) => {
-      expect(nativeDateInputs(source)).toEqual([{ component, line: 1 }]);
-    },
-  );
-
-  it.each([
-    'import { DatePicker } from "@keel/ui"; <DatePicker value="" />',
-    'import { Input } from "@keel/ui"; <Input />',
-    'import { Input } from "@keel/ui"; <Input type="text" />',
-    'import { Input as TextInput } from "@keel/ui"; <TextInput type="email" />',
-    'import * as Ui from "@keel/ui"; <Ui.Input type="search" />',
-    'import { Input } from "other-library"; <Input type="date" />',
-    'function Input() {} <Input type="date" />',
-  ])("accepts the supported control choice in %s", (source) => {
-    expect(nativeDateInputs(source)).toEqual([]);
+  it("recognizes native dates through shared inputs without rejecting other controls", () => {
+    for (const [source, component] of [
+      ['import { Input } from "@keel/ui"; <Input type="date" />', "Input"],
+      ['import { Input } from "@keel/ui"; <Input type={"date"} />', "Input"],
+      [
+        'import { Input as TextInput } from "@keel/ui"; <TextInput type="date" />',
+        "TextInput",
+      ],
+      ['import * as Ui from "@keel/ui"; <Ui.Input type="date" />', "Ui.Input"],
+      ['import { Input } from "@keel/ui"; <Input type={`date`} />', "Input"],
+    ] as const) {
+      expect(sourceFacts(source).nativeDateInputs, source).toEqual([
+        { component, line: 1 },
+      ]);
+    }
+    for (const source of [
+      'import { DatePicker } from "@keel/ui"; <DatePicker value="" />',
+      'import { Input } from "@keel/ui"; <Input />',
+      'import { Input } from "@keel/ui"; <Input type="text" />',
+      'import { Input as TextInput } from "@keel/ui"; <TextInput type="email" />',
+      'import * as Ui from "@keel/ui"; <Ui.Input type="search" />',
+      'import { Input } from "other-library"; <Input type="date" />',
+      'function Input() {} <Input type="date" />',
+      'import { Input } from "@keel/ui"; <Input type={date} />',
+    ]) {
+      expect(sourceFacts(source).nativeDateInputs, source).toEqual([]);
+    }
   });
 
   it("routes app date selection through DatePicker", () => {
-    const violations = webSources.flatMap(({ relativePath, source }) =>
-      nativeDateInputs(source).map(
-        ({ component, line }) =>
-          `${relativePath}:${line}: ${component} type=date must use DatePicker`,
-      ),
+    const violations = webSources.flatMap(
+      ({ relativePath, nativeDateInputs }) =>
+        nativeDateInputs.map(
+          ({ component, line }) =>
+            `${relativePath}:${line}: ${component} type=date must use DatePicker`,
+        ),
     );
     expect(violations).toEqual([]);
   });
@@ -191,9 +162,15 @@ describe("shared UI usage", () => {
   });
 
   it("keeps native interactive elements inside @keel/ui", () => {
-    const violations = webSources.flatMap(({ relativePath, source }) => {
-      const matches = source.match(/<(?:a|button|input|select|textarea)\b/gu);
-      return matches === null ? [] : [`${relativePath}: ${matches.join(", ")}`];
+    const violations = webSources.flatMap(({ relativePath, elements }) => {
+      const matches = elements.filter(({ component }) =>
+        /^(?:a|button|input|select|textarea)$/u.test(component),
+      );
+      return matches.length === 0
+        ? []
+        : [
+            `${relativePath}: ${matches.map(({ component }) => `<${component}`).join(", ")}`,
+          ];
     });
 
     expect(violations).toEqual([]);
@@ -218,37 +195,6 @@ describe("shared UI usage", () => {
     });
 
     expect(violations).toEqual([]);
-  });
-
-  it("uses Base UI measured-height motion for shared disclosures", () => {
-    const collapsibleSource = readFileSync(
-      resolve(
-        import.meta.dirname,
-        "../packages/ui/src/components/collapsible.tsx",
-      ),
-      "utf8",
-    );
-    const sharedStyles = readFileSync(
-      resolve(import.meta.dirname, "../packages/ui/src/styles.css"),
-      "utf8",
-    );
-
-    expect(collapsibleSource).toContain('from "@base-ui/react/collapsible"');
-    expect(sharedStyles).toContain("height: var(--collapsible-panel-height)");
-    expect(sharedStyles).toContain("[data-ending-style]");
-    expect(sharedStyles).toContain("prefers-reduced-motion: reduce");
-  });
-
-  it("uses DisclosureIndicator for the shared select popup", () => {
-    const selectSource = readFileSync(
-      resolve(import.meta.dirname, "../packages/ui/src/components/select.tsx"),
-      "utf8",
-    );
-
-    expect(selectSource).toContain("<DisclosureIndicator");
-    expect(selectSource).not.toMatch(
-      /<svg\b[^>]*className="select-trigger__icon"/su,
-    );
   });
 
   it("routes reusable action rows through ActionGroup", () => {

@@ -68,8 +68,8 @@ jobs:
           node-version: 22.13.0
           cache: pnpm
           cache-dependency-path: keel/pnpm-lock.yaml
-      - name: Prepare locked dependencies and synthetic runtime
-        run: make bootstrap
+      - name: Prepare locked dependencies and Chromium
+        run: make bootstrap-ci
       - name: Execute complete required gate on this revision
         if: ${{ !inputs.regression_probe && !inputs.isolated_browser }}
         run: |
