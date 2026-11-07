@@ -888,7 +888,7 @@ test(
     expect(reads).toBe(2);
     await sources.press("Enter");
     await expect(
-      page.getByRole("heading", { level: 1, name: "Holding sources" }),
+      page.getByRole("heading", { level: 1, name: "Sources" }),
     ).toBeVisible();
     await expect(sources).toHaveAttribute("aria-current", "page");
     await page.goBack();

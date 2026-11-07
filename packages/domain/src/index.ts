@@ -1025,7 +1025,84 @@ export const HoldingImportRowPreviewSchema = z.object({
     HoldingImportAdjudicationStatusSchema.default("pending_review"),
   decisionSource: z.enum(["manual", "policy"]).nullable().default(null),
   reasonCodes: z.array(z.string().min(1).max(100)).default([]),
+  containerId: z.string().min(1).optional(),
+  instrumentType: z.string().min(1).optional(),
+  positionId: z.string().min(1).nullable().optional(),
+  currentSnapshotId: z.string().min(1).nullable().optional(),
+  identityReviewId: z.string().min(1).nullable().optional(),
+  currentValueMinor: NonNegativeMoneyMinorSchema.nullable().optional(),
+  currentQuantityMicros: z
+    .number()
+    .int()
+    .safe()
+    .nonnegative()
+    .nullable()
+    .optional(),
+  currentObservedAt: IsoTimestampSchema.optional(),
+  hasVerifiedSecurityIdentity: z.boolean().optional(),
+  acceptanceBlocked: z.boolean().optional(),
+  sourceReview: z
+    .object({
+      id: z.string().min(1),
+      decision: z.enum(["same", "separate", "ignore"]),
+      priorPositionId: z.string().min(1).nullable(),
+      decisionSource: z.enum(["manual", "policy"]),
+      createdAt: IsoTimestampSchema,
+      appliesToThisReport: z.boolean(),
+      importId: z.string().min(1),
+      rowId: z.string().min(1),
+    })
+    .nullable()
+    .optional(),
 });
+
+export const PublicHoldingReviewInputSchema = z
+  .object({
+    decision: z.enum(["same", "separate", "ignore"]),
+    expectedReviewId: z.string().min(1).nullable(),
+    expectedSourceSnapshotId: z.string().min(1).nullable(),
+    priorPositionId: z.string().min(1).nullable(),
+    expectedPriorSnapshotId: z.string().min(1).nullable(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (
+      input.decision === "same" &&
+      (input.priorPositionId === null || input.expectedPriorSnapshotId === null)
+    )
+      context.addIssue({
+        code: "custom",
+        message: "Choose the prior holding.",
+      });
+  });
+export type PublicHoldingReviewInput = z.infer<
+  typeof PublicHoldingReviewInputSchema
+>;
+
+export const PreservedPublicHoldingSchema = z.object({
+  positionId: z.string().min(1),
+  containerId: z.string().min(1),
+  name: z.string().min(1),
+  accountLabel: z.string().min(1),
+  ticker: z.string().nullable(),
+  instrumentType: z.string().min(1),
+  snapshotId: z.string().min(1),
+  observedAt: IsoTimestampSchema,
+  quantityMicros: z.number().int().safe().nonnegative().nullable(),
+  valueMinor: NonNegativeMoneyMinorSchema.nullable(),
+});
+
+export const PublicHoldingReviewEffectsSchema = z.object({
+  rowId: z.string().min(1),
+  priorPositionId: z.string().nullable(),
+  currentTotalMinor: NonNegativeMoneyMinorSchema.nullable(),
+  sameTotalMinor: NonNegativeMoneyMinorSchema.nullable(),
+  separateTotalMinor: NonNegativeMoneyMinorSchema.nullable(),
+  ignoreTotalMinor: NonNegativeMoneyMinorSchema.nullable(),
+});
+export type PublicHoldingReviewEffects = z.infer<
+  typeof PublicHoldingReviewEffectsSchema
+>;
 
 export const HoldingImportSummarySchema = z.object({
   id: z.string().min(1),
@@ -1603,6 +1680,8 @@ export const HoldingImportPreviewSchema = z.object({
     .max(100)
     .default([]),
   rows: z.array(HoldingImportRowPreviewSchema),
+  preservedPositions: z.array(PreservedPublicHoldingSchema).optional(),
+  priorPositions: z.array(PreservedPublicHoldingSchema).optional(),
 });
 
 export const HoldingImportDecisionSchema = z.object({
@@ -2775,6 +2854,8 @@ export const InvestmentAdjudicationSummarySchema = z
     autoAppliedCount: z.number().int().nonnegative(),
     quarantinedCount: z.number().int().nonnegative(),
     preservedPositionCount: z.number().int().nonnegative(),
+    reportReused: z.boolean().optional(),
+    preservedObservedAt: IsoTimestampSchema.optional(),
     baselineRefreshStatus: z.enum([
       "not_needed",
       "refreshed",

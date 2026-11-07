@@ -139,6 +139,7 @@ import {
   CreateSignalUpdateProposalInputSchema,
   GoalDraftInputSchema,
   HoldingImportApplyInputSchema,
+  PublicHoldingReviewInputSchema,
   LiabilitiesErrorCodeSchema,
   LiabilityApplyInputSchema,
   LiabilityExchangeInputSchema,
@@ -5301,6 +5302,50 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
     }
   });
 
+  app.get(
+    "/api/holding-imports/:importId/rows/:rowId/review",
+    async (context) => {
+      const ids = z
+        .object({
+          importId: z.string().min(1).max(200),
+          rowId: z.string().min(1).max(200),
+        })
+        .safeParse(context.req.param());
+      if (!ids.success)
+        return context.json({ error: "Choose a valid source position." }, 400);
+      const prior = z
+        .string()
+        .min(1)
+        .max(200)
+        .nullable()
+        .safeParse(context.req.query("priorPositionId") ?? null);
+      if (!prior.success)
+        return context.json({ error: "Choose a valid prior holding." }, 400);
+      try {
+        const result = await new D1HoldingImportRepository(
+          context.env.DB,
+        ).publicHoldingReviewEffects(
+          context.get("identity").subject,
+          ids.data.importId,
+          ids.data.rowId,
+          prior.data,
+        );
+        return context.json(result, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        return context.json(
+          {
+            error: errorMessage(error).includes("not found")
+              ? "Source position not found."
+              : "The comparison could not be loaded. Reload this report.",
+          },
+          409,
+        );
+      }
+    },
+  );
+
   app.post("/api/holding-imports/:importId/apply", async (context) => {
     let rawInput: unknown;
     try {
@@ -5353,6 +5398,64 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
       );
     }
   });
+
+  app.post(
+    "/api/holding-imports/:importId/rows/:rowId/review",
+    async (context) => {
+      const ids = z
+        .object({
+          importId: z.string().min(1).max(200),
+          rowId: z.string().min(1).max(200),
+        })
+        .safeParse(context.req.param());
+      let body: unknown;
+      try {
+        body = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
+      }
+      const parsed = PublicHoldingReviewInputSchema.safeParse(body);
+      if (!ids.success || !parsed.success)
+        return context.json({ error: "Choose a valid source decision." }, 400);
+      try {
+        const preview = await new D1HoldingImportRepository(
+          context.env.DB,
+        ).reviewPublicHoldingImport(
+          context.get("identity").subject,
+          ids.data.importId,
+          ids.data.rowId,
+          parsed.data,
+        );
+        return context.json(preview, 200, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        const message = errorMessage(error);
+        if (message.includes("not found"))
+          return context.json({ error: "Source position not found." }, 404);
+        if (
+          /changed|obsolete|newer report|prior holding|Correct the source|unresolved source|public source|UNIQUE/u.test(
+            message,
+          )
+        )
+          return context.json(
+            {
+              error: message.includes("Correct the source")
+                ? "Correct the source data before accepting this position."
+                : "The source decision changed. Reload this report and try again.",
+            },
+            409,
+          );
+        return context.json(
+          {
+            error:
+              "Keel could not confirm this decision. Check its status before trying again.",
+          },
+          503,
+        );
+      }
+    },
+  );
 
   app.post("/api/evidence/:eventId/review", async (context) => {
     let rawInput: unknown;

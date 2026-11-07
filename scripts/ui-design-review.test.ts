@@ -20,6 +20,7 @@ function fixture() {
     join(root, "src/component.tsx"),
     "export const component = 'synthetic';",
   );
+  writeFileSync(join(root, "src/artwork.png"), Buffer.from([1, 2, 3]));
   writeFileSync(join(root, "contract.md"), "Synthetic test contract");
   writeFileSync(
     join(root, ".tugling/ui.json"),
@@ -128,6 +129,13 @@ afterEach(() => {
 });
 
 describe("rendered design review evidence", () => {
+  it("rejects an asset changed after capture even when its extension is not code", () => {
+    const f = fixture();
+    writeFileSync(join(f.root, "src/artwork.png"), Buffer.from([4, 5, 6]));
+    expect(() => checkReview(f.root, f.output, f.reviewPath)).toThrow(
+      "Stale source evidence",
+    );
+  });
   it.each([
     "first-look.json",
     "reviewer.md",

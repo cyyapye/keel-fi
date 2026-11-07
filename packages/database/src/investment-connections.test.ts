@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { createSqliteFixture } from "../../../scripts/test-support/sqlite-fixture";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import {
@@ -400,6 +400,109 @@ describe("Plaid Investments connection state", () => {
     ).toEqual({ cursor: "investment-holdings-auto-v1" });
   });
 
+  it("keeps due checks available around unresolved evidence while admitting one attempt per rolling day", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-01T12:00:00.000Z"));
+      const connection = await repository.upsertConnection(
+        accessSubject,
+        "synthetic-credential",
+        robinhoodItemKey,
+        "ins_robinhood",
+        "Synthetic brokerage",
+      );
+      const initial = await repository.beginSync(accessSubject, connection.id);
+      const holdings = new D1HoldingImportRepository(
+        new TestD1Database(sqlite) as unknown as D1Database,
+      );
+      const input = sameSecurityInput({
+        connectionId: connection.id,
+        fingerprintCharacter: "d",
+        institutionLabel: "Synthetic brokerage",
+        accounts: [
+          {
+            accountKey: "5".repeat(64),
+            positionKey: "6".repeat(64),
+            label: "Synthetic account",
+            kind: "brokerage",
+            taxTreatment: "taxable",
+            quantityMicros: 1_000_000,
+            marketValueMinor: 100_000,
+          },
+        ],
+      });
+      input.rows[0]!.issues = ["Synthetic invalid source observation."];
+      const report = await holdings.stagePlaidInvestmentsHoldingImport(
+        accessSubject,
+        input,
+      );
+      const adjudication =
+        await holdings.autoAdjudicatePlaidInvestmentsHoldingImport(
+          accessSubject,
+          report.preview.id,
+        );
+      await repository.completeSync(accessSubject, initial.id, {
+        discoveredCount: 1,
+        proposedCount: 1,
+        importId: report.preview.id,
+        adjudication: {
+          policyVersion: adjudication.policyVersion,
+          autoAppliedCount: 0,
+          quarantinedCount: 1,
+          preservedPositionCount: 0,
+          baselineRefreshStatus: "not_needed",
+          portfolioBaselineId: null,
+        },
+      });
+      for (let hour = 1; hour <= 24; hour++) {
+        vi.setSystemTime(
+          new Date(Date.parse("2026-11-01T12:00:00.000Z") + hour * 3600000),
+        );
+        const cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
+        const due = await repository.listDueAutomaticSyncConnectionIds(
+          cutoff,
+          100,
+        );
+        expect(due).toEqual([]);
+        expect(
+          await repository.beginAutomaticSync(
+            accessSubject,
+            connection.id,
+            cutoff,
+          ),
+        ).toBeNull();
+      }
+      vi.setSystemTime(new Date("2026-11-02T12:00:00.001Z"));
+      const cutoff = new Date(Date.now() - 24 * 3600000).toISOString();
+      expect(
+        await repository.listDueAutomaticSyncConnectionIds(cutoff, 100),
+      ).toEqual([connection.id]);
+      const next = await repository.beginAutomaticSync(
+        accessSubject,
+        connection.id,
+        cutoff,
+      );
+      expect(next?.created).toBe(true);
+      await repository.failSync(accessSubject, next!.id, "unexpected_failure");
+      expect(
+        await repository.beginAutomaticSync(
+          accessSubject,
+          connection.id,
+          cutoff,
+        ),
+      ).toBeNull();
+      expect(
+        sqlite
+          .prepare(
+            "SELECT COUNT(*) count FROM connector_sync_runs WHERE connector_account_id=?",
+          )
+          .get(connection.connectorAccountId),
+      ).toEqual({ count: 2 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lists a bounded daily batch from more than 120 due investment connections", async () => {
     const connections = await Promise.all(
       Array.from({ length: 130 }, (_, index) => {
@@ -689,7 +792,7 @@ describe("Plaid Investments connection state", () => {
       latestImportId: null,
       latestAdjudication: {
         importId: staged.preview.id,
-        policyVersion: "plaid-investments-holdings-auto-v3",
+        policyVersion: "plaid-investments-holdings-auto-v4",
         autoAppliedCount: 1,
         quarantinedCount: 0,
       },
@@ -709,6 +812,38 @@ describe("Plaid Investments connection state", () => {
       connection_id: fidelity.id,
       provider: "plaid_investments",
     });
+    const snapshotsBefore = sqlite
+      .prepare("SELECT COUNT(*) count FROM holding_position_snapshots")
+      .get();
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-12-01T12:00:00.000Z"));
+      const repeated = await repository.beginSync(accessSubject, fidelity.id);
+      await repository.completeSync(accessSubject, repeated.id, {
+        discoveredCount: 1,
+        proposedCount: 0,
+        importId: staged.preview.id,
+        adjudication: {
+          policyVersion: adjudication.policyVersion,
+          autoAppliedCount: adjudication.autoAppliedCount,
+          quarantinedCount: 0,
+          preservedPositionCount: 0,
+          baselineRefreshStatus: "not_needed",
+          portfolioBaselineId: null,
+        },
+      });
+      expect(
+        (await repository.getConnectionStatus(accessSubject, fidelity.id))
+          ?.latestAdjudication,
+      ).toMatchObject({ reportReused: true, importId: staged.preview.id });
+      expect(
+        sqlite
+          .prepare("SELECT COUNT(*) count FROM holding_position_snapshots")
+          .get(),
+      ).toEqual(snapshotsBefore);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("proves Fidelity account lineage, shared exposure, and baseline behavior end to end", async () => {

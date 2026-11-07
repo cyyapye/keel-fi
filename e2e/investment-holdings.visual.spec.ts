@@ -28,7 +28,7 @@ async function openHoldingSources(page: Page) {
   await page.getByRole("link", { name: "Sources", exact: true }).click();
   await expect(page).toHaveURL(/\/holdings\/sources$/u);
   await expect(
-    page.getByRole("heading", { name: "Holding sources", exact: true }),
+    page.getByRole("heading", { name: "Sources", exact: true }),
   ).toBeVisible();
 }
 
@@ -951,7 +951,7 @@ test(
       .locator(".investment-institution")
       .filter({ hasText: "Robinhood" });
     await expect(robinhoodCard).toContainText(
-      "Data as of Aug 15, 2026 · Checked Aug 17, 2026",
+      "Latest report Aug 15, 2026 · Checked Aug 17, 2026",
     );
     await expect.poll(() => automaticRequestCount).toBe(1);
     await page

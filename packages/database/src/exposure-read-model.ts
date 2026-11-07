@@ -1,4 +1,8 @@
 import {
+  publicSourceStateFor,
+  bindPublicSourceState,
+} from "./public-source-state";
+import {
   CanonicalExposureSchema,
   FinancingAnnouncementFactsSchema,
   PositionExposureMappingSchema,
@@ -231,7 +235,10 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
       suppliedPositionView === undefined
         ? this.positions.list(accessSubject, asOf)
         : Promise.resolve(
-            InvestmentPositionViewSchema.parse(suppliedPositionView),
+            bindPublicSourceState(
+              InvestmentPositionViewSchema.parse(suppliedPositionView),
+              publicSourceStateFor(suppliedPositionView),
+            ),
           ),
     ]);
     return this.listForHousehold(identity.household_id, asOf, positionView);
@@ -349,7 +356,14 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
     const canonicalView = createInvestmentExposureView(
       positionView,
       exposureRows.map(canonicalExposureFrom),
-      mappingRows.map(mappingFrom),
+      mappingRows
+        .filter(
+          (row) =>
+            !publicSourceStateFor(positionViewInput)?.hiddenIds.has(
+              row.position_id,
+            ),
+        )
+        .map(mappingFrom),
       unambiguousAcceptedValuations(acceptedValuationRows),
     );
     const activeExposureIds = new Set(
@@ -362,23 +376,26 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
           : [],
       ),
     );
-    return InvestmentExposureViewSchema.parse({
-      ...canonicalView,
-      publicCompanyLinks: exposureRows.flatMap((row) => {
-        if (
-          row.exposure_kind !== "public_instrument" ||
-          row.linked_company_id === null
-        )
-          return [];
-        const companyExposureId = privateExposureByCompanyId.get(
-          row.linked_company_id,
-        );
-        return companyExposureId !== undefined &&
-          activeExposureIds.has(companyExposureId)
-          ? [{ publicExposureId: row.id, companyExposureId }]
-          : [];
+    return bindPublicSourceState(
+      InvestmentExposureViewSchema.parse({
+        ...canonicalView,
+        publicCompanyLinks: exposureRows.flatMap((row) => {
+          if (
+            row.exposure_kind !== "public_instrument" ||
+            row.linked_company_id === null
+          )
+            return [];
+          const companyExposureId = privateExposureByCompanyId.get(
+            row.linked_company_id,
+          );
+          return companyExposureId !== undefined &&
+            activeExposureIds.has(companyExposureId)
+            ? [{ publicExposureId: row.id, companyExposureId }]
+            : [];
+        }),
       }),
-    });
+      publicSourceStateFor(positionViewInput),
+    );
   }
 
   private async findIdentity(

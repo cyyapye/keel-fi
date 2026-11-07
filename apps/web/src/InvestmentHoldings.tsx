@@ -1,3 +1,4 @@
+import { PublicSourceUpdate } from "./PublicSourceUpdate";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import {
   addMinorUnits,
@@ -68,6 +69,8 @@ import {
 } from "./api";
 import {
   formatCompactCurrency,
+  formatMoney,
+  formatCurrency,
   formatDate,
   formatMagnitudeRoundedCurrency,
   formatRoundedCompactCurrency,
@@ -150,7 +153,6 @@ function hasDueInvestmentConnection(
       (connection.status === "ready" ||
         isRetryableInvestmentCheckFailure(connection)) &&
       connection.automaticUpdatesEnabled &&
-      connection.latestImportId === null &&
       (connection.lastSyncedAt === null ||
         Date.parse(connection.lastSyncedAt) < syncedAfter),
   );
@@ -163,7 +165,7 @@ function lifecycleLabel(status: InvestmentConnectionStatus | null): string {
   return {
     disconnected: "Disconnected",
     paused: "Paused",
-    ready: "Up to date",
+    ready: "Connected",
     syncing: "Checking",
     needs_attention:
       status.errorCode === "connection_invalid"
@@ -287,11 +289,29 @@ function investmentPositionTotalsLabel(
 function investmentConnectionTotalsLabel(
   connection: InvestmentPositionConnection | null,
 ): string {
-  return connection === null
-    ? "Value unavailable"
-    : investmentPositionTotalsLabel(
-        connection.containers.flatMap((container) => container.positions),
-      );
+  if (connection === null) return "Value unavailable";
+  const values = new Map<string, number>();
+  let missing = 0;
+  for (const position of connection.containers.flatMap(
+    (container) => container.positions,
+  )) {
+    const value = position.snapshot.unrealizedValue;
+    if (value.state !== "reported" || value.minor === null) {
+      missing++;
+      continue;
+    }
+    const currency = position.snapshot.currency;
+    values.set(currency, addMinorUnits(values.get(currency) ?? 0, value.minor));
+  }
+  const label = [...values]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, value]) =>
+      currency === "USD" ? formatMoney(value) : formatCurrency(value, currency),
+    )
+    .join(" · ");
+  return label
+    ? `${missing > 0 ? "Known value " : ""}${label}`
+    : "Value unavailable";
 }
 
 function exposurePositionValue(position: InvestmentExposurePosition): string {
@@ -868,6 +888,9 @@ function InstitutionActions({
   onConfirmDisconnect,
   onReviewImport,
   status,
+  decisionOpen,
+  decisionSaving,
+  management = false,
 }: {
   busy: BusyAction | null;
   confirmDisconnect: boolean;
@@ -878,11 +901,40 @@ function InstitutionActions({
   onConfirmDisconnect: () => void;
   onReviewImport: (importId: string) => void;
   status: InvestmentConnectionStatus;
+  decisionOpen: boolean;
+  decisionSaving: boolean;
+  management?: boolean;
 }) {
-  const isBusy = busy?.connectionId === status.connectionId;
+  const isBusy = busy?.connectionId === status.connectionId || decisionSaving;
   const isAdding = busy?.action === "add" || busy?.action === "exchange";
   const isRetryableFailure = isRetryableInvestmentCheckFailure(status);
   const waitingCount = status.latestAdjudication?.quarantinedCount ?? 0;
+  if (management && status.status === "disconnected") return null;
+  if (management && !confirmDisconnect)
+    return (
+      <ActionGroup className="investment-institution__actions" wrap>
+        {status.status !== "paused" &&
+          !(
+            status.status === "needs_attention" &&
+            status.errorCode === "connection_invalid"
+          ) && (
+            <Button
+              disabled={isBusy || status.status === "syncing"}
+              onClick={() => onAction("pause")}
+              tone="quiet"
+            >
+              Pause
+            </Button>
+          )}
+        <Button
+          disabled={isBusy || status.status === "syncing"}
+          onClick={onConfirmDisconnect}
+          tone="quiet"
+        >
+          Disconnect
+        </Button>
+      </ActionGroup>
+    );
   if (status.status === "disconnected") {
     return (
       <ActionGroup
@@ -906,7 +958,7 @@ function InstitutionActions({
       </ActionGroup>
     );
   }
-  if (confirmDisconnect) {
+  if (confirmDisconnect && management) {
     return (
       <ActionGroup
         className="investment-institution__confirm"
@@ -945,9 +997,12 @@ function InstitutionActions({
       {status.latestImportId !== null && waitingCount > 0 && (
         <Button
           onClick={() => onReviewImport(status.latestImportId!)}
-          tone="primary"
+          disabled={isBusy}
+          tone={decisionOpen ? "quiet" : "primary"}
         >
-          Review {waitingCount === 1 ? "item" : `${waitingCount} items`}
+          {decisionOpen
+            ? "Hide decision"
+            : `Resolve ${waitingCount} ${waitingCount === 1 ? "decision" : "decisions"}`}
         </Button>
       )}
       {status.status === "needs_attention" &&
@@ -967,7 +1022,7 @@ function InstitutionActions({
         >
           {isBusy ? "Resuming…" : "Resume updates"}
         </Button>
-      ) : waitingCount === 0 ? (
+      ) : (
         <Button
           disabled={isBusy || status.status === "syncing"}
           onClick={() => onAction("check")}
@@ -979,27 +1034,7 @@ function InstitutionActions({
               ? "Try now"
               : "Check now"}
         </Button>
-      ) : null}
-      {status.status !== "paused" &&
-        !(
-          status.status === "needs_attention" &&
-          status.errorCode === "connection_invalid"
-        ) && (
-          <Button
-            disabled={isBusy || status.status === "syncing"}
-            onClick={() => onAction("pause")}
-            tone="quiet"
-          >
-            Pause
-          </Button>
-        )}
-      <Button
-        disabled={isBusy || status.status === "syncing"}
-        onClick={onConfirmDisconnect}
-        tone="quiet"
-      >
-        Disconnect
-      </Button>
+      )}
     </ActionGroup>
   );
 }
@@ -2074,7 +2109,6 @@ export function InvestmentHoldings({
   onLoadMoreExposures,
   onLoadMorePositions,
   onOpenHolding,
-  onReviewImport,
   onShowSmallBalancesChange,
   openExposureIds,
   requestedExposureId,
@@ -2107,6 +2141,12 @@ export function InvestmentHoldings({
   const [connectionState, setConnectionState] =
     useState<InvestmentConnectionsState | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
+  const [sourceDecisionSaving, setSourceDecisionSaving] = useState(false);
+  const [openSourceActivity, setOpenSourceActivity] = useState<{
+    id: string;
+    decisions: boolean;
+    activity?: boolean;
+  } | null>(null);
   const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(
     null,
   );
@@ -2270,14 +2310,14 @@ export function InvestmentHoldings({
         next.latestImportId !== null &&
         (next.latestAdjudication?.quarantinedCount ?? 0) > 0
       ) {
-        onReviewImport(next.latestImportId);
+        setOpenSourceActivity({ id: next.connectionId, decisions: true });
       } else if ((next.latestAdjudication?.autoAppliedCount ?? 0) > 0) {
         const applied = next.latestAdjudication?.autoAppliedCount ?? 0;
         setNotice(
           `${next.institutionLabel}: ${applied} clear ${applied === 1 ? "position was" : "positions were"} applied.`,
         );
       } else {
-        setNotice(`${next.institutionLabel} is up to date. No changes found.`);
+        setNotice(`${next.institutionLabel} was checked. No changes found.`);
       }
       try {
         await reloadHoldings();
@@ -2287,7 +2327,7 @@ export function InvestmentHoldings({
         );
       }
     },
-    [onReviewImport, reloadHoldings],
+    [reloadHoldings],
   );
 
   const exchangeToken = useCallback(
@@ -2650,7 +2690,7 @@ export function InvestmentHoldings({
       >
         <SectionHeader
           className="investment-institutions__heading"
-          description="Robinhood, Fidelity, Schwab investing. Banking above."
+          description="Clear updates happen automatically. Unreported holdings keep their last accepted values."
           eyebrow="Connections"
           headingProps={{ id: "investment-institutions-title" }}
           title="Brokerages"
@@ -2696,6 +2736,38 @@ export function InvestmentHoldings({
                   ? 0
                   : 1);
               const accountCount = connection?.containers.length ?? 0;
+              const renderInstitutionActions = (management: boolean) => {
+                if (status === null) return null;
+                return (
+                  <InstitutionActions
+                    management={management}
+                    busy={busy}
+                    decisionSaving={sourceDecisionSaving}
+                    decisionOpen={
+                      openSourceActivity?.id === connectionId &&
+                      openSourceActivity.decisions
+                    }
+                    confirmDisconnect={confirmDisconnectId === connectionId}
+                    newConnectionsAvailable={addAvailable}
+                    onAction={(action) =>
+                      void runConnectionAction(status, action)
+                    }
+                    onCancelDisconnect={() => setConfirmDisconnectId(null)}
+                    onConnectAgain={() => void addInstitution()}
+                    onConfirmDisconnect={() =>
+                      setConfirmDisconnectId(connectionId)
+                    }
+                    onReviewImport={() =>
+                      setOpenSourceActivity((current) =>
+                        current?.id === connectionId && current.decisions
+                          ? null
+                          : { id: connectionId, decisions: true },
+                      )
+                    }
+                    status={status}
+                  />
+                );
+              };
               return (
                 <article className="investment-institution" key={connectionId}>
                   <Collapsible
@@ -2706,9 +2778,11 @@ export function InvestmentHoldings({
                       <span className="investment-institution__heading">
                         <span>
                           <h3>{label}</h3>
-                          <Badge tone={lifecycleTone(status)}>
-                            {lifecycleLabel(status)}
-                          </Badge>
+                          {status !== null && status.status !== "ready" && (
+                            <Badge tone={lifecycleTone(status)}>
+                              {lifecycleLabel(status)}
+                            </Badge>
+                          )}
                         </span>
                         <small className="investment-institution__summary">
                           {status?.status === "disconnected"
@@ -2718,44 +2792,117 @@ export function InvestmentHoldings({
                             : `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`}
                           {lastComplete === null
                             ? ""
-                            : ` · Data as of ${formatDate(lastComplete)}`}
+                            : ` · Latest report ${formatDate(lastComplete)}`}
                           {status?.lastSyncedAt === null ||
                           status?.lastSyncedAt === undefined
                             ? ""
                             : ` · Checked ${formatDate(status.lastSyncedAt)}`}
                           {pendingCount > 0
-                            ? ` · ${pendingCount} waiting for review`
+                            ? ` · ${pendingCount} ${pendingCount === 1 ? "decision" : "decisions"} needed`
                             : ""}
                         </small>
                       </span>
                       <span className="investment-institution__summary-action">
-                        <strong className="investment-institution__value">
-                          {investmentConnectionTotalsLabel(connection)}
-                        </strong>
+                        <span className="investment-institution__accepted-value">
+                          <strong className="investment-institution__value">
+                            {investmentConnectionTotalsLabel(connection)}
+                          </strong>
+                          <small>Accepted holdings</small>
+                        </span>
                         <DisclosureIndicator />
                       </span>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
                       <InvestmentAccountRows connection={connection} />
+                      {renderInstitutionActions(true)}
                     </CollapsibleContent>
                   </Collapsible>
-                  {status !== null && (
-                    <InstitutionActions
-                      busy={busy}
-                      confirmDisconnect={confirmDisconnectId === connectionId}
-                      newConnectionsAvailable={addAvailable}
-                      onAction={(action) =>
-                        void runConnectionAction(status, action)
-                      }
-                      onCancelDisconnect={() => setConfirmDisconnectId(null)}
-                      onConnectAgain={() => void addInstitution()}
-                      onConfirmDisconnect={() =>
-                        setConfirmDisconnectId(connectionId)
-                      }
-                      onReviewImport={onReviewImport}
-                      status={status}
-                    />
+                  {status?.latestAdjudication && (
+                    <div className="investment-institution__outcome">
+                      <p>
+                        <strong>
+                          {status.latestAdjudication.reportReused
+                            ? "No changes in the latest report."
+                            : status.latestAdjudication.autoAppliedCount > 0
+                              ? `${status.latestAdjudication.autoAppliedCount} positions updated automatically.`
+                              : "Latest report checked."}{" "}
+                          {pendingCount === 0
+                            ? "No decisions needed."
+                            : `${pendingCount} ${pendingCount === 1 ? "decision needs" : "decisions need"} you.`}
+                        </strong>
+                      </p>
+                      {status.latestAdjudication.preservedPositionCount > 0 && (
+                        <p>
+                          {status.latestAdjudication.preservedPositionCount}{" "}
+                          prior{" "}
+                          {status.latestAdjudication.preservedPositionCount ===
+                          1
+                            ? "holding"
+                            : "holdings"}{" "}
+                          kept at{" "}
+                          {status.latestAdjudication.preservedPositionCount ===
+                          1
+                            ? "its"
+                            : "their"}{" "}
+                          {status.latestAdjudication.preservedObservedAt
+                            ? formatDate(
+                                status.latestAdjudication.preservedObservedAt,
+                              )
+                            : "dated"}{" "}
+                          {status.latestAdjudication.preservedPositionCount ===
+                          1
+                            ? "value"
+                            : "values"}
+                          .
+                        </p>
+                      )}
+                      <TextLink
+                        onClick={() =>
+                          setOpenSourceActivity((current) =>
+                            current?.id === connectionId
+                              ? { ...current, activity: !current.activity }
+                              : {
+                                  id: connectionId,
+                                  decisions: false,
+                                  activity: true,
+                                },
+                          )
+                        }
+                        disabled={sourceDecisionSaving}
+                        aria-expanded={
+                          openSourceActivity?.id === connectionId &&
+                          !!openSourceActivity.activity
+                        }
+                        aria-controls={`source-activity-${status.latestAdjudication.importId}`}
+                      >
+                        {openSourceActivity?.id === connectionId &&
+                        openSourceActivity.activity
+                          ? "Hide activity"
+                          : "View activity"}
+                      </TextLink>
+                    </div>
                   )}
+                  {renderInstitutionActions(false)}
+                  {openSourceActivity?.id === connectionId &&
+                    status?.latestAdjudication && (
+                      <PublicSourceUpdate
+                        key={`${status.latestImportId ?? status.latestAdjudication.importId}:${openSourceActivity.decisions}`}
+                        onSavingChange={setSourceDecisionSaving}
+                        showOutcome={false}
+                        showDecisions={openSourceActivity.decisions}
+                        activityOpen={openSourceActivity.activity ?? false}
+                        importId={
+                          status.latestImportId ??
+                          status.latestAdjudication.importId
+                        }
+                        onSaved={async () => {
+                          await Promise.all([
+                            reloadConnections(),
+                            onExposureResolved(),
+                          ]);
+                        }}
+                      />
+                    )}
                 </article>
               );
             })}

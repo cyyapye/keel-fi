@@ -6,6 +6,7 @@ import { groups } from "../e2e/ui-catalogue/catalogue-manifest";
 import {
   guidance,
   compositionGuidance,
+  consumerRules,
   type Guidance,
 } from "../e2e/ui-catalogue/agent-guidance";
 
@@ -181,7 +182,9 @@ export function buildUiGuide(root = repository) {
         states:
           group?.states ??
           "See the live composition's state controls and browser assertions.",
-        rules: entry.rules.map((heading) => readRule(heading, rules)),
+        rules: [...new Set([...entry.rules, ...consumerRules])].map((heading) =>
+          readRule(heading, rules),
+        ),
         api: exports.filter((item) => group?.names.includes(item.name)),
         examples: entry.examples.map((spec) =>
           readExample(spec, examples[spec.file]),

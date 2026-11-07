@@ -272,7 +272,123 @@ describe("populated OLD-schema D1 migration safety", () => {
 
   for (const review of registry.cases) {
     for (const history of review.histories) {
-      it(`certifies the distribution trigger upgrade from populated 0089 at ${history} captures`, async () => {
+      it(`certifies ${review.id} from populated ${review.frontier} at ${history} captures`, async () => {
+        if (review.id === "public-source-reviews-v1") {
+          expect(review.frontier).toBe("0090_distribution_reviews.sql");
+          expect(review.migrations.map((item) => item.name)).toEqual([
+            "0091_public_source_reviews.sql",
+          ]);
+          const pending = unstable_splitSqlQuery(
+            readFileSync(
+              "packages/database/migrations/0091_public_source_reviews.sql",
+              "utf8",
+            ),
+          );
+          expect(
+            pending.every((sql) => !/^\s*(DROP|DELETE|UPDATE)\b/u.test(sql)),
+          ).toBe(true);
+          const fixture = await populatedMigrationFixture(
+            history,
+            "0090-public",
+          );
+          const terminal = await populatedMigrationFixture(history, "0091");
+          expect(fixture.counts.holding_positions).toBe(481);
+          expect(fixture.counts.holding_position_snapshots).toBe(
+            240 * (history + 2) + 1,
+          );
+          const runtime = await populatedMigrationDatabase(fixture);
+          try {
+            await preserveMigrationFixture(runtime.database, fixture, true);
+            const cost = await runtime.execute(pending);
+            expect(cost.rowsRead).toBeGreaterThan(0);
+            expect(cost.rowsWritten).toBeGreaterThan(0);
+            expect(cost.rowsRead).toBeLessThanOrEqual(review.maxRowsRead);
+            expect(cost.rowsWritten).toBeLessThanOrEqual(review.maxRowsWritten);
+            const preservation = await preserveMigrationFixture(
+              runtime.database,
+              fixture,
+            );
+            await preserveMigrationFixture(runtime.database, terminal, true);
+            const plans = (
+              await migrationForeignKeyPlans(runtime.database, terminal)
+            ).filter(
+              (plan) =>
+                !fixture.tables.some((table) => table.name === plan.child),
+            );
+            expect(plans.length).toBeGreaterThan(0);
+            expect(
+              plans.every(
+                (plan) =>
+                  plan.indexed &&
+                  plan.details.every(
+                    (detail) =>
+                      /\bSEARCH\b/u.test(detail) && !/\bSCAN\b/u.test(detail),
+                  ),
+              ),
+            ).toBe(true);
+            expect(
+              (
+                await runtime.database
+                  .prepare(
+                    "SELECT COUNT(*) count FROM public_holding_security_heads",
+                  )
+                  .first<{ count: number }>()
+              )?.count,
+            ).toBe(240);
+            expect(
+              (
+                await runtime.database
+                  .prepare(
+                    "SELECT COUNT(*) count FROM public_holding_import_heads",
+                  )
+                  .first<{ count: number }>()
+              )?.count,
+            ).toBe(2);
+            const immutableProbes = await immutableMigrationProbes(
+              runtime.database,
+              fixture,
+            );
+            scenarios.set(review.id, [
+              ...(scenarios.get(review.id) ?? []),
+              MigrationSafetyScenarioSchema.parse({
+                history,
+                mainPositions: 120,
+                unrelatedPositions: 120,
+                fixtureHash: fixture.hash,
+                tableRows: Object.fromEntries(
+                  fixture.tables.map((table) => [
+                    table.name,
+                    table.rows.length,
+                  ]),
+                ),
+                ...preservation,
+                immutableProbes,
+                statements: cost.statements,
+                rowsRead: cost.rowsRead,
+                rowsWritten: cost.rowsWritten,
+                measuredFromFirstStatement: true,
+                counterSource: "local-workerd-d1-meta",
+                inboundForeignKeyPlans:
+                  "indexed-current-head-backfill-no-parent-rebuild",
+                completeSequence: "preparation-through-cleanup",
+                physicalIntegrity: "unsupported-in-local-d1",
+              }),
+            ]);
+            console.info(
+              JSON.stringify({
+                certifiedPublicSourceUpgrade: {
+                  history,
+                  ...cost,
+                  ...preservation,
+                  newForeignKeyPlans: plans,
+                },
+              }),
+            );
+          } finally {
+            await runtime.close();
+          }
+          return;
+        }
         expect(review.id).toBe("distribution-reviews-v1");
         expect(review.frontier).toBe("0089_manual_holdings.sql");
         expect(review.migrations.map((item) => item.name)).toEqual([
@@ -399,15 +515,15 @@ describe("populated OLD-schema D1 migration safety", () => {
   for (const history of registry.baseline.histories) {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
-        registry.baseline.fixture !== "holding-history-v1" ||
-        registry.baseline.frontier !== "0090_distribution_reviews.sql" ||
-        registry.cases.length !== 1 ||
+        registry.baseline.fixture !== "public-holding-history-v1" ||
+        registry.baseline.frontier !== "0091_public_source_reviews.sql" ||
+        registry.cases.length !== 2 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0090");
+      const fixture = await populatedMigrationFixture(history, "0091");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
@@ -478,8 +594,8 @@ describe("populated OLD-schema D1 migration safety", () => {
           true,
         );
         expect(preservation).toEqual({
-          tablesPreserved: 137,
-          schemaObjectsPreserved: 693,
+          tablesPreserved: 143,
+          schemaObjectsPreserved: 726,
           foreignKeyViolations: 0,
         });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({

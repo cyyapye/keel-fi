@@ -39,6 +39,13 @@ describe("agent UI guide", () => {
         .sort(),
     );
     const records = searchUiGuide("RecordGroup", guide);
+    expect(
+      guide.entries.every((entry) =>
+        entry.rules.some((rule) =>
+          rule.text.includes("keel-ui/no-inline-control-restyle"),
+        ),
+      ),
+    ).toBe(true);
     expect(records).toHaveLength(1);
     expect(
       records[0]?.rules.some((rule) =>

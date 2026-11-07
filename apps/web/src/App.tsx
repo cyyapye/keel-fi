@@ -36,7 +36,6 @@ import {
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
   type HoldingImportPreview,
-  type HoldingImportRowPreview,
   type PortfolioBaselineConfirmInput,
   type PortfolioBaselineState,
   type ProviderBrowserSession,
@@ -175,6 +174,7 @@ import {
 } from "./format";
 import { useBoundedPolling } from "./use-bounded-polling";
 import { openPlaidLink } from "./plaid-link";
+import { PublicSourceUpdate } from "./PublicSourceUpdate";
 import { InvestmentHoldings } from "./InvestmentHoldings";
 import { LegalEntities } from "./LegalEntities";
 import { PositionEconomicsEditor } from "./PositionEconomicsEditor";
@@ -1735,19 +1735,6 @@ function holdingLegalPositionLabel(holding: Holding): string {
     : "Legal fund position";
 }
 
-function importAdministratorValueLabel(
-  row: HoldingImportRowPreview,
-  provider: HoldingImportPreview["provider"],
-): string {
-  if (row.administratorNavState === "locked") {
-    return "Locked by AngelList";
-  }
-  if (row.administratorNavState === "not_reported") {
-    return provider === "plaid_investments" ? "Not available" : "Not reported";
-  }
-  return holdingValueLabel(row.administratorNavMinor);
-}
-
 function formatQuantityMicros(value: number | null): string {
   if (value === null) {
     return "Not reported";
@@ -1761,32 +1748,6 @@ function formatQuantityMicros(value: number | null): string {
   return fraction.length === 0
     ? whole.toLocaleString("en-US")
     : `${whole.toLocaleString("en-US")}.${fraction}`;
-}
-
-function importActionLabel(action: HoldingImportRowPreview["action"]): string {
-  return {
-    create_position: "New",
-    append_snapshot: "Matched",
-    no_change: "Position unchanged",
-    needs_attention: "Needs attention",
-  }[action];
-}
-
-function importCurrentGroupingLabel(
-  row: HoldingImportRowPreview,
-  provider: HoldingImportPreview["provider"],
-): string | null {
-  if (provider === "plaid_investments") {
-    return null;
-  }
-  if (row.currentExposureNames.length === 0) {
-    return row.action === "append_snapshot" || row.action === "no_change"
-      ? "No reviewed grouping yet"
-      : null;
-  }
-  const visibleNames = row.currentExposureNames.slice(0, 2);
-  const remainingCount = row.currentExposureNames.length - visibleNames.length;
-  return `Grouped under ${visibleNames.join(", ")}${remainingCount > 0 ? ` + ${remainingCount} more` : ""}`;
 }
 
 function holdingImportProviderName(
@@ -1825,41 +1786,15 @@ function holdingImportSourceLabel(
   }[provider];
 }
 
-function ImportResult({
-  provider,
-  row,
-}: {
-  provider: HoldingImportPreview["provider"];
-  row: HoldingImportRowPreview;
-}) {
-  const label =
-    row.adjudicationStatus === "auto_applied"
-      ? "Applied automatically"
-      : row.adjudicationStatus === "quarantined"
-        ? "Isolated"
-        : importActionLabel(row.action);
-  const groupingLabel = importCurrentGroupingLabel(row, provider);
-  return (
-    <div className={`import-result import-result--${row.action}`}>
-      {row.adjudicationStatus === "quarantined" ||
-      row.action === "needs_attention" ? (
-        <Badge tone="warning">{label}</Badge>
-      ) : (
-        <strong>{label}</strong>
-      )}
-      {groupingLabel !== null && <small>{groupingLabel}</small>}
-      {row.issues.length > 0 && <small>{row.issues.join(" · ")}</small>}
-    </div>
-  );
-}
-
 function HoldingImportWorkspace({
   initialPreview = null,
   onApply,
   onClose,
   onPreview,
+  onSourceSaved,
 }: {
   initialPreview?: HoldingImportPreview | null;
+  onSourceSaved: () => Promise<void>;
   onApply: (
     importId: string,
     input: HoldingImportApplyInput,
@@ -2065,141 +2000,15 @@ function HoldingImportWorkspace({
     );
   }
 
-  if (isPlaidInvestments && preview.status === "quarantined") {
-    const exceptionRows = preview.rows.filter(
-      (row) => row.adjudicationStatus === "quarantined",
-    );
+  if (isPlaidInvestments) {
     return (
-      <section
-        aria-labelledby="holding-import-exceptions-title"
-        className="holding-import-workspace"
-      >
-        <div className="import-heading">
-          <p className="eyebrow">Investment exceptions</p>
-          <h2
-            id="holding-import-exceptions-title"
-            ref={workspaceHeadingRef}
-            tabIndex={-1}
-          >
-            Uncertain records stayed unchanged
-          </h2>
-          <p>
-            Keel applied {preview.summary.autoAppliedCount} clear{" "}
-            {preview.summary.autoAppliedCount === 1 ? "position" : "positions"}.
-            The exceptions below were isolated from your accepted holdings.
-          </p>
-        </div>
-
-        <StatGroup
-          aria-label="Automatic review summary"
-          className="import-summary"
-        >
-          <Stat
-            as="div"
-            label="Applied"
-            value={preview.summary.autoAppliedCount}
-            valueFirst
-          />
-          <Stat
-            as="div"
-            label="Exceptions"
-            value={preview.summary.quarantinedCount}
-            valueFirst
-          />
-          <Stat
-            as="div"
-            label="Prior positions kept"
-            value={preview.summary.preservedPositionCount}
-            valueFirst
-          />
-        </StatGroup>
-
-        {preview.summary.preservedPositionCount > 0 && (
-          <Notice className="import-attention">
-            This account did not report {preview.summary.preservedPositionCount}{" "}
-            prior{" "}
-            {preview.summary.preservedPositionCount === 1
-              ? "position"
-              : "positions"}
-            . Keel kept the last accepted values and did not infer sales.
-          </Notice>
-        )}
-
-        {exceptionRows.length > 0 && (
-          <Panel className="table-panel import-table-panel">
-            <div className="holdings-table-wrap">
-              <table className="data-table import-table">
-                <caption className="visually-hidden">
-                  Isolated investment positions
-                </caption>
-                <thead>
-                  <tr>
-                    <th>Security</th>
-                    <th>Account</th>
-                    <th>Shares</th>
-                    <th>Market value</th>
-                    <th>Result</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {exceptionRows.map((row) => (
-                    <tr key={row.id}>
-                      <td data-label="Security">
-                        <strong>{row.exposureName}</strong>
-                        <span>{row.ticker ?? "Ticker not reported"}</span>
-                      </td>
-                      <td data-label="Account">{row.ownerLabel}</td>
-                      <td data-label="Shares">
-                        {formatQuantityMicros(row.quantityMicros)}
-                      </td>
-                      <td data-label="Market value">
-                        {importAdministratorValueLabel(row, preview.provider)}
-                      </td>
-                      <td data-label="Result">
-                        <ImportResult provider={preview.provider} row={row} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Panel>
-        )}
-
-        <ActionGroup align="end" className="import-actions" mobileLayout="grid">
-          <Button onClick={onClose} tone="primary">
-            Back to holdings
-          </Button>
-        </ActionGroup>
-      </section>
-    );
-  }
-
-  if (isPlaidInvestments && preview.status === "pending_review") {
-    return (
-      <section
-        aria-labelledby="holding-import-checking-title"
-        className="holding-import-workspace"
-      >
-        <div className="import-heading">
-          <p className="eyebrow">Investment update</p>
-          <h2
-            id="holding-import-checking-title"
-            ref={workspaceHeadingRef}
-            tabIndex={-1}
-          >
-            Automatic review is still running
-          </h2>
-          <p>
-            Your accepted holdings have not been changed by this update yet.
-          </p>
-        </div>
-        <ActionGroup align="end" className="import-actions" mobileLayout="grid">
-          <Button onClick={onClose} tone="primary">
-            Back to holdings
-          </Button>
-        </ActionGroup>
-      </section>
+      <PublicSourceUpdate
+        key={preview.id}
+        importId={preview.id}
+        initialPreview={preview}
+        onSaved={onSourceSaved}
+        onClose={onClose}
+      />
     );
   }
 
@@ -7342,7 +7151,7 @@ function Holdings({
 
   return (
     <ScreenLayout
-      className="holdings-screen"
+      className={`holdings-screen${sourcesVisible || activeRoutedPreview?.provider === "plaid_investments" ? " source-update-screen" : ""}`}
       data-searching={
         searchMatches !== null &&
         selectedHolding === null &&
@@ -7384,11 +7193,17 @@ function Holdings({
           }
           description={
             sourcesVisible
-              ? "Manage bank accounts, brokerages, and private investments."
+              ? "Keel handles clear updates automatically. You only decide what the evidence can’t resolve."
               : "See shared economic exposure, then open each legal position for ownership and source details."
           }
           eyebrow={sourcesVisible ? "Holdings" : "Portfolio evidence"}
-          title={sourcesVisible ? "Holding sources" : "Holdings"}
+          title={
+            sourcesVisible
+              ? "Sources"
+              : activeRoutedPreview?.provider === "plaid_investments"
+                ? "Source update"
+                : "Holdings"
+          }
         />
       )}
 
@@ -7458,6 +7273,7 @@ function Holdings({
             }}
             onClose={closeImporter}
             onPreview={onPreviewImport}
+            onSourceSaved={onExposureResolved}
           />
         )
       ) : (

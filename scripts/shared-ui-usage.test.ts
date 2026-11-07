@@ -161,21 +161,6 @@ describe("shared UI usage", () => {
     expect(examples).not.toContain("@base-ui/react");
   });
 
-  it("keeps native interactive elements inside @keel/ui", () => {
-    const violations = webSources.flatMap(({ relativePath, elements }) => {
-      const matches = elements.filter(({ component }) =>
-        /^(?:a|button|input|select|textarea)$/u.test(component),
-      );
-      return matches.length === 0
-        ? []
-        : [
-            `${relativePath}: ${matches.map(({ component }) => `<${component}`).join(", ")}`,
-          ];
-    });
-
-    expect(violations).toEqual([]);
-  });
-
   it("routes app disclosures through the shared Collapsible composition", () => {
     const violations = webSources.flatMap(({ relativePath, source }) => {
       const disclosureCount = source.match(/<Collapsible\b/gu)?.length ?? 0;

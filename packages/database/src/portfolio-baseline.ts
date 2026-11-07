@@ -1,3 +1,4 @@
+import { publicSourceState, publicSourceStateFor } from "./public-source-state";
 import { isPlaidInvestmentsFiPlanningSecurityType } from "@keel/connectors";
 import {
   addMinorUnits,
@@ -223,9 +224,13 @@ async function sourceRevision(
   rows: readonly SourcePositionRow[],
   cashRows: readonly SourceCashAccountRow[],
   endedPositions: readonly EndedPosition[],
+  publicVersion: number | null = null,
 ): Promise<string> {
   return sha256(
     [
+      ...(publicVersion === null
+        ? []
+        : [`public-source-version:${publicVersion}`]),
       ...endedPositions.map((position) =>
         [
           "ended",
@@ -781,6 +786,54 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     ),
   ) {}
 
+  private async publicSources(
+    householdId: string,
+    rows: readonly SourcePositionRow[],
+    expectedVersion: number | null,
+    prior: {
+      positions: readonly BaselinePositionItemRow[];
+      cashAccounts: readonly BaselineCashItemRow[];
+    },
+  ) {
+    if (
+      !rows.some((row) => row.provider === "plaid_investments") &&
+      !prior.positions.some(
+        (row) => row.source.provider === "plaid_investments",
+      )
+    )
+      return { sources: prior, version: null as number | null, excluded: 0 };
+    const state = await publicSourceState(this.db, householdId);
+    if (expectedVersion !== null && state.version !== expectedVersion)
+      throw new Error("Portfolio baseline proposal is stale.");
+    const included = new Set<string>();
+    let excluded = 0;
+    const positions = prior.positions.flatMap((item) => {
+      if (item.source.provider !== "plaid_investments") return [item];
+      if (state.ignoredIds.has(item.position_id)) {
+        excluded++;
+        return [];
+      }
+      const id = state.visibleById.get(item.position_id) ?? item.position_id;
+      if (included.has(id)) {
+        excluded++;
+        return [];
+      }
+      included.add(id);
+      return [
+        {
+          ...item,
+          position_id: id,
+          source: { ...item.source, position_id: id },
+        },
+      ];
+    });
+    return {
+      sources: { ...prior, positions },
+      version: state.version,
+      excluded,
+    };
+  }
+
   public async getState(
     accessSubject: string,
   ): Promise<PortfolioBaselineState> {
@@ -812,13 +865,20 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       planningContext,
       planning.fi_eligible_liquid_minor,
     );
-    const baselineSources =
+    const originalBaselineSources =
       latestBaseline === null
         ? { positions: [], cashAccounts: [] }
         : await this.getBaselineSourceItems(
             identity.household_id,
             latestBaseline.id,
           );
+    const publicContext = await this.publicSources(
+      identity.household_id,
+      rows,
+      publicSourceStateFor(exposureView)?.version ?? null,
+      originalBaselineSources,
+    );
+    const baselineSources = publicContext.sources;
     const changes = sourceChanges(
       rows,
       positions,
@@ -859,6 +919,7 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       rows,
       cashRows,
       endedPositions,
+      publicContext.version,
     );
     const observedAt =
       [...positions, ...cashAccounts]
@@ -900,7 +961,8 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     const automaticUpdateCount =
       latestBaseline === null
         ? 0
-        : automaticChanges.positions.length +
+        : publicContext.excluded +
+          automaticChanges.positions.length +
           automaticChanges.cashAccounts.length +
           baselineSources.positions.filter((position) =>
             endedPositionIds.has(position.position_id),
@@ -1055,19 +1117,27 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       this.getFinancialIndependenceGoal(identity.household_id),
     ]);
     const observedRows = sourcePositionRows(exposureView);
-    const priorSources =
+    const originalPriorSources =
       state.latestBaseline === null
         ? { positions: [], cashAccounts: [] }
         : await this.getBaselineSourceItems(
             identity.household_id,
             state.latestBaseline.id,
           );
+    const publicContext = await this.publicSources(
+      identity.household_id,
+      observedRows,
+      publicSourceStateFor(exposureView)?.version ?? null,
+      originalPriorSources,
+    );
+    const priorSources = publicContext.sources;
     const currentSourceRevision = await sourceRevision(
       observedRows,
       sourceCashRows,
       priorSources.positions.flatMap((position) =>
         position.participation === null ? [] : [position.participation],
       ),
+      publicContext.version,
     );
     const selected = selectPlanningSources(
       observedRows,
@@ -1397,6 +1467,14 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
           createdAt,
         ),
     );
+    if (publicContext.version !== null)
+      statements.push(
+        this.db
+          .prepare(
+            "INSERT INTO portfolio_baseline_public_source_versions(baseline_id,source_graph_version) VALUES (?,?)",
+          )
+          .bind(baselineId, publicContext.version),
+      );
     if (policyVersion !== undefined && state.latestBaseline !== null) {
       statements.push(
         this.db

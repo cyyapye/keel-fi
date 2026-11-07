@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 
@@ -26,65 +26,12 @@ const credentialKey = btoa("k".repeat(32))
   .replace(/=+$/u, "");
 
 const migrationFiles = [
-  "packages/database/migrations/0001_keel_core.sql",
-  "packages/database/migrations/0002_versioned_goals.sql",
-  "packages/database/migrations/0003_evidence_applications.sql",
-  "packages/database/migrations/0004_portfolio_watch.sql",
-  "packages/database/migrations/0005_portfolio_watch_sources.sql",
-  "packages/database/migrations/0006_evidence_claim_integrity.sql",
-  "packages/database/migrations/0007_holding_imports.sql",
-  "packages/database/migrations/0008_signal_update_proposals.sql",
-  "packages/database/migrations/0009_angellist_mac_agent.sql",
-  "packages/database/migrations/0010_public_holdings.sql",
-  "packages/database/migrations/0011_portfolio_baselines.sql",
-  "packages/database/migrations/0012_append_only_cash_flow_plans.sql",
-  "packages/database/migrations/0013_plaid_holdings_webhooks.sql",
-  "packages/database/migrations/0014_robinhood_auto_adjudication.sql",
-  "packages/database/migrations/0015_reviewed_cash_accounts.sql",
-  "packages/database/migrations/0016_reviewed_liabilities.sql",
-  "packages/database/migrations/0017_reviewed_cash_flow.sql",
-  "packages/database/migrations/0018_reviewed_cash_account_identities.sql",
-  "packages/database/migrations/0019_multi_source_holdings_contract.sql",
-  "packages/database/migrations/0020_container_scoped_holding_ingestion.sql",
-  "packages/database/migrations/0021_canonical_exposure_resolution.sql",
-  "packages/database/migrations/0022_provider_neutral_investments.sql",
-  "packages/database/migrations/0023_authoritative_portfolio_baselines.sql",
-  "packages/database/migrations/0025_retired_asset_lots.sql",
-  "packages/database/migrations/0026_reconciled_holding_ownership.sql",
-  "packages/database/migrations/0027_retained_public_exposure_identity.sql",
-  "packages/database/migrations/0028_provider_scoped_public_exposure.sql",
-  "packages/database/migrations/0029_structured_asset_exposure.sql",
-  "packages/database/migrations/0030_reconnected_position_continuity.sql",
-  "packages/database/migrations/0031_reconnected_position_continuity_one_sided_identity.sql",
-  "packages/database/migrations/0032_provider_template_holdings.sql",
-  "packages/database/migrations/0033_provider_portfolio_agents.sql",
-  "packages/database/migrations/0034_mac_agent_credentials.sql",
-  "packages/database/migrations/0035_nullable_private_investment_date.sql",
-  "packages/database/migrations/0038_reviewed_position_value_adjustments.sql",
-  "packages/database/migrations/0039_reviewed_position_economics.sql",
-  "packages/database/migrations/0058_net_invested_position_economics.sql",
-  "packages/database/migrations/0040_holdings_read_performance.sql",
-  "packages/database/migrations/0041_reported_position_economics.sql",
-  "packages/database/migrations/0044_public_equity_sync_schedule.sql",
-  "packages/database/migrations/0046_reviewed_legal_entity_inventory.sql",
-  "packages/database/migrations/0047_provider_legal_document_evidence.sql",
-  "packages/database/migrations/0048_private_document_access.sql",
-  "packages/database/migrations/0049_legal_name_resolutions.sql",
-  "packages/database/migrations/0050_agreement_rechecks.sql",
-  "packages/database/migrations/0051_legal_structure_review_guard.sql",
-  "packages/database/migrations/0052_reviewed_structure_entity_type.sql",
-  "packages/database/migrations/0053_connected_investment_reviews.sql",
-  "packages/database/migrations/0062_reviewed_company_aliases.sql",
-  "packages/database/migrations/0070_private_purchase_details.sql",
-  "packages/database/migrations/0078_reviewed_position_links.sql",
-  "packages/database/migrations/0079_unified_investment_details.sql",
-  "packages/database/migrations/0080_renamed_investment_links.sql",
-  "packages/database/migrations/0075_provider_share_prices.sql",
-  "packages/database/migrations/0076_proxy_share_estimates.sql",
-  "packages/database/migrations/0083_selected_position_valuations.sql",
-  "packages/database/migrations/0086_live_price_proxies.sql",
+  ...readdirSync("packages/database/migrations")
+    .filter((file) => /^\d{4}_.+\.sql$/u.test(file))
+    .sort()
+    .map((file) => `packages/database/migrations/${file}`),
   "packages/database/seed/synthetic.sql",
-] as const;
+];
 
 class TestD1Statement {
   public constructor(

@@ -4,14 +4,33 @@
   "contracts": [
     "docs/product/ui-and-copy.md",
     "docs/product/ui-library.md",
+    "docs/architecture/source-update-policy.md",
     ".codex/skills/keel-ui-quality/references/design-review.md"
   ],
   "sourceRoots": ["apps/web/src", "packages/ui/src", "e2e"],
   "sourceFiles": [
     "Makefile",
     "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "tsconfig.json",
+    "tsconfig.base.json",
+    "eslint.config.mjs",
+    "apps/web/package.json",
+    "apps/web/tsconfig.json",
+    "apps/web/vite.config.ts",
+    "packages/ui/package.json",
+    "packages/ui/tsconfig.json",
+    "packages/ui/tsconfig.build.json",
     "playwright.config.ts",
+    "scripts/browser-test-lanes.ts",
+    "scripts/browser-test-server.ts",
+    "scripts/browser-test-readiness.ts",
+    "scripts/lint-typecheck.mjs",
+    "scripts/eslint-keel-ui.mjs",
+    "scripts/eslint-keel-ui.test.ts",
     "scripts/ui-design-review.ts",
+    "scripts/ui-design-review.test.ts",
     "scripts/shared-ui-usage.test.ts",
     ".codex/skills/keel-ui-quality/SKILL.md",
     "scripts/ui-guide.ts",
@@ -27,6 +46,7 @@
     "compositions": "Approved UI catalogue"
   },
   "checks": {
+    "lint": ["make", "lint"],
     "structure": ["make", "test", "TEST_ARGS=scripts/shared-ui-usage.test.ts"],
     "browser": ["make", "e2e", "E2E_ARGS=<affected specs>"],
     "materialHandoff": ["make", "verify"]

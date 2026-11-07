@@ -287,6 +287,28 @@ rows; it is not a production-scale proof.
 
 ## Verification and enforcement
 
+`make lint` enforces `keel-ui/shared-controls` and
+`keel-ui/no-inline-control-restyle` in `apps/web/src/**/*.tsx`. Native links,
+buttons, inputs, selects, textareas and disclosures belong in `@keel/ui`. Named,
+aliased and namespace imports from that library use its documented variants for
+appearance. Consumer inline styles may set explicit margins, grid/flex placement
+and widths; `ChartContainer` also accepts runtime height dimensions. Visual
+properties, opaque style objects and spreads inside the style object are
+rejected. Shared implementations retain their styling ownership. This is JSX
+enforcement: CSS selectors, forwarded prop spreads and app-local compositions
+still require the existing browser checks and rendered review.
+
+The review profile tracks lint, dependency, bundler and browser configuration.
+Source roots include all regular files, including image/font assets and expected
+browser images; symlinks and nonregular entries fail closed. A source or asset
+change after capture invalidates its review packet.
+
+The setup assessment retained the current controls, tokens and catalogue. The
+approved source-update flow composes those controls with app-local policy and
+decision ownership; it does not need a new public provider component. Broader
+extraction candidates remain in `ui-refactor-targets.md` and are not
+prerequisites for this workflow.
+
 `e2e/ui-catalogue.visual.spec.ts` exercises the production controls at desktop
 and mobile sizes: keyboard selection, disabled styles, help/error associations,
 failed-save draft preservation, retry/end states, automatic loading failure
@@ -300,3 +322,16 @@ catalogue tests through `make e2e`, inspect changed PNGs, replay without
 snapshot updates and finish with `make verify`. Do not treat catalogue
 screenshots as proof of backend persistence or of an application flow not
 exercised by them.
+
+## Brokerage update composition
+
+The application-local `PublicSourceUpdate` composes `Button`, `TextLink`,
+`SearchSelect`, `RecordGroup`, `RecordRow`, `Collapsible` and `FormMessage`. It
+owns the source comparison, exact accepted-total effects, report-scoped ignores,
+saved decision history and bounded activity. Keep those financial and acceptance
+rules in the application and source-update policy. Existing control variants,
+placement, keyboard behavior and catalogue states apply; no new provider
+abstraction or shared control API is introduced. The real API/D1 browser flow
+covers automatic matching, selected corrections, failed saves and status checks
+on desktop/mobile. Generated component guidance stays unchanged because the
+reused control contracts are unchanged.

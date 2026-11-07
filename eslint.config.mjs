@@ -3,6 +3,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import keelUi from "./scripts/eslint-keel-ui.mjs";
 
 export default tseslint.config(
   {
@@ -57,6 +58,14 @@ export default tseslint.config(
         "warn",
         { allowConstantExport: true },
       ],
+    },
+  },
+  {
+    files: ["apps/web/src/**/*.tsx"],
+    plugins: { "keel-ui": keelUi },
+    rules: {
+      "keel-ui/shared-controls": "error",
+      "keel-ui/no-inline-control-restyle": "error",
     },
   },
   {

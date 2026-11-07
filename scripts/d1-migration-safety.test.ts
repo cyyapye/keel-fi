@@ -28,9 +28,10 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0091_unmeasured.sql";
+const futureMigration = "0092_unmeasured.sql";
 const immutableFrontier = "0089_manual_holdings.sql";
-const frontier = "0090_distribution_reviews.sql";
+const distributionFrontier = "0090_distribution_reviews.sql";
+const frontier = "0091_public_source_reviews.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -47,13 +48,19 @@ function isolatedRegistry() {
   );
   return root;
 }
-function tableRows(history: 12 | 24) {
+function tableRows(history: 12 | 24, terminal = true, publicHistory = true) {
   return {
     ...Object.fromEntries(
-      IMPLEMENTED_BASELINE_TABLES.map((table) => [table, 0]),
+      IMPLEMENTED_BASELINE_TABLES.filter(
+        (table) =>
+          terminal ||
+          !/^(public_holding_|portfolio_baseline_public_source_versions$)/u.test(
+            table,
+          ),
+      ).map((table) => [table, 0]),
     ),
-    holding_positions: 241,
-    holding_position_snapshots: 120 * (history + 2) + 1,
+    holding_positions: publicHistory ? 481 : 241,
+    holding_position_snapshots: (publicHistory ? 240 : 120) * (history + 2) + 1,
     holding_purchase_reviews: 120 * history + 1,
     portfolio_baseline_items: 120,
     manual_holding_submissions: 1,
@@ -61,14 +68,14 @@ function tableRows(history: 12 | 24) {
   };
 }
 function receipt(): MigrationSafetyReceipt {
-  return {
+  return MigrationSafetyReceiptSchema.parse({
     version: 2,
     gitSha,
     sourceDigest: migrationSourceDigest(),
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "distribution-schema-v1",
+      id: "public-source-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -78,8 +85,8 @@ function receipt(): MigrationSafetyReceipt {
           unrelatedPositions: 120,
           fixtureHash: "d".repeat(64),
           tableRows: tableRows(24),
-          tablesPreserved: 137,
-          schemaObjectsPreserved: 693,
+          tablesPreserved: 143,
+          schemaObjectsPreserved: 726,
           foreignKeyViolations: 0,
           immutableProbes: 3,
           validation: "applied-schema-preservation",
@@ -97,32 +104,29 @@ function receipt(): MigrationSafetyReceipt {
         },
       ],
     },
-    cases: [
-      {
-        kind: "upgrade",
-        id: "distribution-reviews-v1",
-        frontier: immutableFrontier,
-        pending: [frontier],
-        scenarios: [
-          {
-            ...upgradeScenario(),
-            rowsRead: 10,
-            rowsWritten: 4,
-            inboundForeignKeyPlans: "not-applicable-trigger-only-no-table-dml",
-          },
-          {
-            ...upgradeScenario(),
-            history: 24,
-            fixtureHash: "d".repeat(64),
-            tableRows: tableRows(24),
-            rowsRead: 10,
-            rowsWritten: 4,
-            inboundForeignKeyPlans: "not-applicable-trigger-only-no-table-dml",
-          },
-        ],
-      },
-    ],
-  };
+    cases: readMigrationSafetyRegistry().cases.map((review) => ({
+      kind: "upgrade",
+      id: review.id,
+      frontier: review.frontier,
+      pending: review.migrations.map((item) => item.name),
+      scenarios: [12, 24].map((history) => ({
+        ...upgradeScenario(),
+        history,
+        fixtureHash: (history === 12 ? "c" : "d").repeat(64),
+        tableRows: tableRows(
+          history as 12 | 24,
+          false,
+          review.id === "public-source-reviews-v1",
+        ),
+        rowsRead: 10,
+        rowsWritten: 4,
+        inboundForeignKeyPlans:
+          review.id === "public-source-reviews-v1"
+            ? "indexed-current-head-backfill-no-parent-rebuild"
+            : "not-applicable-trigger-only-no-table-dml",
+      })),
+    })),
+  });
 }
 function futureCase(root: string) {
   const sql = "CREATE TABLE synthetic_unmeasured (id TEXT PRIMARY KEY);\n";
@@ -154,7 +158,7 @@ function upgradeScenario() {
     mainPositions: 120 as const,
     unrelatedPositions: 120 as const,
     fixtureHash: "c".repeat(64),
-    tableRows: tableRows(12),
+    tableRows: tableRows(12, false, false),
     tablesPreserved: 137,
     schemaObjectsPreserved: 693,
     foreignKeyViolations: 0 as const,
@@ -190,16 +194,21 @@ describe("populated D1 migration evidence", () => {
       {
         id: "distribution-reviews-v1",
         frontier: immutableFrontier,
+        migrations: [{ name: distributionFrontier }],
+      },
+      {
+        id: "public-source-reviews-v1",
+        frontier: distributionFrontier,
         migrations: [{ name: frontier }],
       },
     ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "distribution-schema-v1",
+      id: "public-source-schema-v1",
       frontier,
       pending: [],
     });
-    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(137);
+    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(143);
   });
 
   it("refuses a registry that attempts to approve rewritten applied history", () => {
@@ -274,9 +283,9 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "distribution-schema-v1",
+      caseId: "public-source-schema-v1",
       migrationCost: null,
-      footprint: { households: 2, holding_position_snapshots: 3121 },
+      footprint: { households: 2, holding_position_snapshots: 6241 },
     });
     expect(Object.keys(admitted.footprint).sort()).toEqual(
       IMPLEMENTED_BASELINE_TABLES,
@@ -286,18 +295,31 @@ describe("populated D1 migration evidence", () => {
     expect(admitted).not.toHaveProperty("rowsWritten");
   });
 
-  it("admits the measured trigger-only upgrade and enforces its complete actual counter budget", () => {
+  it("admits only the certified source-head backfill suffix and preserves the earlier trigger case", () => {
     const evidence = receipt();
-    const admitted = admit(evidence, {
-      frontier: immutableFrontier,
-      pending: [frontier],
-      gitSha,
-    });
-    expect(admitted).toMatchObject({
+    expect(
+      validateMigrationSafetyReceipt(evidence, { gitSha, now }).cases[0]
+        ?.scenarios[0],
+    ).toMatchObject({ rowsRead: 10, rowsWritten: 4 });
+    expect(
+      admit(evidence, {
+        frontier: distributionFrontier,
+        pending: [frontier],
+        gitSha,
+      }),
+    ).toMatchObject({
       kind: "upgrade",
-      caseId: "distribution-reviews-v1",
+      caseId: "public-source-reviews-v1",
       migrationCost: { rowsRead: 10, rowsWritten: 4 },
     });
+    // An older target has two pending migrations; neither individual case claims that complete sequence.
+    expect(() =>
+      admit(evidence, {
+        frontier: immutableFrontier,
+        pending: [distributionFrontier, frontier],
+        gitSha,
+      }),
+    ).toThrow("no exact baseline or populated OLD-schema evidence");
     for (const patch of [
       { rowsRead: 2001 },
       { rowsWritten: 101 },
@@ -310,15 +332,23 @@ describe("populated D1 migration evidence", () => {
       Object.assign(invalid.cases[0]!.scenarios[0], patch);
       expect(() => admit(invalid)).toThrow("actual D1 row budget");
     }
+    for (const patch of [
+      { rowsRead: 15001 },
+      { rowsWritten: 10001 },
+      { rowsRead: 0, rowsWritten: 0 },
+    ]) {
+      const invalid = receipt();
+      Object.assign(invalid.cases[1]!.scenarios[0], patch);
+      expect(() => admit(invalid)).toThrow();
+    }
     const zero = receipt();
     for (const scenario of zero.cases[0]!.scenarios) {
       scenario.rowsRead = 0;
       scenario.rowsWritten = 0;
     }
-    expect(
-      admit(zero, { frontier: immutableFrontier, pending: [frontier], gitSha })
-        .migrationCost,
-    ).toEqual({ rowsRead: 0, rowsWritten: 0 });
+    expect(() =>
+      validateMigrationSafetyReceipt(zero, { gitSha, now }),
+    ).not.toThrow();
   });
 
   it("refuses a populated legacy upgrade because forward indexes would run too late", () => {
@@ -327,7 +357,7 @@ describe("populated D1 migration evidence", () => {
     expect(() =>
       admit(undefined, {
         frontier: legacyFrontier,
-        pending: [immutableFrontier, frontier],
+        pending: [immutableFrontier, distributionFrontier, frontier],
         gitSha,
       }),
     ).toThrow("forward indexes run after the unsafe rebuild");

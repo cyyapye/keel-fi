@@ -83,6 +83,7 @@ export const BROWSER_TEST_LANES = {
     "legal-name-resolution.visual.spec.ts",
     "purchase-details.visual.spec.ts",
     "share-basis.spec.ts",
+    "public-source-updates.spec.ts",
     "legal-entities.visual.spec.ts",
     "manual-holdings.spec.ts",
     "obligations.visual.spec.ts",

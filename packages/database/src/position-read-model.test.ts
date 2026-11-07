@@ -874,7 +874,7 @@ describe("canonical investment position view", () => {
         holding.id.startsWith("position_scale_"),
       ),
     ).toHaveLength(120);
-    expect(pageSql).toHaveLength(11);
+    expect(pageSql).toHaveLength(12);
     expect(
       pageSql.filter((sql) =>
         sql.includes("FROM public_source_observations observation"),
