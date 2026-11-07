@@ -123,6 +123,49 @@ be running; otherwise names remain unavailable. Stop/delete only this dedicated
 VM when finished with a disposable test setup, and rebuild the configuration for
 the next runtime rather than falling back to host tools.
 
+## Development worktree bootstrap
+
+Development worktrees share one provisioned runtime. `make bootstrap` validates
+the existing daemon and immutable images, then writes the three owner-only
+bindings under the new worktree's ignored `.keel-local/` directory. It does not
+create/start a VM, build/pull images, or change a complete local configuration.
+Matching partial bindings can be completed; conflicting files are preserved and
+reported as an error.
+
+The host registry is `~/.config/keel/pdf-sandbox/runtime.json` (directory 0700,
+file 0600). It contains only the local socket and three immutable image IDs. On
+a host that already has a configured checkout, register it once:
+
+```sh
+make pdf-sandbox-register
+```
+
+A normal non-CI `make pdf-sandbox-build` with the default configuration path
+registers its completed bindings automatically. Bootstrap can also initialize an
+absent registry from its own complete, working local bindings. It never replaces
+an existing registry; use `make pdf-sandbox-register` to explicitly select a
+newer runtime for future worktrees. Existing worktrees retain their bindings.
+After retiring old images, explicitly remove the affected worktree's three
+bindings and rerun bootstrap to select the registered runtime.
+
+`KEEL_PDF_SANDBOX_CONFIG` remains an explicit override: bootstrap checks that
+path and its companions instead of creating local bindings. Keep the override
+set for subsequent verification commands. Installed services continue to use
+their selected configuration; capture does not read the development registry.
+
+`make pdf-sandbox-check` runs the same bounded readiness check independently,
+and `make verify` runs it first for actionable setup errors. The check makes two
+local Docker reads (engine policy and image availability); the full scanner,
+kernel-enforced isolation and cleanup proofs still run in verification. Run
+these commands with access to the dedicated Unix socket. A restricted agent
+shell may lack that access even while the VM is running. Start a stopped daemon
+explicitly; do not rebuild images merely because a confined process cannot
+inspect it.
+
+CI uses `make bootstrap-ci` for dependencies and Chromium. Its required native
+flows own image construction and synthetic migration/seed preparation, without
+reading or writing a developer's host registry.
+
 ## Verification and updates
 
 `make pdf-sandbox-verify` is mandatory in `make verify` and the PR Quality job.

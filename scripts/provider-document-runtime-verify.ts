@@ -29,7 +29,11 @@ assert.equal(capture.documents.length, 1);
 // This is the fresh, plain agreement from the real scanner and Poppler. Keep
 // its complete verdict here so the isolation probes need not open it again.
 const { scan, extraction } = capture.documents[0]!;
-assert.equal(scan?.version, 2);
+assert.equal(
+  scan?.version,
+  2,
+  "PDF scanner unavailable. Run make pdf-sandbox-check for setup diagnostics.",
+);
 assert.equal(scan.outcome, "clean");
 assert.deepEqual(scan.findings, []);
 assert.equal(extraction.problem, null);

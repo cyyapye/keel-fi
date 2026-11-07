@@ -1,5 +1,86 @@
 # Test performance and retained proof
 
+## Test necessity
+
+Keep a test when it catches a named Keel failure. Use the cheapest layer that
+preserves the condition that makes that failure possible. That condition can be
+a browser interaction, process entry, real storage, shared state or deep
+history. An explicit component-ownership rule is also a contract. Case count and
+line coverage do not measure these properties.
+
+The November 6 review starts at `b07a0f67` and
+[main run 42169590604](https://github.com/cyyapye/keel-fi/actions/runs/42169590604).
+Source checks took 472.3 seconds, the unit/D1 flow 506.9 seconds and browsers
+240.1 seconds. These flows overlap.
+
+| Decision                              | Removed work                                                                                                                                            | Retained requirement                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Simplify shared UI guards             | Two source-string pins for disclosure motion and Select internals; repeated AST parsing; separate registrations for eleven examples of one parser guard | DatePicker, native-control, catalogue, action, toggle, heading, empty-state, feedback and display ownership still have executable guards. All eleven parser examples remain in one case. Existing browser cases retain mounted height transitions. The old global reduced-motion string check did not establish disclosure-specific reduced motion.                                                                        |
+| Factor provider days                  | Four repeated AngelList and Tokenfolio idle days from Sydecar-specific scenarios                                                                        | One combined three-agent day exercises the maximum nine-renewal pattern and the original shared limits. Sydecar-only idle, success, continuous failure and transport recovery retain their distinct outcomes. All-provider revocation remains. All six cases retain fresh mutable state, the real client/proxy/authentication path and actual D1 replay.                                                                   |
+| Remove the duplicate SQLite idle day  | One lower-fidelity full-day scenario                                                                                                                    | The real-D1 owner consumes the clients' actual configured intervals, exercises the empty update client, rejects browser starts, checks the 120-retired-credential query plan and measures index-inclusive writes. The other twelve operating-budget cases retain capture, cleanup, latency and backoff failures. The update-latency case now retains the first request time instead of replacing it on every polling loop. |
+| Remove the one-SPV import duplicate   | One acceptance/readback/replay case                                                                                                                     | The 120-SPV variant executes every assertion for the same branch. Direct and Fund variants still exercise their distinct classifications.                                                                                                                                                                                                                                                                                  |
+| Reuse the initial purchase projection | One discarded read of 120 positions                                                                                                                     | The retained initial read supplies both its measured cost and positions. Every history-growth read, acceptance, plan and actual-cost assertion remains.                                                                                                                                                                                                                                                                    |
+
+The combined provider day keeps the shared ceilings of 10,000 client requests,
+20,000 Worker invocations, 150,000 reads and 2,000 writes. The additional
+Sydecar-only cases have conservative ceilings of 5,400 requests, 50,000 reads
+and 850 writes. Every request still authenticates and allows at most ten D1
+round trips. Sydecar makes exactly 24 maintenance discovery calls. Successful,
+failing, intermittent and transport-recovery days retain three, three, nine and
+six browser starts. Every replayed SQL result and consumed change count must
+match real D1. Independent ceilings alone do not replace the combined-state
+check.
+
+The remaining costly owners were reviewed before changing scheduling. Their
+cheaper tests cannot establish the conditions below.
+
+| Owner                    | CI file time | Unique condition retained                                                                                                                                       | Cheaper proof and decision                                                                                                          |
+| ------------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Populated migrations     | 138.7s       | OLD-schema foreign-key amplification, complete pending SQL, both history sizes and data/trigger preservation                                                    | Registry and empty replay checks cannot meter a populated upgrade. Keep.                                                            |
+| Saved Watch activity     | 84.9s        | Shared 40-job admission across 6,000 pages, races, interrupted captures, stale completion, growing 120-company history and a complete authenticated polling day | Single-source and controlled timer cases do not establish aggregate admission, persistence or actual billing. Keep all eight cases. |
+| Automatic review cost    | 61.1s        | Deep review history and a complete 24-document capture plus review inside one write budget                                                                      | Repository batches do not bill capture and review together. Keep.                                                                   |
+| Combined lint/typecheck  | 54.3s        | Real compiler diagnostics, canonical contexts, transformed-input refusal, stale source/configuration and owned child cleanup                                    | Mock Programs cannot establish compiler or CLI completeness. Keep.                                                                  |
+| Portfolio baseline cost  | 45.9s        | Billed 120-source refresh with revisions, retained missing input, closures and a no-write repeat                                                                | Keep the D1 case and the separate 120-source exact FI-total assertions. Fields or row counts cannot replace downstream totals.      |
+| Participation cost       | 42.1s        | Source-to-projection reads across 120 tied-date reviews per position and actual deep-head writes                                                                | Pure dashboard aggregates do not bill repository history. Keep.                                                                     |
+| Manual holdings cost     | 37.3s        | Billed creation and current/history reads after 121 versions for each of 120 holdings, including foreign and empty scopes                                       | Flat seeded rows cannot establish creation cost after history growth. Keep.                                                         |
+| Purchase details cost    | 36.5s        | 960 acceptance receipts, a 128-entry head and growing bidirectional link history                                                                                | Ordinary persistence cases do not bill the mixed deep history. Keep, reusing the initial projection.                                |
+| Renamed investments cost | 34.7s        | 120 accepted aliases survive later decisions and tied source history with bounded billed reads                                                                  | SQLite acceptance and reversal cases do not establish real D1 cost. Keep.                                                           |
+| Holding imports          | 29.0s        | Recorded policy decisions, partial coverage, identity conflicts, append-only observations and exact baseline totals at scale                                    | Connector/domain cases omit accepted-record persistence. Keep those groups and remove only the duplicate one-SPV row.               |
+
+The final three-file component check uses one worker and a shared immutable
+seed. Five alternating macOS pairs pass every case. Median wall time falls from
+11.759 seconds to 7.285 seconds. The ranges are 11.731 to 11.778 seconds before
+and 7.272 to 7.311 seconds after. Median observed child CPU falls from 14.607 to
+9.266 seconds. The provider file executes 89,959 SQL statements instead of
+175,215, with 8,437 replay transport calls instead of 17,780. Every retained day
+still executes its complete SQL trace. An independent profiling run identifies
+SQLite trace capture and Miniflare fetch as active JavaScript costs, with most
+remaining cost-worker time waiting on the runtime. Native workerd execution is
+outside that V8 profile. These component measurements do not establish whole-CI
+timing under the ordinary Linux flow concurrency.
+
+Representative faults preserve the reason for the retained checks. Halving idle
+polling exceeds the shared request budget. Adding a heartbeat index produces
+2,634 actual writes against the unchanged 2,000-write ceiling. A household
+housekeeping write activated by sibling-provider activity passes an isolated
+provider control but produces 13,354 writes in the combined day. A 24-hour
+update cadence fails the corrected first-request latency assertion. Mutating
+actual application controls to use native dates, raw inputs or quiet toggle
+buttons fails the corresponding complete-file UI guard. All mutations are
+restored.
+
+Vitest registrations fall from 1,557 to 1,543. Grouping parser examples accounts
+for ten of those registrations without removing inputs. Browser coverage,
+platform exclusions, native flows, deadlines and concurrency limits remain
+unchanged. The first local full-gate attempt failed because the worktree lacked
+its ignored PDF runtime bindings. The existing dedicated runtime was running and
+configured in other worktrees. After binding this worktree to that verified
+runtime, `make verify` passes, including the real scan/extraction path, kernel
+isolation probes, all 1,542 applicable unit/D1 cases and 127 browser cases. The
+existing platform exclusions remain. Linux CI timing remains unverified.
+
+## Earlier optimization evidence
+
 The current CI split keeps runtime quota admission in draft PR #340. Earlier
 measurements below describe the combined branch at their recorded revisions. Its
 quota-owner tests are deferred with that implementation. The current registered

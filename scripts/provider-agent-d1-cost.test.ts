@@ -20,36 +20,37 @@ const START = Date.parse("2026-09-01T00:00:00.000Z");
 const DAY = 86_400_000;
 const SUBJECT = "synthetic-access-subject";
 const ORIGIN = "https://agents.keel.example.com";
+const replayWorker = build({
+  entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
+  bundle: true,
+  write: false,
+  format: "esm",
+  platform: "neutral",
+  target: "es2022",
+  conditions: ["workerd", "worker", "browser"],
+  mainFields: ["browser", "module", "main"],
+  external: ["node:*", "cloudflare:*"],
+  logLevel: "silent",
+}).then((bundled) => bundled.outputFiles[0]!.text);
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
 it.each([
-  "idle",
-  "renewal",
-  "renewal_failure",
-  "renewal_intermittent",
-  "renewal_transport_recovery",
-  "revoked",
+  ["sydecar", "idle"],
+  ["sydecar", "renewal"],
+  ["sydecar", "renewal_failure"],
+  ["all", "renewal_intermittent"],
+  ["sydecar", "renewal_transport_recovery"],
+  ["all", "revoked"],
 ] as const)(
-  "measures a complete three-agent %s day with real D1 counters",
-  async (scenario) => {
+  "measures a complete %s %s day with real D1 counters",
+  async (target, scenario) => {
     const started = performance.now();
-    const bundled = await build({
-      entryPoints: ["scripts/test-support/sql-replay-worker.ts"],
-      bundle: true,
-      write: false,
-      format: "esm",
-      platform: "neutral",
-      target: "es2022",
-      conditions: ["workerd", "worker", "browser"],
-      mainFields: ["browser", "module", "main"],
-      external: ["node:*", "cloudflare:*"],
-      logLevel: "silent",
-    });
+    const script = await replayWorker;
     const bundledAt = performance.now();
-    const fixture = await createCostDatabase(bundled.outputFiles[0]!.text, {
+    const fixture = await createCostDatabase(script, {
       sharedMemoryParent:
         process.env.CI === "true"
           ? process.env.KEEL_PROVIDER_DAY_SCRATCH
@@ -72,6 +73,12 @@ it.each([
         now,
       );
       const authorizations: MacAgentAuthorization[] = [];
+      const budget =
+        scenario === "revoked"
+          ? { http: 300, rowsRead: 1_000, rowsWritten: 0 }
+          : target === "all"
+            ? { http: 10_000, rowsRead: 150_000, rowsWritten: 2_000 }
+            : { http: 5_400, rowsRead: 50_000, rowsWritten: 850 };
       const log = console.info.bind(console);
       vi.spyOn(console, "info").mockImplementation(() => undefined);
       for (const provider of ["angellist", "tokenfolio", "sydecar"] as const) {
@@ -82,23 +89,28 @@ it.each([
           await portfolios.register(SUBJECT, provider);
           await portfolios.configure(SUBJECT, provider, { interval: "off" });
         }
-        authorizations.push({
+        const authorization: MacAgentAuthorization = {
           version: 1,
           target: provider,
           apiOrigin: ORIGIN,
           token: await credentials.issueToken(SUBJECT, provider),
-        });
+        };
+        if (target === "all" || target === provider)
+          authorizations.push(authorization);
       }
       // 120 retired records exercise the current authentication lookup at scale.
       await trace.database
         .prepare(
           `INSERT INTO mac_agent_credentials
       (id, household_id, target, token_sha256, issued_by_user_id, issued_at, last_used_at, revoked_at)
-      SELECT 'retired-' || value, 'hh_demo', 'sydecar', printf('%064d', value), 'usr_demo',
+      SELECT 'retired-' || value, 'hh_demo', ?, printf('%064d', value), 'usr_demo',
         '2026-08-01T00:00:00.000Z', NULL, '2026-08-02T00:00:00.000Z'
       FROM json_each(?)`,
         )
-        .bind(JSON.stringify(Array.from({ length: 120 }, (_, n) => n)))
+        .bind(
+          target === "all" ? "sydecar" : target,
+          JSON.stringify(Array.from({ length: 120 }, (_, n) => n)),
+        )
         .run();
       const app = createApp({
         macAgentCredentialRepository: credentials,
@@ -140,7 +152,10 @@ it.each([
       vi.stubGlobal(
         "fetch",
         async (input: RequestInfo | URL, init?: RequestInit) => {
-          assertHarness(++http <= 10_000, "Agent day exceeded its HTTP budget");
+          assertHarness(
+            ++http <= budget.http,
+            `Agent day exceeded its HTTP budget (${http} > ${budget.http})`,
+          );
           const request = new Request(input, init);
           if (request.url.endsWith("/session-renewal/lease"))
             sessionLeaseRequests++;
@@ -262,16 +277,23 @@ it.each([
             return "idle";
           },
           checkUpdates: async () => {
-            const leased =
-              authorization.target === "angellist"
-                ? await __angellistMacAgentTest.lease(authorization)
-                : await __providerPortfolioMacAgentTest.lease(
-                    authorization,
-                    authorization.target,
-                  );
-            assertHarness(leased.run === null, "Idle update returned a run");
+            if (authorization.target === "angellist") {
+              const leased = await __angellistMacAgentTest.lease(authorization);
+              assertHarness(leased.run === null, "Idle update returned a run");
+            } else {
+              const captured = await __providerPortfolioMacAgentTest.pollOnce(
+                new URL(ORIGIN),
+                authorization.target,
+                authorization,
+                () => failHarness("Idle update opened a provider browser"),
+              );
+              assertHarness(captured === false, "Idle update captured a run");
+            }
           },
-          updateIntervalMs: authorization.target === "angellist" ? DAY : 60_000,
+          updateIntervalMs:
+            authorization.target === "angellist"
+              ? __angellistMacAgentTest.queuedUpdatePollIntervalMs
+              : __providerPortfolioMacAgentTest.queuedUpdatePollIntervalMs,
           onError: (error) => {
             if (harnessFailure) throw harnessFailure;
             if (rejected && error instanceof MacAgentAccessError)
@@ -294,8 +316,8 @@ it.each([
         });
       }
       if (harnessFailure) throw harnessFailure;
-      expect(http).toBeLessThanOrEqual(rejected ? 300 : 10_000);
-      expect(workerInvocations).toBeLessThanOrEqual(rejected ? 600 : 20_000);
+      expect(http).toBeLessThanOrEqual(budget.http);
+      expect(workerInvocations).toBeLessThanOrEqual(budget.http * 2);
       expect(maxRoundTrips).toBeLessThanOrEqual(10);
       expect(sessionLeaseRequests).toBe(rejected ? 0 : 24);
       expect(browserStarts).toBe(
@@ -325,13 +347,36 @@ it.each([
           body,
         }),
       );
-      expect(cost.rowsRead).toBeLessThanOrEqual(rejected ? 1_000 : 150_000);
-      expect(cost.rowsWritten).toBeLessThanOrEqual(rejected ? 0 : 2_000);
-      if (!rejected) expect(cost.rowsWritten).toBeGreaterThan(1_500);
+      expect(cost.rowsRead).toBeLessThanOrEqual(budget.rowsRead);
+      expect(cost.rowsWritten).toBeLessThanOrEqual(budget.rowsWritten);
+      if (!rejected) {
+        expect(cost.rowsWritten).toBeGreaterThan(
+          target === "all" ? 1_500 : 500,
+        );
+        // Real D1 counters include heartbeat indexes.
+        const lookup = trace.queries.find((sql) =>
+          sql.includes("AS retire_older"),
+        )!;
+        const plan = await fixture.database
+          .prepare(`EXPLAIN QUERY PLAN ${lookup}`)
+          .bind("sydecar", "0".repeat(64))
+          .all<{ detail: string }>();
+        expect(
+          plan.results.some((row) =>
+            /SCAN (credential|older|newer)\b/u.test(row.detail),
+          ),
+        ).toBe(false);
+        expect(
+          plan.results.filter((row) =>
+            /SEARCH (credential|older|newer)\b/u.test(row.detail),
+          ),
+        ).toHaveLength(3);
+      }
       log(
         JSON.stringify({
           actualD1AgentDay: {
             scenario,
+            target,
             storage: fixture.storage,
             sessionLeaseRequests,
             browserStarts,

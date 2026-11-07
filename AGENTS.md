@@ -69,6 +69,13 @@ Load the applicable guidance when the task crosses its boundary:
 
 ## Codex and local workflow
 
+- Every test must protect a named Keel behavior, integrity/security boundary,
+  production resource budget, or verification failure. Prefer the cheapest layer
+  that can faithfully catch that failure. Remove redundant owners and setup; do
+  not add cases merely to mirror implementation, pin component choices, or
+  increase a coverage count. Preserve distinct failure modes and real D1 cost,
+  migration, authentication, acceptance and append-only evidence.
+
 - For temporary Linux/Colima tests, use `scripts/linux-test-run.py`; see
   `docs/deployment/linux-test-cleanup.md`. Do not create unmanaged test copies
   or caches under guest `/private/tmp`. Export needed evidence before exit or

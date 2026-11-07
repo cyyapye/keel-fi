@@ -22,10 +22,9 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
     const meter = measureD1(fixture.database);
     const reader = new D1InvestmentPositionViewRepository(meter.database);
     const get = () => reader.listForHousehold("hh_demo");
-    await get();
+    const initial = await get();
     const empty = { ...meter.cost };
-    meter.reset();
-    const positions = (await get()).connections.flatMap((c) =>
+    const positions = initial.connections.flatMap((c) =>
       c.containers.flatMap((c) => c.positions),
     );
     expect(positions).toHaveLength(120);

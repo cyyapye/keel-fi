@@ -978,7 +978,6 @@ describe("AngelList holding import persistence", () => {
   });
 
   it.each([
-    [1, "SPV"],
     [120, "SPV"],
     [1, "Direct"],
     [1, "Fund"],

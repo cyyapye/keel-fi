@@ -407,21 +407,28 @@ not a generic preferred interval.
 
 ## Executable ceilings
 
-`scripts/provider-agent-usage.test.ts` drives the production scheduler, actual
-client helpers, web/API routing, authentication, and real SQL against a
-synthetic database for a virtual 24-hour day. The three-agent idle ceilings are:
+`scripts/provider-agent-d1-cost.test.ts` drives the production scheduler, actual
+client helpers, web/API routing, authentication, and real SQL for complete
+virtual days. Its combined three-agent day includes the maximum intermittent
+renewal pattern and enforces these shared ceilings:
 
 - 10,000 HTTP requests;
 - 20,000 Worker invocations, conservatively counting both web and API;
-- 2,000 changed database rows; and
+- 150,000 D1 rows read;
+- 2,000 D1 rows written, including index maintenance; and
 - 10 D1 round trips for any one request, independent of credential history.
 
 The fixture includes 120 retired credentials and checks the authentication query
-plan for indexed lookups. It counts actual SQLite changes, not merely calls to
-an UPDATE. SQLite does not include index maintenance in this counter, so schema
-review and deployed D1 metrics remain necessary. The changed heartbeat columns
-must remain unindexed for this write estimate to apply. Worker invocations are
-not asserted to equal billable requests.
+plan for indexed lookups. It records the complete SQL trace, then executes every
+operation in real D1 and validates results and consumed change counts. Actual D1
+billing counters establish the read and write limits. A heartbeat index must fit
+those limits, including its maintenance writes. Worker invocations are not
+asserted to equal billable requests. Schema review and deployed usage evidence
+remain necessary.
+
+`scripts/provider-agent-usage.test.ts` retains the cheaper capture, cleanup,
+authorization, latency and backoff cases. Its queued-update latency starts at
+the first explicit request. Repeated clock ticks cannot reset that timestamp.
 
 For context, Cloudflare's published free allowances are 100,000 Workers requests
 and 100,000 D1 rows written per day. The caps above reserve substantial headroom
