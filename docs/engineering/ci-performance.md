@@ -68,8 +68,8 @@ resources. Their existing work remains required within the same 900-second
 native gate, and browser execution still has its 300-second limit.
 
 The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
-208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions
-and the same 15 exclusions. This supports removing competing heavy work; the
+208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions and
+the same 15 exclusions. This supports removing competing heavy work; the
 required gate must still establish both elapsed budgets with the new schedule.
 
 The complete local functional replay on macOS passes all 151 executions and the
