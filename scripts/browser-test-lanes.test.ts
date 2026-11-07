@@ -24,6 +24,7 @@ describe("browser test lanes", () => {
         ci: false,
         platform: "darwin",
         architecture: "arm64",
+        args: ["test", "--update-snapshots=none"],
       }),
     ).toBe("functional");
     expect(

@@ -796,6 +796,9 @@ def validate_preflight_dependencies(mapping):
             raise ValueError(f"Missing required native flow {name}")
     if "source-quality" not in ancestors["pdf-isolation"]:
         raise ValueError("PDF isolation must follow source-quality")
+    for parent in ("source-quality", "native-unit-and-cost"):
+        if parent not in ancestors["browser-workflows"]:
+            raise ValueError(f"Browser verification must follow {parent}")
 
 
 def vitest_context():

@@ -37,7 +37,7 @@
     "test:live:sources": "tsx scripts/live-company-source-smoke.ts",
     "test:e2e": "playwright test",
     "toolchain:check": "node scripts/check-toolchain.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck && tsc --noEmit -p e2e/ui-catalogue/tsconfig.json && tsc --noEmit -p e2e/carry-proposal/tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck && tsc --noEmit -p e2e/ui-catalogue/tsconfig.json"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260722.1",

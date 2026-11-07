@@ -1,5 +1,11 @@
 # Distribution proposal v5
 
+This historical review artifact is preserved at `d9c1565b`. The approval status
+below belongs to that prototype. Ordinary CI checks the shipped distribution
+editor and financial domain; this directory's checks are opt-in. Replay at the
+recorded revision to retain its original dependencies. Keep new proposals in a
+new directory with their own verification.
+
 This synthetic proposal records received SPV distributions and shows their
 effect on remaining carry and historical return. User approval is pending. It
 uses no production route, API write, browser storage, or D1 state. Refresh
@@ -53,7 +59,7 @@ Build and verify with the existing server on port 14811.
 node e2e/carry-proposal/build.mjs
 node node_modules/vitest/vitest.mjs run --config e2e/carry-proposal/vitest.config.ts
 node node_modules/typescript/bin/tsc --noEmit -p e2e/carry-proposal/tsconfig.json
-node node_modules/eslint/bin/eslint.js e2e/carry-proposal --max-warnings=0
+node node_modules/eslint/bin/eslint.js 'e2e/carry-proposal/*.{ts,tsx,mjs}' --no-ignore --max-warnings=0
 node node_modules/prettier/bin/prettier.cjs --check e2e/carry-proposal
 node e2e/carry-proposal/verify-browser.mjs
 ```

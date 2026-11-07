@@ -36,6 +36,49 @@ Exceeding that budget fails required verification without silently dropping
 checks. Watchdogs remain independent safety ceilings. Do not raise the budget to
 hide a regression.
 
+The complete `browser-workflows` command has a separate **300-second elapsed
+budget** in `.tugling/pilot-verification.json`. It includes profile copies,
+server/browser startup, all registered cases, report validation and owned
+runtime teardown. Queue time and the existing build/seed prerequisite flows
+remain separate. The native launcher terminates an overrun. Receipt publication
+and every downstream receipt check also compare the measured duration with the
+declared limit, so observing an exit-code-zero process just after its deadline
+cannot produce a green check. The 900-second whole-gate budget remains.
+
+Keep browser lanes balanced as coverage grows. The carry/share-basis change
+added 24 executions to one serial production lane, taking its passing count from
+38 to 62. Required browsers grew from 240.149 seconds to 341.573 seconds on that
+feature's merge candidate, then 338.356 seconds on `f5b1034a`. Purchase-details,
+share-basis and legal-name-resolution specs now move to the other equivalent
+production lane. The observed case-body loads predict roughly 237/239 seconds
+instead of 312/165. These are scheduling estimates, not a measured CI
+improvement. Every case, assertion, snapshot and platform exclusion remains;
+each stateful lane still has one worker and the global cap stays four. The
+active required gate must establish the resulting Linux timing.
+
+The first required attempt, `42339574169`, reached the new browser deadline and
+failed closed. Its 303.050-second duration includes termination and owned
+cleanup; remaining cases did not run and no complete receipt was published. The
+rebalance alone is insufficient under that run's concurrent load. Host samples
+show memory pressure and 2,398.6 MiB of swap in use; sampled process RSS peaks
+were 8,242 MiB for browsers, 3,667 MiB for source checks and 2,638 MiB for
+unit/D1 work. These peaks are not additive physical-memory measurements.
+Browsers now wait for source checks and unit/D1 verification to release their
+resources. Their existing work remains required within the same 900-second
+native gate, and browser execution still has its 300-second limit.
+
+The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
+208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions and
+the same 15 exclusions. This supports removing competing heavy work; the
+required gate must still establish both elapsed budgets with the new schedule.
+
+The complete local functional replay on macOS passes all 151 executions and the
+same 15 exclusions in 96.717 seconds through the actual 300-second launcher
+deadline, including report accounting and cleanup. This isolated run does not
+establish canonical Linux pixels or elapsed time under concurrent CI work.
+Functional mode accepts the native runner's read-only `--update-snapshots=none`;
+actual snapshot-update modes remain rejected.
+
 Use Actions job creation/start/completion timestamps to measure queue and setup
 time separately. Compare complete successful workflows at the same coverage; do
 not count cancelled or filtered runs as speed improvements. Desired future
@@ -87,13 +130,14 @@ overlapping preflight evidence fails verification.
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
 most three native flows run concurrently. Admission follows the reviewed map's
-first-ready order. Unit and browser work may overlap source checks after their
-own prerequisites pass. PDF isolation waits for source checks, so its scanner
-cannot overlap the compiler flow. Source checks still must pass in the same
-complete receipt. Configured scanner and compiler limits do not establish
-observed memory use or available host capacity. The 900-second active budget and
-per-case deadlines remain. Native main units and standalone execution use three
-workers after the two-worker trial below failed the complete budget.
+first-ready order. Unit work may overlap source checks. Browsers wait for both
+flows to complete, avoiding three competing heavy phases. PDF isolation waits
+for source checks, so its scanner cannot overlap the compiler flow; it may
+overlap browsers after the unit flow completes. Source checks still must pass in
+the same complete receipt. Configured scanner and compiler limits do not
+establish observed memory use or available host capacity. The 900-second active
+budget and per-case deadlines remain. Native main units and standalone execution
+use three workers after the two-worker trial below failed the complete budget.
 
 Draft PR #340 tried admitting the workspace build before the main unit suite in
 [run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
@@ -104,12 +148,15 @@ cutoff. The map restores the previous order.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It
-retains every root, workspace, catalogue and synthetic proposal context, all
-lint files and rules, and the zero-warning limit. Standalone `make lint` and
-`make typecheck` remain available. Both type-check paths include
-`e2e/carry-proposal/tsconfig.json`. The combined command validates canonical
-context discovery, configuration syntax, CLI options, complete roots and
-supported source types. Missing contexts and unsupported compiler modes fail
+retains every active root, workspace and catalogue context, their lint files and
+rules, and the zero-warning limit. Standalone `make lint` and `make typecheck`
+remain available. The historical
+[carry proposal](../../e2e/carry-proposal/README.md) has opt-in replay checks;
+its compiler context and dummy fixture are retired from ordinary CI now that the
+shipped feature has domain, API, D1 and browser coverage. The public-data scan
+and formatting checks still include the archive. The combined command validates
+canonical context discovery, configuration syntax, CLI options, complete roots
+and supported source types. Missing contexts and unsupported compiler modes fail
 rather than silently reducing coverage. Alternative parsers and processors are
 refused because transformed input can hide diagnostics from the original source.
 It creates no persistent cache or receipt.

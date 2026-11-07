@@ -118,17 +118,6 @@ async function withFixture<T>(
         files: ["index.ts"],
       }),
     );
-    write(
-      "e2e/carry-proposal/index.ts",
-      'export const label: string = "synthetic proposal";\n',
-    );
-    write(
-      "e2e/carry-proposal/tsconfig.json",
-      JSON.stringify({
-        compilerOptions: { ...options, lib: ["ES2023"] },
-        files: ["index.ts"],
-      }),
-    );
     const drift = fixture.programDrift
       ? `import ts from ${JSON.stringify(pathToFileURL(join(root, "node_modules/typescript/lib/typescript.js")).href)};
 import { fileURLToPath } from "node:url";
@@ -201,7 +190,7 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
     (cwd) => {
       const clean = cli(cwd);
       expect(clean.status, clean.output).toBe(0);
-      expect(clean.output).toContain('"contexts":3');
+      expect(clean.output).toContain('"contexts":2');
       const invalid = cli(cwd, ["--skip"]);
       expect(invalid.status, invalid.output).toBe(1);
       expect(invalid.output).toContain("Usage:");
@@ -220,16 +209,7 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
   );
   const clean = await run();
   expect(clean.status, clean.output).toBe(0);
-  expect(clean.output).toContain('"contexts":3');
-  const proposalError = await run({
-    files: {
-      "e2e/carry-proposal/index.ts": "export const value: string = 1;\n",
-    },
-  });
-  expect(proposalError.status, proposalError.output).toBe(1);
-  expect(proposalError.output).toMatch(
-    /e2e\/carry-proposal\/index\.ts\(\d+,\d+\): error TS2322:/u,
-  );
+  expect(clean.output).toContain('"contexts":2');
   for (const [fixture, failure] of [
     [
       {
@@ -349,7 +329,6 @@ it("requires every canonical workspace context and rejects command drift", async
       "Unexpected TypeScript context",
     ],
     [{ ignores: ["e2e/**"] }, "Missing TypeScript contexts"],
-    [{ ignores: ["e2e/carry-proposal/**"] }, "Missing TypeScript contexts"],
     [
       {
         files: {

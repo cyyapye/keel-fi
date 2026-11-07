@@ -1210,6 +1210,9 @@ with native.cost_seed_directory() as seed:
         self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', workflow)
         self.assertIn("runs-on: [self-hosted, Linux, X64, keel-ci]", workflow)
         self.assertEqual(workflow.count("make pilot-verify"), 1)
+        isolated_browser = probe.split("      - name: Time the complete browser process\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("timeout-minutes: 5", isolated_browser)
+        self.assertIn("if elapsed > 300:", isolated_browser)
         self.assertIn("scripts/ci-verification.py publish", workflow)
         self.assertEqual(ci.count("needs: [secret-scan, native]"), 3)
         self.assertEqual(ci.count("!cancelled() && (needs.secret-scan.result != 'success' ||"), 3)
@@ -1263,7 +1266,8 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["browser-fixture-preparation"]["depends_on"], ["migration-and-seed"])
         self.assertIn("provider-document-runtime", flows["browser-workflows"]["depends_on"])
         self.assertEqual(flows["browser-workflows"]["depends_on"],
-                         ["browser-fixture-preparation", "build-and-entry-budget", "provider-document-runtime"])
+                         ["browser-fixture-preparation", "build-and-entry-budget", "provider-document-runtime",
+                          "source-quality", "native-unit-and-cost"])
         # The sole Chromium PDF integration finishes before UI workers start;
         # remaining PDF kernel/scanner probes cannot add a fifth browser worker.
         self.assertNotIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
@@ -1280,7 +1284,7 @@ with native.cost_seed_directory() as seed:
             'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
             'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
             'build-and-entry-budget': (['make', 'build'], 300),
-            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 1800),
+            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 300),
             'pdf-isolation': (['make', 'pdf-sandbox-verify'], 600),
         }
         self.assertEqual(flow_order, list(expected_commands))
@@ -1295,6 +1299,11 @@ with native.cost_seed_directory() as seed:
         next(flow for flow in invalid["flows"] if flow["id"] == "pdf-isolation")["depends_on"].remove("source-quality")
         with self.assertRaisesRegex(ValueError, "source-quality"):
             native.validate_preflight_dependencies(invalid)
+        for parent in ("source-quality", "native-unit-and-cost"):
+            invalid = json.loads(json.dumps(plan))
+            next(flow for flow in invalid["flows"] if flow["id"] == "browser-workflows")["depends_on"].remove(parent)
+            with self.subTest(browser_overlap=parent), self.assertRaisesRegex(ValueError, parent):
+                native.validate_preflight_dependencies(invalid)
         transitive = json.loads(json.dumps(plan))
         by_id = {flow["id"]: flow for flow in transitive["flows"]}
         by_id["compose-configuration"]["depends_on"] = ["source-quality"]

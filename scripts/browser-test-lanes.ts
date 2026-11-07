@@ -35,9 +35,10 @@ export function resolveScreenshotMode(input: {
     mode !== "canonical" &&
     input.args?.some(
       (arg) =>
-        arg.startsWith("-u") ||
-        arg === "--update-snapshots" ||
-        arg.startsWith("--update-snapshots="),
+        arg !== "--update-snapshots=none" &&
+        (arg.startsWith("-u") ||
+          arg === "--update-snapshots" ||
+          arg.startsWith("--update-snapshots=")),
     )
   )
     throw new Error(
@@ -68,20 +69,20 @@ export const BROWSER_TEST_LANES = {
   ],
   "stateful-a": [
     "carry-distributions.spec.ts",
-    "share-basis.spec.ts",
     "cash-accounts.visual.spec.ts",
     "goals.visual.spec.ts",
-    "legal-name-resolution.visual.spec.ts",
     "manual-holdings.visual.spec.ts",
     "observed-cash-flow.visual.spec.ts",
     "plan-actual-monitoring.visual.spec.ts",
-    "purchase-details.visual.spec.ts",
     "provider-browser-lifecycle.spec.ts",
     "provider-session.spec.ts",
     "ui-catalogue.visual.spec.ts",
     "provider-legal-documents.spec.ts",
   ],
   "stateful-b": [
+    "legal-name-resolution.visual.spec.ts",
+    "purchase-details.visual.spec.ts",
+    "share-basis.spec.ts",
     "legal-entities.visual.spec.ts",
     "manual-holdings.spec.ts",
     "obligations.visual.spec.ts",
