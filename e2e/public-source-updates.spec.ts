@@ -4,15 +4,51 @@ import { HoldingImportPreviewSchema } from "../packages/domain/src/index";
 import { HoldingsPageSchema } from "../packages/domain/src/holdings-page";
 import { publicSourceFixture } from "./public-source-fixture";
 
+const SOURCE_CAPTURE_STYLE = `
+  .topbar,.mobile-nav{visibility:hidden!important}
+  .investment-institution:not([data-keel-source-capture]){display:none!important}
+`;
+
 async function captureSource(locator: Locator, state: string) {
   const root = process.env.KEEL_SOURCE_REVIEW_DIR;
-  if (root)
+  if (!root) return;
+  await locator.evaluate((element) =>
+    element.setAttribute("data-keel-source-capture", ""),
+  );
+  try {
     await locator.screenshot({
       path: resolve(root, `source-${state}-${test.info().project.name}.png`),
       animations: "disabled",
       scale: "css",
-      style: ".topbar,.mobile-nav{visibility:hidden!important}",
+      style: SOURCE_CAPTURE_STYLE,
     });
+  } finally {
+    await locator.evaluate((element) =>
+      element.removeAttribute("data-keel-source-capture"),
+    );
+  }
+}
+async function expectSourceSnapshot(page: Page, source: Locator, name: string) {
+  if (test.info().config.metadata.screenshotMode !== "canonical") {
+    await expect(source).toHaveScreenshot(name, { animations: "disabled" });
+    return;
+  }
+  // Keep the source's document position independent of other synthetic accounts.
+  // This mask is capture-only; navigation and geometry use the complete page.
+  await source.evaluate((element) =>
+    element.setAttribute("data-keel-source-capture", ""),
+  );
+  const mask = await page.addStyleTag({ content: SOURCE_CAPTURE_STYLE });
+  try {
+    await expect(source).toHaveScreenshot(name, { animations: "disabled" });
+  } finally {
+    await mask.evaluate((element) => {
+      element.parentNode?.removeChild(element);
+    });
+    await source.evaluate((element) =>
+      element.removeAttribute("data-keel-source-capture"),
+    );
+  }
 }
 async function focusNaturally(page: Page, control: Locator) {
   for (let step = 0; step < 80; step++) {
@@ -102,9 +138,14 @@ test("keeps safe updates automatic and records each selected identity correction
   await captureSource(source, "decision");
   // Other stateful journeys add independent connections to this shared D1
   // profile. Bind this composition's image to the source under review.
-  await expect(source).toHaveScreenshot("public-source-decision.png", {
-    animations: "disabled",
-    stylePath: resolve("e2e/purchase-details.capture.css"),
+  await expectSourceSnapshot(page, source, "public-source-decision.png");
+  let releaseRefresh: () => void = () => undefined;
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  await page.route("**/api/portfolio-baseline/refresh", async (route) => {
+    await refreshGate;
+    return route.fallback();
   });
   await form
     .getByRole("button", { name: "Confirm same holding", exact: true })
@@ -114,6 +155,26 @@ test("keeps safe updates automatic and records each selected identity correction
       exact: true,
     }),
   ).toBeVisible();
+  await expect(source.locator(".investment-institution__value")).toHaveText(
+    "Refresh pending",
+  );
+  await expect(
+    source.locator(".investment-institution__summary"),
+  ).not.toContainText("decision");
+  await expect(
+    source.getByText(
+      "12 positions updated automatically. 1 decision needs you.",
+      {
+        exact: true,
+      },
+    ),
+  ).toHaveCount(0);
+  await captureSource(source, "saved-refreshing");
+  releaseRefresh();
+  await expect(source.locator(".investment-institution__value")).toHaveText(
+    "$215,100.00",
+  );
+  await page.unroute("**/api/portfolio-baseline/refresh");
   await captureSource(source, "saved");
   let preview = HoldingImportPreviewSchema.parse(
     await (
@@ -230,127 +291,161 @@ test("a unique verified security match needs no human decision and keeps omissio
     }),
   ).toBeVisible();
   await captureSource(source, "automatic");
-  await expect(source).toHaveScreenshot("public-source-automatic.png", {
-    animations: "disabled",
-    stylePath: resolve("e2e/purchase-details.capture.css"),
-  });
+  await expectSourceSnapshot(page, source, "public-source-automatic.png");
 });
 
-test("keeps a failed decision draft and checks status before an explicit retry", async ({
-  page,
-}) => {
-  const label = `Synthetic failure ${test.info().project.name}`;
-  const fixture = await publicSourceFixture(label);
-  await page.goto(`/holdings/imports/${fixture.importId}`);
-  const form = page.locator(".public-source-decision");
-  await expect(
-    form.getByRole("button", { name: "Confirm same holding", exact: true }),
-  ).toBeEnabled();
-  let writes = 0;
-  let releaseFailure: () => void = () => undefined;
-  const failureGate = new Promise<void>((resolve) => {
-    releaseFailure = resolve;
-  });
-  const path = `**/api/holding-imports/${fixture.importId}/rows/*/review`;
-  await page.route(path, async (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    writes++;
-    await failureGate;
-    await route.fulfill({
-      status: 503,
-      json: {
-        error:
-          "Keel could not confirm this decision. Check its status before trying again.",
-      },
+for (const failurePhase of ["planning", "sources"] as const) {
+  test(`keeps a failed decision draft and recovers ${failurePhase} readback without another receipt`, async ({
+    page,
+  }) => {
+    const label = `Synthetic failure ${failurePhase} ${test.info().project.name}`;
+    const fixture = await publicSourceFixture(label);
+    await page.goto("/holdings/sources");
+    const source = page.locator(".investment-institution").filter({
+      has: page.getByRole("heading", { name: label, exact: true }),
     });
-  });
-  await form
-    .getByRole("button", { name: "Confirm same holding", exact: true })
-    .click();
-  await expect(
-    form.getByRole("button", { name: "Saving…", exact: true }),
-  ).toBeDisabled();
-  await captureSource(page.locator(".public-source-update"), "saving");
-  releaseFailure();
-  await expect(form.getByRole("alert")).toContainText(
-    "Check its status before trying again.",
-  );
-  await expect(form.getByRole("alert")).toBeInViewport({ ratio: 1 });
-  await expect(
-    form.getByRole("button", { name: "Check decision status", exact: true }),
-  ).toBeFocused();
-  await expect(
-    form.getByRole("button", { name: "Check decision status", exact: true }),
-  ).toBeInViewport({ ratio: 1 });
-  await expect(
-    form.getByRole("button", { name: "Confirm same holding", exact: true }),
-  ).toBeDisabled();
-  expect(writes).toBe(1);
-  await captureSource(page.locator(".public-source-update"), "failure");
-  const read = HoldingImportPreviewSchema.parse(
-    await (
-      await page.request.get(`/api/holding-imports/${fixture.importId}`)
-    ).json(),
-  );
-  expect(read.summary.quarantinedCount).toBe(1);
-  expect(
-    read.rows.find((row) => row.ticker === "MSFT")?.sourceReview,
-  ).toBeNull();
-  await form
-    .getByRole("button", { name: "Check decision status", exact: true })
-    .click();
-  await expect(
-    form.getByRole("button", { name: "Confirm same holding", exact: true }),
-  ).toBeEnabled();
-  expect(writes).toBe(1);
-  await page.unroute(path);
-  let planningCalls = 0;
-  await page.route("**/api/portfolio-baseline/refresh", async (route) => {
-    planningCalls++;
-    if (planningCalls === 1)
-      return route.fulfill({
+    await source
+      .getByRole("button", { name: "Resolve 1 decision", exact: true })
+      .click();
+    const form = source.locator(".public-source-decision");
+    await expect(
+      form.getByRole("button", { name: "Confirm same holding", exact: true }),
+    ).toBeEnabled();
+    let writes = 0;
+    let releaseFailure: () => void = () => undefined;
+    const failureGate = new Promise<void>((resolve) => {
+      releaseFailure = resolve;
+    });
+    const path = `**/api/holding-imports/${fixture.importId}/rows/*/review`;
+    await page.route(path, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      writes++;
+      await failureGate;
+      await route.fulfill({
         status: 503,
-        json: { error: "Synthetic planning refresh outage." },
+        json: {
+          error:
+            "Keel could not confirm this decision. Check its status before trying again.",
+        },
       });
-    return route.fallback();
+    });
+    await form
+      .getByRole("button", { name: "Confirm same holding", exact: true })
+      .click();
+    await expect(
+      form.getByRole("button", { name: "Saving…", exact: true }),
+    ).toBeDisabled();
+    await captureSource(source, "saving");
+    releaseFailure();
+    await expect(form.getByRole("alert")).toContainText(
+      "Check its status before trying again.",
+    );
+    await expect(form.getByRole("alert")).toBeInViewport({ ratio: 1 });
+    await expect(
+      form.getByRole("button", { name: "Check decision status", exact: true }),
+    ).toBeFocused();
+    await expect(
+      form.getByRole("button", { name: "Check decision status", exact: true }),
+    ).toBeInViewport({ ratio: 1 });
+    await expect(
+      form.getByRole("button", { name: "Confirm same holding", exact: true }),
+    ).toBeDisabled();
+    expect(writes).toBe(1);
+    await captureSource(source, "failure");
+    const read = HoldingImportPreviewSchema.parse(
+      await (
+        await page.request.get(`/api/holding-imports/${fixture.importId}`)
+      ).json(),
+    );
+    expect(read.summary.quarantinedCount).toBe(1);
+    expect(
+      read.rows.find((row) => row.ticker === "MSFT")?.sourceReview,
+    ).toBeNull();
+    await form
+      .getByRole("button", { name: "Check decision status", exact: true })
+      .click();
+    await expect(
+      form.getByRole("button", { name: "Confirm same holding", exact: true }),
+    ).toBeEnabled();
+    expect(writes).toBe(1);
+    await page.unroute(path);
+    let planningCalls = 0;
+    await page.route("**/api/portfolio-baseline/refresh", async (route) => {
+      planningCalls++;
+      if (failurePhase === "planning" && planningCalls === 1)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Synthetic planning refresh outage." },
+        });
+      return route.fallback();
+    });
+    let connectionReads = 0;
+    await page.route("**/api/investment-connections", async (route) => {
+      connectionReads++;
+      if (failurePhase === "sources" && connectionReads === 1)
+        return route.fulfill({
+          status: 503,
+          json: { error: "Synthetic source readback outage." },
+        });
+      return route.fallback();
+    });
+    await form
+      .getByRole("button", { name: "Confirm same holding", exact: true })
+      .click();
+    await expect(
+      page.getByText(
+        "Same holding confirmed. Your decision is saved; the latest holdings or planning view could not be refreshed.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(source.locator(".investment-institution__value")).toHaveText(
+      "Refresh pending",
+    );
+    await expect(
+      source.locator(".investment-institution__summary"),
+    ).not.toContainText("decision");
+    await expect(
+      page.getByText("Reviewed holdings were not changed.", { exact: false }),
+    ).toHaveCount(0);
+    await expect(
+      source.getByRole("button", { name: "Check now", exact: true }),
+    ).toBeDisabled();
+    await captureSource(source, `refresh-failure-${failurePhase}`);
+    const savedBefore = HoldingImportPreviewSchema.parse(
+      await (
+        await page.request.get(`/api/holding-imports/${fixture.importId}`)
+      ).json(),
+    ).rows.find((row) => row.ticker === "MSFT")!.sourceReview!.id;
+    await page
+      .getByRole("button", {
+        name: "Refresh holdings and planning",
+        exact: true,
+      })
+      .click();
+    await expect(
+      page.getByText(
+        "Your decision is saved. Holdings and planning are refreshed.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    expect(planningCalls).toBe(2);
+    expect(connectionReads).toBe(failurePhase === "planning" ? 1 : 2);
+    await expect(source.locator(".investment-institution__value")).toHaveText(
+      "$215,100.00",
+    );
+    expect(
+      HoldingImportPreviewSchema.parse(
+        await (
+          await page.request.get(`/api/holding-imports/${fixture.importId}`)
+        ).json(),
+      ).rows.find((row) => row.ticker === "MSFT")!.sourceReview!.id,
+    ).toBe(savedBefore);
+    expect(
+      HoldingImportPreviewSchema.parse(
+        await (
+          await page.request.get(`/api/holding-imports/${fixture.importId}`)
+        ).json(),
+      ).rows.find((row) => row.ticker === "MSFT")?.sourceReview?.decision,
+    ).toBe("same");
   });
-  await form
-    .getByRole("button", { name: "Confirm same holding", exact: true })
-    .click();
-  await expect(
-    page.getByText(
-      "Same holding confirmed. Your decision is saved; the latest holdings or planning view could not be refreshed.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-  await captureSource(page.locator(".public-source-update"), "refresh-failure");
-  const savedBefore = HoldingImportPreviewSchema.parse(
-    await (
-      await page.request.get(`/api/holding-imports/${fixture.importId}`)
-    ).json(),
-  ).rows.find((row) => row.ticker === "MSFT")!.sourceReview!.id;
-  await page
-    .getByRole("button", { name: "Refresh holdings and planning", exact: true })
-    .click();
-  await expect(
-    page.getByText(
-      "Your decision is saved. Holdings and planning are refreshed.",
-      { exact: true },
-    ),
-  ).toBeVisible();
-  expect(planningCalls).toBe(2);
-  expect(
-    HoldingImportPreviewSchema.parse(
-      await (
-        await page.request.get(`/api/holding-imports/${fixture.importId}`)
-      ).json(),
-    ).rows.find((row) => row.ticker === "MSFT")!.sourceReview!.id,
-  ).toBe(savedBefore);
-  expect(
-    HoldingImportPreviewSchema.parse(
-      await (
-        await page.request.get(`/api/holding-imports/${fixture.importId}`)
-      ).json(),
-    ).rows.find((row) => row.ticker === "MSFT")?.sourceReview?.decision,
-  ).toBe("same");
-});
+}

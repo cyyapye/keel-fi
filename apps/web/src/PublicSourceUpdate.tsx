@@ -56,6 +56,7 @@ export function PublicSourceUpdate({
   showOutcome = true,
   initialActivityOpen = false,
   onSavingChange,
+  onReadbackPendingChange,
   activityOpen,
 }: {
   importId: string;
@@ -66,6 +67,7 @@ export function PublicSourceUpdate({
   showOutcome?: boolean;
   initialActivityOpen?: boolean;
   onSavingChange?: (saving: boolean) => void;
+  onReadbackPendingChange?: (pending: boolean) => void;
   activityOpen?: boolean;
 }) {
   const [preview, setPreview] = useState(initialPreview ?? null);
@@ -188,7 +190,8 @@ export function PublicSourceUpdate({
     }
   }
   async function save(decision: PublicHoldingReviewInput["decision"]) {
-    if (!selected || !preview || working || needsStatusCheck) return;
+    if (!selected || !preview || working || needsStatusCheck || refreshPending)
+      return;
     setRefreshPending(false);
     setSaving(decision);
     onSavingChange?.(true);
@@ -204,6 +207,7 @@ export function PublicSourceUpdate({
         expectedPriorSnapshotId:
           decision === "same" ? (prior?.snapshotId ?? null) : null,
       });
+      onReadbackPendingChange?.(true);
       setPreview(next);
       setSelectedId(null);
       window.requestAnimationFrame(() => savedMessage.current?.focus());
@@ -212,6 +216,7 @@ export function PublicSourceUpdate({
       try {
         await refreshPortfolioBaseline();
         await onSaved?.();
+        onReadbackPendingChange?.(false);
       } catch {
         setRefreshPending(true);
         setSaved(
@@ -237,6 +242,7 @@ export function PublicSourceUpdate({
     try {
       await refreshPortfolioBaseline();
       await onSaved?.();
+      onReadbackPendingChange?.(false);
       setRefreshPending(false);
       setSaved("Your decision is saved. Holdings and planning are refreshed.");
     } catch {
@@ -385,8 +391,9 @@ export function PublicSourceUpdate({
                 </>
               ) : (
                 <p>
-                  Choose a prior holding to compare. You can also keep this as a
-                  separate holding or ignore it.
+                  {selected.acceptanceBlocked
+                    ? "No accepted holding is available for this comparison."
+                    : "Choose a prior holding to compare. You can also keep this as a separate holding or ignore it."}
                 </p>
               )}
             </div>
@@ -459,6 +466,7 @@ export function PublicSourceUpdate({
                     tone={decision === "same" ? "primary" : "secondary"}
                     disabled={
                       working ||
+                      refreshPending ||
                       loading ||
                       needsStatusCheck ||
                       isCurrent ||
@@ -550,7 +558,10 @@ export function PublicSourceUpdate({
                   metadata={`Reported ${formatDate(preview.observedAt)}${row.sourceReview ? ` · ${row.sourceReview.decisionSource === "manual" ? "Your decision" : "Verified identity match"}` : ""}`}
                   action={
                     row.sourceReview && (
-                      <TextLink disabled={working} onClick={() => change(row)}>
+                      <TextLink
+                        disabled={working || refreshPending}
+                        onClick={() => change(row)}
+                      >
                         Change decision
                       </TextLink>
                     )

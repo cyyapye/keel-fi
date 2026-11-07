@@ -434,3 +434,8 @@ uncertain status explicitly, and allow later correction in activity. Saved
 choices and routine automatic updates must survive reload without a repeated
 identity/planning approval. The source-update policy owns acceptance; these
 controls compose the existing shared library in the application.
+
+After a decision is saved, keep stale source totals and decision counts out of
+the summary until its readback succeeds. A failed refresh must preserve the
+saved receipt, identify the pending readback and offer its own recovery. An
+invalid source must not offer acceptance actions that its controls disable.

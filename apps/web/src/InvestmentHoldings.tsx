@@ -890,6 +890,7 @@ function InstitutionActions({
   status,
   decisionOpen,
   decisionSaving,
+  readbackPending,
   management = false,
 }: {
   busy: BusyAction | null;
@@ -903,9 +904,11 @@ function InstitutionActions({
   status: InvestmentConnectionStatus;
   decisionOpen: boolean;
   decisionSaving: boolean;
+  readbackPending: boolean;
   management?: boolean;
 }) {
   const isBusy = busy?.connectionId === status.connectionId || decisionSaving;
+  const isDisabled = isBusy || readbackPending;
   const isAdding = busy?.action === "add" || busy?.action === "exchange";
   const isRetryableFailure = isRetryableInvestmentCheckFailure(status);
   const waitingCount = status.latestAdjudication?.quarantinedCount ?? 0;
@@ -919,7 +922,7 @@ function InstitutionActions({
             status.errorCode === "connection_invalid"
           ) && (
             <Button
-              disabled={isBusy || status.status === "syncing"}
+              disabled={isDisabled || status.status === "syncing"}
               onClick={() => onAction("pause")}
               tone="quiet"
             >
@@ -927,7 +930,7 @@ function InstitutionActions({
             </Button>
           )}
         <Button
-          disabled={isBusy || status.status === "syncing"}
+          disabled={isDisabled || status.status === "syncing"}
           onClick={onConfirmDisconnect}
           tone="quiet"
         >
@@ -948,7 +951,7 @@ function InstitutionActions({
         </p>
         {newConnectionsAvailable && (
           <Button
-            disabled={busy !== null}
+            disabled={busy !== null || decisionSaving || readbackPending}
             onClick={onConnectAgain}
             tone="primary"
           >
@@ -968,11 +971,15 @@ function InstitutionActions({
       >
         <p>Provider access will be removed. Reviewed history stays in Keel.</p>
         <ActionGroup align="end" mobileLayout="grid">
-          <Button disabled={isBusy} onClick={onCancelDisconnect} tone="quiet">
+          <Button
+            disabled={isDisabled}
+            onClick={onCancelDisconnect}
+            tone="quiet"
+          >
             Keep connected
           </Button>
           <Button
-            disabled={isBusy}
+            disabled={isDisabled}
             onClick={() => onAction("disconnect")}
             tone="danger"
           >
@@ -997,7 +1004,7 @@ function InstitutionActions({
       {status.latestImportId !== null && waitingCount > 0 && (
         <Button
           onClick={() => onReviewImport(status.latestImportId!)}
-          disabled={isBusy}
+          disabled={isDisabled}
           tone={decisionOpen ? "quiet" : "primary"}
         >
           {decisionOpen
@@ -1008,7 +1015,7 @@ function InstitutionActions({
       {status.status === "needs_attention" &&
       status.errorCode === "connection_invalid" ? (
         <Button
-          disabled={isBusy}
+          disabled={isDisabled}
           onClick={() => onAction("reconnect")}
           tone="primary"
         >
@@ -1016,7 +1023,7 @@ function InstitutionActions({
         </Button>
       ) : status.status === "paused" ? (
         <Button
-          disabled={isBusy}
+          disabled={isDisabled}
           onClick={() => onAction("resume")}
           tone="primary"
         >
@@ -1024,15 +1031,17 @@ function InstitutionActions({
         </Button>
       ) : (
         <Button
-          disabled={isBusy || status.status === "syncing"}
+          disabled={isDisabled || status.status === "syncing"}
           onClick={() => onAction("check")}
           tone="secondary"
         >
-          {isBusy || status.status === "syncing"
-            ? "Checking…"
-            : isRetryableFailure
-              ? "Try now"
-              : "Check now"}
+          {decisionSaving
+            ? "Updating…"
+            : isBusy || status.status === "syncing"
+              ? "Checking…"
+              : isRetryableFailure
+                ? "Try now"
+                : "Check now"}
         </Button>
       )}
     </ActionGroup>
@@ -2142,6 +2151,7 @@ export function InvestmentHoldings({
     useState<InvestmentConnectionsState | null>(null);
   const [busy, setBusy] = useState<BusyAction | null>(null);
   const [sourceDecisionSaving, setSourceDecisionSaving] = useState(false);
+  const [sourceReadbackPending, setSourceReadbackPending] = useState(false);
   const [openSourceActivity, setOpenSourceActivity] = useState<{
     id: string;
     decisions: boolean;
@@ -2736,6 +2746,9 @@ export function InvestmentHoldings({
                   ? 0
                   : 1);
               const accountCount = connection?.containers.length ?? 0;
+              const summaryPending =
+                sourceReadbackPending &&
+                openSourceActivity?.id === connectionId;
               const renderInstitutionActions = (management: boolean) => {
                 if (status === null) return null;
                 return (
@@ -2743,6 +2756,7 @@ export function InvestmentHoldings({
                     management={management}
                     busy={busy}
                     decisionSaving={sourceDecisionSaving}
+                    readbackPending={sourceReadbackPending}
                     decisionOpen={
                       openSourceActivity?.id === connectionId &&
                       openSourceActivity.decisions
@@ -2797,7 +2811,7 @@ export function InvestmentHoldings({
                           status?.lastSyncedAt === undefined
                             ? ""
                             : ` · Checked ${formatDate(status.lastSyncedAt)}`}
-                          {pendingCount > 0
+                          {pendingCount > 0 && !summaryPending
                             ? ` · ${pendingCount} ${pendingCount === 1 ? "decision" : "decisions"} needed`
                             : ""}
                         </small>
@@ -2805,7 +2819,9 @@ export function InvestmentHoldings({
                       <span className="investment-institution__summary-action">
                         <span className="investment-institution__accepted-value">
                           <strong className="investment-institution__value">
-                            {investmentConnectionTotalsLabel(connection)}
+                            {summaryPending
+                              ? "Refresh pending"
+                              : investmentConnectionTotalsLabel(connection)}
                           </strong>
                           <small>Accepted holdings</small>
                         </span>
@@ -2821,41 +2837,49 @@ export function InvestmentHoldings({
                     <div className="investment-institution__outcome">
                       <p>
                         <strong>
-                          {status.latestAdjudication.reportReused
-                            ? "No changes in the latest report."
-                            : status.latestAdjudication.autoAppliedCount > 0
-                              ? `${status.latestAdjudication.autoAppliedCount} positions updated automatically.`
-                              : "Latest report checked."}{" "}
-                          {pendingCount === 0
-                            ? "No decisions needed."
-                            : `${pendingCount} ${pendingCount === 1 ? "decision needs" : "decisions need"} you.`}
+                          {summaryPending ? (
+                            "Decision saved. Latest accepted holdings not loaded yet."
+                          ) : (
+                            <>
+                              {status.latestAdjudication.reportReused
+                                ? "No changes in the latest report."
+                                : status.latestAdjudication.autoAppliedCount > 0
+                                  ? `${status.latestAdjudication.autoAppliedCount} positions updated automatically.`
+                                  : "Latest report checked."}{" "}
+                              {pendingCount === 0
+                                ? "No decisions needed."
+                                : `${pendingCount} ${pendingCount === 1 ? "decision needs" : "decisions need"} you.`}
+                            </>
+                          )}
                         </strong>
                       </p>
-                      {status.latestAdjudication.preservedPositionCount > 0 && (
-                        <p>
-                          {status.latestAdjudication.preservedPositionCount}{" "}
-                          prior{" "}
-                          {status.latestAdjudication.preservedPositionCount ===
-                          1
-                            ? "holding"
-                            : "holdings"}{" "}
-                          kept at{" "}
-                          {status.latestAdjudication.preservedPositionCount ===
-                          1
-                            ? "its"
-                            : "their"}{" "}
-                          {status.latestAdjudication.preservedObservedAt
-                            ? formatDate(
-                                status.latestAdjudication.preservedObservedAt,
-                              )
-                            : "dated"}{" "}
-                          {status.latestAdjudication.preservedPositionCount ===
-                          1
-                            ? "value"
-                            : "values"}
-                          .
-                        </p>
-                      )}
+                      {!summaryPending &&
+                        status.latestAdjudication.preservedPositionCount >
+                          0 && (
+                          <p>
+                            {status.latestAdjudication.preservedPositionCount}{" "}
+                            prior{" "}
+                            {status.latestAdjudication
+                              .preservedPositionCount === 1
+                              ? "holding"
+                              : "holdings"}{" "}
+                            kept at{" "}
+                            {status.latestAdjudication
+                              .preservedPositionCount === 1
+                              ? "its"
+                              : "their"}{" "}
+                            {status.latestAdjudication.preservedObservedAt
+                              ? formatDate(
+                                  status.latestAdjudication.preservedObservedAt,
+                                )
+                              : "dated"}{" "}
+                            {status.latestAdjudication
+                              .preservedPositionCount === 1
+                              ? "value"
+                              : "values"}
+                            .
+                          </p>
+                        )}
                       <TextLink
                         onClick={() =>
                           setOpenSourceActivity((current) =>
@@ -2868,7 +2892,7 @@ export function InvestmentHoldings({
                                 },
                           )
                         }
-                        disabled={sourceDecisionSaving}
+                        disabled={sourceDecisionSaving || sourceReadbackPending}
                         aria-expanded={
                           openSourceActivity?.id === connectionId &&
                           !!openSourceActivity.activity
@@ -2888,6 +2912,7 @@ export function InvestmentHoldings({
                       <PublicSourceUpdate
                         key={`${status.latestImportId ?? status.latestAdjudication.importId}:${openSourceActivity.decisions}`}
                         onSavingChange={setSourceDecisionSaving}
+                        onReadbackPendingChange={setSourceReadbackPending}
                         showOutcome={false}
                         showDecisions={openSourceActivity.decisions}
                         activityOpen={openSourceActivity.activity ?? false}
@@ -2896,10 +2921,14 @@ export function InvestmentHoldings({
                           status.latestAdjudication.importId
                         }
                         onSaved={async () => {
-                          await Promise.all([
+                          const [connections] = await Promise.all([
                             reloadConnections(),
                             onExposureResolved(),
                           ]);
+                          if (connections === null)
+                            throw new Error(
+                              "Accepted source summary is unavailable.",
+                            );
                         }}
                       />
                     )}
@@ -2916,7 +2945,7 @@ export function InvestmentHoldings({
             {notice}
           </FormMessage>
         )}
-        {error !== null && (
+        {error !== null && !sourceReadbackPending && (
           <FormMessage className="investment-institutions__error" tone="error">
             {error} Reviewed holdings were not changed.
           </FormMessage>
