@@ -4,6 +4,7 @@ import {
   capitalSummaryLabel,
   positionCapitalSummary,
 } from "./position-capital-summary";
+import { positionPerformanceValuation } from "./position-performance-valuation";
 import { PositionShareValuationEditor } from "./PositionShareValuationEditor";
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import { estimatePurchaseValue } from "@keel/domain/position-purchases";
@@ -2849,12 +2850,8 @@ function PositionPerformanceSummary({
     holding.positionValueContext?.acceptedAdjustment ?? null;
   const projectedEstimate =
     holding.positionValueContext?.projectedEstimate ?? null;
-  const currentValueMinor =
-    acceptedAdjustment?.valueMinor ??
-    holding.shareValueEstimate?.valueMinor ??
-    holding.administratorNavMinor ??
-    projectedEstimate?.valueMinor ??
-    null;
+  const currentValuation = positionPerformanceValuation(holding);
+  const currentValueMinor = currentValuation?.valueMinor ?? null;
   const currentValueReported =
     acceptedAdjustment !== null ||
     holding.administratorNavState === "reported" ||
@@ -2862,6 +2859,7 @@ function PositionPerformanceSummary({
     projectedEstimate !== null;
   const performance = calculatePositionPerformance({
     currentValueMinor,
+    valuationDate: currentValuation?.effectiveDate ?? null,
     currentValueReported,
     realizedValueMinor: holding.realizedValueMinor ?? 0,
     providerCostBasisMinor: holding.costBasisMinor,

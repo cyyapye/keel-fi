@@ -7,7 +7,11 @@ import {
   purchaseShares,
   prefillPurchaseCapital,
   prefillInvestmentCapital,
+  assessValuationFromShares,
+  reviewedInvestmentFromReceipt,
 } from "./position-purchases";
+import { assessInvestmentCarry } from "./investment-details";
+import { calculatePositionPerformance } from "./position-economics";
 const lot = () =>
   PurchaseLotSchema.parse({
     id: "lot",
@@ -252,4 +256,276 @@ it("records an explicit proxy without inventing class or mark date", () => {
   ).toBe(false);
   r.details.coversPosition = false;
   expect(estimatePurchaseValue(r, "s")).toBeNull();
+});
+
+it("does not revive legacy prices when only the outer receipt snapshot advances", () => {
+  const value = receipt();
+  value.details.investmentSnapshotId = value.snapshotId;
+  value.snapshotId = "synthetic-new-snapshot";
+  expect(estimatePurchaseValue(value, "synthetic-new-snapshot")).toBeNull();
+});
+it("requires remaining share coverage through an accepted in-kind distribution", () => {
+  const value = receipt();
+  value.details.lots[0]!.sharesAsOf = "2026-01-01";
+  value.details.distributionReview = {
+    method: "capital_return_first_v1",
+    events: [
+      {
+        id: "synthetic-stock",
+        kind: "in_kind",
+        receivedOn: "2026-03-01",
+        investorValueMinor: null,
+        securityLabel: null,
+        quantityMicros: null,
+        sourceLabel: "Synthetic notice",
+        sourceUrl: null,
+        note: "",
+      },
+    ],
+    coverage: { status: "incomplete", throughDate: "2026-09-01" },
+    priorCarry: { status: "unknown" },
+    provider: {
+      inclusion: "unknown",
+      sourceSnapshotId: "s",
+      realizedValueMinor: 0,
+    },
+    sourceLabel: "Synthetic history",
+    sourceUrl: null,
+    note: "",
+  };
+  const record = {
+    id: "gp",
+    origin: "gp" as const,
+    totalMinor: null,
+    priceMicros: 20000000,
+    priceDate: "2026-09-01",
+    effectiveDate: "2026-09-01",
+    shareClass: "Series B",
+    carryStatus: "before_carry" as const,
+    sourceLabel: "Synthetic source",
+    sourceUrl: null,
+    sourceEvidenceId: null,
+    sourcePositionId: null,
+    sourceCapturedAt: null,
+    watchEvidenceId: null,
+  };
+  expect(assessValuationFromShares(value.details, record)).toMatchObject({
+    ok: false,
+    code: "distribution_quantity_date",
+  });
+  expect(estimatePurchaseValue(value, "s")).toBeNull();
+  value.details.lots[0]!.sharesAsOf = "2026-03-01";
+  expect(assessValuationFromShares(value.details, record)).toMatchObject({
+    ok: true,
+    calculation: { valueMinor: 16000 },
+  });
+  expect(estimatePurchaseValue(value, "s")?.valueMinor).toBe(16000);
+});
+
+describe("independently reviewed distributions", () => {
+  const distributionReceipt = () => {
+    const value = receipt();
+    value.details.cashCoversPosition = true;
+    value.details.distributionReview = {
+      method: "capital_return_first_v1",
+      events: [
+        {
+          id: "synthetic-cash",
+          kind: "cash",
+          receivedOn: "2026-03-01",
+          investorValueMinor: 2500,
+          sourceLabel: "Synthetic distribution notice",
+          sourceUrl: null,
+          note: "",
+        },
+      ],
+      coverage: { status: "complete", throughDate: "2026-09-01" },
+      priorCarry: { status: "unknown" },
+      provider: {
+        inclusion: "all",
+        sourceSnapshotId: "s",
+        realizedValueMinor: 2500,
+      },
+      sourceLabel: "Synthetic history",
+      sourceUrl: null,
+      note: "",
+    };
+    return PurchaseReceiptSchema.parse(value);
+  };
+  const performance = (
+    value: ReturnType<typeof receipt>,
+    realizedValueMinor: number,
+    snapshotId = "s",
+    valuationDate: string | null = "2026-09-01",
+  ) =>
+    calculatePositionPerformance({
+      currentValueMinor: 16000,
+      currentValueReported: true,
+      realizedValueMinor,
+      providerCostBasisMinor: null,
+      fundedMinor: 11000,
+      allowFundedAmountEstimate: true,
+      valuationDate,
+      economicsContext: {
+        snapshotId,
+        currency: "USD",
+        committedMinor: 11000,
+        fundedMinor: 11000,
+        acceptedTerms: null,
+        reportedTerms: null,
+        reviewedInvestment: reviewedInvestmentFromReceipt(value),
+      },
+    });
+
+  it("projects accepted history and actual capital without accepting investment terms", () => {
+    const value = distributionReceipt();
+    const accepted = structuredClone(value);
+    const investment = reviewedInvestmentFromReceipt(value);
+    expect(investment).toEqual({
+      snapshotId: "s",
+      receiptId: "r",
+      cashPaidMinor: 11000,
+      additionalPaidFeesMinor: 0,
+      netCapitalMinor: 10000,
+      estimatedNetCapitalMinor: 10000,
+      upfrontDeductionsMinor: 1000,
+      distributionReview: value.details.distributionReview,
+      terms: {
+        importedAmountBasis: "unknown",
+        annualManagementFeePpm: null,
+        annualManagementBasis: "unknown",
+        carryPpm: null,
+        carryBasis: "unknown",
+        reportedValueReview: null,
+        note: "",
+      },
+    });
+    expect(
+      assessInvestmentCarry({
+        valueMinor: 16000,
+        carryStatus: "before_carry",
+        valuationDate: "2026-09-01",
+        investment,
+      }),
+    ).toEqual({ status: "unavailable", reason: "unknown_carry_rate" });
+    expect(value).toEqual(accepted);
+    expect(Object.hasOwn(value.details, "investmentTerms")).toBe(false);
+  });
+
+  it.each([
+    { inclusion: "all" as const, realizedValueMinor: 2500 },
+    { inclusion: "none" as const, realizedValueMinor: 0 },
+  ])(
+    "counts reviewed distributions once when provider inclusion is $inclusion",
+    ({ inclusion, realizedValueMinor }) => {
+      const value = distributionReceipt();
+      value.details.distributionReview!.provider = {
+        inclusion,
+        sourceSnapshotId: "s",
+        realizedValueMinor,
+      };
+      expect(performance(value, realizedValueMinor)).toEqual({
+        costBasisMinor: 10000,
+        costBasisSource: "reviewed_spv_terms",
+        totalValueMinor: 18500,
+        totalGainMinor: 8500,
+        totalReturnPpm: 850000,
+      });
+    },
+  );
+
+  it.each(["missing", "uncovered", "empty"] as const)(
+    "retains history but withholds capital-dependent returns with %s capital",
+    (capital) => {
+      const value = distributionReceipt();
+      if (capital === "missing")
+        value.details.lots = [
+          {
+            ...lot(),
+            grossCashMinor: null,
+            netCapitalMinor: null,
+            upfrontDeductionsMinor: null,
+            feePpm: null,
+            feeBasis: null,
+          },
+        ];
+      if (capital === "uncovered") value.details.cashCoversPosition = false;
+      if (capital === "empty") value.details.lots = [];
+      expect(reviewedInvestmentFromReceipt(value)).toMatchObject({
+        cashPaidMinor: null,
+        netCapitalMinor: null,
+        estimatedNetCapitalMinor: null,
+        upfrontDeductionsMinor: null,
+        distributionReview: value.details.distributionReview,
+        terms: { carryPpm: null, carryBasis: "unknown" },
+      });
+      expect(performance(value, 2500)).toEqual({
+        costBasisMinor: null,
+        costBasisSource: null,
+        totalValueMinor: 18500,
+        totalGainMinor: null,
+        totalReturnPpm: null,
+      });
+      expect(Object.hasOwn(value.details, "investmentTerms")).toBe(false);
+    },
+  );
+
+  it("keeps the original investment source binding when the outer snapshot advances", () => {
+    const value = distributionReceipt();
+    value.details.investmentSnapshotId = "s";
+    value.snapshotId = "synthetic-new-snapshot";
+    expect(reviewedInvestmentFromReceipt(value)).toMatchObject({
+      snapshotId: "s",
+      distributionReview: { provider: { sourceSnapshotId: "s" } },
+    });
+    expect(performance(value, 2500)).toMatchObject({
+      costBasisMinor: 10000,
+      totalGainMinor: 8500,
+    });
+    expect(performance(value, 2500, "synthetic-new-snapshot")).toMatchObject({
+      costBasisMinor: null,
+      totalGainMinor: null,
+    });
+  });
+
+  it.each([
+    "provider_snapshot",
+    "provider_amount",
+    "incomplete_history",
+    "missing_valuation_date",
+    "history_coverage",
+    "valuation_predates_distribution",
+  ] as const)("preserves the %s holdout without accepted terms", (holdout) => {
+    const value = distributionReceipt();
+    const review = value.details.distributionReview!;
+    let valuationDate: string | null = "2026-09-01";
+    if (holdout === "provider_snapshot")
+      review.provider.sourceSnapshotId = "synthetic-other-snapshot";
+    if (holdout === "provider_amount") review.provider.realizedValueMinor = 0;
+    if (holdout === "incomplete_history") review.coverage.status = "incomplete";
+    if (holdout === "missing_valuation_date") valuationDate = null;
+    if (holdout === "history_coverage") valuationDate = "2026-09-02";
+    if (holdout === "valuation_predates_distribution")
+      valuationDate = "2026-02-28";
+    expect(reviewedInvestmentFromReceipt(value)).toMatchObject({
+      distributionReview: review,
+      terms: { carryPpm: null },
+    });
+    expect(performance(value, 2500, "s", valuationDate)).toEqual({
+      costBasisMinor: 10000,
+      costBasisSource: "reviewed_spv_terms",
+      totalValueMinor: null,
+      totalGainMinor: null,
+      totalReturnPpm: null,
+    });
+  });
+
+  it("preserves missing and legacy receipts without a distribution review", () => {
+    expect(reviewedInvestmentFromReceipt(null)).toBeUndefined();
+    expect(reviewedInvestmentFromReceipt(undefined)).toBeUndefined();
+    expect(reviewedInvestmentFromReceipt(receipt())).toBeUndefined();
+    const empty = receipt();
+    empty.details.lots = [];
+    expect(reviewedInvestmentFromReceipt(empty)).toBeUndefined();
+  });
 });

@@ -15,7 +15,10 @@ import type {
 } from "./position-read-model";
 import type { CanonicalExposure, PositionExposureMapping } from "./index";
 import { calculatePortfolioPerformance } from "./portfolio-performance";
-import { unknownInvestmentTerms } from "./investment-details";
+import {
+  DistributionReviewSchema,
+  unknownInvestmentTerms,
+} from "./investment-details";
 
 const asOf = "2026-08-23T12:00:00.000Z";
 
@@ -424,6 +427,169 @@ function performanceFixture() {
 }
 
 describe("current-holdings portfolio performance", () => {
+  it.each(["all", "none"] as const)(
+    "uses the canonical distribution-aware carry sheet with provider treatment %s",
+    (inclusion) => {
+      const { view } = performanceFixture();
+      const position = view.exposureView.positions.find(
+        (p) => p.id === "beta",
+      )!;
+      view.exposureView.positions = [position];
+      position.valueMinor = 4000000;
+      position.valueEffectiveDate = "2026-08-23";
+      position.realizedValueMinor = inclusion === "all" ? 900000 : 0;
+      Object.assign(position.reviewedInvestment!, {
+        cashPaidMinor: 3000000,
+        upfrontDeductionsMinor: 300000,
+        netCapitalMinor: 2700000,
+        returnedCapitalMinor: 0,
+        includedReturnedCapitalMinor: 0,
+        additionalReturnedCapitalMinor: 0,
+        distributionReview: DistributionReviewSchema.parse({
+          method: "capital_return_first_v1",
+          events: [
+            {
+              id: "synthetic-cash",
+              kind: "cash",
+              receivedOn: "2026-01-15",
+              investorValueMinor: 900000,
+              sourceLabel: "Synthetic notice",
+              sourceUrl: null,
+              note: "",
+            },
+          ],
+          coverage: { status: "complete", throughDate: "2026-08-23" },
+          priorCarry: { status: "known", amountMinor: 0 },
+          provider: {
+            inclusion,
+            sourceSnapshotId: position.snapshotId,
+            realizedValueMinor: position.realizedValueMinor,
+          },
+          sourceLabel: "Synthetic reviewed history",
+          sourceUrl: null,
+          note: "",
+        }),
+      });
+      Object.assign(position.reviewedInvestment!.terms, {
+        carryBasis: "gross_cash",
+        reportedValueReview: {
+          ...position.reviewedInvestment!.terms.reportedValueReview!,
+          valueMinor: 4000000,
+          carryStatus: "before_carry",
+        },
+      });
+      const result = calculatePortfolioPerformance(view, "USD");
+      expect(result.holdingReturn).toMatchObject({
+        valueMinor: 3620000,
+        distributionsMinor: 900000,
+        basisMinor: 2700000,
+        gainMinor: 1820000,
+        returnPpm: 674074,
+      });
+      expect(result.privateDpi).toMatchObject({
+        paidInMinor: 3000000,
+        distributionsMinor: 900000,
+        multiplePpm: 300000,
+      });
+      expect(result.privateTvpi).toMatchObject({
+        paidInMinor: 3000000,
+        valueMinor: 3620000,
+        distributionsMinor: 900000,
+        multiplePpm: 1506666,
+      });
+      expect(position.valueMinor).toBe(4000000);
+      const records = view.positionView.connections.flatMap((connection) =>
+        connection.containers.flatMap((container) => container.positions),
+      );
+      const canonical = records.find((record) => record.id === position.id)!;
+      const navSource = records.find((record) => record.id === "alpha")!;
+      navSource.snapshot.realizedValueMinor = 1234567;
+      canonical.linkedReportedValue = {
+        state: "reported",
+        minor: 4000000,
+        reviewId: "synthetic-nav-link",
+        sourcePositionId: navSource.id,
+        snapshotId: navSource.snapshot.id,
+        sourceLabel: "Synthetic linked NAV",
+        observedAt: asOf,
+      };
+      position.reviewedInvestment!.terms.reportedValueReview!.sourceSnapshotId =
+        navSource.snapshot.id;
+      expect(calculatePortfolioPerformance(view, "USD")).toEqual(result);
+      const savedBinding =
+        position.reviewedInvestment!.distributionReview!.provider
+          .sourceSnapshotId;
+      position.reviewedInvestment!.distributionReview!.provider.sourceSnapshotId =
+        navSource.snapshot.id;
+      expect(
+        calculatePortfolioPerformance(view, "USD").privateDpi.multiplePpm,
+      ).toBeNull();
+      position.reviewedInvestment!.distributionReview!.provider.sourceSnapshotId =
+        savedBinding;
+      position.reviewedInvestment!.distributionReview!.provider.inclusion =
+        "unknown";
+      const unknown = calculatePortfolioPerformance(view, "USD");
+      expect(unknown.holdingReturn.returnPpm).toBeNull();
+      expect(unknown.privateDpi.multiplePpm).toBeNull();
+      expect(unknown.privateTvpi.multiplePpm).toBeNull();
+    },
+  );
+
+  it.each(["missing_value", "undated_value", "value_before_stock"] as const)(
+    "preserves reviewed DPI with %s while withholding value-dependent performance",
+    (missing) => {
+      const { view } = performanceFixture();
+      const position = view.exposureView.positions.find(
+        (p) => p.id === "beta",
+      )!;
+      view.exposureView.positions = [position];
+      position.reviewedInvestment!.distributionReview =
+        DistributionReviewSchema.parse({
+          method: "capital_return_first_v1",
+          events: [
+            {
+              id: "synthetic-stock",
+              kind: "in_kind",
+              receivedOn: "2026-08-01",
+              investorValueMinor: 2000,
+              securityLabel: null,
+              quantityMicros: null,
+              sourceLabel: "Synthetic notice",
+              sourceUrl: null,
+              note: "",
+            },
+          ],
+          coverage: { status: "complete", throughDate: "2026-08-23" },
+          priorCarry: { status: "unknown" },
+          provider: {
+            inclusion: "all",
+            sourceSnapshotId: position.snapshotId,
+            realizedValueMinor: 3000,
+          },
+          sourceLabel: "Synthetic reviewed history",
+          sourceUrl: null,
+          note: "",
+        });
+      position.valueEffectiveDate =
+        missing === "value_before_stock" ? "2026-07-01" : null;
+      position.reviewedInvestment!.terms.reportedValueReview!.effectiveDate =
+        position.valueEffectiveDate;
+      if (missing === "missing_value") {
+        position.valueMinor = null;
+        position.valueState = "not_reported";
+      }
+      const result = calculatePortfolioPerformance(view, "USD");
+      expect(result.privateDpi).toMatchObject({
+        eligibleCount: 1,
+        paidInMinor: 12000,
+        distributionsMinor: 3000,
+        multiplePpm: 250000,
+      });
+      expect(result.privateTvpi.multiplePpm).toBeNull();
+      expect(result.holdingReturn.returnPpm).toBeNull();
+    },
+  );
+
   it("counts an unassigned manual Direct as private paper with incomplete performance coverage", () => {
     const { view } = performanceFixture();
     const eligible = view.exposureView.positions.find(

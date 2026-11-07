@@ -76,6 +76,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "apps/web/src/App.tsx | PortfolioBaselineSection | timer | window.setTimeout | 540a4d1242d2390a",
   "apps/web/src/App.tsx | ProviderPortfolioAgentRow | timer | window.setTimeout | 490facad2c7c4c3e",
   "apps/web/src/App.tsx | ProviderPortfolioAgentRow | timer | window.setTimeout | 8e74620f963089e5",
+  "apps/web/src/HoldingDistributions.tsx | HoldingDistributions | network | fetch | 7242e15b82e4f06f",
   "apps/web/src/HoldingHistory.tsx | HoldingHistory | network | fetch | e7101f697198d68a",
   "apps/web/src/HoldingInvestment.tsx | HoldingInvestment | network | fetch | ea7ab05801b28a76",
   "apps/web/src/HoldingLinkButton.tsx | HoldingLinkButton | timer | window.setTimeout | e925760d5fb499c8",

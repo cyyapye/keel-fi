@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import type { Locator } from "@playwright/test";
 import { expect, test, type Page } from "./api-mocked-test";
 import {
   alphaFixture,
@@ -7,6 +9,7 @@ import {
 } from "./holdings-detail-fixtures";
 import {
   PurchaseReceiptSchema,
+  AcceptPurchasesSchema,
   valuationSharesKey,
   type PurchaseReceipt,
 } from "../packages/domain/src/position-purchases";
@@ -24,18 +27,123 @@ async function select(page: Page, label: string, option: string) {
   await page.getByRole("option", { name: option, exact: true }).click();
 }
 async function screenshot(page: Page, name: string) {
-  await page.addStyleTag({
-    content: ".topbar, .mobile-nav { visibility: hidden !important; }",
-  });
-  await expect(page.locator(".spv-holding")).toHaveScreenshot(name, {
+  await expect.soft(page.locator(".spv-holding")).toHaveScreenshot(name, {
     animations: "disabled",
-  });
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
+    stylePath: fileURLToPath(
+      new URL("./purchase-details.capture.css", import.meta.url),
     ),
-  ).toBe(true);
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    )
+    .toBe(true);
 }
+
+async function expectFocusedControlUsable(control: Locator) {
+  await expect(control).toBeFocused();
+  await expect(control).toBeVisible();
+  await expect
+    .poll(() =>
+      control.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const label = element
+          .closest("label")
+          ?.querySelector('[data-slot="field-label"]');
+        const labelBox = label?.getBoundingClientRect();
+        const contained = (bounds: DOMRect) =>
+          bounds.width > 0 &&
+          bounds.height > 0 &&
+          bounds.left >= 0 &&
+          bounds.top >= 0 &&
+          bounds.right <= innerWidth &&
+          bounds.bottom <= innerHeight;
+        const overlaps = (a: DOMRect, b: DOMRect) =>
+          a.left < b.right &&
+          a.right > b.left &&
+          a.top < b.bottom &&
+          a.bottom > b.top;
+        const navigation = [
+          ...document.querySelectorAll(".topbar, .mobile-nav"),
+        ].filter((node) => {
+          const style = getComputedStyle(node);
+          return style.visibility !== "hidden" && style.display !== "none";
+        });
+        const style = getComputedStyle(element);
+        return {
+          controlInViewport: contained(box),
+          labelInViewport: !labelBox || contained(labelBox),
+          controlClearOfNavigation: navigation.every(
+            (node) => !overlaps(box, node.getBoundingClientRect()),
+          ),
+          labelClearOfNavigation: navigation.every(
+            (node) =>
+              !labelBox || !overlaps(labelBox, node.getBoundingClientRect()),
+          ),
+          hitTarget: element.contains(
+            document.elementFromPoint(
+              box.x + box.width / 2,
+              box.y + box.height / 2,
+            ),
+          ),
+          focusVisible: element.matches(":focus-visible"),
+          outlineVisible:
+            style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0,
+          mobileTargetSize: innerWidth >= 768 || box.height >= 44,
+          noHorizontalOverflow:
+            document.documentElement.scrollWidth <= innerWidth,
+        };
+      }),
+    )
+    .toEqual({
+      controlInViewport: true,
+      labelInViewport: true,
+      controlClearOfNavigation: true,
+      labelClearOfNavigation: true,
+      hitTarget: true,
+      focusVisible: true,
+      outlineVisible: true,
+      mobileTargetSize: true,
+      noHorizontalOverflow: true,
+    });
+}
+
+async function checkBasisKeyboardNavigation(
+  page: Page,
+  options: {
+    previous: Locator;
+    basis: Locator;
+    following: Locator[];
+  },
+) {
+  await expect(page.locator(".topbar")).toBeVisible();
+  await expect(page.locator(".topbar")).toHaveCSS("visibility", "visible");
+  await options.previous.click();
+  if ((await options.previous.getAttribute("role")) === "combobox") {
+    await expect(options.previous).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Escape");
+    await expect(options.previous).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("listbox")).toBeHidden();
+  }
+  await expect(options.previous).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    options.basis.locator("..").locator('[data-slot="field-label"]'),
+  ).toBeVisible();
+  await expectFocusedControlUsable(options.basis);
+  await page.keyboard.press("Tab");
+  await expect(options.following[0]!).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expectFocusedControlUsable(options.basis);
+  for (const control of options.following) {
+    await page.keyboard.press("Tab");
+    await expect(control).toBeFocused();
+  }
+  await expectFocusedControlUsable(options.following.at(-1)!);
+}
+
 async function setup(
   page: Page,
   configure?: (receipt: PurchaseReceipt) => void,
@@ -72,6 +180,8 @@ async function setup(
   configure?.(receipt);
   let reject = false,
     revision = 1;
+  let pendingSave: Promise<void> | null = null;
+  let releaseSave: (() => void) | undefined;
   const history = [receipt];
   const projection = () => purchaseDetailProjection(receipt, relatedNames);
   await routeHoldingsPage(page, () => ({
@@ -152,6 +262,7 @@ async function setup(
         });
         return;
       }
+      if (pendingSave) await pendingSave;
       const previous = receipt;
       receipt = PurchaseReceiptSchema.parse({
         ...receipt,
@@ -183,12 +294,43 @@ async function setup(
       await route.fulfill({ status: 201, json: receipt });
     },
   );
+  await page.route(
+    "**/api/investment-positions/synthetic-holding/purchases",
+    async (route) => {
+      const input = AcceptPurchasesSchema.parse(route.request().postDataJSON());
+      if (reject) {
+        await route.fulfill({
+          status: 500,
+          json: { error: "Investment could not be saved." },
+        });
+        return;
+      }
+      if (pendingSave) await pendingSave;
+      receipt = PurchaseReceiptSchema.parse({
+        ...receipt,
+        id: `receipt-${history.length + 1}`,
+        acceptedAt: `2026-10-01T12:00:${String(history.length).padStart(2, "0")}.000Z`,
+        details: { ...input.details, valuation: receipt.details.valuation },
+      });
+      history.unshift(receipt);
+      await route.fulfill({ status: 201, json: receipt });
+    },
+  );
   await page.goto("/holdings?position=synthetic-holding");
   await expect(
     page.getByRole("heading", { name: "Demo Cedar AI", exact: true }),
   ).toBeVisible();
   return {
     receipt: () => receipt,
+    pauseSave: () => {
+      pendingSave = new Promise<void>((resolve) => {
+        releaseSave = resolve;
+      });
+    },
+    resumeSave: () => {
+      releaseSave?.();
+      pendingSave = null;
+    },
     reject: (value: boolean) => {
       reject = value;
     },
@@ -228,13 +370,13 @@ test("holding summary pairs value and return and keeps fees in Investment", asyn
     );
   }
   const before = page.getByRole("group", {
-    name: "Reported value · Before carry",
+    name: "Reported remaining value · Before carry",
     exact: true,
   });
   await expect(before).toContainText("$16,880.00");
   await expect(before).toContainText("+100.00%");
   const after = page.getByRole("group", {
-    name: "Estimated value · After carry",
+    name: "Estimated remaining value · After carry",
     exact: true,
   });
   await expect(after).toContainText("$15,698.00");
@@ -362,3 +504,248 @@ test(
     });
   },
 );
+
+test("custom quantity share bases save, reload and preserve equivalent proxy values", async ({
+  page,
+}) => {
+  const state = await setup(page, (r) => {
+    r.details.lots[0]!.quantityDetails = {
+      status: "estimated",
+      derivation: "Synthetic allocation estimate",
+      evidence: "Synthetic split notice",
+      shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+    };
+  });
+  const basis = page.getByRole("textbox", {
+    name: "Quantity share basis",
+    exact: true,
+  });
+  const shares = page.getByRole("textbox", { name: "Shares", exact: true });
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  await page.getByRole("button", { name: "Edit investment" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(basis).toBeVisible();
+  for (const invalid of [
+    "",
+    "0",
+    "-1",
+    "1.5",
+    "abc",
+    "1e1",
+    "0x5",
+    "1000001",
+  ]) {
+    await basis.fill(invalid);
+    await expect(basis).toHaveAttribute("aria-invalid", "true");
+    await expect(save).toBeDisabled();
+    expect(state.receipt().id).toBe("receipt-1");
+  }
+  await basis.fill("");
+  await expect(basis).toHaveValue("");
+  await expect(save).toBeDisabled();
+  await basis.fill("5");
+  await shares.fill("422");
+  await checkBasisKeyboardNavigation(page, {
+    previous: page.getByRole("combobox", {
+      name: "Quantity status",
+      exact: true,
+    }),
+    basis,
+    following: [
+      page.getByRole("textbox", { name: "Quantity derivation", exact: true }),
+      page.getByRole("textbox", { name: "Quantity evidence", exact: true }),
+      page.getByRole("textbox", { name: "Purchase source", exact: true }),
+      page.getByRole("button", { name: "Add acquisition", exact: true }),
+      page.getByRole("textbox", { name: "Carry · %", exact: true }),
+      page.getByRole("combobox", { name: "Carry gains above", exact: true }),
+      save,
+    ],
+  });
+  state.reject(true);
+  await save.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Investment could not be saved",
+  );
+  await expect(basis).toHaveValue("5");
+  await expect(shares).toHaveValue("422");
+  state.reject(false);
+  state.pauseSave();
+  await save.click();
+  await expect(page.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(basis).toBeDisabled();
+  state.resumeSave();
+  await expect(
+    page.getByRole("button", { name: "Edit investment" }),
+  ).toBeVisible();
+  expect(state.receipt().details.lots[0]!.quantityDetails).toMatchObject({
+    status: "estimated",
+    evidence: "Synthetic split notice",
+    shareBasis: { key: "issuer-original", unitsPerOriginal: 5 },
+  });
+  expect(state.receipt().details.lots[0]!.remainingSharesMicros).toBe(
+    422_000_000,
+  );
+  await page.reload();
+  await page.getByRole("button", { name: "Edit investment" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(basis).toHaveValue("5");
+  await expect(
+    page.getByRole("combobox", { name: "Quantity status", exact: true }),
+  ).toContainText("Estimated shares");
+  await basis.fill("10");
+  await shares.fill("844");
+  await save.click();
+  await expect(
+    page.getByRole("button", { name: "Edit investment" }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Edit investment" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(basis).toHaveValue("10");
+  await expect(shares).toHaveValue("844");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByRole("button", { name: "Edit valuation" }).click();
+  await select(page, "Source", "Tokenfolio · Other SPV");
+  const preview = page.getByRole("form", { name: "Edit valuation" });
+  await expect(preview).toContainText("$17,724.00");
+  await expect(preview).toContainText("Estimated shares");
+  await save.click();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("group", {
+      name: "Tokenfolio proxy remaining value · Before carry",
+      exact: true,
+    }),
+  ).toContainText("$17,724.00");
+});
+
+test("custom price share bases save, reload and preserve equivalent valuations", async ({
+  page,
+}) => {
+  const state = await setup(page, (r) => {
+    r.details.lots[0]!.remainingSharesMicros = 422_000_000;
+    r.details.lots[0]!.quantityDetails = {
+      status: "estimated",
+      derivation: "Synthetic allocation estimate",
+      evidence: "Synthetic split notice",
+      shareBasis: { key: "issuer-original", unitsPerOriginal: 5 },
+    };
+    r.details.valuation!.records[0]!.shareBasis = {
+      key: "issuer-original",
+      unitsPerOriginal: 1,
+    };
+    r.details.valuation!.records[0]!.totalMinor = null;
+    r.details.valuation!.selected = {
+      recordId: "gp",
+      method: "shares",
+      sharesKey: valuationSharesKey(r.details),
+    };
+  });
+  const basis = page.getByRole("textbox", {
+    name: "Price share basis",
+    exact: true,
+  });
+  const price = page.getByRole("textbox", {
+    name: "Share price · $",
+    exact: true,
+  });
+  const save = page.getByRole("button", { name: "Save", exact: true });
+  const summary = page.getByRole("group", {
+    name: "Estimated remaining value · Before carry",
+    exact: true,
+  });
+  await expect(summary).toContainText("$16,880.00");
+  await page.getByRole("button", { name: "Edit valuation" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(basis).toBeVisible();
+  for (const invalid of ["0", "-1", "1.5", "abc", "1e1", "0x5", "1000001"]) {
+    await basis.fill(invalid);
+    await expect(basis).toHaveAttribute("aria-invalid", "true");
+    await expect(save).toBeDisabled();
+    expect(state.receipt().id).toBe("receipt-1");
+  }
+  await basis.fill("5");
+  await price.fill("40");
+  await checkBasisKeyboardNavigation(page, {
+    previous: page.getByRole("textbox", { name: "Share class", exact: true }),
+    basis,
+    following: [
+      page.getByRole("textbox", { name: "Source name", exact: true }),
+      page.getByRole("textbox", { name: "Source link", exact: true }),
+      save,
+    ],
+  });
+  state.reject(true);
+  await save.click();
+  await expect(page.getByRole("alert")).toContainText(
+    "This source price changed",
+  );
+  await expect(basis).toHaveValue("5");
+  await expect(price).toHaveValue("40");
+  state.reject(false);
+  await page
+    .getByRole("button", { name: "Reload sources", exact: true })
+    .click();
+  await expect(save).toBeEnabled();
+  state.pauseSave();
+  await save.click();
+  await expect(page.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(basis).toBeDisabled();
+  state.resumeSave();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation" }),
+  ).toBeVisible();
+  expect(state.receipt().details.valuation!.records[0]).toMatchObject({
+    priceMicros: 40_000_000,
+    shareBasis: { key: "issuer-original", unitsPerOriginal: 5 },
+  });
+  await page.reload();
+  await expect(summary).toContainText("$16,880.00");
+  await page.getByRole("button", { name: "Edit valuation" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(basis).toHaveValue("5");
+  await expect(price).toHaveValue("40");
+  await basis.fill("10");
+  await price.fill("20");
+  await expect(page.locator(".holding-valuation-preview")).toContainText(
+    "Estimated shares",
+  );
+  await save.click();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(summary).toContainText("$16,880.00");
+  await page.getByRole("button", { name: "Edit valuation" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(basis).toHaveValue("10");
+  await expect(price).toHaveValue("20");
+  await page.getByRole("textbox", { name: "Position total · $" }).fill("16880");
+  await basis.fill("");
+  await save.click();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation" }),
+  ).toBeVisible();
+  expect(state.receipt().details.valuation!.records[0]!.shareBasis).toBeNull();
+  await page.reload();
+  await page.getByRole("button", { name: "Edit valuation" }).click();
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(basis).toHaveValue("");
+});

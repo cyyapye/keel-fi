@@ -18,6 +18,7 @@ import { searchIssuerEvidence } from "./public-company-search";
 import { AcceptValuationSchema } from "@keel/domain/valuation-record";
 import {
   AcceptPurchasesSchema,
+  AcceptDistributionsSchema,
   PurchaseReceiptSchema,
 } from "@keel/domain/position-purchases";
 import {
@@ -3105,6 +3106,52 @@ export function createApp(options: AppOptions = {}) {
       return context.json(evidence, 200, {
         "Cache-Control": "private, no-store",
       });
+    },
+  );
+
+  app.post(
+    "/api/investment-positions/:positionId/distributions",
+    async (context) => {
+      let raw: unknown;
+      try {
+        raw = await context.req.json();
+      } catch {
+        return context.json({ error: "A JSON request body is required." }, 400);
+      }
+      const input = AcceptDistributionsSchema.safeParse(raw);
+      if (!input.success)
+        return context.json(
+          {
+            error:
+              input.error.issues[0]?.message ??
+              "Distribution review is invalid.",
+          },
+          400,
+        );
+      try {
+        const repository = options.positionPurchaseRepository
+          ?.acceptDistributions
+          ? options.positionPurchaseRepository
+          : new D1PositionPurchaseRepository(context.env.DB);
+        const receipt = await repository.acceptDistributions!(
+          context.get("identity").subject,
+          context.req.param("positionId"),
+          input.data,
+        );
+        return context.json(PurchaseReceiptSchema.parse(receipt), 201, {
+          "Cache-Control": "private, no-store",
+        });
+      } catch (error) {
+        if (error instanceof PositionPurchaseError)
+          return context.json(
+            { error: error.message },
+            error.code === "not_found" ? 404 : 409,
+          );
+        return context.json(
+          { error: "Distribution review could not be saved." },
+          500,
+        );
+      }
     },
   );
 

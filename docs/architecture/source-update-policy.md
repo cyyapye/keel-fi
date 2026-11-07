@@ -385,15 +385,16 @@ remaining-share coverage. Reviewed cash drives return cost basis, regardless of
 whether the unchanged imported amount is gross, net or unknown. An already-net
 import is never reduced by the fees again.
 
-A received allocation refund preserves the original cash contribution. The
-review records whether that refund is already included in provider-reported
-distributions. Excluded refunds are added once to return proceeds; included
-refunds are not added again. Unknown inclusion withholds gain and return rather
-than assuming either treatment. That decision is bound to the receipt's source
-snapshot; a new source requires renewed review. Carry above cash uses cash
-retained after received allocation refunds. Allocation-refund capture does not
-change cash-account balances or automatically refresh the FI baseline, and does
-not replace the actual-liquidity and forecast-reconciliation ledger.
+A received allocation refund preserves original paid-in cash but reduces net
+invested capital. Net-invested return removes a refund already included in
+provider distributions and never adds an excluded refund to its numerator.
+Paid-in DPI and TVPI add excluded refunds once and retain included refunds once.
+Unknown inclusion withholds dependent gain, return and multiples. Source binding
+must remain valid; a newer receipt timestamp alone does not renew old evidence.
+Carry above cash uses cash retained after received allocation refunds.
+Allocation-refund capture does not change cash-account balances or automatically
+refresh the FI baseline, and does not replace the actual-liquidity and
+forecast-reconciliation ledger.
 
 Annual management fees and carry have independently nullable rates and explicit
 cash/net/unknown bases. Blank is unknown; zero is an evidenced absence of a fee.
@@ -402,9 +403,68 @@ Carry applies to positive gains above the chosen capital basis. The provider
 mark records source snapshot, source label, optional valuation date and
 before-carry/after-carry/unknown classification. Capture date is not valuation
 date. Classification only applies to that exact source snapshot and amount. A
-carry-only proceeds illustration never replaces the provider mark, charges an
-after-carry mark again or claims to model annual fees, distributions, taxes and
-exit expenses. Unknown inputs are visible and prevent reliable net estimates.
+carry-only proceeds illustration never replaces the provider mark or charges an
+after-carry mark again. The legacy remaining-value illustration does not model
+earlier distributions. Neither method establishes taxes or unrecorded exit
+expenses. Unknown inputs prevent dependent net estimates.
+
+### Distribution-aware carry
+
+An explicit `capital_return_first_v1` review adds received cash or securities to
+the supported cumulative carry calculation. Each event records a stable ID,
+actual received date, nullable historical investor-attributed value after
+advisor carry, and its evidence. In-kind security and quantity metadata may be
+unknown. An accepted historical value never follows today's stock price.
+Securities retained inside an SPV are not an investor distribution.
+
+The review declares whether history is complete since inception through its
+recorded date and whether total carry already charged is known. Complete empty
+history requires explicitly zero previous carry. Omission remains unreviewed;
+incomplete history and unknown event values can be saved. A review supports at
+most 100 events and 64 KiB of serialized UTF-8 JSON.
+
+For the supported single-rate rule, reconstruct historical gross distributions
+as historical investor values plus known prior carry. Apply the rate to positive
+cumulative value above the accepted capital basis, round total carry once in
+integer minor units, then subtract carry previously charged once. Never invent a
+clawback credit. Withhold an estimate whose incremental carry exceeds the
+remaining value. The capital-first basis and net-invested return denominator
+retain their distinct fee and refund treatment. Actual distributions do not
+reduce accepted net invested capital.
+
+A cumulative remaining-value estimate needs complete history covering its
+valuation date and cannot use a value dated before a recorded distribution.
+Share-derived remaining values also need remaining-share evidence dated through
+the latest in-kind distribution. No distribution command changes those shares.
+Unknown source carry classification still prevents a net estimate; reported
+after-carry values and a known zero rate do not acquire unnecessary history
+requirements.
+
+Historical-return reconciliation binds the canonical position snapshot and its
+reported realized amount, independently of a linked NAV source. The first
+version supports all recorded distributions included, all excluded, unknown or
+explicitly unsupported mixed inclusion. An included amount is counted once; an
+excluded amount is added once. Unknown, mixed or unexplained residual amounts
+withhold dependent performance. Allocation refunds are reconciled separately.
+DPI can use supported historical distributions through their reviewed coverage
+date when a remaining value cannot support TVPI or return. Historical events
+never add their value again to current portfolio wealth or create brokerage
+holdings or cash-account entries.
+
+The authenticated `POST /api/investment-positions/:positionId/distributions`
+owns this partition. It checks the expected snapshot and receipt, then appends a
+receipt preserving investment, fees, remaining shares, valuation and their
+original evidence bindings. Corrections and removals preserve earlier receipts
+in the existing history. A stale retry has no second financial effect. Purchase
+saves preserve an omitted distribution partition and reject a conflicting copy;
+valuation saves and automatic quote refresh preserve it.
+
+Migration `0089` protects the new partition and preserves unchanged accepted
+evidence without renewing its eligibility. Unchanged distribution partitions
+skip event validation during quote refresh. Reads use existing receipt heads,
+with no additional GET queries, reconciliation, provider calls or writes. The
+120-position D1 holdouts cover populated bounded reviews, tied history,
+unrelated households, changed distribution saves and automatic quote refresh.
 
 Executed evidence, historical deal snapshots, source dates and disagreement
 notes are retained as provenance. Paste GP notice extracts only explicit bounded

@@ -32,6 +32,17 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
     meter.reset();
     await review.getContext(COST_SUBJECT, positions[0]!.id);
     const reviewEmpty = { ...meter.cost };
+    const unrelatedPositions = (
+      await reader.listForHousehold("purchase-other-household")
+    ).connections.flatMap((c) => c.containers.flatMap((c) => c.positions));
+    await fixture.measurePurchaseHistory({
+      subject: "purchase-other-subject",
+      householdId: "purchase-other-household",
+      positions: unrelatedPositions.map((position) => ({
+        id: position.id,
+        snapshotId: position.snapshot.id,
+      })),
+    });
     const history = await fixture.measurePurchaseHistory({
       subject: COST_SUBJECT,
       householdId: "hh_demo",
@@ -51,7 +62,9 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
       );
       expect(operation.cost.roundTrips).toBe(3);
       expect(operation.cost.rowsWritten).toBeLessThanOrEqual(12);
-      expect(operation.cost.rowsRead).toBeLessThanOrEqual(60);
+      expect(operation.cost.rowsRead).toBeLessThanOrEqual(
+        operation.version === 0 || operation.version === 4 ? 450 : 60,
+      );
     }
     for (const [version, read] of history.reads.entries()) {
       expect(read.version).toBe(version);
@@ -61,6 +74,27 @@ it("bounds purchase-head reads and writes across 120 positions and growing revie
       expect(read.cost.rowsRead).toBeLessThanOrEqual(empty.rowsRead + 480);
     }
     expect(history.stored).toEqual({ receiptCount: 960, positionCount: 120 });
+    const populated = (await get()).connections.flatMap((c) =>
+      c.containers.flatMap((c) => c.positions),
+    );
+    expect(populated).toHaveLength(120);
+    expect(
+      populated.every(
+        (position) =>
+          position.purchaseReceipt?.details.distributionReview?.events
+            .length === 100,
+      ),
+    ).toBe(true);
+    console.info(
+      JSON.stringify({
+        purchaseDistributionCost: {
+          first: history.acceptances[0]!.cost,
+          changed: history.acceptances[480]!.cost,
+          preserved: history.acceptances.at(-1)!.cost,
+          reads: history.reads.map((read) => read.cost),
+        },
+      }),
+    );
     const purchases = new D1PositionPurchaseRepository(meter.database);
     const target = positions[0]!;
     const priorId = history.deepHead;

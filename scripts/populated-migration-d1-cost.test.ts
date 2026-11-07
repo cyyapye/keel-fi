@@ -7,10 +7,11 @@ import { unstable_splitSqlQuery } from "wrangler";
 import {
   MigrationSafetyReceiptSchema,
   MigrationSafetyBaselineScenarioSchema,
+  MigrationSafetyScenarioSchema,
   migrationSourceDigest,
   readMigrationSafetyRegistry,
   validateMigrationSafetyReceipt,
-  type MigrationSafetyReceipt,
+  type MigrationSafetyScenario,
   type MigrationSafetyBaselineScenario,
 } from "./d1-migration-safety";
 import {
@@ -36,10 +37,7 @@ const syntheticHistoricalFkPreparation = unstable_splitSqlQuery(
 const registry = readMigrationSafetyRegistry();
 const completedRegressions = new Set<number>();
 const baselineScenarios: MigrationSafetyBaselineScenario[] = [];
-const scenarios = new Map<
-  string,
-  MigrationSafetyReceipt["cases"][number]["scenarios"]
->();
+const scenarios = new Map<string, MigrationSafetyScenario[]>();
 const receiptPath =
   process.env.KEEL_MIGRATION_SAFETY_RECEIPT ??
   (process.env.KEEL_NATIVE_EVIDENCE_DIR
@@ -272,17 +270,144 @@ describe("populated OLD-schema D1 migration safety", () => {
     }, 120_000);
   }
 
+  for (const review of registry.cases) {
+    for (const history of review.histories) {
+      it(`certifies the distribution trigger upgrade from populated 0089 at ${history} captures`, async () => {
+        expect(review.id).toBe("distribution-reviews-v1");
+        expect(review.frontier).toBe("0089_manual_holdings.sql");
+        expect(review.migrations.map((item) => item.name)).toEqual([
+          "0090_distribution_reviews.sql",
+        ]);
+        const pending = review.migrations.flatMap((item) =>
+          unstable_splitSqlQuery(
+            readFileSync(
+              join("packages/database/migrations", item.name),
+              "utf8",
+            ),
+          ),
+        );
+        expect(pending).toHaveLength(6);
+        expect(
+          pending.every((sql) =>
+            /^(?:DROP|CREATE) TRIGGER\b/u.test(sql.trim()),
+          ),
+        ).toBe(true);
+        const fixture = await populatedMigrationFixture(history, "0089");
+        const terminal = await populatedMigrationFixture(history, "0090");
+        const positions = fixture.tables.find(
+          (table) => table.name === "holding_positions",
+        )!;
+        const manual = positions.rows.find(
+          (row) => row[positions.columns.indexOf("provider")] === "manual",
+        )!;
+        expect(manual).toBeDefined();
+        const snapshots = fixture.tables.find(
+          (table) => table.name === "holding_position_snapshots",
+        )!;
+        const manualSnapshot = snapshots.rows.find(
+          (row) =>
+            row[snapshots.columns.indexOf("position_id")] ===
+            manual[positions.columns.indexOf("id")],
+        )!;
+        expect(manualSnapshot).toBeDefined();
+        expect(
+          manualSnapshot[snapshots.columns.indexOf("realized_value_minor")],
+        ).toBeNull();
+        expect(terminal.tables).toEqual(fixture.tables);
+        const changedNames = new Set([
+          "holding_purchase_unified_guard",
+          "holding_purchase_price_evidence_guard",
+          "holding_purchase_reported_value_guard",
+          "holding_purchase_distribution_guard",
+        ]);
+        expect(
+          terminal.objects.filter((object) => !changedNames.has(object.name)),
+        ).toEqual(
+          fixture.objects.filter((object) => !changedNames.has(object.name)),
+        );
+        expect(
+          terminal.objects.filter((object) => changedNames.has(object.name)),
+        ).toHaveLength(4);
+        const runtime = await populatedMigrationDatabase(fixture);
+        try {
+          await preserveMigrationFixture(runtime.database, fixture, true);
+          expect(
+            await immutableMigrationProbes(runtime.database, fixture),
+          ).toBe(3);
+          const cost = await runtime.execute(pending);
+          expect(cost.statements).toBe(pending.length);
+          expect(cost.records).toHaveLength(pending.length);
+          expect(cost.rowsRead).toBeLessThanOrEqual(review.maxRowsRead);
+          expect(cost.rowsWritten).toBeLessThanOrEqual(review.maxRowsWritten);
+          const preservation = await preserveMigrationFixture(
+            runtime.database,
+            fixture,
+          );
+          expect(
+            await preserveMigrationFixture(runtime.database, terminal, true),
+          ).toEqual({
+            tablesPreserved: 137,
+            schemaObjectsPreserved: 693,
+            foreignKeyViolations: 0,
+          });
+          const immutableProbes = await immutableMigrationProbes(
+            runtime.database,
+            fixture,
+          );
+          const scenario = MigrationSafetyScenarioSchema.parse({
+            history,
+            mainPositions: 120,
+            unrelatedPositions: 120,
+            fixtureHash: fixture.hash,
+            tableRows: Object.fromEntries(
+              fixture.tables.map((table) => [table.name, table.rows.length]),
+            ),
+            ...preservation,
+            immutableProbes,
+            statements: cost.statements,
+            rowsRead: cost.rowsRead,
+            rowsWritten: cost.rowsWritten,
+            measuredFromFirstStatement: true,
+            counterSource: "local-workerd-d1-meta",
+            inboundForeignKeyPlans: "not-applicable-trigger-only-no-table-dml",
+            completeSequence: "preparation-through-cleanup",
+            physicalIntegrity: "unsupported-in-local-d1",
+          });
+          scenarios.set(review.id, [
+            ...(scenarios.get(review.id) ?? []),
+            scenario,
+          ]);
+          console.info(
+            JSON.stringify({
+              certifiedDistributionTriggerUpgrade: {
+                caseId: review.id,
+                history,
+                ...cost,
+                ...preservation,
+                immutableProbes,
+                foreignKeyPlans: "not-applicable-trigger-only-no-table-dml",
+              },
+            }),
+          );
+        } finally {
+          await runtime.close();
+        }
+      }, 120_000);
+    }
+  }
+
   for (const history of registry.baseline.histories) {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "holding-history-v1" ||
-        registry.baseline.frontier !== "0089_manual_holdings.sql" ||
-        registry.cases.length !== 0
+        registry.baseline.frontier !== "0090_distribution_reviews.sql" ||
+        registry.cases.length !== 1 ||
+        registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0089");
+      const fixture = await populatedMigrationFixture(history, "0090");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
@@ -354,7 +479,7 @@ describe("populated OLD-schema D1 migration safety", () => {
         );
         expect(preservation).toEqual({
           tablesPreserved: 137,
-          schemaObjectsPreserved: 691,
+          schemaObjectsPreserved: 693,
           foreignKeyViolations: 0,
         });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({

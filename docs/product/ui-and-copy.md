@@ -350,6 +350,28 @@ current-holding scope, eligible coverage, paid-in versus net-capital bases, and
 refund/carry treatment. Do not imply a complete lifetime portfolio return from
 current positions. Unknown inputs produce unavailable metrics, not zero returns.
 
+## Verify behavior and appearance separately
+
+Use observable behavior as the primary correctness contract. Assert entered and
+saved values, validation, errors, pending controls and later edits through the
+user's interface. For a financial editor, exercise each affected write path
+through the real local API and isolated synthetic D1 state. Verify the accepted
+receipt, projected value and preserved decision history after reload. Mocked
+failure flows and repository tests supplement this end-to-end proof.
+
+Keep visual baselines for approved controls and important compositions. Reuse
+that coverage for routine control changes. Add a page or state baseline when it
+protects distinct visual meaning. A picture does not prove persistence or money
+arithmetic. Exact coordinates and row gaps are not contracts unless the product
+requires them. Test keyboard focus and navigation overlap without preparatory
+centering or hidden chrome.
+
+Pixel comparisons use the canonical Linux x64 CI renderer. Local functional runs
+keep behavior assertions active without claiming a pixel pass. Use current local
+captures for appearance review, with CSS-pixel scale and consistent capture
+settings. Follow the
+[visual verification procedure](../../.codex/skills/keel-ui-quality/references/visual-verification.md).
+
 ## Definition of done
 
 A change is material when it affects hierarchy, layout, spacing, typography,
@@ -378,13 +400,17 @@ Before handing off a material interface change:
 - Confirm the primary action and trust boundary remain clear without reading
   secondary metadata.
 - Exercise the primary action, reload its saved state, repeat a changed save,
-  and reject a save while checking draft retention. Pair mocked browser flows
-  with repository/API readback tests; a success response alone is insufficient.
+  and reject a save while checking draft retention. Financial editors need a
+  real local browser, API and D1 roundtrip for each affected write path. Retain
+  repository readback and controlled failure mocks; a success response alone is
+  insufficient.
 - Check sibling uses of changed patterns and use the
   [review safeguards](../engineering/review-safeguards.md) to select existing
   regressions before adding new coverage.
-- Update the relevant Playwright screenshot baselines, inspect the generated
-  images, and run `make verify`.
+- Review representative changed appearance against approved references. Update
+  affected canonical baselines when the visual contract changed. Inspect those
+  images and run `make verify` after the final source and review fixes settle.
+  Report local functional and canonical CI outcomes separately.
 
 Screenshot changes are reviewed product changes. Do not update a baseline only
 to make a failing test green; first confirm the new image satisfies this

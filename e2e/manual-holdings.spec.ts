@@ -686,6 +686,18 @@ test(
       "Oct 15, 2026",
     );
     await expect(
+      detail.getByRole("button", { name: "Record distributions", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      detail.getByText(
+        "Recording distributions requires a known provider-reported distribution total.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      detail.getByRole("form", { name: "Distribution editor" }),
+    ).toHaveCount(0);
+    await expect(
       detail.getByRole("group", { name: "Cash paid", exact: true }),
     ).toContainText("$26,000.00");
     await expect(detail.getByText("$25,000.00", { exact: true })).toHaveCount(

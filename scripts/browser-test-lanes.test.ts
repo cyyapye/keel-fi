@@ -5,12 +5,12 @@ import { describe, expect, it } from "vitest";
 import { BROWSER_TEST_VITE_READINESS_PATH } from "./browser-test-readiness";
 import {
   BROWSER_TEST_EXECUTION,
-  assertBrowserSnapshotRenderer,
   BROWSER_TEST_LANES,
   BROWSER_TEST_SCHEDULE,
   browserServerFailureExitCode,
   discoverBrowserSpecFiles,
   resolveBrowserTestLane,
+  resolveScreenshotMode,
   validateBrowserTestLanes,
   validateProductionBrowserBuild,
 } from "./browser-test-lanes";
@@ -18,21 +18,117 @@ import {
 const assigned = Object.values(BROWSER_TEST_LANES).flat();
 
 describe("browser test lanes", () => {
-  it("permits the canonical Linux renderer and native macOS", () => {
-    expect(() => assertBrowserSnapshotRenderer("linux", "x64")).not.toThrow();
-    expect(() =>
-      assertBrowserSnapshotRenderer("darwin", "arm64"),
-    ).not.toThrow();
-    expect(() => assertBrowserSnapshotRenderer("darwin", "x64")).not.toThrow();
+  it("defaults local runs to functional and CI to canonical screenshots", () => {
+    expect(
+      resolveScreenshotMode({
+        ci: false,
+        platform: "darwin",
+        architecture: "arm64",
+      }),
+    ).toBe("functional");
+    expect(
+      resolveScreenshotMode({
+        ci: false,
+        platform: "linux",
+        architecture: "arm64",
+      }),
+    ).toBe("functional");
+    expect(
+      resolveScreenshotMode({
+        ci: true,
+        platform: "linux",
+        architecture: "x64",
+      }),
+    ).toBe("canonical");
   });
 
-  it("rejects Linux architectures that would overwrite CI baselines", () => {
-    expect(() => assertBrowserSnapshotRenderer("linux", "arm64")).toThrow(
-      /Linux screenshot baselines require x64 to match CI/u,
+  it("validates explicit screenshot modes and rejects functional CI", () => {
+    const renderer = {
+      ci: false,
+      platform: "linux",
+      architecture: "x64",
+    } as const;
+    expect(resolveScreenshotMode({ ...renderer, mode: "canonical" })).toBe(
+      "canonical",
     );
-    expect(() => assertBrowserSnapshotRenderer("linux", "arm")).toThrow(
-      /do not replace Linux baselines with ARM captures/u,
+    expect(resolveScreenshotMode({ ...renderer, mode: "functional" })).toBe(
+      "functional",
     );
+    for (const mode of ["", "Canonical", "pixels"])
+      expect(() => resolveScreenshotMode({ ...renderer, mode })).toThrow(
+        /KEEL_SCREENSHOT_MODE must be/u,
+      );
+    expect(() =>
+      resolveScreenshotMode({ ...renderer, ci: true, mode: "functional" }),
+    ).toThrow(/CI requires/u);
+  });
+
+  it("rejects a CLI override that disables canonical snapshot checks", () => {
+    for (const ci of [false, true])
+      expect(() =>
+        resolveScreenshotMode({
+          ci,
+          mode: "canonical",
+          platform: "linux",
+          architecture: "x64",
+          args: ["test", "--ignore-snapshots"],
+        }),
+      ).toThrow(/Canonical screenshots cannot use --ignore-snapshots/u);
+  });
+
+  it("rejects canonical screenshots outside Linux x64", () => {
+    for (const renderer of [
+      { platform: "linux", architecture: "arm64" },
+      { platform: "linux", architecture: "arm" },
+      { platform: "darwin", architecture: "arm64" },
+      { platform: "darwin", architecture: "x64" },
+      { platform: "win32", architecture: "x64" },
+    ] as const)
+      expect(() =>
+        resolveScreenshotMode({ ...renderer, ci: false, mode: "canonical" }),
+      ).toThrow(/Canonical screenshots require Linux x64/u);
+    expect(() =>
+      resolveScreenshotMode({
+        platform: "linux",
+        architecture: "arm64",
+        ci: true,
+      }),
+    ).toThrow(/Canonical screenshots require Linux x64/u);
+  });
+
+  it("requires explicit canonical mode for baseline update flags", () => {
+    const renderer = {
+      ci: false,
+      platform: "linux",
+      architecture: "x64",
+    } as const;
+    for (const flag of [
+      "-u",
+      "-uall",
+      "-uchanged",
+      "-umissing",
+      "-unone",
+      "--update-snapshots",
+      "--update-snapshots=all",
+      "--update-snapshots=changed",
+      "--update-snapshots=missing",
+    ])
+      expect(() =>
+        resolveScreenshotMode({ ...renderer, args: ["test", flag] }),
+      ).toThrow(/Snapshot updates require KEEL_SCREENSHOT_MODE=canonical/u);
+    expect(
+      resolveScreenshotMode({
+        ...renderer,
+        mode: "canonical",
+        args: ["--update-snapshots=all"],
+      }),
+    ).toBe("canonical");
+    expect(
+      resolveScreenshotMode({
+        ...renderer,
+        args: ["test", "--grep", "snapshots"],
+      }),
+    ).toBe("functional");
   });
 
   it("keeps every repository browser spec assigned exactly once", () => {

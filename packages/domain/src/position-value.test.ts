@@ -49,6 +49,9 @@ describe("position value evidence", () => {
 
   it.each([
     null,
+    "https",
+    "https:",
+    "https://",
     "http://news.example/mark",
     "https://user:pass@news.example/mark",
   ])(

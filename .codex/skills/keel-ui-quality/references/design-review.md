@@ -24,10 +24,14 @@ case when its meaning affects the design. New concepts still follow the product
 contract's proposal approval boundary; a packet or judge response is not
 approval.
 
-Required states follow the change: a disclosure repair may need closed/open; a
-form needs ordinary, invalid, saving, failure and saved readback; a collection
-needs empty, loading, failure/retry and end behavior. Do not require irrelevant
-states or treat an initial-view review as verification of the entire workflow.
+Required states follow the changed appearance. A new form or changed state
+presentation needs ordinary, invalid, saving, failure and saved-readback images.
+A routine use of approved controls uses semantic assertions for those behaviors
+and representative images for the appearance that changed. Reuse existing
+component coverage instead of duplicating each form state. A disclosure repair
+may need closed and open images; a new collection needs its affected empty,
+loading, failure and end states. Do not treat an initial-view review as proof of
+an entire workflow or require pictures for unchanged behavior.
 
 ## 3. Implement with the approved library
 
@@ -38,12 +42,16 @@ checks; do not install another style library as a substitute for visual review.
 
 ## 4. Verify behavior and capture evidence
 
-Use native tests, including existing geometry, accessibility and domain
-assertions. Capture current-run desktop/mobile images for each required state.
-Use approved reference screenshots for comparison. Keep the check log and state
-names with the images. Follow visual-verification.md for baseline changes and
-the material handoff gate. Do not regenerate a baseline to hide a failed
-assertion.
+Use native behavior, accessibility and domain assertions. Financial write paths
+need an unmocked local browser, API and D1 readback alongside controlled failure
+mocks. Check natural keyboard focus before any capture-only masking or
+scrolling. Use geometry invariants for overlap, containment and target size;
+avoid exact layout equality without a product requirement. Capture current
+desktop and mobile images for the visual states selected in the brief. Use
+CSS-pixel scale and the approved reference screenshots. Keep the check log and
+state names with the images. Report functional and canonical pixel results
+separately. Follow visual-verification.md for baseline changes and the material
+handoff gate. Do not regenerate a baseline to hide a failed assertion.
 
 Run
 `make ui-review-prepare BRIEF=/absolute/brief.json OUT=/absolute/new-packet`.

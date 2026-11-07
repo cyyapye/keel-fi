@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HttpsSourceUrlSchema } from "./source-url";
 
 const money = z.number().int().safe().nonnegative().max(10_000_000_000_000);
 const text = z.string().trim().min(1).max(500);
@@ -31,14 +32,7 @@ export const ValuationRecordSchema = z
     shareClass: text.nullable(),
     carryStatus: z.enum(["before_carry", "after_carry", "unknown"]),
     sourceLabel: text,
-    sourceUrl: z
-      .url()
-      .max(2048)
-      .refine((v) => {
-        const u = new URL(v);
-        return u.protocol === "https:" && !u.username && !u.password;
-      })
-      .nullable(),
+    sourceUrl: HttpsSourceUrlSchema.nullable(),
     sourceEvidenceId: text.nullable(),
     sourcePositionId: text.nullable(),
     sourceCapturedAt: z.iso.datetime().nullable(),

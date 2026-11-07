@@ -1,5 +1,7 @@
 import {
   AcceptPurchasesSchema,
+  AcceptDistributionsSchema,
+  type AcceptDistributions,
   InvestmentHistorySchema,
   SharePriceEvidenceListSchema,
   SharePriceEvidenceSchema,
@@ -29,6 +31,11 @@ export class PositionPurchaseError extends Error {
   }
 }
 export interface PositionPurchaseRepository {
+  acceptDistributions?(
+    subject: string,
+    positionId: string,
+    input: AcceptDistributions,
+  ): Promise<PurchaseReceipt>;
   accept(
     subject: string,
     positionId: string,
@@ -40,14 +47,18 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
   private async current(subject: string, positionId: string) {
     const row = await this.db
       .prepare(
-        `SELECT r.receipt_json FROM users u
-      JOIN households h ON h.owner_user_id=u.id
-      JOIN holding_purchase_heads head ON head.household_id=h.id AND head.position_id=?
-      JOIN holding_purchase_reviews r ON r.id=head.review_id WHERE u.access_subject=?`,
+        `SELECT r.receipt_json FROM holding_positions p
+      JOIN households h ON h.id=p.household_id
+      JOIN users u ON u.id=h.owner_user_id
+      LEFT JOIN holding_purchase_heads head ON head.household_id=p.household_id AND head.position_id=p.id
+      LEFT JOIN holding_purchase_reviews r ON r.id=head.review_id
+      WHERE p.id=? AND u.access_subject=?`,
       )
       .bind(positionId, subject)
-      .first<{ receipt_json: string }>();
-    return row
+      .first<{ receipt_json: string | null }>();
+    if (!row)
+      throw new PositionPurchaseError("not_found", "Position was not found.");
+    return row.receipt_json
       ? PurchaseReceiptSchema.parse(JSON.parse(row.receipt_json))
       : null;
   }
@@ -191,6 +202,47 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
     });
   }
 
+  async acceptDistributions(
+    subject: string,
+    positionId: string,
+    raw: AcceptDistributions,
+  ): Promise<PurchaseReceipt> {
+    const input = AcceptDistributionsSchema.parse(raw);
+    const prior = await this.current(subject, positionId);
+    if ((prior?.id ?? null) !== input.expectedReceiptId)
+      throw new PositionPurchaseError(
+        "stale",
+        "The investment changed. Reload before saving.",
+      );
+    if (
+      input.distributionReview.coverage.throughDate >
+      new Date().toISOString().slice(0, 10)
+    )
+      throw new PositionPurchaseError(
+        "unsupported",
+        "Distribution history cannot be dated in the future.",
+      );
+    const details = prior?.details ?? { coversPosition: false, lots: [] };
+    return this.append(
+      subject,
+      positionId,
+      {
+        expectedSnapshotId: input.expectedSnapshotId,
+        expectedReceiptId: input.expectedReceiptId,
+        expectedTermsId: prior?.supersedesEconomicsTermsId,
+        details: {
+          ...details,
+          investmentSnapshotId:
+            details.investmentSnapshotId ??
+            prior?.snapshotId ??
+            input.expectedSnapshotId,
+          distributionReview: input.distributionReview,
+        },
+      },
+      prior,
+    );
+  }
+
   async acceptValuation(
     subject: string,
     positionId: string,
@@ -314,40 +366,45 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         "unsupported",
         "Edit an existing valuation source.",
       );
-    const receipt = await this.append(subject, positionId, {
-      expectedSnapshotId: input.expectedSnapshotId,
-      expectedReceiptId: input.expectedReceiptId,
-      expectedTermsId: input.expectedTermsId,
-      details: {
-        ...details,
-        investmentSnapshotId,
-        investmentTerms: {
-          ...(details.investmentTerms ?? unknownInvestmentTerms()),
-          reportedValueReview: null,
-        },
-        lots: details.lots.map((lot) => ({ ...lot, mark: null })),
-        valuation: {
-          snapshotId: input.expectedSnapshotId,
-          records: [...records, record],
-          selected: {
-            recordId: record.id,
-            method: input.method,
-            sharesKey:
-              input.method === "shares" ? valuationSharesKey(details) : null,
+    const receipt = await this.append(
+      subject,
+      positionId,
+      {
+        expectedSnapshotId: input.expectedSnapshotId,
+        expectedReceiptId: input.expectedReceiptId,
+        expectedTermsId: input.expectedTermsId,
+        details: {
+          ...details,
+          investmentSnapshotId,
+          investmentTerms: {
+            ...(details.investmentTerms ?? unknownInvestmentTerms()),
+            reportedValueReview: null,
           },
-          ...(record.followSource && calculation
-            ? {
-                calculation: {
-                  policy: "linked-price-proxy-v1" as const,
-                  quoteId: record.sourceEvidenceId!,
-                  quantityReceiptId: prior!.id,
-                  ...calculation,
-                },
-              }
-            : {}),
+          lots: details.lots.map((lot) => ({ ...lot, mark: null })),
+          valuation: {
+            snapshotId: input.expectedSnapshotId,
+            records: [...records, record],
+            selected: {
+              recordId: record.id,
+              method: input.method,
+              sharesKey:
+                input.method === "shares" ? valuationSharesKey(details) : null,
+            },
+            ...(record.followSource && calculation
+              ? {
+                  calculation: {
+                    policy: "linked-price-proxy-v1" as const,
+                    quoteId: record.sourceEvidenceId!,
+                    quantityReceiptId: prior!.id,
+                    ...calculation,
+                  },
+                }
+              : {}),
+          },
         },
       },
-    });
+      prior,
+    );
     if (record.origin === "gp" && record.priceMicros !== null)
       await new D1PriceProxyRepository(this.db).refresh(subject);
     return receipt;
@@ -447,6 +504,17 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         "stale",
         "The investment changed. Reload before saving.",
       );
+    if (
+      input.details.distributionReview !== undefined &&
+      JSON.stringify(input.details.distributionReview) !==
+        JSON.stringify(prior?.details.distributionReview)
+    )
+      throw new PositionPurchaseError(
+        "unsupported",
+        "Save distribution changes through the distribution review.",
+      );
+    if (prior?.details.distributionReview)
+      input.details.distributionReview = prior.details.distributionReview;
     // A purchase editor cannot overwrite the valuation partition.
     delete input.details.valuation;
     input.details.investmentSnapshotId = input.expectedSnapshotId;
@@ -553,13 +621,24 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
           ...prior.details.valuation,
           selected: null,
         };
-    return this.append(subject, positionId, input);
+    return this.append(
+      subject,
+      positionId,
+      input,
+      prior,
+      Boolean(
+        prior &&
+        valuationSharesKey(input.details) !== valuationSharesKey(prior.details),
+      ),
+    );
   }
 
   private async append(
     subject: string,
     positionId: string,
     raw: AcceptPurchases,
+    prior: PurchaseReceipt | null,
+    ownsQuantity = false,
   ): Promise<PurchaseReceipt> {
     const input = AcceptPurchasesSchema.parse(raw);
     const position = await this.db
@@ -588,7 +667,14 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         "Investment details support USD SPVs and manual investments.",
       );
     const referenced = input.details.lots.filter(
-      (lot) => lot.mark?.sourceEvidenceId,
+      (lot) =>
+        lot.mark?.sourceEvidenceId &&
+        (input.details.investmentSnapshotId !==
+          (prior?.details.investmentSnapshotId ?? prior?.snapshotId) ||
+          JSON.stringify(lot) !==
+            JSON.stringify(
+              prior?.details.lots.find((old) => old.id === lot.id),
+            )),
     );
     if (referenced.length) {
       const evidence = await this.evidence(subject, positionId);
@@ -630,6 +716,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       acceptedAt: new Date().toISOString(),
     });
     if (
+      ownsQuantity &&
       receipt.details.valuation?.calculation &&
       input.details.investmentSnapshotId === input.expectedSnapshotId
     ) {
@@ -654,7 +741,7 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
     } catch (error) {
       if (
         error instanceof Error &&
-        /purchase (?:review stale|snapshot stale|provenance mismatch|price evidence stale|value evidence stale|unified terms downgrade|economics review stale|capital does not reconcile)/u.test(
+        /purchase (?:review stale|snapshot stale|provenance mismatch|price evidence stale|value evidence stale|unified terms downgrade|economics review stale|capital does not reconcile|capital refund invalid|distribution invalid)/u.test(
           error.message,
         )
       )

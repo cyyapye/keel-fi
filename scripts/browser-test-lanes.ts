@@ -1,17 +1,49 @@
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
-export function assertBrowserSnapshotRenderer(
-  platform: NodeJS.Platform,
-  architecture: string,
-) {
-  if (platform === "linux" && architecture !== "x64") {
+const ScreenshotModeSchema = z.enum(["functional", "canonical"]);
+export type ScreenshotMode = z.infer<typeof ScreenshotModeSchema>;
+
+export function resolveScreenshotMode(input: {
+  mode?: string | undefined;
+  ci: boolean;
+  platform: NodeJS.Platform;
+  architecture: string;
+  args?: readonly string[];
+}): ScreenshotMode {
+  const parsed = ScreenshotModeSchema.safeParse(
+    input.mode ?? (input.ci ? "canonical" : "functional"),
+  );
+  if (!parsed.success)
+    throw new Error("KEEL_SCREENSHOT_MODE must be functional or canonical.");
+  const mode = parsed.data;
+  if (input.ci && mode !== "canonical")
+    throw new Error("CI requires KEEL_SCREENSHOT_MODE=canonical.");
+  if (mode === "canonical" && input.args?.includes("--ignore-snapshots"))
+    throw new Error("Canonical screenshots cannot use --ignore-snapshots.");
+  if (
+    mode === "canonical" &&
+    (input.platform !== "linux" || input.architecture !== "x64")
+  ) {
     throw new Error(
-      "Keel's Linux screenshot baselines require x64 to match CI. " +
-        "Use an x86-64 Linux runner or native macOS; do not replace Linux " +
-        "baselines with ARM captures. See docs/deployment/linux-test-cleanup.md.",
+      "Canonical screenshots require Linux x64 to match CI. " +
+        "See docs/deployment/linux-test-cleanup.md.",
     );
   }
+  if (
+    mode !== "canonical" &&
+    input.args?.some(
+      (arg) =>
+        arg.startsWith("-u") ||
+        arg === "--update-snapshots" ||
+        arg.startsWith("--update-snapshots="),
+    )
+  )
+    throw new Error(
+      "Snapshot updates require KEEL_SCREENSHOT_MODE=canonical on Linux x64.",
+    );
+  return mode;
 }
 
 export const BROWSER_TEST_LANES = {
@@ -35,6 +67,8 @@ export const BROWSER_TEST_LANES = {
     "sydecar-session-renewal.spec.ts",
   ],
   "stateful-a": [
+    "carry-distributions.spec.ts",
+    "share-basis.spec.ts",
     "cash-accounts.visual.spec.ts",
     "goals.visual.spec.ts",
     "legal-name-resolution.visual.spec.ts",

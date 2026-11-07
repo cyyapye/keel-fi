@@ -65,6 +65,14 @@ const receipt = () =>
     },
   });
 describe("independent valuation facts", () => {
+  it.each(["h", "https", "https:", "https:/", "https://", "https://["])(
+    "returns a validation failure for an unfinished source link: %s",
+    (sourceUrl) => {
+      expect(
+        ValuationRecordSchema.safeParse({ ...record(), sourceUrl }).success,
+      ).toBe(false);
+    },
+  );
   it("uses canonical investment shares, retains a different GP total and dates the chosen fact", () => {
     const r = receipt();
     expect(calculateValuationFromShares(r.details, record())).toEqual({

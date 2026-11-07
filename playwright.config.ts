@@ -3,13 +3,22 @@ import { fileURLToPath } from "node:url";
 import { BROWSER_TEST_VITE_READINESS_PATH } from "./scripts/browser-test-readiness";
 import {
   BROWSER_TEST_EXECUTION,
-  assertBrowserSnapshotRenderer,
   browserTestDirectory,
   resolveBrowserTestLane,
+  resolveScreenshotMode,
 } from "./scripts/browser-test-lanes";
 import { resolveDevPorts } from "./scripts/dev-ports";
 
-assertBrowserSnapshotRenderer(process.platform, process.arch);
+const screenshotMode = resolveScreenshotMode({
+  mode: process.env.KEEL_SCREENSHOT_MODE,
+  ci: Boolean(process.env.CI),
+  platform: process.platform,
+  architecture: process.arch,
+  args: process.argv,
+});
+process.stderr.write(
+  `Keel screenshots: ${screenshotMode}${screenshotMode === "functional" ? " (pixel comparisons disabled)" : " (Linux x64)"}\n`,
+);
 
 const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 const browserLane = resolveBrowserTestLane({
@@ -39,6 +48,8 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
+  ignoreSnapshots: screenshotMode === "functional",
+  metadata: { screenshotMode },
   snapshotPathTemplate:
     "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}-{platform}{ext}",
   use: {

@@ -8,7 +8,9 @@ import {
 } from "./valuation-record";
 import {
   InvestmentTermsSchema,
+  DistributionReviewSchema,
   reconcileInvestmentCapital,
+  unknownInvestmentTerms,
   type ReviewedInvestment,
 } from "./investment-details";
 import {
@@ -190,6 +192,7 @@ export const PurchaseLotSchema = z
   });
 export const PurchaseDetailsSchema = z
   .object({
+    distributionReview: DistributionReviewSchema.optional(),
     valuation: ValuationStateSchema.optional(),
     investmentSnapshotId: z.string().min(1).optional(),
     investmentTerms: InvestmentTermsSchema.optional(),
@@ -286,6 +289,14 @@ export const AcceptPurchasesSchema = z
     details: PurchaseDetailsSchema,
   })
   .strict();
+export const AcceptDistributionsSchema = z
+  .object({
+    expectedSnapshotId: z.string().min(1),
+    expectedReceiptId: z.string().min(1).nullable(),
+    distributionReview: DistributionReviewSchema,
+  })
+  .strict();
+export type AcceptDistributions = z.infer<typeof AcceptDistributionsSchema>;
 export const PriceProxyStatusSchema = z.object({
   lastObservationAt: z.iso.datetime(),
   lastSuccessfulSyncAt: z.iso.datetime().nullable(),
@@ -398,6 +409,21 @@ export function assessValuationFromShares(
     return failure(
       "missing_share_class",
       "The source price needs its share class.",
+    );
+  const latestStockDistribution = details.distributionReview?.events
+    .filter((event) => event.kind === "in_kind")
+    .map((event) => event.receivedOn)
+    .sort()
+    .at(-1);
+  if (
+    latestStockDistribution &&
+    details.lots.some(
+      (lot) => !lot.sharesAsOf || lot.sharesAsOf < latestStockDistribution,
+    )
+  )
+    return failure(
+      "distribution_quantity_date",
+      "Review remaining shares through the latest in-kind distribution.",
     );
   let numerator = 0n,
     denominator = 1n;
@@ -795,9 +821,22 @@ export function estimatePurchaseValue(
 ) {
   if (
     !receipt ||
-    receipt.snapshotId !== snapshotId ||
+    (receipt.details.investmentSnapshotId ?? receipt.snapshotId) !==
+      snapshotId ||
     !receipt.details.coversPosition ||
     receipt.details.lots.length === 0
+  )
+    return null;
+  const latestStockDistribution = receipt.details.distributionReview?.events
+    .filter((event) => event.kind === "in_kind")
+    .map((event) => event.receivedOn)
+    .sort()
+    .at(-1);
+  if (
+    latestStockDistribution &&
+    receipt.details.lots.some(
+      (lot) => !lot.sharesAsOf || lot.sharesAsOf < latestStockDistribution,
+    )
   )
     return null;
   const rows = [];
@@ -934,7 +973,11 @@ export const PositionValuationEvidenceSchema = z.object({
 export function reviewedInvestmentFromReceipt(
   receipt: PurchaseReceipt | null | undefined,
 ): ReviewedInvestment | undefined {
-  if (!receipt?.details.investmentTerms) return undefined;
+  if (
+    !receipt ||
+    (!receipt.details.investmentTerms && !receipt.details.distributionReview)
+  )
+    return undefined;
   const capital = receipt.details.lots.map(purchaseCapital);
   const estimatedCapital = receipt.details.lots.map((lot, index) => {
     if (capital[index]!.conflict) return null;
@@ -1013,7 +1056,10 @@ export function reviewedInvestmentFromReceipt(
       : {}),
     snapshotId: receipt.details.investmentSnapshotId ?? receipt.snapshotId,
     receiptId: receipt.id,
-    terms: receipt.details.investmentTerms,
+    terms: receipt.details.investmentTerms ?? unknownInvestmentTerms(),
+    ...(receipt.details.distributionReview
+      ? { distributionReview: receipt.details.distributionReview }
+      : {}),
     additionalPaidFeesMinor,
     cashPaidMinor:
       cashContributed !== null && additionalPaidFeesMinor !== null

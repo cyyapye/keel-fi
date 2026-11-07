@@ -104,14 +104,15 @@ cutoff. The map restores the previous order.
 
 The native source flow uses `make lint-typecheck` to collect full compiler
 diagnostics from the TypeScript programs already loaded by typed ESLint. It
-retains every root, workspace and catalogue context, all lint files and rules,
-and the zero-warning limit. Standalone `make lint` and `make typecheck` retain
-their existing commands. The combined command validates canonical context
-discovery, configuration syntax, CLI options, complete roots and supported
-source types. Missing contexts and unsupported compiler modes fail rather than
-silently reducing coverage. Alternative parsers and processors are refused
-because transformed input can hide diagnostics from the original source. It
-creates no persistent cache or receipt.
+retains every root, workspace, catalogue and synthetic proposal context, all
+lint files and rules, and the zero-warning limit. Standalone `make lint` and
+`make typecheck` remain available. Both type-check paths include
+`e2e/carry-proposal/tsconfig.json`. The combined command validates canonical
+context discovery, configuration syntax, CLI options, complete roots and
+supported source types. Missing contexts and unsupported compiler modes fail
+rather than silently reducing coverage. Alternative parsers and processors are
+refused because transformed input can hide diagnostics from the original source.
+It creates no persistent cache or receipt.
 
 Its regression fixtures reuse loaded modules in an owned child while each
 operation clears parser caches and creates fresh context maps. The strict CLI is
