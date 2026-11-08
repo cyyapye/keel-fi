@@ -425,15 +425,20 @@ count and reveal the dated holdings retained by omission in optional activity.
 An omission alone never supplies a Review button or acknowledgement.
 
 For an unresolved source identity, compare the existing and reported position
-with account, shares, value and date. Prefill a unique compatible comparison;
-keep alternate candidates reachable without re-entry. Give each direct choice
-its accepted-total effect: same holding, separate holding, or ignore this
-report. Keep unknown totals visibly unavailable. One ordinary identity decision
-requires one explicit choice. Save once, keep failures beside the choices, read
-uncertain status explicitly, and allow later correction in activity. Saved
-choices and routine automatic updates must survive reload without a repeated
-identity/planning approval. The source-update policy owns acceptance; these
-controls compose the existing shared library in the application.
+with account, shares, value and date. Prefill only a credible unique comparison
+or a saved match; being the only prior holding does not make it a match. With no
+comparison selected, lead with the reported position and its named add action.
+State that existing holdings stay unchanged. Matching an existing holding is an
+explicit alternative, including when only one is available, and the user can
+return to adding a new holding without saving a match. Keep alternate candidates
+reachable without re-entry. Give each direct choice its accepted-total effect:
+same holding, separate holding, or ignore this report. Keep unknown totals
+visibly unavailable. One ordinary identity decision requires one explicit
+choice. Save once, keep failures beside the choices, read uncertain status
+explicitly, and allow later correction in activity. Saved choices and routine
+automatic updates must survive reload without a repeated identity/planning
+approval. The source-update policy owns acceptance; these controls compose the
+existing shared library in the application.
 
 After a decision is saved, keep stale source totals and decision counts out of
 the summary until its readback succeeds. A failed refresh must preserve the

@@ -218,10 +218,17 @@ test("keeps safe updates automatic and records each selected identity correction
       { exact: true },
     ),
   ).toBeVisible();
-  await captureSource(source, "later-edit");
   await form
-    .getByRole("button", { name: "Add separately", exact: true })
+    .getByRole("button", { name: "Add as a new holding instead", exact: true })
     .click();
+  await expect(
+    form.getByText(
+      "Count both holdings separately. Restore Microsoft to its Oct 31, 2026 accepted value of $10,375.00.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await captureSource(source, "later-edit");
+  await form.getByRole("button", { name: "Add MSFT", exact: true }).click();
   await expect(
     source.getByText("Added as a separate holding. Your decision is saved.", {
       exact: true,
@@ -229,6 +236,11 @@ test("keeps safe updates automatic and records each selected identity correction
   ).toBeVisible();
   positions = await readPositions();
   expect(positions.filter((item) => item.ticker === "MSFT")).toHaveLength(2);
+  expect(
+    positions
+      .filter((item) => item.ticker === "MSFT")
+      .map((item) => item.valueMinor),
+  ).toEqual(expect.arrayContaining([1_037_500, 1_062_500]));
   await source
     .getByRole("button", { name: "Change decision", exact: true })
     .click();

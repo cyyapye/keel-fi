@@ -143,12 +143,16 @@ export function PublicSourceUpdate({
     priorSelection !== null && priorSelection.rowId === selected?.id
       ? priorSelection.value
       : (selected?.sourceReview?.priorPositionId ??
-        (sameTicker.length === 1
-          ? sameTicker[0]!.positionId
-          : candidates.length === 1
-            ? candidates[0]!.positionId
-            : ""));
+        (sameTicker.length === 1 ? sameTicker[0]!.positionId : ""));
   const prior = candidates.find((item) => item.positionId === priorId);
+  const reportedName = selected?.ticker ?? selected?.exposureName;
+  const savedPrior = candidates.find(
+    (item) => item.positionId === selected?.sourceReview?.priorPositionId,
+  );
+  const restoresSavedMatch = selected?.sourceReview?.decision === "same";
+  const restoration = savedPrior
+    ? `Restore ${savedPrior.name} to its ${formatDate(savedPrior.observedAt)} accepted value of ${amount(savedPrior.valueMinor)}.`
+    : "Restore the prior holding from your saved match.";
   const previewId = preview?.id;
   const rowId = selected?.id;
   const snapshotId = selected?.currentSnapshotId;
@@ -210,6 +214,8 @@ export function PublicSourceUpdate({
       onReadbackPendingChange?.(true);
       setPreview(next);
       setSelectedId(null);
+      setChoosePrior(false);
+      setPriorSelection(null);
       window.requestAnimationFrame(() => savedMessage.current?.focus());
       setSaved(`${decisionLabel(decision)}. Your decision is saved.`);
       // Receipt is committed before these independent projection/planning refreshes.
@@ -340,63 +346,91 @@ export function PublicSourceUpdate({
           aria-labelledby={`source-decision-${selected.id}`}
         >
           <h3 ref={heading} tabIndex={-1} id={`source-decision-${selected.id}`}>
-            {selected.ticker ?? selected.exposureName}: is this the same
-            holding?
+            {selected.acceptanceBlocked
+              ? `${reportedName}: source data needs correction`
+              : prior
+                ? `${reportedName}: is this the same holding?`
+                : `Add ${reportedName} as a new holding?`}
           </h3>
           <p>
             {selected.acceptanceBlocked
               ? "The source data could not be validated. A corrected report is needed before accepting these facts."
-              : selected.sourceReview
-                ? "Change how this source position is counted. Compare the earlier accepted holding with the reported values below."
-                : "The evidence does not establish a match. Your previous holding is still counted; this reported position is not added until you decide."}
+              : needsStatusCheck
+                ? "Keel could not confirm whether this decision was saved. Check its status before saving again."
+                : selected.sourceReview
+                  ? prior
+                    ? "Change how this source position is counted. Compare the earlier accepted holding with the reported values below."
+                    : "Change how this reported position is counted. Review the effect of each choice below."
+                  : prior && priorSelection?.rowId === selected.id
+                    ? `You chose ${prior.name} to compare with ${reportedName}. Confirm a match only if they are the same holding.`
+                    : prior
+                      ? "The evidence does not establish a match. Your previous holding is still counted; this reported position is not added until you decide."
+                      : `This reported position has not been added.${candidates.length > 0 ? " You can add it as a new holding or match it to an existing holding." : ""}`}
           </p>
           {selected.acceptanceBlocked && selected.issues.length > 0 && (
             <FormMessage tone="error">{selected.issues.join(" ")}</FormMessage>
           )}
-          {candidates.length > 1 && (choosePrior || !prior) && (
-            <SearchSelect
-              label="Prior holding"
-              searchLabel="Search prior holdings"
-              placeholder="Choose a prior holding"
-              items={candidates.map((item) => ({
-                value: item.positionId,
-                label: `${item.name} · ${item.accountLabel} · ${amount(item.valueMinor)}`,
-              }))}
-              value={priorId}
-              onChange={(value) => {
-                if (selected) setPriorSelection({ rowId: selected.id, value });
-              }}
-              disabled={working || needsStatusCheck}
-            />
-          )}
-          {candidates.length > 1 && !choosePrior && prior && (
-            <TextLink
-              disabled={working || needsStatusCheck}
-              onClick={() => setChoosePrior(true)}
-            >
-              Compare another holding
-            </TextLink>
-          )}
-          <div className="public-source-decision__compare">
-            <div>
-              <h4>Previously accepted</h4>
-              {prior ? (
-                <>
-                  <strong>{prior.name}</strong>
-                  <p>{prior.accountLabel}</p>
-                  <p>
-                    {shares(prior.quantityMicros)} · {amount(prior.valueMinor)}
-                  </p>
-                  <small>As of {formatDate(prior.observedAt)}</small>
-                </>
-              ) : (
+          {candidates.length > 0 &&
+            !selected.acceptanceBlocked &&
+            choosePrior && (
+              <SearchSelect
+                label="Prior holding"
+                searchLabel="Search prior holdings"
+                placeholder="Choose a prior holding"
+                items={candidates.map((item) => ({
+                  value: item.positionId,
+                  label: `${item.name} · ${item.accountLabel} · ${amount(item.valueMinor)}`,
+                }))}
+                value={priorId}
+                onChange={(value) => {
+                  if (selected)
+                    setPriorSelection({ rowId: selected.id, value });
+                }}
+                disabled={working || needsStatusCheck || refreshPending}
+              />
+            )}
+          {candidates.length > 0 &&
+            !selected.acceptanceBlocked &&
+            (!choosePrior || prior) && (
+              <ActionGroup align="start" mobileLayout="stack">
+                {!choosePrior && (!prior || candidates.length > 1) && (
+                  <TextLink
+                    disabled={working || needsStatusCheck || refreshPending}
+                    onClick={() => setChoosePrior(true)}
+                  >
+                    {prior
+                      ? "Compare another holding"
+                      : "Match to an existing holding"}
+                  </TextLink>
+                )}
+                {prior && (
+                  <TextLink
+                    disabled={working || needsStatusCheck || refreshPending}
+                    onClick={() => {
+                      setPriorSelection({ rowId: selected.id, value: "" });
+                      setChoosePrior(false);
+                    }}
+                  >
+                    Add as a new holding instead
+                  </TextLink>
+                )}
+              </ActionGroup>
+            )}
+          <div
+            className="public-source-decision__compare"
+            data-has-prior={!!prior}
+          >
+            {prior && (
+              <div>
+                <h4>Previously accepted</h4>
+                <strong>{prior.name}</strong>
+                <p>{prior.accountLabel}</p>
                 <p>
-                  {selected.acceptanceBlocked
-                    ? "No accepted holding is available for this comparison."
-                    : "Choose a prior holding to compare. You can also keep this as a separate holding or ignore it."}
+                  {shares(prior.quantityMicros)} · {amount(prior.valueMinor)}
                 </p>
-              )}
-            </div>
+                <small>As of {formatDate(prior.observedAt)}</small>
+              </div>
+            )}
             <div>
               <h4>Reported by source</h4>
               <strong>{selected.exposureName}</strong>
@@ -423,73 +457,89 @@ export function PublicSourceUpdate({
             </p>
           )}
           <div className="public-source-decision__choices">
-            {(["same", "separate", "ignore"] as const).map((decision) => {
-              const total =
-                effects?.[
-                  decision === "same"
-                    ? "sameTotalMinor"
-                    : decision === "separate"
-                      ? "separateTotalMinor"
-                      : "ignoreTotalMinor"
-                ];
-              const isCurrent =
-                selected.sourceReview?.appliesToThisReport &&
-                selected.sourceReview.decision === decision &&
-                (decision !== "same" ||
-                  selected.sourceReview.priorPositionId === priorId);
-              return (
-                <div className="public-source-decision__choice" key={decision}>
-                  <div>
-                    <strong>
-                      {decision === "same"
-                        ? "Same holding · update it"
-                        : decision === "separate"
-                          ? "Separate holding · add it"
-                          : "Ignore this reported position"}
-                    </strong>
-                    <p>
-                      {decision === "same"
-                        ? "Count one holding and reuse this match on later reports."
-                        : decision === "separate"
-                          ? "Keep the prior holding and count this position separately."
-                          : selected.sourceReview?.decision === "same" && prior
-                            ? `This report only; repeated copies won’t ask again. Restore ${prior.name} to its ${formatDate(prior.observedAt)} accepted value of ${amount(prior.valueMinor)}.`
-                            : "This report only; repeated copies won’t ask again. Prior holdings stay unchanged."}
-                    </p>
-                    <p>
-                      {effects
-                        ? `Accepted holdings after this choice: ${total === null ? "total unavailable" : amount(total)}`
-                        : "Calculating effect on accepted holdings…"}
-                    </p>
-                  </div>
-                  <Button
-                    tone={decision === "same" ? "primary" : "secondary"}
-                    disabled={
-                      working ||
-                      refreshPending ||
-                      loading ||
-                      needsStatusCheck ||
-                      isCurrent ||
-                      !effects ||
-                      (decision !== "ignore" &&
-                        selected.acceptanceBlocked !== false) ||
-                      (decision === "same" && !prior)
-                    }
-                    onClick={() => void save(decision)}
+            {(["same", "separate", "ignore"] as const)
+              .filter((decision) => decision !== "same" || prior !== undefined)
+              .map((decision) => {
+                const total =
+                  effects?.[
+                    decision === "same"
+                      ? "sameTotalMinor"
+                      : decision === "separate"
+                        ? "separateTotalMinor"
+                        : "ignoreTotalMinor"
+                  ];
+                const isCurrent =
+                  selected.sourceReview?.appliesToThisReport &&
+                  selected.sourceReview.decision === decision &&
+                  (decision !== "same" ||
+                    selected.sourceReview.priorPositionId === priorId);
+                return (
+                  <div
+                    className="public-source-decision__choice"
+                    key={decision}
                   >
-                    {saving === decision
-                      ? "Saving…"
-                      : isCurrent
-                        ? "Current decision"
-                        : decision === "same"
-                          ? "Confirm same holding"
+                    <div>
+                      {(decision !== "separate" || prior) && (
+                        <strong>
+                          {decision === "same"
+                            ? "Same holding · update it"
+                            : decision === "separate"
+                              ? `Add ${reportedName} as a new holding`
+                              : "Ignore this reported position"}
+                        </strong>
+                      )}
+                      <p>
+                        {decision === "same"
+                          ? `Update ${prior!.name} with this reported position. Count one holding and reuse this match on later reports.`
                           : decision === "separate"
-                            ? "Add separately"
-                            : "Ignore for this report"}
-                  </Button>
-                </div>
-              );
-            })}
+                            ? restoresSavedMatch
+                              ? `Count both holdings separately. ${restoration}`
+                              : "Your existing holdings stay unchanged."
+                            : restoresSavedMatch
+                              ? `This report only; repeated copies won’t ask again. ${restoration}`
+                              : "This report only; repeated copies won’t ask again. Prior holdings stay unchanged."}
+                      </p>
+                      <p>
+                        {effects
+                          ? `Accepted holdings after this choice: ${total === null ? "total unavailable" : amount(total)}`
+                          : "Calculating effect on accepted holdings…"}
+                      </p>
+                    </div>
+                    <Button
+                      tone={
+                        decision === "same" ||
+                        (decision === "separate" && !prior)
+                          ? "primary"
+                          : "secondary"
+                      }
+                      disabled={
+                        working ||
+                        refreshPending ||
+                        loading ||
+                        needsStatusCheck ||
+                        isCurrent ||
+                        !effects ||
+                        (decision !== "ignore" &&
+                          selected.acceptanceBlocked !== false) ||
+                        (decision === "same" && !prior)
+                      }
+                      onClick={() => void save(decision)}
+                    >
+                      {saving === decision
+                        ? "Saving…"
+                        : isCurrent
+                          ? "Current decision"
+                          : decision === "same"
+                            ? "Confirm same holding"
+                            : decision === "separate"
+                              ? selected.ticker
+                                ? `Add ${selected.ticker}`
+                                : "Add as a new holding"
+                              : "Ignore for this report"}
+                    </Button>
+                  </div>
+                );
+              })}
           </div>
           {effectsError && (
             <FormMessage tone="error">
