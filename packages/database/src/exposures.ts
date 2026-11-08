@@ -1508,6 +1508,7 @@ export class D1ExposureRepository {
 
   public async listRetainedPublicExposureDocuments(
     accessSubject: string,
+    importId?: string,
   ): Promise<readonly RetainedPublicExposureDocument[]> {
     const identity = await this.findIdentity(accessSubject);
     const rows = await all<RetainedPublicExposureDocumentRow>(
@@ -1525,11 +1526,16 @@ export class D1ExposureRepository {
            JOIN source_documents document
              ON document.id = import.source_document_id
            WHERE import.household_id = ?
+             ${importId === undefined ? "" : "AND import.id = ?"}
              AND import.provider IN ('robinhood', 'plaid_investments')
-             AND NOT EXISTS (
+             ${
+               importId === undefined
+                 ? `AND NOT EXISTS (
                SELECT 1 FROM retained_public_exposure_document_failures failure
                WHERE failure.import_id = import.id AND failure.last_attempt_at >= ?
-             )
+             )`
+                 : ""
+             }
              AND row.position_kind = 'direct'
              AND row.public_exposure_identity_kind IS NULL
              AND row.protected_exposure_key IS NULL
@@ -1570,7 +1576,9 @@ export class D1ExposureRepository {
         )
         .bind(
           identity.household_id,
-          new Date(Date.now() - 86_400_000).toISOString(),
+          ...(importId === undefined
+            ? [new Date(Date.now() - 86_400_000).toISOString()]
+            : [z.string().min(1).max(200).parse(importId)]),
         ),
     );
 
@@ -1885,9 +1893,16 @@ export class D1ExposureRepository {
 
   public async reconcileAcceptedPublicExposureHistory(
     accessSubject: string,
+    importId?: string,
   ): Promise<void> {
-    await this.reconcileAcceptedPublicExposureRows(accessSubject, null);
-    await this.reconcileRetainedPositionContinuity(accessSubject);
+    await this.reconcileAcceptedPublicExposureRows(
+      accessSubject,
+      importId ?? null,
+    );
+    // A report completion must not run the household-wide reconnect backfill.
+    // Normal import acceptance and explicit legacy maintenance own that work.
+    if (importId === undefined)
+      await this.reconcileRetainedPositionContinuity(accessSubject);
   }
 
   public async reconcileRetainedPositionContinuity(
@@ -1975,7 +1990,7 @@ export class D1ExposureRepository {
              ON structured.import_row_id = row.id
             AND structured.resolution_status = 'structured_identifier'
            WHERE import.household_id = ?
-             AND (? IS NULL OR import.id = ?)
+             ${importId === null ? "" : "AND import.id = ?"}
              AND position.position_kind = 'direct'
              AND COALESCE(
                row.public_exposure_identity_kind,
@@ -1992,47 +2007,10 @@ export class D1ExposureRepository {
                provider_scoped.protected_identity_key,
                structured.protected_identity_key
              ) IS NOT NULL
-             AND application.id = (
-               SELECT latest_application.id
-               FROM holding_import_applications latest_application
-               JOIN holding_import_rows latest_row
-                 ON latest_row.id = latest_application.import_row_id
-               JOIN holding_imports latest_import
-                 ON latest_import.id = latest_row.import_id
-               LEFT JOIN holding_import_row_public_exposure_evidence
-                 latest_retained
-                 ON latest_retained.import_row_id = latest_row.id
-                AND latest_retained.resolution_status = 'strong_identifier'
-               LEFT JOIN holding_import_row_provider_exposure_evidence
-                 latest_provider_scoped
-                 ON latest_provider_scoped.import_row_id = latest_row.id
-                AND latest_provider_scoped.resolution_status = 'scoped_identifier'
-               LEFT JOIN holding_import_row_structured_asset_exposure_evidence
-                 latest_structured
-                 ON latest_structured.import_row_id = latest_row.id
-                AND latest_structured.resolution_status = 'structured_identifier'
-               WHERE latest_application.position_id = application.position_id
-                 AND latest_import.household_id = import.household_id
-                 AND (? IS NULL OR latest_import.id = ?)
-                 AND COALESCE(
-                   latest_row.public_exposure_identity_kind,
-                   latest_retained.identity_kind,
-                   CASE
-                     WHEN latest_provider_scoped.protected_identity_key IS NOT NULL
-                     THEN 'provider_security'
-                   END,
-                   latest_structured.identity_kind
-                 ) IS NOT NULL
-                 AND COALESCE(
-                   latest_row.protected_exposure_key,
-                   latest_retained.protected_identity_key,
-                   latest_provider_scoped.protected_identity_key,
-                   latest_structured.protected_identity_key
-                 ) IS NOT NULL
-               ORDER BY
-                 latest_application.applied_at DESC,
-                 latest_application.id DESC
-               LIMIT 1
+             AND EXISTS (
+               SELECT 1 FROM holding_import_application_heads current_application
+               WHERE current_application.position_id = application.position_id
+                 AND current_application.application_id = application.id
              )
              AND NOT EXISTS (
                SELECT 1
@@ -2051,7 +2029,7 @@ export class D1ExposureRepository {
              )
            ORDER BY application.applied_at, row.source_row_number`,
         )
-        .bind(identity.household_id, importId, importId, importId, importId),
+        .bind(identity.household_id, ...(importId === null ? [] : [importId])),
     );
 
     if (rows.length === 0) {
@@ -2252,9 +2230,8 @@ export class D1ExposureRepository {
         continue;
       }
       if (current?.status === "withdrawn") {
-        throw new Error(
-          "A withdrawn exposure mapping requires explicit review.",
-        );
+        // Financial source updates do not revoke a user's grouping exclusion.
+        continue;
       }
       if (current !== undefined && current.effective_at > row.effective_at) {
         throw new Error(

@@ -57,6 +57,42 @@ retaining both source histories. Separate counts both; Ignore retains the prior
 holding. Ignore applies to this report and repeated copies of it. A later report
 is evaluated afresh against evidence and the saved identity decision.
 
+Acceptance is followed by security grouping before holdings and planning
+readback. Completion reuses a verified global identifier, or the exact provider
+security ID scoped to its Plaid Item when no global identifier is supplied.
+Same-Item account positions can therefore share one exposure while remaining
+separate legal positions. Cash and crypto retain their existing structured
+identity policies. Names and tickers never establish a grouping.
+
+The authenticated `POST /api/holding-imports/:importId/exposures/refresh`
+completes only accepted rows in that report. It reads at most one checksum-bound
+original source object (5 MiB maximum), appends derived evidence and policy
+mappings, and performs no provider fetch or household-wide reconnect backfill. A
+failed completion retains the financial decision. Refresh retries only derived
+state and readback. When an uncertain save's status read finds the receipt, the
+client completes that readback instead of asking for the financial choice again.
+GETs remain passive. Existing accepted but unmapped positions can be completed
+by this operation or the next admitted source sync; no second add is required.
+
+Manual sync, scheduled sync and webhook processing share the ordered acceptance,
+grouping and planning path. Identical reports re-enter idempotent acceptance and
+finish interrupted derived work, including manually accepted reports with zero
+automatically applied rows. Accepted source objects remain retained after later
+failures. The existing cooldowns, queue limits and explicit retry boundaries do
+not change.
+
+A confirmed same-holding family displays its latest accepted observation using
+its existing accepted exposure allocation. A later explicit grouping review,
+including a withdrawn allocation, has precedence over automatic mappings.
+Otherwise a verified global identifier takes precedence over a provider-only
+fallback, then the original accepted grouping is retained. Separate and Ignore
+corrections project the current family again without rewriting the underlying
+mappings or financial history. Current application heads, including the full
+applied/observed/ID ordering, govern completion; old observations cannot replace
+a current mapping. New Plaid positions reuse the reported label from their
+accepted source row instead of writing a duplicate legacy unresolved-label
+record. Existing legacy records remain untouched.
+
 Source decisions are append-only. Activity can change the recorded choice
 without rewriting earlier decisions or accepted snapshots. Report-only ignores
 do not accept financial facts. Corrections to an already included source can

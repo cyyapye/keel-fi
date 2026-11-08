@@ -3057,21 +3057,28 @@ export class D1HoldingImportRepository {
               identity.user_id,
               createdAt,
             ),
-          this.db
-            .prepare(
-              `INSERT INTO holding_position_exposures (
+        );
+        // Plaid's accepted import row already retains the reported label. Its
+        // canonical public mapping is completed separately; a legacy unresolved
+        // label row would duplicate that evidence for every new position.
+        if (provider !== PLAID_INVESTMENTS_PROVIDER) {
+          statements.push(
+            this.db
+              .prepare(
+                `INSERT INTO holding_position_exposures (
                  id, household_id, position_id, exposure_label, exposure_kind,
                  company_id, created_at
                ) VALUES (?, ?, ?, ?, 'unresolved', NULL, ?)`,
-            )
-            .bind(
-              crypto.randomUUID(),
-              identity.household_id,
-              position.id,
-              row.exposure_label,
-              createdAt,
-            ),
-        );
+              )
+              .bind(
+                crypto.randomUUID(),
+                identity.household_id,
+                position.id,
+                row.exposure_label,
+                createdAt,
+              ),
+          );
+        }
         outcome = "created_position";
       } else {
         outcome = "appended_snapshot";

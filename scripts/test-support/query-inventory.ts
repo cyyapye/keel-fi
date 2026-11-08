@@ -89,7 +89,12 @@ function queriesForSources(
       ts.forEachChild(node, collect);
     };
     collect(source);
-    type Value = string | boolean | undefined;
+    // Nullability may choose finite SQL fragments; arbitrary strings must never
+    // become SQL. Opaque values support only null/undefined comparisons.
+    const absent = Symbol("undefined");
+    const nullableNull = Symbol("null");
+    const presentString = Symbol("opaque string");
+    type Value = string | boolean | undefined | symbol;
     const evaluate = (
       node: ts.Node,
       values: Record<string, Value>,
@@ -98,9 +103,11 @@ function queriesForSources(
       if (ts.isStringLiteralLike(node)) return node.text;
       if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
       if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+      if (node.kind === ts.SyntaxKind.NullKeyword) return nullableNull;
       if (ts.isAsExpression(node) || ts.isParenthesizedExpression(node))
         return evaluate(node.expression, values, seen);
       if (ts.isIdentifier(node)) {
+        if (node.text === "undefined") return absent;
         if (node.text in values) return values[node.text];
         if (seen.has(node.text)) return undefined;
         const entries = declarations.get(node.text) ?? [];
@@ -115,8 +122,18 @@ function queriesForSources(
         const left = evaluate(node.left, values, seen),
           right = evaluate(node.right, values, seen);
         if (left === undefined || right === undefined) return undefined;
-        if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken)
+        if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken) {
+          if (
+            (left === presentString &&
+              right !== absent &&
+              right !== nullableNull) ||
+            (right === presentString &&
+              left !== absent &&
+              left !== nullableNull)
+          )
+            return undefined;
           return left === right;
+        }
         if (
           node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
           typeof left === "string" &&
@@ -183,6 +200,7 @@ function queriesForSources(
         const line =
           source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
         const variants = new Set<string>();
+        let unresolvedVariant = false;
         const direct = evaluate(node.arguments[0], {});
         if (typeof direct === "string") variants.add(direct);
         else {
@@ -197,19 +215,30 @@ function queriesForSources(
             if (!ts.isIdentifier(parameter.name)) continue;
             const name = parameter.name.text;
             const type = parameter.type;
-            const choices =
+            const choices: Value[] =
               type?.kind === ts.SyntaxKind.BooleanKeyword ||
               (parameter.initializer &&
                 typeof evaluate(parameter.initializer, {}) === "boolean")
                 ? [true, false]
                 : type && ts.isUnionTypeNode(type)
-                  ? type.types.flatMap((item) =>
+                  ? type.types.flatMap<Value>((item) =>
                       ts.isLiteralTypeNode(item) &&
                       ts.isStringLiteral(item.literal)
                         ? [item.literal.text]
-                        : [],
+                        : ts.isLiteralTypeNode(item) &&
+                            item.literal.kind === ts.SyntaxKind.NullKeyword
+                          ? [nullableNull]
+                          : item.kind === ts.SyntaxKind.UndefinedKeyword
+                            ? [absent]
+                            : item.kind === ts.SyntaxKind.StringKeyword
+                              ? [presentString]
+                              : [],
                     )
-                  : [];
+                  : type?.kind === ts.SyntaxKind.StringKeyword &&
+                      parameter.questionToken
+                    ? [presentString]
+                    : [];
+            if (parameter.questionToken && choices.length) choices.push(absent);
             if (choices.length)
               bindings = bindings.flatMap((binding) =>
                 choices.map((value) => ({ ...binding, [name]: value })),
@@ -218,9 +247,13 @@ function queriesForSources(
           for (const binding of bindings) {
             const sql = evaluate(node.arguments[0], binding);
             if (typeof sql === "string") variants.add(sql);
+            else unresolvedVariant = true;
           }
         }
-        if (variants.size === 0 && !isUnchangedPrepareForwarder(node))
+        if (
+          (variants.size === 0 || unresolvedVariant) &&
+          !isUnchangedPrepareForwarder(node)
+        )
           throw new Error(
             `Unaccounted SQL factory at ${file}:${line}: ${node.arguments[0].getText(source)}`,
           );

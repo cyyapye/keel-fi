@@ -50,6 +50,7 @@ export type RetainedPublicExposureReconciliationResult = {
 export interface RetainedPublicExposureReconciler {
   reconcile(
     accessSubject: string,
+    importId?: string,
   ): Promise<RetainedPublicExposureReconciliationResult>;
 }
 
@@ -209,13 +210,30 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
 
   public async reconcile(
     accessSubject: string,
+    importId?: string,
   ): Promise<RetainedPublicExposureReconciliationResult> {
-    if (this.env.CONNECTOR_CREDENTIAL_KEY === undefined) {
+    if (
+      this.env.CONNECTOR_CREDENTIAL_KEY === undefined &&
+      importId === undefined
+    ) {
       return { documentCount: 0, skippedDocumentCount: 0, identityCount: 0 };
     }
     const documents = (
-      await this.repository.listRetainedPublicExposureDocuments(accessSubject)
+      await (importId === undefined
+        ? this.repository.listRetainedPublicExposureDocuments(accessSubject)
+        : this.repository.listRetainedPublicExposureDocuments(
+            accessSubject,
+            importId,
+          ))
     ).slice(0, MAX_RETAINED_PUBLIC_DOCUMENTS);
+    if (
+      importId !== undefined &&
+      (documents.length > 1 ||
+        documents.some((document) => document.importId !== importId))
+    )
+      throw new Error("Source security completion exceeded its report scope.");
+    if (documents.length > 0 && this.env.CONNECTOR_CREDENTIAL_KEY === undefined)
+      throw new Error("Source security evidence is not configured.");
     let skippedDocumentCount = 0;
     const failedImportIds: string[] = [];
     let identityCount = 0;
@@ -239,7 +257,10 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
           evidence.structuredAssetEvidence.filter(
             (row) => row.resolutionStatus === "structured_identifier",
           ).length;
-      } catch {
+      } catch (error) {
+        // Explicit completion retries only this report's derived evidence. A
+        // failed read must remain recoverable without another financial choice.
+        if (importId !== undefined) throw error;
         skippedDocumentCount += 1;
         failedImportIds.push(document.importId);
       }
@@ -270,7 +291,15 @@ export class D1RetainedPublicExposureReconciler implements RetainedPublicExposur
         structuredEvidence,
       );
     }
-    await this.repository.reconcileAcceptedPublicExposureHistory(accessSubject);
+    if (importId === undefined)
+      await this.repository.reconcileAcceptedPublicExposureHistory(
+        accessSubject,
+      );
+    else
+      await this.repository.reconcileAcceptedPublicExposureHistory(
+        accessSubject,
+        importId,
+      );
     return {
       documentCount: documents.length,
       skippedDocumentCount,

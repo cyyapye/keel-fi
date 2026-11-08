@@ -719,6 +719,10 @@ test("adds a new security without preselecting an unrelated prior holding", asyn
     route.fulfill({ json: preview() }),
   );
   await page.route(
+    `**/api/holding-imports/${preview().id}/exposures/refresh`,
+    (route) => route.fulfill({ json: preview() }),
+  );
+  await page.route(
     `**/api/holding-imports/${preview().id}/rows/${row.id}/review*`,
     async (route) => {
       if (route.request().method() === "POST") {

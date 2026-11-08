@@ -2,6 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { test as base } from "@playwright/test";
 import { getPlatformProxy } from "wrangler";
+import { normalizePlaidInvestmentsHoldings } from "../packages/connectors/src/plaid-investments-holdings";
+import { buildPlaidInvestmentsCanonicalScope } from "../apps/api/src/plaid-investments-sync";
+import { plaidInvestmentsSourceKey } from "../apps/api/src/investment-identity";
+import { D1RetainedPublicExposureReconciler } from "../apps/api/src/retained-public-exposure";
+import type { Env } from "../apps/api/src/types";
 import { D1InvestmentConnectionsRepository } from "../packages/database/src/investment-connections";
 import {
   D1HoldingImportRepository,
@@ -11,11 +16,18 @@ import {
 const subject = "synthetic-access-subject";
 const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
+function decimal(value: number, scale: bigint) {
+  const integer = BigInt(value);
+  return `${integer / scale}.${(integer % scale).toString().padStart(scale.toString().length - 1, "0")}`;
+}
 async function createPublicSourceFixture(
-  db: D1Database,
+  env: Env,
   label: string,
   verified = false,
+  addition = false,
 ) {
+  if (addition) return createAdditionFixture(env, label);
+  const db = env.DB;
   const nonce = randomUUID();
   const connections = new D1InvestmentConnectionsRepository(db);
   const imports = new D1HoldingImportRepository(db);
@@ -110,10 +122,47 @@ async function createPublicSourceFixture(
     ["2026-11-07", true],
   ] as const) {
     const run = await connections.beginSync(subject, connection.id);
-    const staged = await imports.stagePlaidInvestmentsHoldingImport(
-      subject,
-      input(date, next),
-    );
+    const report = input(date, next);
+    // Keep original, checksum-bound source evidence available for completion.
+    const raw = JSON.stringify({
+      accounts: [
+        {
+          account_id: account,
+          name: `${label} brokerage`,
+          official_name: null,
+          subtype: "brokerage",
+          type: "investment",
+        },
+      ],
+      item: { item_id: nonce, institution_id: "synthetic-browser" },
+      request_id: `synthetic-${date}`,
+      holdings: report.rows.map((row, index) => ({
+        account_id: account,
+        security_id: report.canonicalScope.rows[index]!.protectedPositionKey,
+        institution_value: decimal(row.marketValueMinor, 100n),
+        cost_basis: null,
+        quantity: decimal(row.quantityMicros, 1_000_000n),
+        iso_currency_code: "USD",
+        unofficial_currency_code: null,
+      })),
+      securities: report.rows.map((row, index) => ({
+        security_id: report.canonicalScope.rows[index]!.protectedPositionKey,
+        name: row.securityName,
+        ticker_symbol: row.ticker,
+        type: row.securityType,
+        cusip: null,
+        isin: null,
+        sedol: null,
+        iso_currency_code: "USD",
+        unofficial_currency_code: null,
+      })),
+    });
+    await env.DOCUMENTS.put(report.objectKey, raw);
+    const staged = await imports.stagePlaidInvestmentsHoldingImport(subject, {
+      ...report,
+      sha256: hash(raw),
+      byteSize: Buffer.byteLength(raw),
+    });
     const adjudication =
       await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
         subject,
@@ -151,6 +200,149 @@ async function createPublicSourceFixture(
   throw new Error("Synthetic report was not created.");
 }
 
+async function createAdditionFixture(env: Env, label: string) {
+  const nonce = randomUUID();
+  const sourceKey = await plaidInvestmentsSourceKey(env, nonce);
+  const connections = new D1InvestmentConnectionsRepository(env.DB);
+  const imports = new D1HoldingImportRepository(env.DB);
+  const connection = await connections.upsertConnection(
+    subject,
+    "synthetic-browser-secret-reference",
+    sourceKey,
+    `synthetic-${nonce}`,
+    label,
+  );
+  for (const [date, next] of [
+    ["2026-10-31", false],
+    ["2026-11-07", true],
+  ] as const) {
+    const response = {
+      item: { item_id: nonce, institution_id: `synthetic-${nonce}` },
+      request_id: `synthetic-${date}`,
+      accounts: [
+        {
+          account_id: "brokerage",
+          persistent_account_id: `brokerage-${nonce}`,
+          name: `${label} brokerage`,
+          official_name: null,
+          subtype: "brokerage",
+          type: "investment",
+        },
+        {
+          account_id: "ira",
+          persistent_account_id: `ira-${nonce}`,
+          name: `${label} IRA`,
+          official_name: null,
+          subtype: "ira",
+          type: "investment",
+        },
+      ],
+      securities: [
+        {
+          security_id: "orbital",
+          name: "Synthetic Orbital Systems",
+          ticker_symbol: "ORBT",
+          type: "equity",
+          cusip: null,
+          isin: null,
+          sedol: null,
+          iso_currency_code: "USD",
+          unofficial_currency_code: null,
+        },
+        {
+          security_id: "photon",
+          name: "Synthetic Photon Components",
+          ticker_symbol: "PHOT",
+          type: "equity",
+          cusip: null,
+          isin: null,
+          sedol: null,
+          iso_currency_code: "USD",
+          unofficial_currency_code: null,
+        },
+      ],
+      holdings: [
+        {
+          account_id: "brokerage",
+          security_id: next ? "photon" : "orbital",
+          institution_value: next ? "2250.00" : "6500.00",
+          cost_basis: next ? "2000.00" : "6000.00",
+          quantity: next ? "15.0" : "40.0",
+          institution_price_as_of: date,
+          iso_currency_code: "USD",
+          unofficial_currency_code: null,
+        },
+        {
+          account_id: "ira",
+          security_id: "photon",
+          institution_value: "1500.00",
+          cost_basis: "1000.00",
+          quantity: "10.0",
+          institution_price_as_of: date,
+          iso_currency_code: "USD",
+          unofficial_currency_code: null,
+        },
+      ],
+    };
+    const raw = JSON.stringify(response);
+    const normalized = await normalizePlaidInvestmentsHoldings(
+      response,
+      `${date}T12:00:00.000Z`,
+      label,
+    );
+    const objectKey = `synthetic/browser/${nonce}/${date}.json`;
+    await env.DOCUMENTS.put(objectKey, raw);
+    const run = await connections.beginSync(subject, connection.id);
+    const staged = await imports.stagePlaidInvestmentsHoldingImport(subject, {
+      objectKey,
+      sha256: hash(raw),
+      byteSize: Buffer.byteLength(raw),
+      normalizedFingerprint: normalized.normalizedFingerprint,
+      effectiveDate: normalized.effectiveDate,
+      retrievedAt: `${date}T12:00:00.000Z`,
+      rows: normalized.rows,
+      canonicalScope: await buildPlaidInvestmentsCanonicalScope({
+        env,
+        connectionId: connection.id,
+        expectedSourceKey: sourceKey,
+        institutionKey: `synthetic-${nonce}`,
+        institutionLabel: label,
+        response,
+      }),
+    });
+    const adjudication =
+      await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+    if (!next)
+      await new D1RetainedPublicExposureReconciler(env).reconcile(
+        subject,
+        staged.preview.id,
+      );
+    await connections.completeSync(subject, run.id, {
+      discoveredCount: normalized.rows.length,
+      proposedCount: normalized.rows.length,
+      importId: staged.preview.id,
+      adjudication: {
+        policyVersion: adjudication.policyVersion,
+        autoAppliedCount: adjudication.autoAppliedCount,
+        quarantinedCount: adjudication.quarantinedCount,
+        preservedPositionCount: adjudication.preservedPositionCount,
+        baselineRefreshStatus: "not_needed",
+        portfolioBaselineId: null,
+      },
+    });
+    if (next)
+      return {
+        connectionId: connection.id,
+        importId: staged.preview.id,
+        nonce,
+      };
+  }
+  throw new Error("Synthetic addition report was not created.");
+}
+
 // Each worker already owns an isolated D1 profile. Reuse its bridge rather than
 // starting and stopping another workerd for every synthetic source; each source
 // still has independent connection, import, evidence and position identities.
@@ -160,6 +352,7 @@ export const test = base.extend<
     publicSourceFixture: (
       label: string,
       verified?: boolean,
+      addition?: boolean,
     ) => ReturnType<typeof createPublicSourceFixture>;
   }
 >({
@@ -176,7 +369,7 @@ export const test = base.extend<
         throw new Error(
           "Public source browser fixtures require an isolated E2E profile.",
         );
-      const platform = await getPlatformProxy<{ DB: D1Database }>({
+      const platform = await getPlatformProxy<Env>({
         environment: "local",
         configPath: resolve("apps/api/wrangler.jsonc"),
         envFiles: [],
@@ -184,8 +377,8 @@ export const test = base.extend<
         remoteBindings: false,
       });
       try {
-        await use((label, verified) =>
-          createPublicSourceFixture(platform.env.DB, label, verified),
+        await use((label, verified, addition) =>
+          createPublicSourceFixture(platform.env, label, verified, addition),
         );
       } finally {
         await platform.dispose();

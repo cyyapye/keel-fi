@@ -844,6 +844,11 @@ export class D1AlphaRepository implements AlphaRepository {
                      WHERE exposure.position_id = position.id
                      ORDER BY exposure.created_at, exposure.id
                      LIMIT 1
+                   ),
+                   (
+                     SELECT accepted_row.exposure_label
+                     FROM holding_import_rows accepted_row
+                     WHERE accepted_row.id = snapshot.source_import_row_id
                    )
                  ) AS exposure_name,
                  position.owner_label,

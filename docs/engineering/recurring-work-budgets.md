@@ -850,13 +850,29 @@ Live review verification remains necessary to prove a particular recommendation.
 
 ## Brokerage source decisions and routine updates
 
-Source identity decisions add no scheduler, timer, provider read or object
-operation. Comparisons are passive GETs opened deliberately for one row or
-candidate. A choice sends one authenticated POST, followed by one existing
-planning-refresh POST and bounded holdings/status readback. An uncertain save
-exposes a status GET before a deliberate retry; it is never replayed by a timer.
-An idle open source panel adds zero requests. Closing the page does not cancel
-an already admitted atomic acceptance.
+Source identity decisions add no scheduler, timer or provider fetch. Comparisons
+are passive GETs opened deliberately for one row or candidate. A choice sends
+one authenticated financial POST, then one report-scoped grouping-completion
+POST, the existing planning-refresh POST and bounded holdings/status readback.
+Completion can read one original R2 object, capped at 5 MiB; replay after
+evidence and mapping completion performs no object read or application write. An
+uncertain save exposes a status GET before any deliberate financial retry.
+Finding its saved receipt instead resumes completion and readback, without a
+second decision. Explicit refresh retries only derived state. An idle open panel
+adds zero requests, object reads and writes. Closing the page does not cancel an
+already admitted atomic acceptance.
+
+The common admitted sync owner completes grouping before planning for manual,
+scheduled and webhook captures. Identical applied reports also run the
+idempotent completion path; a zero automatic-acceptance count does not suppress
+recovery of manual decisions. Each admitted attempt adds at most one 5 MiB
+retained-object read, independently of account or position count. A provider
+outage stops before completion. Missing or corrupt retained evidence stops that
+attempt without an automatic financial replay; caller cooldowns and queue retry
+limits remain the existing owners. No new background recovery producer or daily
+admission is added. The API's existing bounded legacy recovery remains separate
+(five reads, at most 25 MiB per invocation). Scoped completion never invokes its
+household-wide reconnect backfill.
 
 A pending identity exception or retained omitted holding no longer blocks the
 next daily investment check. The same atomic one-attempt-per-rolling-24-hours
@@ -883,6 +899,24 @@ headroom above. Fifty simultaneously large brokerage updates, arbitrary manual
 imports, more households or additional capture volume still require a reviewed
 combined envelope. This holdout does not establish an arbitrary target's
 footprint or activate draft account quota controls.
+
+The provider-identity holdout accepts 120 positions across six accounts, sharing
+20 source securities, against the same 12/24-observation history and unrelated
+household. Report discovery uses two round trips and 246 actual reads; evidence
+and mapping completion uses 14 round trips, 19,413 reads and 2,360 writes.
+Including capture and both completion-preview reads stays within the existing
+60,000-read and 8,000-write reserve (7,735 total writes). Repeated completion is
+four round trips, 1,213 reads and zero writes; a missing/foreign report lookup
+uses two round trips, at most three reads and zero writes. Query plans use the
+requested import and indexed current application heads instead of sorting
+history inside each row. The source-label write duplication is removed for new
+Plaid positions; accepted source labels and existing legacy records are
+retained. These measurements do not activate account-wide admission or authorize
+arbitrary capture volume. At the existing three-capture useful-work envelope the
+added retained-source traffic is at most three reads/15 MiB per day, within that
+source workload, not a new allowance. Including the existing legacy wrapper (up
+to 15 reads/75 MiB across those three captures), the combined retained-source
+envelope is 18 reads/90 MiB. Idle and upstream-outage days add zero such reads.
 
 Migration 0091 includes the covering report-row index needed to keep acceptance
 local to its import, plus current import/security projections. The registered

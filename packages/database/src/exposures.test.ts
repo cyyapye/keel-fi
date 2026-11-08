@@ -2565,6 +2565,29 @@ describe("canonical exposure resolution and aggregation", () => {
           next.some((document) => failed.includes(document.importId)),
         ).toBe(false);
       }
+      // Explicit completion targets a late report rather than replaying the
+      // oldest backlog, and can retry a report deferred by passive maintenance.
+      const late = initial.at(-1)!;
+      database.resetRoundTripCount();
+      expect(
+        await repository.listRetainedPublicExposureDocuments(
+          accessSubject,
+          late.importId,
+        ),
+      ).toEqual([late]);
+      expect(database.roundTripCount).toBe(2);
+      expect(
+        await repository.listRetainedPublicExposureDocuments(
+          accessSubject,
+          failed[0],
+        ),
+      ).toEqual([initial[0]]);
+      expect(
+        await repository.listRetainedPublicExposureDocuments(
+          accessSubject,
+          "synthetic-foreign-or-missing-import",
+        ),
+      ).toEqual([]);
       vi.setSystemTime(Date.parse(recordedAt) + 86_400_001);
       expect(
         await repository.listRetainedPublicExposureDocuments(accessSubject),

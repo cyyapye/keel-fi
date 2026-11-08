@@ -9,6 +9,7 @@ import {
   publicSourceState,
   PUBLIC_SOURCE_POSITIONS_SQL,
 } from "../packages/database/src/public-source-state";
+import { D1ExposureRepository } from "../packages/database/src/exposures";
 import { D1HoldingImportRepository } from "../packages/database/src/holding-imports";
 
 const fixture = populatedMigrationFixtures();
@@ -159,6 +160,201 @@ for (const history of [12, 24] as const) {
       expect(measured.cost.rowsRead).toBeLessThanOrEqual(60000);
       expect(measured.cost.rowsWritten).toBeLessThanOrEqual(8000);
       const captureCost = { ...measured.cost };
+      // Provider-only securities use the same accepted import and a bounded
+      // completion pass. Twenty source securities span six ownership accounts.
+      measured.reset();
+      const fallback = await imports.stagePlaidInvestmentsHoldingImport(
+        "synthetic-access-subject",
+        {
+          objectKey: `synthetic/provider-completion/${history}.json`,
+          sha256: hash(`provider-completion:${history}`),
+          byteSize: 24000,
+          normalizedFingerprint: hash(
+            `provider-completion-normalized:${history}`,
+          ),
+          effectiveDate: "2026-08-27",
+          retrievedAt: "2026-08-27T12:00:00.000Z",
+          rows: Array.from({ length: 120 }, (_, index) => ({
+            rowNumber: index + 1,
+            naturalKeySha256: hash(`completion-row:${index}`),
+            securityName: `Synthetic Completion Security ${index % 20}`,
+            ticker: `R${index % 20}`,
+            securityType: "equity",
+            accountLabel: `Synthetic Completion Account ${Math.floor(index / 20)}`,
+            quantityMicros: 1_000_000,
+            costBasisMinor: 10000,
+            marketValueMinor: 12500,
+            observedOn: "2026-08-27",
+            currency: "USD",
+            issues: [],
+          })),
+          canonicalScope: {
+            connection: {
+              mode: "existing",
+              connectionId: "synthetic_public_migration_hh_demo",
+            },
+            containers: Array.from({ length: 6 }, (_, index) => ({
+              protectedAccountKey: hash(`completion-account:${index}`),
+              displayLabel: `Synthetic Completion Account ${index}`,
+              containerKind: "brokerage",
+              taxTreatment: "taxable",
+              completeness: "complete",
+            })),
+            rows: Array.from({ length: 120 }, (_, index) => ({
+              sourceRowNumber: index + 1,
+              protectedAccountKey: hash(
+                `completion-account:${Math.floor(index / 20)}`,
+              ),
+              protectedPositionKey: hash(`completion-position:${index}`),
+              publicExposureIdentityKind: null,
+              protectedExposureKey: null,
+            })),
+          },
+        },
+      );
+      expect(
+        await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
+          "synthetic-access-subject",
+          fallback.preview.id,
+        ),
+      ).toMatchObject({ autoAppliedCount: 120, quarantinedCount: 0 });
+      const fallbackCaptureCost = { ...measured.cost };
+      expect(fallbackCaptureCost.roundTrips).toBeLessThanOrEqual(40);
+      measured.reset();
+      await imports.getHoldingImport(
+        "synthetic-access-subject",
+        fallback.preview.id,
+      );
+      const completionResponseReads = { ...measured.cost };
+      const exposures = new D1ExposureRepository(measured.database);
+      measured.reset();
+      const documents = await exposures.listRetainedPublicExposureDocuments(
+        "synthetic-access-subject",
+        fallback.preview.id,
+      );
+      expect(documents).toHaveLength(1);
+      expect(documents[0]?.rows).toHaveLength(120);
+      const discoveryCost = { ...measured.cost };
+      expect(discoveryCost.roundTrips).toBe(2);
+      expect(discoveryCost.rowsRead).toBeLessThanOrEqual(3000);
+      expect(discoveryCost.rowsWritten).toBe(0);
+      const discoverySql = [...measured.byQuery.keys()].find((query) =>
+        query.includes("document.object_key"),
+      )!;
+      measured.reset();
+      await exposures.recordRetainedPublicExposureEvidence(
+        "synthetic-access-subject",
+        documents[0]!.rows.map((row) => ({
+          importRowId: row.importRowId,
+          resolutionStatus: "no_strong_identifier",
+          evidenceSha256: hash(`provider-completion:${history}`),
+        })),
+      );
+      await exposures.recordRetainedProviderExposureEvidence(
+        "synthetic-access-subject",
+        documents[0]!.rows.map((row) => ({
+          importRowId: row.importRowId,
+          resolutionStatus: "scoped_identifier",
+          protectedIdentityKey: hash(
+            `completion-source-security:${(row.sourceRowNumber - 1) % 20}`,
+          ),
+          evidenceSha256: hash(`provider-completion:${history}`),
+        })),
+      );
+      await exposures.reconcileAcceptedPublicExposureHistory(
+        "synthetic-access-subject",
+        fallback.preview.id,
+      );
+      const completionCost = { ...measured.cost };
+      const mappingSql = [...measured.byQuery.keys()].find((query) =>
+        query.includes("current_application.application_id"),
+      )!;
+      measured.reset();
+      await imports.getHoldingImport(
+        "synthetic-access-subject",
+        fallback.preview.id,
+      );
+      completionResponseReads.roundTrips += measured.cost.roundTrips;
+      completionResponseReads.rowsRead += measured.cost.rowsRead;
+      expect(completionResponseReads.roundTrips).toBe(12);
+      expect(measured.cost.rowsWritten).toBe(0);
+
+      expect(completionCost.roundTrips).toBeLessThanOrEqual(16);
+      expect(
+        fallbackCaptureCost.rowsRead +
+          discoveryCost.rowsRead +
+          completionCost.rowsRead +
+          completionResponseReads.rowsRead,
+      ).toBeLessThanOrEqual(60000);
+      expect(
+        fallbackCaptureCost.rowsWritten + completionCost.rowsWritten,
+      ).toBeLessThanOrEqual(8000);
+      const completionPlans = await Promise.all(
+        [discoverySql, mappingSql].map(async (query) =>
+          (
+            await db
+              .prepare(`EXPLAIN QUERY PLAN ${query}`)
+              .bind("hh_demo", fallback.preview.id)
+              .all<{ detail: string }>()
+          ).results.map((row) => row.detail),
+        ),
+      );
+      expect(
+        completionPlans
+          .flat()
+          .some((detail) =>
+            /SCAN (?:row|application|current_application|import|latest_application)\b/u.test(
+              detail,
+            ),
+          ),
+      ).toBe(false);
+      measured.reset();
+      expect(
+        await exposures.listRetainedPublicExposureDocuments(
+          "synthetic-access-subject",
+          fallback.preview.id,
+        ),
+      ).toEqual([]);
+      await exposures.reconcileAcceptedPublicExposureHistory(
+        "synthetic-access-subject",
+        fallback.preview.id,
+      );
+      const repeatedCompletionCost = { ...measured.cost };
+      expect(repeatedCompletionCost.roundTrips).toBeLessThanOrEqual(4);
+      expect(repeatedCompletionCost.rowsWritten).toBe(0);
+      expect(repeatedCompletionCost.rowsRead).toBeLessThanOrEqual(4000);
+      measured.reset();
+      expect(
+        await exposures.listRetainedPublicExposureDocuments(
+          "synthetic-access-subject",
+          "synthetic-unowned-or-missing-import",
+        ),
+      ).toEqual([]);
+      expect(measured.cost.roundTrips).toBe(2);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(3);
+      expect(measured.cost.rowsWritten).toBe(0);
+      expect(
+        await db
+          .prepare(
+            "SELECT COUNT(*) count, COUNT(DISTINCT exposure_id) exposures FROM holding_position_exposure_heads WHERE position_id IN (SELECT application.position_id FROM holding_import_applications application JOIN holding_import_rows row ON row.id=application.import_row_id WHERE row.import_id=?) AND status='active'",
+          )
+          .bind(fallback.preview.id)
+          .first(),
+      ).toEqual({ count: 120, exposures: 20 });
+      console.info(
+        JSON.stringify({
+          publicSourceCompletion: {
+            history,
+            fallbackCaptureCost,
+            discoveryCost,
+            completionCost,
+            repeatedCompletionCost,
+            completionResponseReads,
+            completionPlans,
+          },
+        }),
+      );
+
       const plan = (
         await db
           .prepare(`EXPLAIN QUERY PLAN ${PUBLIC_SOURCE_POSITIONS_SQL}`)

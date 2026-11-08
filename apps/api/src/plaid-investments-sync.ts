@@ -12,7 +12,6 @@ import type {
   PortfolioBaselineRepository,
   InvestmentConnectionsRepository,
   InvestmentSyncRun,
-  PlaidInvestmentsImportAdjudication,
 } from "@keel/database";
 import {
   HoldingImportCanonicalScopeSchema,
@@ -32,6 +31,10 @@ import {
   plaidInvestmentsSourceKey,
 } from "./investment-identity";
 import type { Env } from "./types";
+import {
+  D1RetainedPublicExposureReconciler,
+  type RetainedPublicExposureReconciler,
+} from "./retained-public-exposure";
 
 const MAX_PLAID_RESPONSE_BYTES = 5 * 1_048_576;
 const PLAID_REQUEST_TIMEOUT_MS = 15_000;
@@ -826,15 +829,11 @@ async function refreshPortfolioBaseline(input: {
   repository:
     Pick<PortfolioBaselineRepository, "getState" | "confirm"> | undefined;
   accessSubject: string;
-  adjudication: PlaidInvestmentsImportAdjudication;
 }): Promise<{
   status: "not_needed" | "refreshed" | "manual_required";
   baselineId: string | null;
 }> {
-  if (
-    input.repository === undefined ||
-    input.adjudication.autoAppliedCount === 0
-  ) {
+  if (input.repository === undefined) {
     return { status: "not_needed", baselineId: null };
   }
   try {
@@ -950,6 +949,7 @@ export async function buildPlaidInvestmentsCanonicalScope(input: {
 
 type InvestmentSyncDependencies = {
   env: Env;
+  exposureReconciler?: RetainedPublicExposureReconciler;
   repository: InvestmentConnectionsRepository;
   holdingImports: Pick<
     D1HoldingImportRepository,
@@ -1063,36 +1063,33 @@ async function executeInvestmentConnectionSync(
       // later sync-run bookkeeping failures.
       stagedObjectKey = null;
     }
+    // Re-enter idempotent acceptance on identical reports as well: a prior
+    // attempt may have committed acceptance before grouping or planning failed.
     const adjudication =
-      staged.created || staged.preview.status !== "applied"
-        ? await input.holdingImports.autoAdjudicatePlaidInvestmentsHoldingImport(
-            input.accessSubject,
-            staged.preview.id,
-          )
-        : null;
-    const baselineRefresh =
-      adjudication === null
-        ? { status: "not_needed" as const, baselineId: null }
-        : await refreshPortfolioBaseline({
-            repository: input.portfolioBaselines,
-            accessSubject: input.accessSubject,
-            adjudication,
-          });
+      await input.holdingImports.autoAdjudicatePlaidInvestmentsHoldingImport(
+        input.accessSubject,
+        staged.preview.id,
+      );
+    await (
+      input.exposureReconciler ??
+      new D1RetainedPublicExposureReconciler(input.env)
+    ).reconcile(input.accessSubject, staged.preview.id);
+    const baselineRefresh = await refreshPortfolioBaseline({
+      repository: input.portfolioBaselines,
+      accessSubject: input.accessSubject,
+    });
     await input.repository.completeSync(input.accessSubject, run.id, {
       discoveredCount: normalized.rows.length,
       proposedCount: staged.created ? normalized.rows.length : 0,
-      importId: adjudication === null ? null : staged.preview.id,
-      adjudication:
-        adjudication === null
-          ? null
-          : {
-              policyVersion: adjudication.policyVersion,
-              autoAppliedCount: adjudication.autoAppliedCount,
-              quarantinedCount: adjudication.quarantinedCount,
-              preservedPositionCount: adjudication.preservedPositionCount,
-              baselineRefreshStatus: baselineRefresh.status,
-              portfolioBaselineId: baselineRefresh.baselineId,
-            },
+      importId: staged.preview.id,
+      adjudication: {
+        policyVersion: adjudication.policyVersion,
+        autoAppliedCount: adjudication.autoAppliedCount,
+        quarantinedCount: adjudication.quarantinedCount,
+        preservedPositionCount: adjudication.preservedPositionCount,
+        baselineRefreshStatus: baselineRefresh.status,
+        portfolioBaselineId: baselineRefresh.baselineId,
+      },
     });
     return input.repository.getConnectionStatus(
       input.accessSubject,

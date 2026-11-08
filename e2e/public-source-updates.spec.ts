@@ -314,7 +314,13 @@ for (const failurePhase of ["planning", "sources"] as const) {
     publicSourceFixture,
   }) => {
     const label = `Synthetic failure ${failurePhase} ${test.info().project.name}`;
-    const fixture = await publicSourceFixture(label);
+    const addition = failurePhase === "sources";
+    const actionName = addition ? "Add PHOT" : "Confirm same holding";
+    const ticker = addition ? "PHOT" : "MSFT";
+    const decisionText = addition
+      ? "Added as a separate holding"
+      : "Same holding confirmed";
+    const fixture = await publicSourceFixture(label, false, addition);
     await page.goto("/holdings/sources");
     const source = page.locator(".investment-institution").filter({
       has: page.getByRole("heading", { name: label, exact: true }),
@@ -324,7 +330,7 @@ for (const failurePhase of ["planning", "sources"] as const) {
       .click();
     const form = source.locator(".public-source-decision");
     await expect(
-      form.getByRole("button", { name: "Confirm same holding", exact: true }),
+      form.getByRole("button", { name: actionName, exact: true }),
     ).toBeEnabled();
     let writes = 0;
     let releaseFailure: () => void = () => undefined;
@@ -332,10 +338,23 @@ for (const failurePhase of ["planning", "sources"] as const) {
       releaseFailure = resolve;
     });
     const path = `**/api/holding-imports/${fixture.importId}/rows/*/review`;
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.startsWith(
+          `/api/holding-imports/${fixture.importId}/rows/`,
+        ) &&
+        new URL(request.url()).pathname.endsWith("/review")
+      )
+        writes++;
+    });
     await page.route(path, async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
-      writes++;
       await failureGate;
+      if (addition) {
+        const accepted = await route.fetch();
+        expect(accepted.ok()).toBe(true);
+      }
       await route.fulfill({
         status: 503,
         json: {
@@ -344,9 +363,20 @@ for (const failurePhase of ["planning", "sources"] as const) {
         },
       });
     });
-    await form
-      .getByRole("button", { name: "Confirm same holding", exact: true })
-      .click();
+    let completionCalls = 0;
+    await page.route(
+      `**/api/holding-imports/${fixture.importId}/exposures/refresh`,
+      async (route) => {
+        completionCalls++;
+        if (addition && completionCalls === 1)
+          return route.fulfill({
+            status: 503,
+            json: { error: "Synthetic source grouping outage." },
+          });
+        return route.fallback();
+      },
+    );
+    await form.getByRole("button", { name: actionName, exact: true }).click();
     await expect(
       form.getByRole("button", { name: "Saving…", exact: true }),
     ).toBeDisabled();
@@ -363,7 +393,7 @@ for (const failurePhase of ["planning", "sources"] as const) {
       form.getByRole("button", { name: "Check decision status", exact: true }),
     ).toBeInViewport({ ratio: 1 });
     await expect(
-      form.getByRole("button", { name: "Confirm same holding", exact: true }),
+      form.getByRole("button", { name: actionName, exact: true }),
     ).toBeDisabled();
     expect(writes).toBe(1);
     await captureSource(source, "failure");
@@ -372,16 +402,39 @@ for (const failurePhase of ["planning", "sources"] as const) {
         await page.request.get(`/api/holding-imports/${fixture.importId}`)
       ).json(),
     );
-    expect(read.summary.quarantinedCount).toBe(1);
-    expect(
-      read.rows.find((row) => row.ticker === "MSFT")?.sourceReview,
-    ).toBeNull();
+    expect(read.summary.quarantinedCount).toBe(addition ? 0 : 1);
+    if (addition)
+      expect(
+        read.rows.find((row) => row.ticker === ticker)?.sourceReview?.decision,
+      ).toBe("separate");
+    else
+      expect(
+        read.rows.find((row) => row.ticker === ticker)?.sourceReview,
+      ).toBeNull();
+    if (addition) {
+      const pending = HoldingsPageSchema.parse(
+        await (await page.request.get("/api/holdings-page")).json(),
+      );
+      const positions =
+        pending.investmentHoldings.exposureView.positions.filter(
+          (position) =>
+            position.connectionId === fixture.connectionId &&
+            position.ticker === "PHOT",
+        );
+      expect(positions).toHaveLength(2);
+      expect(
+        positions.filter((position) => position.mappedExposureIds.length === 0),
+      ).toHaveLength(1);
+      expect(completionCalls).toBe(0);
+    }
     await form
       .getByRole("button", { name: "Check decision status", exact: true })
       .click();
-    await expect(
-      form.getByRole("button", { name: "Confirm same holding", exact: true }),
-    ).toBeEnabled();
+    if (!addition) {
+      await expect(
+        form.getByRole("button", { name: actionName, exact: true }),
+      ).toBeEnabled();
+    }
     expect(writes).toBe(1);
     await page.unroute(path);
     let planningCalls = 0;
@@ -404,12 +457,12 @@ for (const failurePhase of ["planning", "sources"] as const) {
         });
       return route.fallback();
     });
-    await form
-      .getByRole("button", { name: "Confirm same holding", exact: true })
-      .click();
+    if (!addition) {
+      await form.getByRole("button", { name: actionName, exact: true }).click();
+    }
     await expect(
       page.getByText(
-        "Same holding confirmed. Your decision is saved; the latest holdings or planning view could not be refreshed.",
+        `${decisionText}. Your decision is saved; the latest holdings or planning view could not be refreshed.`,
         { exact: true },
       ),
     ).toBeVisible();
@@ -430,7 +483,33 @@ for (const failurePhase of ["planning", "sources"] as const) {
       await (
         await page.request.get(`/api/holding-imports/${fixture.importId}`)
       ).json(),
-    ).rows.find((row) => row.ticker === "MSFT")!.sourceReview!.id;
+    ).rows.find((row) => row.ticker === ticker)!.sourceReview!.id;
+    if (addition) {
+      await captureSource(source, "grouping-failure");
+      await page
+        .getByRole("button", {
+          name: "Refresh holdings and planning",
+          exact: true,
+        })
+        .click();
+      await expect.poll(() => connectionReads).toBe(1);
+      await expect(
+        source.getByRole("button", {
+          name: "Refresh holdings and planning",
+          exact: true,
+        }),
+      ).toBeEnabled();
+      await expect(source.locator(".investment-institution__value")).toHaveText(
+        "Refresh pending",
+      );
+      await expect(
+        page.getByText(
+          `${decisionText}. Your decision is saved; the latest holdings or planning view could not be refreshed.`,
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await captureSource(source, "grouping-readback-failure");
+    }
     await page
       .getByRole("button", {
         name: "Refresh holdings and planning",
@@ -446,21 +525,86 @@ for (const failurePhase of ["planning", "sources"] as const) {
     expect(planningCalls).toBe(2);
     expect(connectionReads).toBe(failurePhase === "planning" ? 1 : 2);
     await expect(source.locator(".investment-institution__value")).toHaveText(
-      "$215,100.00",
+      addition ? "$10,250.00" : "$215,100.00",
     );
     expect(
       HoldingImportPreviewSchema.parse(
         await (
           await page.request.get(`/api/holding-imports/${fixture.importId}`)
         ).json(),
-      ).rows.find((row) => row.ticker === "MSFT")!.sourceReview!.id,
+      ).rows.find((row) => row.ticker === ticker)!.sourceReview!.id,
     ).toBe(savedBefore);
     expect(
       HoldingImportPreviewSchema.parse(
         await (
           await page.request.get(`/api/holding-imports/${fixture.importId}`)
         ).json(),
-      ).rows.find((row) => row.ticker === "MSFT")?.sourceReview?.decision,
-    ).toBe("same");
+      ).rows.find((row) => row.ticker === ticker)?.sourceReview?.decision,
+    ).toBe(addition ? "separate" : "same");
+    expect(writes).toBe(addition ? 1 : 2);
+    expect(completionCalls).toBe(addition ? 3 : 2);
+    if (addition) {
+      const holdings = HoldingsPageSchema.parse(
+        await (await page.request.get("/api/holdings-page")).json(),
+      );
+      const owned = holdings.investmentHoldings.exposureView.positions.filter(
+        (position) => position.connectionId === fixture.connectionId,
+      );
+      const photon = owned.filter((position) => position.ticker === "PHOT");
+      expect(photon).toHaveLength(2);
+      expect(
+        photon.every(
+          (position) =>
+            position.mappedExposureIds.length === 1 &&
+            position.unallocatedValueMinor === 0,
+        ),
+      ).toBe(true);
+      expect(
+        new Set(photon.flatMap((position) => position.mappedExposureIds)).size,
+      ).toBe(1);
+      const groupId = photon[0]!.mappedExposureIds[0]!;
+      const group = holdings.investmentHoldings.exposureView.exposures.find(
+        (item) => item.exposure.id === groupId,
+      )!;
+      expect(group.contributions).toHaveLength(2);
+      expect(group.totals[0]?.allocatedValueMinor).toBe(375_000);
+      expect(
+        owned.find((position) => position.ticker === "ORBT")?.valueMinor,
+      ).toBe(650_000);
+      await page.goto("/holdings");
+      await page
+        .getByRole("searchbox", { name: "Search holdings" })
+        .fill("PHOT");
+      const visibleGroup = page.locator(`[data-exposure-id="${groupId}"]`);
+      await expect(visibleGroup).toBeVisible();
+      await expect(visibleGroup).toContainText("2 positions");
+      const toggle = visibleGroup.getByRole("button").first();
+      if ((await toggle.getAttribute("aria-expanded")) === "false")
+        await toggle.click();
+      await visibleGroup.scrollIntoViewIfNeeded();
+      await expect(visibleGroup).toBeInViewport();
+      expect(
+        await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth <=
+            document.documentElement.clientWidth,
+        ),
+      ).toBe(true);
+      await expect(
+        page
+          .locator(".unallocated-positions")
+          .getByText("PHOT", { exact: true }),
+      ).toHaveCount(0);
+      const root = process.env.KEEL_SOURCE_REVIEW_DIR;
+      if (root)
+        await visibleGroup.screenshot({
+          path: resolve(
+            root,
+            `source-grouped-addition-${test.info().project.name}.png`,
+          ),
+          animations: "disabled",
+          scale: "css",
+        });
+    }
   });
 }
