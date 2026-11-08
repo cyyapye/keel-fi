@@ -9,14 +9,21 @@ const SOURCE_CAPTURE_STYLE = `
   .investment-institution:not([data-keel-source-capture]){display:none!important}
 `;
 
-async function captureSource(locator: Locator, state: string) {
+async function captureSource(
+  locator: Locator,
+  state: string,
+  includeSection = false,
+) {
   const root = process.env.KEEL_SOURCE_REVIEW_DIR;
   if (!root) return;
   await locator.evaluate((element) =>
     element.setAttribute("data-keel-source-capture", ""),
   );
   try {
-    await locator.screenshot({
+    const capture = includeSection
+      ? locator.page().locator(".investment-institutions")
+      : locator;
+    await capture.screenshot({
       path: resolve(root, `source-${state}-${test.info().project.name}.png`),
       animations: "disabled",
       scale: "css",
@@ -643,6 +650,12 @@ test("reconciles a complete brokerage inventory automatically and keeps historic
   });
   const originalId = updated.inventory!.closedPositions[0]!.positionId;
   await page.goto("/holdings/sources");
+  await expect(
+    page.getByText(
+      "Clear updates happen automatically. Missing holdings are removed only after a verified complete account report.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   const source = page
     .locator(".investment-institution")
     .filter({ has: page.getByRole("heading", { name: label, exact: true }) });
@@ -662,6 +675,7 @@ test("reconciles a complete brokerage inventory automatically and keeps historic
     test.info().project.name === "mobile-chromium" ? 44 : 40,
   );
   await captureSource(source, "inventory-closed");
+  await captureSource(source, "inventory-context", true);
   await page.keyboard.press("Enter");
   const closed = source
     .getByRole("listitem")

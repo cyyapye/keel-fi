@@ -2704,7 +2704,7 @@ export function InvestmentHoldings({
       >
         <SectionHeader
           className="investment-institutions__heading"
-          description="Clear updates happen automatically. Unreported holdings keep their last accepted values."
+          description="Clear updates happen automatically. Missing holdings are removed only after a verified complete account report."
           eyebrow="Connections"
           headingProps={{ id: "investment-institutions-title" }}
           title="Brokerages"
@@ -2822,9 +2822,6 @@ export function InvestmentHoldings({
                           status?.lastSyncedAt === undefined
                             ? ""
                             : ` · Checked ${formatDate(status.lastSyncedAt)}`}
-                          {pendingCount > 0 && !summaryPending
-                            ? ` · ${pendingCount} ${pendingCount === 1 ? "decision" : "decisions"} needed`
-                            : ""}
                         </small>
                       </span>
                       <span className="investment-institution__summary-action">
