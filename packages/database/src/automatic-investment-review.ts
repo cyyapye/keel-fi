@@ -161,14 +161,14 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
     'carryPpm', terms.carry_ppm, 'note', terms.note, 'acceptedAt', terms_review.decided_at,
     'decisionSource', terms.decision_source
   ) END economics_json
-  FROM holding_positions p
-  JOIN holding_import_applications a ON a.id = (
+  FROM holding_positions p INDEXED BY holding_positions_household_id_idx
+  CROSS JOIN holding_import_applications a ON a.id = (
     SELECT candidate.id FROM holding_import_applications candidate JOIN holding_position_snapshots snapshot ON snapshot.id = candidate.snapshot_id
     WHERE candidate.position_id = p.id ORDER BY candidate.applied_at DESC, snapshot.observed_at DESC, candidate.id DESC LIMIT 1)
   LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id = p.id AND purchase_head.household_id = p.household_id
   LEFT JOIN holding_purchase_reviews purchase ON purchase.id = purchase_head.review_id
-  JOIN holding_position_snapshots s ON s.id = a.snapshot_id
-  JOIN holding_import_rows r ON r.id = a.import_row_id
+  CROSS JOIN holding_position_snapshots s ON s.id = a.snapshot_id
+  CROSS JOIN holding_import_rows r ON r.id = a.import_row_id
   LEFT JOIN holding_import_row_provider_investments provider_identity ON provider_identity.import_row_id = r.id
   LEFT JOIN holding_import_row_reported_economics_evidence reported ON reported.import_row_id = r.id
   LEFT JOIN provider_legal_document_latest latest ON latest.household_id = p.household_id AND latest.provider = p.provider AND latest.position_fingerprint = r.position_fingerprint
@@ -188,6 +188,7 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
     ) ORDER BY accepted.decided_at DESC, proposal.id DESC LIMIT 1)
   LEFT JOIN holding_position_economics_reviews terms_review ON terms_review.proposal_id = terms.id AND terms_review.decision = 'accepted'
   WHERE p.household_id = ? AND p.id > ?
+    AND p.provider IN('angellist','sydecar','tokenfolio','wefunder','manual')
     AND (p.position_kind <> 'direct' OR (p.provider = 'wefunder' AND (
       decision.id IS NOT NULL OR EXISTS (SELECT 1 FROM legal_entity_name_heads named
         WHERE named.household_id = p.household_id AND named.legal_name = r.legal_vehicle_name)

@@ -120,12 +120,35 @@ it("automatically reconciles 120 historical private investments with bounded D1 
           .bind(...Array(sql.split("?").length - 1).fill(null))
           .all<{ detail: string }>()
       ).results;
-      expect(
-        plan.filter((step) =>
-          /SCAN (position|candidate|snapshot|ownership|container|application|existing)\b/u.test(
-            step.detail,
-          ),
+      const derived = new Set(
+        plan.flatMap(
+          (step) =>
+            /^(?:CO-ROUTINE|MATERIALIZE) (\w+)/u.exec(step.detail)?.slice(1) ??
+            [],
         ),
+      );
+      for (const name of [...derived]) {
+        for (const match of sql.matchAll(
+          new RegExp(`\\b(?:FROM|JOIN)\\s+${name}\\s+(?:AS\\s+)?(\\w+)`, "gu"),
+        )) {
+          if (
+            match[1] &&
+            !/^(WHERE|ON|JOIN|LEFT|CROSS|ORDER|GROUP)$/u.test(match[1])
+          )
+            derived.add(match[1]);
+        }
+      }
+      expect(
+        plan.filter(
+          (step) =>
+            /SCAN (position|candidate|snapshot|ownership|container|application|existing)\b/u.test(
+              step.detail,
+            ) && !derived.has(/^SCAN (\w+)/u.exec(step.detail)![1]!),
+        ),
+        JSON.stringify({
+          sql: sql.slice(0, 180),
+          plan: plan.map((step) => step.detail),
+        }),
       ).toEqual([]);
     }
     expect(

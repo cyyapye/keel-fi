@@ -121,6 +121,7 @@ function testClient(
     removeItem: vi.fn(),
     updateItemWebhook: vi.fn(),
     getWebhookVerificationKey: vi.fn().mockResolvedValue(verificationKey),
+    getInvestmentStatus: vi.fn(),
     getHoldings: vi.fn(),
   };
 }

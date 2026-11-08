@@ -337,11 +337,6 @@ it("keeps normal source acceptance plus automatic review within the existing cap
     // The capture boundary admits at most 24 documents per provider run.
     // Every setup, capture and review write remains measured inside workerd.
     const result = await fixture.measureSourceCapture();
-    expect(result.resolvedCount).toBe(24);
-    expect(result.exceptionCount).toBe(96);
-    expect(
-      result.captureWrites + result.review.rowsWritten,
-    ).toBeLessThanOrEqual(8_000);
     console.info(
       JSON.stringify({
         sourceCaptureAndAutomaticReview: {
@@ -351,6 +346,11 @@ it("keeps normal source acceptance plus automatic review within the existing cap
         },
       }),
     );
+    expect(result.resolvedCount).toBe(24);
+    expect(result.exceptionCount).toBe(96);
+    expect(
+      result.captureWrites + result.review.rowsWritten,
+    ).toBeLessThanOrEqual(8_000);
   } finally {
     await fixture.close();
   }

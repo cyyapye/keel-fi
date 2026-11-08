@@ -837,8 +837,10 @@ function coverageLabel(
 
 function InvestmentAccountRows({
   connection,
+  acceptedEmpty = false,
 }: {
   connection: InvestmentPositionConnection | null;
+  acceptedEmpty?: boolean;
 }) {
   if (connection === null || connection.containers.length === 0) {
     return (
@@ -864,7 +866,9 @@ function InvestmentAccountRows({
           </span>
           <span className="investment-institution__account-value">
             <strong>
-              {investmentPositionTotalsLabel(container.positions)}
+              {acceptedEmpty && container.positions.length === 0
+                ? formatMoney(0)
+                : investmentPositionTotalsLabel(container.positions)}
             </strong>
             <small>
               {container.coverage === null
@@ -2700,7 +2704,7 @@ export function InvestmentHoldings({
       >
         <SectionHeader
           className="investment-institutions__heading"
-          description="Clear updates happen automatically. Unreported holdings keep their last accepted values."
+          description="Clear updates happen automatically. Missing holdings are removed only after a verified complete account report."
           eyebrow="Connections"
           headingProps={{ id: "investment-institutions-title" }}
           title="Brokerages"
@@ -2738,7 +2742,9 @@ export function InvestmentHoldings({
                 status?.institutionLabel ??
                 connection?.institutionLabel ??
                 "Investment source";
-              const lastComplete = latestCompleteObservation(connection);
+              const lastComplete =
+                status?.acceptedInventoryAt ??
+                latestCompleteObservation(connection);
               const pendingCount =
                 status?.latestAdjudication?.quarantinedCount ??
                 (status?.latestImportId === null ||
@@ -2746,6 +2752,11 @@ export function InvestmentHoldings({
                   ? 0
                   : 1);
               const accountCount = connection?.containers.length ?? 0;
+              const acceptedEmpty =
+                status?.acceptedInventoryEmpty === true &&
+                !connection?.containers.some(
+                  (account) => account.positions.length > 0,
+                );
               const summaryPending =
                 sourceReadbackPending &&
                 openSourceActivity?.id === connectionId;
@@ -2806,14 +2817,11 @@ export function InvestmentHoldings({
                             : `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`}
                           {lastComplete === null
                             ? ""
-                            : ` · Latest report ${formatDate(lastComplete)}`}
+                            : ` · ${status?.latestAdjudication?.inventoryAccepted === false ? "Last accepted report" : "Latest report"} ${formatDate(lastComplete)}`}
                           {status?.lastSyncedAt === null ||
                           status?.lastSyncedAt === undefined
                             ? ""
                             : ` · Checked ${formatDate(status.lastSyncedAt)}`}
-                          {pendingCount > 0 && !summaryPending
-                            ? ` · ${pendingCount} ${pendingCount === 1 ? "decision" : "decisions"} needed`
-                            : ""}
                         </small>
                       </span>
                       <span className="investment-institution__summary-action">
@@ -2821,7 +2829,9 @@ export function InvestmentHoldings({
                           <strong className="investment-institution__value">
                             {summaryPending
                               ? "Refresh pending"
-                              : investmentConnectionTotalsLabel(connection)}
+                              : acceptedEmpty
+                                ? formatMoney(0)
+                                : investmentConnectionTotalsLabel(connection)}
                           </strong>
                           <small>Accepted holdings</small>
                         </span>
@@ -2829,7 +2839,10 @@ export function InvestmentHoldings({
                       </span>
                     </CollapsibleTrigger>
                     <CollapsibleContent>
-                      <InvestmentAccountRows connection={connection} />
+                      <InvestmentAccountRows
+                        connection={connection}
+                        acceptedEmpty={acceptedEmpty}
+                      />
                       {renderInstitutionActions(true)}
                     </CollapsibleContent>
                   </Collapsible>
@@ -2843,9 +2856,15 @@ export function InvestmentHoldings({
                             <>
                               {status.latestAdjudication.reportReused
                                 ? "No changes in the latest report."
-                                : status.latestAdjudication.autoAppliedCount > 0
-                                  ? `${status.latestAdjudication.autoAppliedCount} positions updated automatically.`
-                                  : "Latest report checked."}{" "}
+                                : status.latestAdjudication.inventoryAccepted
+                                  ? status.latestAdjudication
+                                      .automaticChangeCount === 0
+                                    ? "Holdings are current. No new changes."
+                                    : `${status.latestAdjudication.automaticChangeCount ?? status.latestAdjudication.autoAppliedCount} ${(status.latestAdjudication.automaticChangeCount ?? status.latestAdjudication.autoAppliedCount) === 1 ? "change" : "changes"} applied automatically.`
+                                  : status.latestAdjudication.autoAppliedCount >
+                                      0
+                                    ? `${status.latestAdjudication.autoAppliedCount} positions updated automatically.`
+                                    : "Latest report checked."}{" "}
                               {pendingCount === 0
                                 ? "No decisions needed."
                                 : `${pendingCount} ${pendingCount === 1 ? "decision needs" : "decisions need"} you.`}
@@ -2853,6 +2872,14 @@ export function InvestmentHoldings({
                           )}
                         </strong>
                       </p>
+                      {!summaryPending &&
+                        status.latestAdjudication.inventoryAccepted ===
+                          false && (
+                          <p>
+                            The report did not establish a complete current
+                            inventory. Missing positions have not been removed.
+                          </p>
+                        )}
                       {!summaryPending &&
                         status.latestAdjudication.preservedPositionCount >
                           0 && (

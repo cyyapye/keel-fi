@@ -1039,6 +1039,7 @@ export const HoldingImportRowPreviewSchema = z.object({
     .nullable()
     .optional(),
   currentObservedAt: IsoTimestampSchema.optional(),
+  valueObservedOn: IsoDateSchema.optional(),
   hasVerifiedSecurityIdentity: z.boolean().optional(),
   acceptanceBlocked: z.boolean().optional(),
   sourceReview: z
@@ -1682,6 +1683,30 @@ export const HoldingImportPreviewSchema = z.object({
   rows: z.array(HoldingImportRowPreviewSchema),
   preservedPositions: z.array(PreservedPublicHoldingSchema).optional(),
   priorPositions: z.array(PreservedPublicHoldingSchema).optional(),
+  inventory: z
+    .object({
+      sourceUpdatedAt: IsoTimestampSchema.nullable(),
+      acceptedAt: IsoTimestampSchema.nullable(),
+      complete: z.boolean(),
+      changeCount: z.number().int().nonnegative().max(1000),
+      closedPositions: z.array(PreservedPublicHoldingSchema).max(500),
+      returnedPositionIds: z.array(z.string().min(1)).max(500),
+      currentContainerIds: z.array(z.string().min(1)).max(100),
+      priorQuantities: z
+        .array(
+          z
+            .object({
+              rowId: z.string().min(1),
+              factsUnchanged: z.boolean().optional(),
+              quantityMicros: z.number().int().safe().nonnegative().nullable(),
+            })
+            .strict(),
+        )
+        .max(500),
+      previousImportId: z.string().min(1).nullable(),
+    })
+    .strict()
+    .optional(),
 });
 
 export const HoldingImportDecisionSchema = z.object({
@@ -2856,6 +2881,10 @@ export const InvestmentAdjudicationSummarySchema = z
     preservedPositionCount: z.number().int().nonnegative(),
     reportReused: z.boolean().optional(),
     preservedObservedAt: IsoTimestampSchema.optional(),
+    inventoryAccepted: z.boolean().optional(),
+    automaticChangeCount: z.number().int().nonnegative().optional(),
+    closedPositionCount: z.number().int().nonnegative().optional(),
+    inventorySourceAt: IsoTimestampSchema.nullable().optional(),
     baselineRefreshStatus: z.enum([
       "not_needed",
       "refreshed",
@@ -2878,6 +2907,8 @@ export const InvestmentConnectionStatusSchema = z
       "needs_attention",
     ]),
     lastSyncedAt: IsoTimestampSchema.nullable(),
+    acceptedInventoryAt: IsoTimestampSchema.optional(),
+    acceptedInventoryEmpty: z.boolean().optional(),
     automaticUpdatesEnabled: z.boolean().default(false),
     latestImportId: z.string().min(1).nullable(),
     latestRunStatus: z.enum(["running", "succeeded", "failed"]).nullable(),

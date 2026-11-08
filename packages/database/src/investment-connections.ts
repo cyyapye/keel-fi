@@ -118,6 +118,12 @@ type ConnectionStatusRow = LatestRunRow & {
   pending_import_id: string | null;
   latest_linked_import_id: string | null;
   report_reused: number;
+  inventory_accepted_at: string | null;
+  inventory_source_at: string | null;
+  closed_count: number;
+  inventory_change_count: number;
+  accepted_inventory_at: string | null;
+  accepted_inventory_empty: number;
   preserved_observed_at?: string;
   unresolved: number;
   omitted: string;
@@ -398,9 +404,21 @@ export class D1InvestmentConnectionsRepository
         `
       SELECT connection.id AS connection_id, run.id AS run_id,
         run.status, run.started_at, run.error_code,
-        run.adjudication_policy_version, run.auto_applied_count,
+        run.adjudication_policy_version,
+        COALESCE((SELECT COUNT(*) FROM holding_import_rows reported JOIN holding_import_row_decisions decision ON decision.import_row_id=reported.id
+          WHERE reported.import_id=head.import_id AND decision.decision_source='policy' AND decision.decision='accepted'),run.auto_applied_count,0) auto_applied_count,
         run.quarantined_count, run.preserved_position_count,
         run.baseline_refresh_status, link.holding_import_id,
+        CASE WHEN json_array_length(inventory.container_ids_json)=(SELECT COUNT(*) FROM holding_import_coverages covered WHERE covered.import_id=head.import_id) AND NOT EXISTS(SELECT 1 FROM ownership_containers account WHERE account.household_id=connection.household_id AND account.connection_id=connection.id
+          AND account.id NOT IN(SELECT value FROM json_each(inventory.container_ids_json))
+          AND (EXISTS(SELECT 1 FROM public_holding_active_positions active WHERE active.household_id=connection.household_id AND active.container_id=account.id)
+            OR EXISTS(SELECT 1 FROM public_holding_account_inventory_heads prior WHERE prior.container_id=account.id))) THEN inventory.accepted_at END inventory_accepted_at,evidence.source_updated_at inventory_source_at,
+        (SELECT MAX(accepted.source_updated_at) FROM ownership_containers account JOIN public_holding_account_inventory_heads accepted ON accepted.container_id=account.id WHERE account.household_id=connection.household_id AND account.connection_id=connection.id) accepted_inventory_at,
+        CASE WHEN EXISTS(SELECT 1 FROM ownership_containers account WHERE account.household_id=connection.household_id AND account.connection_id=connection.id)
+          AND NOT EXISTS(SELECT 1 FROM ownership_containers account WHERE account.household_id=connection.household_id AND account.connection_id=connection.id
+            AND (NOT EXISTS(SELECT 1 FROM public_holding_account_inventory_heads accepted WHERE accepted.container_id=account.id)
+              OR EXISTS(SELECT 1 FROM public_holding_active_positions active WHERE active.household_id=connection.household_id AND active.container_id=account.id))) THEN 1 ELSE 0 END accepted_inventory_empty,
+        COALESCE(json_array_length(inventory.closed_positions_json),0) closed_count,COALESCE(inventory.change_count,0) inventory_change_count,
         NULL AS pending_import_id,head.import_id AS latest_linked_import_id,
         CASE WHEN head.created_at<run.started_at AND (link.holding_import_id IS NULL OR link.holding_import_id=head.import_id) THEN 1 ELSE 0 END report_reused,
         COALESCE((SELECT COUNT(*) FROM holding_import_quarantines q JOIN holding_import_rows r ON r.id=q.import_row_id
@@ -411,6 +429,8 @@ export class D1InvestmentConnectionsRepository
         (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported
       FROM investment_connections connection
       LEFT JOIN public_holding_import_heads head ON head.connection_id=connection.id AND head.household_id=connection.household_id
+      LEFT JOIN public_holding_inventory_evidence evidence ON evidence.import_id=head.import_id
+      LEFT JOIN public_holding_inventories inventory ON inventory.import_id=head.import_id
       LEFT JOIN connector_sync_runs run ON run.id = (
         SELECT candidate.id FROM connector_sync_investment_connections scope
         JOIN connector_sync_runs candidate ON candidate.id = scope.sync_run_id
@@ -590,6 +610,15 @@ export class D1InvestmentConnectionsRepository
         : {
             importId: adjudicationImportId,
             policyVersion: latestRun.adjudication_policy_version,
+            ...(latestRun.adjudication_policy_version ===
+            "plaid-investments-holdings-auto-v5"
+              ? {
+                  inventoryAccepted: latestRun.inventory_accepted_at !== null,
+                  closedPositionCount: latestRun.closed_count,
+                  automaticChangeCount: latestRun.inventory_change_count,
+                  inventorySourceAt: latestRun.inventory_source_at,
+                }
+              : {}),
             autoAppliedCount: latestRun.auto_applied_count,
             ...(latestRun.report_reused === 1 ? { reportReused: true } : {}),
             ...(latestRun.preserved_observed_at
@@ -612,6 +641,10 @@ export class D1InvestmentConnectionsRepository
             ? "needs_attention"
             : "ready",
       lastSyncedAt: connection.last_synced_at,
+      ...(latestRun?.accepted_inventory_at
+        ? { acceptedInventoryAt: latestRun.accepted_inventory_at }
+        : {}),
+      acceptedInventoryEmpty: latestRun?.accepted_inventory_empty === 1,
       automaticUpdatesEnabled: connection.provider_account_key !== null,
       latestImportId:
         latestAdjudication !== null && latestAdjudication.quarantinedCount > 0

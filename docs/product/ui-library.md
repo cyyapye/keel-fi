@@ -328,10 +328,13 @@ exercised by them.
 The application-local `PublicSourceUpdate` composes `Button`, `TextLink`,
 `SearchSelect`, `RecordGroup`, `RecordRow`, `Collapsible` and `FormMessage`. It
 owns the source comparison, exact accepted-total effects, report-scoped ignores,
-saved decision history and bounded activity. Keep those financial and acceptance
-rules in the application and source-update policy. Existing control variants,
-placement, keyboard behavior and catalogue states apply; no new provider
-abstraction or shared control API is introduced. The real API/D1 browser flow
-covers automatic matching, selected corrections, failed saves and status checks
-on desktop/mobile. Generated component guidance stays unchanged because the
-reused control contracts are unchanged.
+saved decision history and bounded activity. Verified inventories reuse the same
+rows for closures, share changes, returns and reported cash. Pagination renders
+at most 20 activity records, and one earlier report at a time; historical rows
+use immutable reported values and have no financial actions. Keep those
+financial and acceptance rules in the application and source-update policy.
+Existing control variants, placement, keyboard behavior and catalogue states
+apply; no new provider abstraction or shared control API is introduced. The real
+API/D1 browser flow covers automatic matching, selected corrections, failed
+saves and status checks on desktop/mobile. Generated component guidance stays
+unchanged because the reused control contracts are unchanged.

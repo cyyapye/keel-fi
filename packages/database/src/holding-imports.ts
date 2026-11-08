@@ -12,6 +12,7 @@ import {
 import {
   HoldingImportApplyInputSchema,
   HoldingImportCanonicalScopeSchema,
+  HoldingImportPreviewSchema,
   HoldingImportProviderSchema,
   HoldingImportSummariesSchema,
   PublicHoldingReviewInputSchema,
@@ -56,6 +57,8 @@ const PLAID_INVESTMENTS_PROVIDER = "plaid_investments";
 const PLAID_INVESTMENTS_PARSER_SCHEMA = "plaid_investments_holdings_v1";
 const PLAID_INVESTMENTS_SOURCE_LABEL = "Plaid Investments";
 export const PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION =
+  "plaid-investments-holdings-auto-v5";
+const PUBLIC_SOURCE_IDENTITY_POLICY_VERSION =
   "plaid-investments-holdings-auto-v4";
 const PRIVATE_HOLDINGS_POLICY_VERSION = "private-holdings-auto-v1";
 const NON_BLOCKING_PLAID_INVESTMENTS_ISSUES = new Set([
@@ -252,6 +255,19 @@ const PlaidInvestmentsHoldingImportStageInputSchema = z
       .positive()
       .max(5 * 1_048_576),
     normalizedFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    inventoryEvidence: z
+      .object({
+        sourceUpdatedAt: IsoTimestampSchema,
+        zeroCashAccountKeys: z
+          .array(z.string().regex(/^[a-f0-9]{64}$/u))
+          .max(100)
+          .default([]),
+        objectKey: z.string().min(1).max(1024),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+        byteSize: z.number().int().positive().max(131072),
+      })
+      .strict()
+      .optional(),
     effectiveDate: IsoDateSchema,
     retrievedAt: IsoTimestampSchema,
     rows: z.array(PlaidInvestmentHoldingRowSchema).max(MAX_IMPORT_ROWS),
@@ -270,6 +286,20 @@ const PlaidInvestmentsHoldingImportStageInputSchema = z
         message:
           "Every Plaid Investments row requires one canonical row scope.",
       });
+    }
+    for (const key of value.inventoryEvidence?.zeroCashAccountKeys ?? []) {
+      if (
+        !value.canonicalScope.containers.some(
+          (container) => container.protectedAccountKey === key,
+        ) ||
+        value.canonicalScope.rows.some((row) => row.protectedAccountKey === key)
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["inventoryEvidence", "zeroCashAccountKeys"],
+          message:
+            "Zero account balance requires an explicitly covered account with no holdings rows.",
+        });
     }
     if (value.canonicalScope.connection.mode !== "existing") {
       context.addIssue({
@@ -303,11 +333,13 @@ type DecisionContext = {
   readonly policyVersion: string | null;
   readonly allowPartial: boolean;
   readonly reasonCodesByRow: ReadonlyMap<string, readonly string[]>;
+  readonly rowObservedAtById?: ReadonlyMap<string, string>;
   readonly afterApplications?: (
     applications: readonly {
       row: ApplyImportRow;
       positionId: string;
       snapshotId: string;
+      outcome: "created_position" | "appended_snapshot" | "no_change";
     }[],
     createdAt: string,
   ) => readonly D1PreparedStatement[];
@@ -356,6 +388,7 @@ type ImportCoveragePreviewRow = {
 
 type ImportPreviewRow = {
   id: string;
+  public_observed_on?: string | null;
   container_id: string;
   source_row_number: number;
   legal_vehicle_name: string;
@@ -474,8 +507,11 @@ type PlaidInvestmentsAdjudicationRow = {
   position_fingerprint: string;
   snapshot_fingerprint: string;
   instrument_type: string;
+  public_observed_on: string | null;
   parse_status: "ready" | "needs_attention";
   cost_basis_minor: number | null;
+  quantity_micros: number;
+  unrealized_value_minor: number;
   issue_codes_json: string;
   public_exposure_identity_kind: string | null;
   protected_exposure_key: string | null;
@@ -631,12 +667,15 @@ async function plaidInvestmentsSnapshotFingerprint(
   row: PlaidInvestmentHoldingRow,
   retrievedAt: string,
   protectedPositionKey: string,
+  inventory = false,
 ): Promise<string> {
   return sha256(
     JSON.stringify([
-      "plaid-investments-position-snapshot-v1",
+      inventory
+        ? "plaid-investments-position-snapshot-v2"
+        : "plaid-investments-position-snapshot-v1",
       protectedPositionKey,
-      retrievedAt,
+      ...(inventory ? [] : [retrievedAt]),
       row.observedOn,
       row.quantityMicros,
       row.costBasisMinor,
@@ -686,6 +725,48 @@ function containerPositionKey(
   protectedPositionKey: string,
 ): string {
   return JSON.stringify([containerId, protectedPositionKey]);
+}
+
+function preparePublicHoldingRow(db: D1Database, certified: boolean) {
+  return db.prepare(`INSERT INTO holding_import_rows (
+               id, household_id, import_id, source_row_number,
+               position_fingerprint, snapshot_fingerprint, legal_vehicle_name,
+               owner_label, exposure_label, provider_status, invested_on,
+               invested_on_state, invested_minor, allocation_minor, unrealized_value_minor,
+               unrealized_value_state, realized_value_minor, net_value_minor,
+               net_value_state, instrument_type, currency_hint, parse_status,
+               issue_codes_json, position_kind, quantity_micros, ticker,
+               cost_basis_minor, public_exposure_identity_kind,
+               protected_exposure_key, created_at${certified ? ", public_observed_on" : ""}
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', NULL, 'not_reported', ?, ?, ?,
+               'reported', 0, ?, 'reported', ?, 'USD', ?, ?, 'direct', ?, ?,
+               ?, ?, ?, ?${certified ? ", ?" : ""})`);
+}
+
+function prepareImportPositions(db: D1Database, publicSource: boolean) {
+  return db.prepare(
+    publicSource
+      ? `SELECT position.id,ownership.protected_position_key position_fingerprint,position.currency,ownership.container_id
+          FROM holding_import_rows row INDEXED BY sqlite_autoindex_holding_import_rows_2 CROSS JOIN holding_import_row_containers scope ON scope.import_row_id=row.id
+          CROSS JOIN holding_position_ownerships ownership INDEXED BY holding_position_ownerships_household_container_idx ON ownership.household_id=row.household_id AND ownership.container_id=scope.container_id AND ownership.protected_position_key=row.position_fingerprint
+          CROSS JOIN holding_positions position ON position.id=ownership.position_id
+          WHERE row.import_id=? AND row.household_id=? AND position.provider=? AND row.position_kind='direct'
+            AND NOT EXISTS(SELECT 1 FROM holding_position_ownerships later WHERE later.supersedes_ownership_id=ownership.id)`
+      : `SELECT
+             position.id,
+             ownership.protected_position_key AS position_fingerprint,
+             position.currency,
+             ownership.container_id
+           FROM holding_position_ownerships ownership
+           JOIN holding_positions position ON position.id = ownership.position_id
+           WHERE ownership.household_id = ?
+             AND position.provider = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM holding_position_ownerships later
+               WHERE later.supersedes_ownership_id = ownership.id
+             )`,
+  );
 }
 
 export class D1HoldingImportRepository {
@@ -1399,6 +1480,7 @@ export class D1HoldingImportRepository {
     rawInput: PlaidInvestmentsHoldingImportStageInput,
   ): Promise<HoldingImportStageResult> {
     const input = PlaidInvestmentsHoldingImportStageInputSchema.parse(rawInput);
+    input.retrievedAt = new Date(input.retrievedAt).toISOString();
     const identity = await this.findIdentity(accessSubject);
     const createdAt = new Date().toISOString();
     const canonical = await this.prepareCanonicalScope(
@@ -1414,6 +1496,39 @@ export class D1HoldingImportRepository {
     if (existing !== null) {
       return { created: false, preview: existing };
     }
+    const ambiguousAccounts = input.inventoryEvidence
+      ? new Set(
+          (
+            await all<{ account_key: string }>(
+              this.db
+                .prepare(
+                  `
+      WITH reported AS MATERIALIZED (SELECT value account_key FROM json_each(?))
+      SELECT reported.account_key FROM reported WHERE
+        EXISTS(SELECT 1 FROM ownership_containers old
+          WHERE old.household_id=? AND old.connection_id=?
+            AND old.protected_account_key NOT IN(SELECT account_key FROM reported)
+            AND EXISTS(SELECT 1 FROM public_holding_active_positions active WHERE active.household_id=old.household_id AND active.container_id=old.id))
+        AND NOT EXISTS(SELECT 1 FROM ownership_containers known
+          JOIN public_holding_security_heads security ON security.container_id=known.id
+          WHERE known.household_id=? AND known.connection_id=? AND known.protected_account_key=reported.account_key)
+    `,
+                )
+                .bind(
+                  JSON.stringify(
+                    input.canonicalScope.containers.map(
+                      (container) => container.protectedAccountKey,
+                    ),
+                  ),
+                  identity.household_id,
+                  canonical.connectionId,
+                  identity.household_id,
+                  canonical.connectionId,
+                ),
+            )
+          ).map((row) => row.account_key),
+        )
+      : new Set<string>();
     const rowScopes = new Map(
       input.canonicalScope.rows.map((scope) => [scope.sourceRowNumber, scope]),
     );
@@ -1430,6 +1545,7 @@ export class D1HoldingImportRepository {
             row,
             input.retrievedAt,
             scope.protectedPositionKey,
+            input.inventoryEvidence !== undefined,
           ),
         };
       }),
@@ -1444,15 +1560,15 @@ export class D1HoldingImportRepository {
              id, household_id, object_key, file_name, content_type, byte_size,
              sha256, effective_date, retrieved_at, source_label, review_status,
              created_at
-           ) VALUES (?, ?, ?, 'plaid-investments-holdings.json', 'application/json', ?,
+           ) VALUES (?, ?, ?, 'plaid-investments-capture.json', 'application/json', ?,
              ?, ?, ?, ?, 'pending_review', ?)`,
         )
         .bind(
           sourceDocumentId,
           identity.household_id,
-          input.objectKey,
-          input.byteSize,
-          input.sha256,
+          input.inventoryEvidence?.objectKey ?? input.objectKey,
+          input.inventoryEvidence?.byteSize ?? input.byteSize,
+          input.inventoryEvidence?.sha256 ?? input.sha256,
           input.effectiveDate,
           input.retrievedAt,
           PLAID_INVESTMENTS_SOURCE_LABEL,
@@ -1491,6 +1607,33 @@ export class D1HoldingImportRepository {
         ),
     ];
 
+    if (input.inventoryEvidence) {
+      // A capture manifest has its own checksum even when the raw response bytes
+      // match an older report. Keep both the original object and status evidence.
+      statements.push(
+        this.db
+          .prepare(
+            `INSERT INTO public_holding_inventory_evidence(
+        import_id,status_document_id,holdings_object_key,holdings_sha256,holdings_byte_size,zero_cash_containers_json,source_updated_at,created_at,policy_version)
+        VALUES(?,?,?,?,?,?,?,?,'public-holding-inventory-v1')`,
+          )
+          .bind(
+            importId,
+            sourceDocumentId,
+            input.objectKey,
+            input.sha256,
+            input.byteSize,
+            JSON.stringify(
+              input.inventoryEvidence.zeroCashAccountKeys.map(
+                (key) => canonical.containersByKey.get(key)!.id,
+              ),
+            ),
+            new Date(input.inventoryEvidence.sourceUpdatedAt).toISOString(),
+            createdAt,
+          ),
+      );
+    }
+
     input.canonicalScope.containers.forEach((containerScope) => {
       const container = canonical.containersByKey.get(
         containerScope.protectedAccountKey,
@@ -1511,7 +1654,9 @@ export class D1HoldingImportRepository {
             identity.household_id,
             importId,
             container.id,
-            containerScope.completeness,
+            ambiguousAccounts.has(containerScope.protectedAccountKey)
+              ? "ambiguous"
+              : containerScope.completeness,
             input.sha256,
             input.retrievedAt,
             createdAt,
@@ -1535,50 +1680,35 @@ export class D1HoldingImportRepository {
         );
       }
       statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO holding_import_rows (
-               id, household_id, import_id, source_row_number,
-               position_fingerprint, snapshot_fingerprint, legal_vehicle_name,
-               owner_label, exposure_label, provider_status, invested_on,
-               invested_on_state, invested_minor, allocation_minor, unrealized_value_minor,
-               unrealized_value_state, realized_value_minor, net_value_minor,
-               net_value_state, instrument_type, currency_hint, parse_status,
-               issue_codes_json, position_kind, quantity_micros, ticker,
-               cost_basis_minor, public_exposure_identity_kind,
-               protected_exposure_key, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'live', NULL, 'not_reported', ?, ?, ?,
-               'reported', 0, ?, 'reported', ?, 'USD', ?, ?, 'direct', ?, ?,
-               ?, ?, ?, ?)`,
+        preparePublicHoldingRow(this.db, Boolean(input.inventoryEvidence)).bind(
+          rowId,
+          identity.household_id,
+          importId,
+          row.rowNumber,
+          scope.protectedPositionKey,
+          fingerprint,
+          row.securityName,
+          row.accountLabel,
+          exposureLabel,
+          costBasisPlaceholder,
+          costBasisPlaceholder,
+          row.marketValueMinor,
+          row.marketValueMinor,
+          row.securityType,
+          row.issues.every((issue) =>
+            NON_BLOCKING_PLAID_INVESTMENTS_ISSUES.has(issue),
           )
-          .bind(
-            rowId,
-            identity.household_id,
-            importId,
-            row.rowNumber,
-            scope.protectedPositionKey,
-            fingerprint,
-            row.securityName,
-            row.accountLabel,
-            exposureLabel,
-            costBasisPlaceholder,
-            costBasisPlaceholder,
-            row.marketValueMinor,
-            row.marketValueMinor,
-            row.securityType,
-            row.issues.every((issue) =>
-              NON_BLOCKING_PLAID_INVESTMENTS_ISSUES.has(issue),
-            )
-              ? "ready"
-              : "needs_attention",
-            JSON.stringify(row.issues),
-            row.quantityMicros,
-            row.ticker,
-            row.costBasisMinor,
-            scope.publicExposureIdentityKind,
-            scope.protectedExposureKey,
-            createdAt,
-          ),
+            ? "ready"
+            : "needs_attention",
+          JSON.stringify(row.issues),
+          row.quantityMicros,
+          row.ticker,
+          row.costBasisMinor,
+          scope.publicExposureIdentityKind,
+          scope.protectedExposureKey,
+          createdAt,
+          ...(input.inventoryEvidence ? [row.observedOn] : []),
+        ),
         this.db
           .prepare(
             `INSERT INTO holding_import_row_containers (
@@ -1605,7 +1735,7 @@ export class D1HoldingImportRepository {
         input.normalizedFingerprint,
       );
       if (raced !== null) {
-        return { created: false, preview: raced };
+        return { created: raced.id === importId, preview: raced };
       }
       throw error;
     }
@@ -1625,6 +1755,11 @@ export class D1HoldingImportRepository {
       this.db
         .prepare(
           `SELECT i.normalized_fingerprint,d.review_status,
+        COALESCE((SELECT zero_cash_containers_json FROM public_holding_inventory_evidence e WHERE e.import_id=i.id),'[]') zero_cash_containers,
+        (SELECT source_updated_at FROM public_holding_inventory_evidence e WHERE e.import_id=i.id) source_updated_at,
+        EXISTS(SELECT 1 FROM public_holding_inventories inventory WHERE inventory.import_id=i.id) inventory_accepted,
+        (SELECT MAX(head.source_updated_at) FROM holding_import_coverages covered JOIN public_holding_account_inventory_heads head ON head.container_id=covered.container_id WHERE covered.import_id=i.id) last_inventory_source_at,
+        EXISTS(SELECT 1 FROM holding_import_connections link JOIN public_holding_import_heads head ON head.connection_id=link.connection_id AND head.import_id=link.import_id WHERE link.import_id=i.id) source_is_latest,
         COALESCE(d.effective_date||'T00:00:00.000Z',d.retrieved_at) observed_at,
         (SELECT COUNT(*) FROM holding_import_coverages c WHERE c.import_id=i.id) coverage_count,
         (SELECT COUNT(*) FROM holding_import_coverages c WHERE c.import_id=i.id AND c.completeness='complete') complete_coverage_count,
@@ -1636,7 +1771,12 @@ export class D1HoldingImportRepository {
         .first<{
           normalized_fingerprint: string;
           review_status: string;
+          zero_cash_containers: string;
           observed_at: string;
+          source_updated_at: string | null;
+          inventory_accepted: number;
+          last_inventory_source_at: string | null;
+          source_is_latest: number;
           coverage_count: number;
           complete_coverage_count: number;
           complete_containers: string;
@@ -1645,7 +1785,7 @@ export class D1HoldingImportRepository {
         this.db
           .prepare(
             `SELECT r.id,r.position_fingerprint,r.snapshot_fingerprint,
-        r.instrument_type,r.parse_status,r.cost_basis_minor,r.issue_codes_json,r.public_exposure_identity_kind,r.protected_exposure_key,
+        r.instrument_type,r.parse_status,r.public_observed_on,r.cost_basis_minor,r.quantity_micros,r.unrealized_value_minor,r.issue_codes_json,r.public_exposure_identity_kind,r.protected_exposure_key,
         c.container_id,coverage.completeness coverage_completeness
         FROM holding_import_rows r JOIN holding_import_row_containers c ON c.import_row_id=r.id
         JOIN holding_import_coverages coverage ON coverage.import_id=r.import_id AND coverage.container_id=c.container_id
@@ -1653,12 +1793,17 @@ export class D1HoldingImportRepository {
           )
           .bind(importId, identity.household_id),
       ),
-      publicSourceState(this.db, identity.household_id),
-      all<{ import_row_id: string }>(
+      publicSourceState(this.db, identity.household_id, importId),
+      all<{
+        import_row_id: string;
+        decision: string;
+        decision_source: string;
+        outcome: string | null;
+      }>(
         this.db
           .prepare(
-            `SELECT d.import_row_id FROM holding_import_rows r
-        CROSS JOIN holding_import_row_decisions d ON d.import_row_id=r.id WHERE r.import_id=? AND r.household_id=? AND d.household_id=r.household_id AND r.position_kind='direct'`,
+            `SELECT d.import_row_id,d.decision,d.decision_source,application.outcome FROM holding_import_rows r
+        CROSS JOIN holding_import_row_decisions d ON d.import_row_id=r.id LEFT JOIN holding_import_applications application ON application.import_row_id=r.id WHERE r.import_id=? AND r.household_id=? AND d.household_id=r.household_id AND r.position_kind='direct'`,
           )
           .bind(importId, identity.household_id),
       ),
@@ -1679,6 +1824,9 @@ export class D1HoldingImportRepository {
     );
     const done = new Set(
       [...decisions, ...ignoredReports].map((item) => item.import_row_id),
+    );
+    const zeroCashContainers = new Set(
+      z.array(z.string()).parse(JSON.parse(record.zero_cash_containers)),
     );
     const byKey = new Map(
       state.positions.map((position) => [
@@ -1703,20 +1851,40 @@ export class D1HoldingImportRepository {
       }),
     );
     const incomplete = record.coverage_count !== record.complete_coverage_count;
-    const missing = incomplete
-      ? []
-      : state.positions.filter(
-          (position) =>
-            complete.has(position.container_id) &&
-            !state.hiddenIds.has(position.id) &&
-            !reportedKeys.has(
-              containerPositionKey(
-                position.container_id,
-                position.position_key,
-              ),
-            ) &&
-            !reportedGroups.has(position.id),
-        );
+    const certified = record.source_updated_at !== null;
+    const staleInventory =
+      certified &&
+      record.last_inventory_source_at !== null &&
+      record.source_updated_at! <= record.last_inventory_source_at;
+    if (
+      record.inventory_accepted ||
+      staleInventory ||
+      !record.source_is_latest
+    ) {
+      const preview = await this.getHoldingImport(accessSubject, importId);
+      return {
+        importId,
+        policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
+        autoAppliedCount: preview.summary.autoAppliedCount,
+        quarantinedCount: preview.summary.quarantinedCount,
+        preservedPositionCount: preview.summary.preservedPositionCount,
+      };
+    }
+    const missing =
+      incomplete && !certified
+        ? []
+        : state.positions.filter(
+            (position) =>
+              complete.has(position.container_id) &&
+              !state.hiddenIds.has(position.id) &&
+              !reportedKeys.has(
+                containerPositionKey(
+                  position.container_id,
+                  position.position_key,
+                ),
+              ) &&
+              !reportedGroups.has(position.id),
+          );
     const missingPlanning = new Set(
       missing
         .filter((position) =>
@@ -1785,6 +1953,28 @@ export class D1HoldingImportRepository {
           (incomingIdentityCounts.get(key) ?? 0) + 1,
         );
       }
+    const invalidContainers = new Set(
+      rows
+        .filter(
+          (row) =>
+            row.parse_status !== "ready" ||
+            (certified &&
+              state.positions.some(
+                (position) =>
+                  position.container_id === row.container_id &&
+                  position.is_active !== 0 &&
+                  position.inventory_source_at &&
+                  position.inventory_source_at >= record.source_updated_at!,
+              )) ||
+            (certified &&
+              !rows.some(
+                (candidate) =>
+                  candidate.container_id === row.container_id &&
+                  candidate.instrument_type === "cash",
+              )),
+        )
+        .map((row) => row.container_id),
+    );
     const clear: HoldingImportApplyInput["decisions"] = [];
     const reasons = new Map<string, readonly string[]>();
     const matches = new Map<string, PublicSourcePosition>();
@@ -1794,7 +1984,8 @@ export class D1HoldingImportRepository {
     for (const row of rows) {
       if (
         done.has(row.id) ||
-        incomplete ||
+        (certified && invalidContainers.has(row.container_id)) ||
+        (incomplete && !certified) ||
         row.coverage_completeness !== "complete"
       )
         continue;
@@ -1806,6 +1997,7 @@ export class D1HoldingImportRepository {
         : undefined;
       if (
         current &&
+        !certified &&
         record.observed_at < (visible?.observed_at ?? current.observed_at)
       ) {
         clear.push({
@@ -1850,7 +2042,9 @@ export class D1HoldingImportRepository {
           ? candidates[0]
           : undefined;
       const priorIgnored = current?.review_decision === "ignore";
+      if (certified && priorIgnored) continue;
       const identityChanged =
+        !certified &&
         !current &&
         (missingPlanning.has(row.container_id) ||
           missingTypes.has(`${row.container_id}:${row.instrument_type}`));
@@ -1906,7 +2100,153 @@ export class D1HoldingImportRepository {
           ),
       );
     }
-    for (const position of missing)
+    const acceptedRows = new Set(
+      decisions
+        .filter((item) => item.decision === "accepted")
+        .map((item) => item.import_row_id),
+    );
+    const accepting = new Set(
+      clear
+        .filter((item) => item.decision === "accepted")
+        .map((item) => item.rowId),
+    );
+    const excludedRows = new Set(
+      rows
+        .filter((row) => {
+          const current = byKey.get(
+            containerPositionKey(row.container_id, row.position_fingerprint),
+          );
+          return (
+            current?.review_decision === "ignore" &&
+            current.review_source === "manual"
+          );
+        })
+        .map((row) => row.id),
+    );
+    const inventoryContainers = new Set(
+      [...complete].filter(
+        (container) =>
+          certified &&
+          !invalidContainers.has(container) &&
+          !rows.some(
+            (row) =>
+              row.container_id === container &&
+              decisions.some(
+                (decision) =>
+                  decision.import_row_id === row.id &&
+                  decision.decision_source === "manual",
+              ),
+          ) &&
+          (zeroCashContainers.has(container) ||
+            rows.some(
+              (row) =>
+                row.container_id === container &&
+                row.instrument_type === "cash",
+            )) &&
+          rows
+            .filter((row) => row.container_id === container)
+            .every(
+              (row) =>
+                (acceptedRows.has(row.id) ||
+                  accepting.has(row.id) ||
+                  excludedRows.has(row.id)) &&
+                !ignoredReports.some((item) => item.import_row_id === row.id),
+            ),
+      ),
+    );
+    const acceptsInventory = inventoryContainers.size > 0;
+    const matchedPriorIds = new Set(
+      [...matches.values()].map((position) => position.id),
+    );
+    const closed = missing.filter(
+      (position) =>
+        inventoryContainers.has(position.container_id) &&
+        !matchedPriorIds.has(position.id),
+    );
+    const returned = state.positions.filter(
+      (position) =>
+        inventoryContainers.has(position.container_id) &&
+        position.is_active === 0 &&
+        !state.ignoredIds.has(position.id) &&
+        reportedKeys.has(
+          containerPositionKey(position.container_id, position.position_key),
+        ),
+    );
+    const automaticChangeCount =
+      closed.length +
+      rows.filter((row) => {
+        if (
+          !inventoryContainers.has(row.container_id) ||
+          excludedRows.has(row.id)
+        )
+          return false;
+        const current = byKey.get(
+          containerPositionKey(row.container_id, row.position_fingerprint),
+        );
+        const prior = current
+          ? state.byId.get(state.visibleById.get(current.id) ?? current.id)
+          : matches.get(row.id);
+        return (
+          !prior ||
+          prior.is_active === 0 ||
+          prior.quantity_micros !== row.quantity_micros ||
+          prior.value_minor !== row.unrealized_value_minor ||
+          (prior.cost_basis_minor ?? null) !== row.cost_basis_minor
+        );
+      }).length;
+    const inventoryInsert = (version: number, time: string) =>
+      this.db
+        .prepare(
+          `INSERT INTO public_holding_inventories(
+      import_id,household_id,source_updated_at,expected_source_version,container_ids_json,change_count,prior_snapshots_json,closed_positions_json,returned_position_ids_json,policy_version,accepted_by_user_id,accepted_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,'public-holding-inventory-v1',?,?)`,
+        )
+        .bind(
+          importId,
+          identity.household_id,
+          record.source_updated_at,
+          version,
+          JSON.stringify([...inventoryContainers]),
+          automaticChangeCount,
+          JSON.stringify(
+            rows.flatMap((row) => {
+              if (!inventoryContainers.has(row.container_id)) return [];
+              const current = byKey.get(
+                containerPositionKey(
+                  row.container_id,
+                  row.position_fingerprint,
+                ),
+              );
+              const prior = current
+                ? state.byId.get(
+                    state.visibleById.get(current.id) ?? current.id,
+                  )
+                : matches.get(row.id);
+              return prior
+                ? [
+                    {
+                      rowId: row.id,
+                      snapshotId: prior.snapshot_id,
+                      returned: prior.is_active === 0,
+                    },
+                  ]
+                : [];
+            }),
+          ),
+          JSON.stringify(
+            closed.map((position) => ({
+              positionId: position.id,
+              snapshotId: position.snapshot_id,
+              applicationId: position.application_id,
+            })),
+          ),
+          JSON.stringify(returned.map((position) => position.id)),
+          identity.user_id,
+          time,
+        );
+    for (const position of missing.filter(
+      (position) => !inventoryContainers.has(position.container_id),
+    ))
       quarantines.push(
         this.db
           .prepare(
@@ -1927,59 +2267,94 @@ export class D1HoldingImportRepository {
       );
     if (quarantines.length) await this.db.batch(quarantines);
     if (clear.length) {
-      await this.applyHoldingImport(
-        accessSubject,
-        importId,
-        { currency: "USD", decisions: clear },
-        {
-          source: "policy",
-          policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
-          allowPartial: true,
-          reasonCodesByRow: reasons,
-          afterApplications: (applications, time) => {
-            let version = state.version;
-            return applications.flatMap((application) => {
-              const match = matches.get(application.row.id);
-              if (!match && !reconsider.has(application.row.id)) return [];
-              const current = byKey.get(
-                containerPositionKey(
-                  application.row.container_id,
-                  application.row.position_fingerprint,
-                ),
-              );
-              return [
-                this.publicReviewInsert({
-                  identity,
-                  rowId: application.row.id,
-                  reviewKey: `${application.row.container_id}:${application.row.position_fingerprint}`,
-                  positionId: application.positionId,
-                  snapshotId: application.snapshotId,
-                  priorPositionId: match?.id ?? null,
-                  priorSnapshotId: match?.snapshot_id ?? null,
-                  priorReviewId: current?.review_id ?? null,
-                  version: version++,
-                  decision: match ? "same" : "separate",
-                  source: "policy",
-                  createdAt: time,
-                  initial: true,
-                }),
-              ];
-            });
+      try {
+        await this.applyHoldingImport(
+          accessSubject,
+          importId,
+          { currency: "USD", decisions: clear },
+          {
+            source: "policy",
+            policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
+            allowPartial: true,
+            reasonCodesByRow: reasons,
+            rowObservedAtById: new Map(
+              rows.flatMap((row) =>
+                row.public_observed_on
+                  ? [
+                      [
+                        row.id,
+                        `${row.public_observed_on}T00:00:00.000Z`,
+                      ] as const,
+                    ]
+                  : [],
+              ),
+            ),
+            afterApplications: (applications, time) => {
+              let version = state.version;
+              const reviewStatements = applications.flatMap((application) => {
+                const match = matches.get(application.row.id);
+                if (!match && !reconsider.has(application.row.id)) return [];
+                const current = byKey.get(
+                  containerPositionKey(
+                    application.row.container_id,
+                    application.row.position_fingerprint,
+                  ),
+                );
+                return [
+                  this.publicReviewInsert({
+                    identity,
+                    rowId: application.row.id,
+                    reviewKey: `${application.row.container_id}:${application.row.position_fingerprint}`,
+                    positionId: application.positionId,
+                    snapshotId: application.snapshotId,
+                    priorPositionId: match?.id ?? null,
+                    priorSnapshotId: match?.snapshot_id ?? null,
+                    priorReviewId: current?.review_id ?? null,
+                    version: version++,
+                    decision: match ? "same" : "separate",
+                    source: "policy",
+                    createdAt: time,
+                    initial: true,
+                  }),
+                ];
+              });
+              if (acceptsInventory)
+                reviewStatements.push(inventoryInsert(version, time));
+              return reviewStatements;
+            },
           },
-        },
-      );
+        );
+      } catch (error) {
+        const saved = await this.db
+          .prepare(
+            "SELECT import_id FROM public_holding_inventories WHERE import_id=? AND household_id=?",
+          )
+          .bind(importId, identity.household_id)
+          .first();
+        if (!saved) throw error;
+      }
     } else if (
       record.review_status === "pending_review" &&
-      !incomplete &&
-      rows.every((row) => done.has(row.id))
+      (!incomplete || certified) &&
+      rows.every((row) => done.has(row.id) || excludedRows.has(row.id))
     ) {
-      await this.db
-        .prepare(
-          `UPDATE source_documents SET review_status='accepted' WHERE id=(SELECT source_document_id FROM holding_imports WHERE id=? AND household_id=?) AND review_status='pending_review'`,
-        )
-        .bind(importId, identity.household_id)
-        .run();
+      await this.db.batch([
+        this.db
+          .prepare(
+            `UPDATE source_documents SET review_status='accepted' WHERE id=(SELECT source_document_id FROM holding_imports WHERE id=? AND household_id=?) AND review_status='pending_review'`,
+          )
+          .bind(importId, identity.household_id),
+        ...(acceptsInventory
+          ? [inventoryInsert(state.version, createdAt)]
+          : []),
+      ]);
     }
+    if (
+      !clear.length &&
+      record.review_status !== "pending_review" &&
+      acceptsInventory
+    )
+      await this.db.batch([inventoryInsert(state.version, createdAt)]);
     const preview = await this.getHoldingImport(accessSubject, importId);
     return {
       importId,
@@ -2081,7 +2456,7 @@ export class D1HoldingImportRepository {
         input.decision,
         input.source,
         input.source === "policy"
-          ? PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION
+          ? PUBLIC_SOURCE_IDENTITY_POLICY_VERSION
           : null,
         input.identity.user_id,
         input.createdAt,
@@ -2105,7 +2480,11 @@ export class D1HoldingImportRepository {
       !row.containerId
     )
       throw new Error("Public source position not found.");
-    const state = await publicSourceState(this.db, identity.household_id);
+    const state = await publicSourceState(
+      this.db,
+      identity.household_id,
+      importId,
+    );
     const original = await this.db
       .prepare(
         `SELECT r.position_fingerprint,c.container_id,
@@ -2242,6 +2621,11 @@ export class D1HoldingImportRepository {
           policyVersion: null,
           allowPartial: true,
           reasonCodesByRow: new Map(),
+          rowObservedAtById: new Map(
+            row.valueObservedOn
+              ? [[row.id, `${row.valueObservedOn}T00:00:00.000Z`]]
+              : [],
+          ),
           afterApplications: (applications, time) =>
             applications.map((application) =>
               this.publicReviewInsert({
@@ -2290,7 +2674,11 @@ export class D1HoldingImportRepository {
     const row = preview.rows.find((item) => item.id === rowId);
     if (preview.provider !== PLAID_INVESTMENTS_PROVIDER || !row?.containerId)
       throw new Error("Public source position not found.");
-    const state = await publicSourceState(this.db, identity.household_id);
+    const state = await publicSourceState(
+      this.db,
+      identity.household_id,
+      importId,
+    );
     const scopes = new Set(preview.coverage.map((item) => item.containerId));
     const current = row.positionId ? state.byId.get(row.positionId) : undefined;
     const prior = priorPositionId ? state.byId.get(priorPositionId) : undefined;
@@ -2318,34 +2706,62 @@ export class D1HoldingImportRepository {
       }
       return sum;
     };
-    const proposed: PublicSourcePosition = current ?? {
-      id: `proposal:${row.id}`,
-      container_id: row.containerId,
-      position_key: row.id,
-      name: row.positionName,
-      account_label: row.ownerLabel,
-      ticker: row.ticker,
-      quantity_micros: row.quantityMicros,
+    const reported = {
       value_minor: row.administratorNavMinor,
-      currency: "USD",
-      instrument_type: row.instrumentType ?? "",
-      snapshot_id: row.id,
-      observed_at: preview.observedAt,
-      applied_at: new Date().toISOString(),
-      application_id: row.id,
-      identity_kind: null,
-      identity_key: null,
-      review_id: null,
-      review_decision: null,
-      prior_position_id: null,
-      review_source: null,
-      review_created_at: null,
+      quantity_micros: row.quantityMicros,
+      cost_basis_minor: row.costBasisMinor,
     };
+    const proposed: PublicSourcePosition = current
+      ? {
+          ...current,
+          ...(row.decisionSource === null ||
+          row.sourceReview?.decision === "ignore"
+            ? reported
+            : {}),
+        }
+      : {
+          id: `proposal:${row.id}`,
+          container_id: row.containerId,
+          position_key: row.id,
+          name: row.positionName,
+          account_label: row.ownerLabel,
+          ticker: row.ticker,
+          quantity_micros: row.quantityMicros,
+          value_minor: row.administratorNavMinor,
+          currency: "USD",
+          instrument_type: row.instrumentType ?? "",
+          snapshot_id: row.id,
+          observed_at: preview.observedAt,
+          applied_at: new Date().toISOString(),
+          application_id: row.id,
+          identity_kind: null,
+          identity_key: null,
+          review_id: null,
+          review_decision: null,
+          prior_position_id: null,
+          review_source: null,
+          review_created_at: null,
+        };
+    const currentInventory =
+      preview.inventory?.currentContainerIds.includes(row.containerId) === true;
+    const restoringPrior =
+      current?.review_decision === "same" ? current.prior_position_id : null;
     const effect = (decision: "same" | "separate" | "ignore") =>
       total([
-        ...state.positions.filter((position) => position.id !== proposed.id),
+        ...state.positions
+          .filter((position) => position.id !== proposed.id)
+          .map((position) =>
+            currentInventory &&
+            decision !== "same" &&
+            position.id === restoringPrior
+              ? { ...position, is_active: 1 }
+              : position,
+          ),
         {
           ...proposed,
+          ...(currentInventory && decision !== "ignore"
+            ? { is_active: 1 }
+            : {}),
           review_decision: decision,
           prior_position_id: decision === "same" ? priorPositionId : null,
         },
@@ -2364,6 +2780,7 @@ export class D1HoldingImportRepository {
     return this.db.prepare(`SELECT
              row.id,
              row_scope.container_id,
+             ${publicSource ? "row.public_observed_on," : ""}
              row.source_row_number,
              row.legal_vehicle_name,
              row.exposure_label,
@@ -2584,8 +3001,13 @@ export class D1HoldingImportRepository {
     });
     const sourceState =
       provider.data === PLAID_INVESTMENTS_PROVIDER
-        ? await publicSourceState(this.db, identity.household_id)
+        ? await publicSourceState(this.db, identity.household_id, importId)
         : null;
+    const inventory = sourceState?.inventoryDetails
+      ? HoldingImportPreviewSchema.shape.inventory
+          .unwrap()
+          .parse(JSON.parse(sourceState.inventoryDetails))
+      : undefined;
     const previewRows: HoldingImportRowPreview[] = rows.map((row) => {
       const positionId = row.applied_position_id ?? row.existing_position_id;
       const current = positionId
@@ -2595,7 +3017,9 @@ export class D1HoldingImportRepository {
         (row.report_review_id !== null && row.decision_source === null) ||
         (row.source_review_decision === "ignore" &&
           (row.source_review_row_id === row.id ||
-            row.decision_source !== null));
+            row.decision_source !== null ||
+            (inventory?.currentContainerIds.includes(row.container_id) &&
+              current?.review_source === "manual")));
       return {
         id: row.id,
         sourceRowNumber: row.source_row_number,
@@ -2645,6 +3069,9 @@ export class D1HoldingImportRepository {
           ? {
               containerId: row.container_id,
               instrumentType: row.instrument_type,
+              ...(row.public_observed_on
+                ? { valueObservedOn: row.public_observed_on }
+                : {}),
               positionId,
               currentSnapshotId: current?.snapshot_id ?? null,
               identityReviewId: row.source_review_id,
@@ -2724,7 +3151,8 @@ export class D1HoldingImportRepository {
     const status =
       unresolvedCount > 0
         ? "quarantined"
-        : importRow.review_status !== "pending_review" ||
+        : inventory?.complete ||
+            importRow.review_status !== "pending_review" ||
             (previewRows.every((row) => row.decisionSource !== null) &&
               coverage.every((item) => item.completeness === "complete") &&
               (previewRows.length > 0 ||
@@ -2771,6 +3199,7 @@ export class D1HoldingImportRepository {
         ? {
             preservedPositions: publicDetails.preserved,
             priorPositions: publicDetails.prior,
+            ...(inventory ? { inventory } : {}),
           }
         : {}),
     };
@@ -2920,24 +3349,14 @@ export class D1HoldingImportRepository {
     }
 
     const positions = await all<ExistingPositionRow>(
-      this.db
-        .prepare(
-          `SELECT
-             position.id,
-             ownership.protected_position_key AS position_fingerprint,
-             position.currency,
-             ownership.container_id
-           FROM holding_position_ownerships ownership
-           JOIN holding_positions position ON position.id = ownership.position_id
-           WHERE ownership.household_id = ?
-             AND position.provider = ?
-             AND NOT EXISTS (
-               SELECT 1
-               FROM holding_position_ownerships later
-               WHERE later.supersedes_ownership_id = ownership.id
-             )`,
-        )
-        .bind(identity.household_id, provider),
+      prepareImportPositions(
+        this.db,
+        provider === PLAID_INVESTMENTS_PROVIDER,
+      ).bind(
+        ...(provider === PLAID_INVESTMENTS_PROVIDER
+          ? [importId, identity.household_id, provider]
+          : [identity.household_id, provider]),
+      ),
     );
     const snapshots = await all<ExistingSnapshotRow>(
       this.importSnapshotRowsStatement(
@@ -3176,9 +3595,10 @@ export class D1HoldingImportRepository {
               row.net_value_state,
               row.instrument_type,
               input.currency,
-              row.effective_date === null
-                ? row.retrieved_at
-                : `${row.effective_date}T00:00:00.000Z`,
+              decisionContext.rowObservedAtById?.get(row.id) ??
+                (row.effective_date === null
+                  ? row.retrieved_at
+                  : `${row.effective_date}T00:00:00.000Z`),
               row.quantity_micros,
               row.ticker,
               row.cost_basis_minor,

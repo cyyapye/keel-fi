@@ -9,14 +9,21 @@ const SOURCE_CAPTURE_STYLE = `
   .investment-institution:not([data-keel-source-capture]){display:none!important}
 `;
 
-async function captureSource(locator: Locator, state: string) {
+async function captureSource(
+  locator: Locator,
+  state: string,
+  includeSection = false,
+) {
   const root = process.env.KEEL_SOURCE_REVIEW_DIR;
   if (!root) return;
   await locator.evaluate((element) =>
     element.setAttribute("data-keel-source-capture", ""),
   );
   try {
-    await locator.screenshot({
+    const capture = includeSection
+      ? locator.page().locator(".investment-institutions")
+      : locator;
+    await capture.screenshot({
       path: resolve(root, `source-${state}-${test.info().project.name}.png`),
       animations: "disabled",
       scale: "css",
@@ -50,7 +57,11 @@ async function expectSourceSnapshot(page: Page, source: Locator, name: string) {
     );
   }
 }
-async function focusNaturally(page: Page, control: Locator) {
+async function focusNaturally(
+  page: Page,
+  control: Locator,
+  minimumHeight = 44,
+) {
   for (let step = 0; step < 80; step++) {
     if (await control.evaluate((element) => element === document.activeElement))
       break;
@@ -58,7 +69,7 @@ async function focusNaturally(page: Page, control: Locator) {
   }
   await expect(control).toBeFocused();
   const box = await control.boundingBox();
-  expect(box?.height).toBeGreaterThanOrEqual(44);
+  expect(box?.height).toBeGreaterThanOrEqual(minimumHeight);
   expect(box?.width).toBeGreaterThanOrEqual(44);
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
@@ -608,3 +619,190 @@ for (const failurePhase of ["planning", "sources"] as const) {
     }
   });
 }
+
+test("reconciles a complete brokerage inventory automatically and keeps historical reports read-only", async ({
+  page,
+  publicSourceFixture,
+}) => {
+  const label = `Synthetic inventory ${test.info().project.name}`;
+  const fixture = await publicSourceFixture(label, false, false, true);
+  if (!fixture.next) throw new Error("Inventory fixture was not prepared");
+  const reconcile = async (importId: string) => {
+    const response = await page.request.post(
+      `/api/holding-imports/${importId}/reconcile`,
+    );
+    expect(response.ok(), await response.text()).toBe(true);
+    const report = HoldingImportPreviewSchema.parse(
+      await (await page.request.get(`/api/holding-imports/${importId}`)).json(),
+    );
+    return report;
+  };
+  const updated = await reconcile(fixture.importId);
+  expect(updated.summary).toMatchObject({
+    autoAppliedCount: 3,
+    quarantinedCount: 0,
+    preservedPositionCount: 0,
+  });
+  expect(updated.inventory?.closedPositions[0]).toMatchObject({
+    ticker: "CORE",
+    quantityMicros: 20_000_000,
+    valueMinor: 200000,
+  });
+  const originalId = updated.inventory!.closedPositions[0]!.positionId;
+  await page.goto("/holdings/sources");
+  await expect(
+    page.getByText(
+      "Clear updates happen automatically. Missing holdings are removed only after a verified complete account report.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  const source = page
+    .locator(".investment-institution")
+    .filter({ has: page.getByRole("heading", { name: label, exact: true }) });
+  await expect(
+    source.getByText("4 changes applied automatically. No decisions needed.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(source.getByRole("button", { name: /Resolve/ })).toHaveCount(0);
+  const activity = source.getByRole("button", {
+    name: "View activity",
+    exact: true,
+  });
+  await focusNaturally(
+    page,
+    activity,
+    test.info().project.name === "mobile-chromium" ? 44 : 40,
+  );
+  await captureSource(source, "inventory-closed");
+  await captureSource(source, "inventory-context", true);
+  await page.keyboard.press("Enter");
+  const closed = source
+    .getByRole("listitem")
+    .filter({ hasText: "CORE · No longer held" });
+  await expect(closed.getByText("0 shares", { exact: true })).toBeVisible();
+  await expect(closed.getByText(/20 shares → 0 shares/)).toBeVisible();
+  await expectSourceSnapshot(page, source, "public-inventory-updated.png");
+  await captureSource(source, "inventory-updated");
+  await closed.getByRole("button", { name: "Details", exact: true }).click();
+  await expect(
+    closed.getByText(
+      /does not establish sale price, proceeds or realized return/,
+    ),
+  ).toBeVisible();
+  if (test.info().project.name === "chromium") {
+    const row = await closed.boundingBox();
+    const identity = await closed
+      .locator(".record-row__identity")
+      .boundingBox();
+    expect(identity!.width).toBeGreaterThan(row!.width / 3);
+  }
+  await captureSource(source, "inventory-details");
+  const earlierButton = source.getByRole("button", {
+    name: "Earlier activity",
+    exact: true,
+  });
+  let finishHistoryFailure: () => void = () => undefined;
+  const historyFailure = new Promise<void>((resolve) => {
+    finishHistoryFailure = resolve;
+  });
+  await page.route(
+    `**/api/holding-imports/${updated.inventory!.previousImportId}`,
+    async (route) => {
+      await historyFailure;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Synthetic history read failed." }),
+      });
+    },
+    { times: 1 },
+  );
+  await earlierButton.click();
+  await expect(
+    source.getByRole("button", {
+      name: "Loading earlier activity…",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await captureSource(source, "inventory-history-loading");
+  finishHistoryFailure();
+  await expect(
+    source.getByText("Earlier activity could not be loaded. Try again.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(earlierButton).toBeFocused();
+  await captureSource(source, "inventory-history-failed");
+  await earlierButton.click();
+  const history = source.getByRole("region", {
+    name: "Earlier account report",
+  });
+  await expect(
+    history.getByText(/Historical activity. Current holdings are unchanged/),
+  ).toBeVisible();
+  await expect(history.getByText("$2,000.00", { exact: true })).toBeVisible();
+  await expect(
+    history.getByRole("button", { name: /Change decision|Confirm|Add/ }),
+  ).toHaveCount(0);
+  await captureSource(source, "inventory-history");
+  // The history read and an identical financial reconciliation preserve one receipt.
+  const repeated = await reconcile(fixture.importId);
+  expect(repeated.inventory).toEqual(updated.inventory);
+  const returnedId = await fixture.next("returned");
+  const returned = await reconcile(returnedId);
+  expect(returned.inventory?.returnedPositionIds).toEqual([originalId]);
+  expect(returned.rows.find((row) => row.ticker === "CORE")?.positionId).toBe(
+    originalId,
+  );
+  await page.reload();
+  await source
+    .getByRole("button", { name: "View activity", exact: true })
+    .click();
+  await expect(source.getByText(/CORE.*Holding returned/)).toBeVisible();
+  await expect(
+    source.getByText("SYN · Synthetic Systems · No change", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    source.getByText("NOVA · Synthetic Nova Technologies · No change", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await captureSource(source, "inventory-returned");
+  const emptyId = await fixture.next("empty");
+  const empty = await reconcile(emptyId);
+  expect(empty.inventory?.closedPositions).toHaveLength(4);
+  await page.reload();
+  await expect(source.locator(".investment-institution__value")).toHaveText(
+    "$0.00",
+  );
+  await source.locator(".investment-institution__trigger").click();
+  await expect(
+    source.locator(".investment-institution__account-value strong"),
+  ).toHaveText("$0.00");
+  await source.locator(".investment-institution__trigger").click();
+  await source
+    .getByRole("button", { name: "View activity", exact: true })
+    .click();
+  await expect(
+    source.getByRole("listitem").filter({ hasText: "No longer held" }),
+  ).toHaveCount(3);
+  await expectSourceSnapshot(page, source, "public-inventory-empty.png");
+  await captureSource(source, "inventory-empty");
+  const partialId = await fixture.next("partial");
+  const partial = await reconcile(partialId);
+  expect(partial.inventory?.acceptedAt).toBeNull();
+  expect(partial.summary.autoAppliedCount).toBe(0);
+  await page.reload();
+  await expect(
+    source.getByText(/Missing positions have not been removed/),
+  ).toBeVisible();
+  await expect(source.locator(".investment-institution__value")).toHaveText(
+    "$0.00",
+  );
+  await captureSource(source, "inventory-incomplete");
+  await expect(page.locator("body")).toHaveJSProperty(
+    "scrollWidth",
+    await page.locator("body").evaluate((element) => element.clientWidth),
+  );
+});

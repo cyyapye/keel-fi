@@ -925,3 +925,46 @@ public and 120 unrelated public positions added to the retained private, review
 and baseline chains. Its native runner preserves every old table and schema
 object, verifies the derived heads and checks new foreign-key lookup plans.
 Empty migration replay is separate from this populated proof.
+
+## Verified brokerage inventory captures
+
+The v5 inventory path uses the same admitted manual, scheduled and webhook sync
+owner and existing cooldown, daily claims, due batch, queue and failure limits.
+No timer, polling interval, paid refresh, transaction download or credential is
+added. Each admitted attempt adds two `/item/get` reads around its one holdings
+read. Each status body is capped at 32 KiB with the existing 15-second request
+deadline; the holdings cap remains 5 MiB. Source fetches therefore have a fixed
+three-request/45-second maximum, independent of position count. A failed initial
+status stops before holdings. Unknown or failed final status stops before
+staging or financial acceptance. No automatic retry is added.
+
+At the existing three-capture useful-work reserve, this is at most six extra
+provider reads/192 KiB per day, or nine total status/holdings reads. A full
+failure day has the same upper bound; failures before the last phase consume
+less. Idle days add zero requests. Valid captures retain one original holdings
+object plus a checksum-bound status/capture manifest capped at 128 KiB. Added
+manifest writes are at most three/384 KiB per useful-work day; identical
+captures delete their unowned temporary objects. After staging, both objects
+belong to the recorded import and survive later completion failure. Scoped
+grouping still reads at most one original 5 MiB object per attempt. No new
+recovery producer or shared account allowance is created. An unchanged source
+watermark creates no new application receipt; a newly verified source
+observation records its dated inventory even when financial facts are unchanged.
+
+The populated OLD-0091 upgrade is registered with 120 public and 120 unrelated
+public positions plus existing private, review and baseline history. History
+12/24 holdouts measure the full migration, including index replacement and
+source-time backfill, within 15,000 reads/5,000 writes. All original financial
+and review fields are preserved. Applied-schema replay alone is not this proof.
+
+The current-inventory holdout grows 120-position observation and presence
+history independently, including complete removals and reappearances. It asserts
+one source-state read, six report-preview reads and at most 40 D1 round trips
+for capture/acceptance. Current reads seek the household's active keys; report
+comparisons seek covered accounts and exact historical keys. All GET checks
+require zero writes and indexed joins. The admitted 120-position capture still
+has the existing 60,000-read/8,000-write reserve, including grouping and
+readback. Reuse the existing ownership index and retain unchanged immutable
+identity proofs instead of increasing that reserve. These synthetic holdouts do
+not authorize arbitrary target history, households or capture volume, and do not
+activate draft account quota admission.

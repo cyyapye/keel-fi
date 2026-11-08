@@ -101,6 +101,7 @@ function client() {
     removeItem: vi.fn(),
     updateItemWebhook: vi.fn(),
     getWebhookVerificationKey: vi.fn(),
+    getInvestmentStatus: vi.fn(),
     getHoldings: vi.fn(),
   } satisfies PlaidInvestmentsClient;
   return value;

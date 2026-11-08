@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { build } from "esbuild";
+import { z } from "zod";
 import { expect, it } from "vitest";
 import {
   populatedMigrationFixtures,
@@ -12,10 +14,25 @@ import {
 import { D1ExposureRepository } from "../packages/database/src/exposures";
 import { D1HoldingImportRepository } from "../packages/database/src/holding-imports";
 
+import { publicInventoryCostInput } from "./test-support/public-inventory-cost-worker";
+
+const inventoryWorker = build({
+  entryPoints: ["scripts/test-support/public-inventory-cost-worker.ts"],
+  bundle: true,
+  write: false,
+  format: "esm",
+  platform: "neutral",
+  target: "es2022",
+  conditions: ["workerd", "worker", "browser"],
+  mainFields: ["browser", "module", "main"],
+  external: ["node:*", "cloudflare:*"],
+  logLevel: "silent",
+}).then((result) => result.outputFiles[0]!.text);
+
 const fixture = populatedMigrationFixtures();
 for (const history of [12, 24] as const) {
   it(`reads 120 public source heads independently of ${history} observations and decisions per position`, async () => {
-    const stored = await fixture(history, "0091");
+    const stored = await fixture(history, "0092");
     const runtime = await populatedMigrationDatabase(stored);
     try {
       const db = runtime.database;
@@ -77,7 +94,7 @@ for (const history of [12, 24] as const) {
       );
       expect(empty.positions).toEqual([]);
       expect(measured.cost.roundTrips).toBe(1);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(1);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(2);
       expect(measured.cost.rowsWritten).toBe(0);
       const importId = (await db
         .prepare(
@@ -219,6 +236,10 @@ for (const history of [12, 24] as const) {
         ),
       ).toMatchObject({ autoAppliedCount: 120, quarantinedCount: 0 });
       const fallbackCaptureCost = { ...measured.cost };
+      const fallbackQueries = [...measured.byQuery]
+        .sort((a, b) => b[1].rowsRead - a[1].rowsRead)
+        .slice(0, 4)
+        .map(([sql, cost]) => ({ sql: sql.slice(0, 220), ...cost }));
       expect(fallbackCaptureCost.roundTrips).toBeLessThanOrEqual(40);
       measured.reset();
       await imports.getHoldingImport(
@@ -266,6 +287,10 @@ for (const history of [12, 24] as const) {
         fallback.preview.id,
       );
       const completionCost = { ...measured.cost };
+      const completionQueries = [...measured.byQuery]
+        .sort((a, b) => b[1].rowsRead - a[1].rowsRead)
+        .slice(0, 4)
+        .map(([sql, cost]) => ({ sql: sql.slice(0, 220), ...cost }));
       const mappingSql = [...measured.byQuery.keys()].find((query) =>
         query.includes("current_application.application_id"),
       )!;
@@ -280,6 +305,18 @@ for (const history of [12, 24] as const) {
       expect(measured.cost.rowsWritten).toBe(0);
 
       expect(completionCost.roundTrips).toBeLessThanOrEqual(16);
+      console.info(
+        JSON.stringify({
+          completionBudget: {
+            history,
+            fallbackCaptureCost,
+            completionCost,
+            completionResponseReads,
+            fallbackQueries,
+            completionQueries,
+          },
+        }),
+      );
       expect(
         fallbackCaptureCost.rowsRead +
           discoveryCost.rowsRead +
@@ -362,10 +399,12 @@ for (const history of [12, 24] as const) {
           .all<{ detail: string }>()
       ).results.map((row) => row.detail);
       expect(
-        plan.some((detail) => /SCAN (?:r|s|a|review|later)\b/u.test(detail)),
+        plan.some((detail) =>
+          /SCAN (?:active|r|s|a|review|later)\b/u.test(detail),
+        ),
       ).toBe(false);
       expect(
-        plan.some((detail) => /public_holding_security_match/u.test(detail)),
+        plan.some((detail) => /public_active_household/u.test(detail)),
       ).toBe(true);
       expect(
         (await db.prepare("PRAGMA foreign_key_check").all()).results,
@@ -379,6 +418,114 @@ for (const history of [12, 24] as const) {
             captureCost,
             receiptCost,
             plan,
+          },
+        }),
+      );
+    } finally {
+      await runtime.close();
+    }
+  }, 120_000);
+  it(`keeps current inventory reads bounded across ${history} presence transitions for 120 securities`, async () => {
+    const stored = await fixture(history, "0092");
+    const runtime = await populatedMigrationDatabase(stored, {
+      replayWorker: await inventoryWorker,
+    });
+    try {
+      const measured = measureD1(runtime.database);
+      const imports = new D1HoldingImportRepository(measured.database);
+      const capture = async (round: number, empty: boolean) => {
+        const report = await imports.stagePlaidInvestmentsHoldingImport(
+          "synthetic-access-subject",
+          publicInventoryCostInput(round, empty),
+        );
+        await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
+          "synthetic-access-subject",
+          report.preview.id,
+        );
+        return report.preview.id;
+      };
+      // Replay the same production producer inside workerd. Per-statement
+      // host-proxy handles are test transport, not part of this history holdout.
+      const prepared = await runtime.dispatchFetch(
+        "https://synthetic-public-inventory.invalid/replay",
+        { method: "POST", body: JSON.stringify({ history }) },
+      );
+      if (!prepared.ok) throw new Error(await prepared.text());
+      const preparedHistory = z
+        .object({ ids: z.array(z.string().min(1)).length(history) })
+        .strict()
+        .parse(await prepared.json());
+      expect(new Set(preparedHistory.ids).size).toBe(history);
+      measured.reset();
+      const latest = await capture(history, false);
+      const captureCost = { ...measured.cost };
+      expect(captureCost.roundTrips).toBeLessThanOrEqual(40);
+      expect(captureCost.rowsRead).toBeLessThanOrEqual(60000);
+      expect(captureCost.rowsWritten).toBeLessThanOrEqual(8000);
+      measured.reset();
+      const state = await publicSourceState(measured.database, "hh_demo");
+      expect(
+        state.positions.filter((position) => !state.hiddenIds.has(position.id)),
+      ).toHaveLength(120);
+      expect(measured.cost.roundTrips).toBe(1);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(2500);
+      expect(measured.cost.rowsWritten).toBe(0);
+      const currentCost = { ...measured.cost };
+      measured.reset();
+      const report = await imports.getHoldingImport(
+        "synthetic-access-subject",
+        latest,
+      );
+      expect(report.inventory).toMatchObject({
+        complete: true,
+        returnedPositionIds: expect.any(Array),
+        changeCount: 119,
+      });
+      expect(report.inventory?.returnedPositionIds).toHaveLength(119);
+      expect(measured.cost.roundTrips).toBe(6);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(14000);
+      expect(measured.cost.rowsWritten).toBe(0);
+      const previewCost = { ...measured.cost };
+      measured.reset();
+      await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
+        "synthetic-access-subject",
+        latest,
+      );
+      expect(measured.cost.rowsWritten).toBe(0);
+      expect(
+        await runtime.database
+          .prepare(
+            "SELECT COUNT(*) count FROM public_holding_inventories WHERE household_id='hh_demo'",
+          )
+          .first("count"),
+      ).toBe(history + 1);
+      expect(
+        await runtime.database
+          .prepare(
+            "SELECT COUNT(*) count FROM public_holding_active_positions WHERE household_id='hh_migration_foreign'",
+          )
+          .first("count"),
+      ).toBe(120);
+      const plans = (
+        await runtime.database
+          .prepare(`EXPLAIN QUERY PLAN ${PUBLIC_SOURCE_POSITIONS_SQL}`)
+          .bind("hh_demo")
+          .all<{ detail: string }>()
+      ).results.map((row) => row.detail);
+      expect(plans.some((plan) => /public_active_household/u.test(plan))).toBe(
+        true,
+      );
+      expect(plans.some((plan) => /SCAN (?:active|k|o|p)\b/u.test(plan))).toBe(
+        false,
+      );
+      console.info(
+        JSON.stringify({
+          publicInventory: {
+            history,
+            captureCost,
+            currentCost,
+            previewCost,
+            plans,
           },
         }),
       );

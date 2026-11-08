@@ -8,6 +8,8 @@ import { BaseSequencer, type TestSpecification } from "vitest/node";
 // worker idle at the end of a clean CI checkout with no Vitest timing cache.
 const seconds: Readonly<Record<string, number>> = {
   "provider-agent-d1-cost.test.ts": 448,
+  // November inventory/presence history holdout: local complete-file measurement.
+  "public-source-reviews-d1-cost.test.ts": 114,
   "portfolio-watch-activity.test.ts": 255,
   "renamed-investments-d1-cost.test.ts": 200,
   "portfolio-baseline-d1-cost.test.ts": 107,

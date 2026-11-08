@@ -2978,20 +2978,23 @@ describe("canonical exposure resolution and aggregation", () => {
     expect(database.roundTripCount).toBeLessThanOrEqual(8);
     const exposureSql = database.preparedSql.find(
       (sql) =>
-        sql.includes("FROM canonical_exposures") &&
-        sql.includes("current_mapping.exposure_id"),
+        sql.includes("FROM current_exposures current") &&
+        sql.includes("head.exposure_id"),
     );
     expect(exposureSql).toBeDefined();
     const plan = sqlite
       .prepare(`EXPLAIN QUERY PLAN ${exposureSql ?? "SELECT 1"}`)
-      .all("hh_demo") as Array<{ detail: string }>;
-    expect(
-      plan.some((row) =>
-        row.detail.includes(
-          "holding_position_exposure_mappings_household_exposure_idx",
+      .all(
+        JSON.stringify(
+          Array.from({ length: 120 }, (_, index) => `position_scale_${index}`),
         ),
-      ),
-    ).toBe(true);
+        "hh_demo",
+        "hh_demo",
+      ) as Array<{ detail: string }>;
+    expect(plan.map((row) => row.detail).join("\n")).toMatch(
+      /SEARCH head USING INDEX.*position_id=\?/u,
+    );
+    expect(plan.map((row) => row.detail)).not.toContain("SCAN head");
     const acceptedValuationSql = database.preparedSql.find((sql) =>
       sql.includes("FROM public_source_observations observation"),
     );
@@ -3046,7 +3049,7 @@ describe("canonical exposure resolution and aggregation", () => {
           row.detail.startsWith("SEARCH mapping ") &&
           row.detail.includes("household_id=? AND position_id=?"),
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
   });
 });
 
@@ -3056,7 +3059,7 @@ describe("holding ownership and exposure reconciliation migration", () => {
     database.exec("PRAGMA foreign_keys = ON");
     try {
       migrationFiles
-        .filter((file) => !file.endsWith("0091_public_source_reviews.sql"))
+        .filter((file) => !/00(?:91|92)_/u.test(file))
         .forEach((file) => {
           database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
         });
@@ -3223,12 +3226,17 @@ describe("holding ownership and exposure reconciliation migration", () => {
 
       const exposureView = new D1InvestmentExposureViewRepository(d1);
       const baselines = new D1PortfolioBaselineRepository(d1);
-      await expect(exposureView.list(accessSubject)).rejects.toThrow(
-        "Exposure mapping is missing its authoritative accepted position.",
-      );
-      await expect(baselines.getState(accessSubject)).rejects.toThrow(
-        "Exposure mapping is missing its authoritative accepted position.",
-      );
+      // Inspect the historical frontier directly; current read models require
+      // the later inventory schema. Both reviewed mappings lack ownership.
+      expect(
+        database
+          .prepare(
+            `SELECT COUNT(*) count FROM holding_position_exposure_mappings mapping
+        WHERE mapping.position_id IN ('position_legacy_angellist_orphan','position_legacy_plaid_orphan')
+          AND NOT EXISTS(SELECT 1 FROM holding_position_ownerships ownership WHERE ownership.position_id=mapping.position_id)`,
+          )
+          .get(),
+      ).toEqual({ count: 2 });
       const topologyCountsBefore = database
         .prepare(
           `SELECT
@@ -3247,6 +3255,12 @@ describe("holding ownership and exposure reconciliation migration", () => {
       database.exec(
         readFileSync(
           "packages/database/migrations/0091_public_source_reviews.sql",
+          "utf8",
+        ),
+      );
+      database.exec(
+        readFileSync(
+          "packages/database/migrations/0092_public_holding_inventories.sql",
           "utf8",
         ),
       );

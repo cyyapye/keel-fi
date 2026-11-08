@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 import { plaidInvestmentsSourceKey } from "./investment-identity";
 import {
   buildPlaidInvestmentsCanonicalScope,
+  certifyInventoryStatus,
   connectInvestmentConnection,
   createInvestmentReconnectLinkToken,
   disconnectInvestmentConnection,
@@ -302,6 +303,7 @@ describe("Plaid Investments sync", () => {
       removeItem: vi.fn(),
       updateItemWebhook: vi.fn(),
       getWebhookVerificationKey: vi.fn(),
+      getInvestmentStatus: vi.fn(),
       getHoldings,
     };
 
@@ -353,6 +355,7 @@ describe("Plaid Investments sync", () => {
         removeItem: vi.fn(),
         updateItemWebhook: vi.fn(),
         getWebhookVerificationKey: vi.fn(),
+        getInvestmentStatus: vi.fn(),
         getHoldings,
       },
       accessSubject: "synthetic-access-subject",
@@ -787,6 +790,91 @@ describe("Plaid Investments sync", () => {
     ]);
   });
 
+  it("requires stable successful provider status before treating absence as current inventory", () => {
+    const status = {
+      item: {
+        item_id: "synthetic-item",
+        institution_id: "synthetic-robinhood",
+        error: null,
+      },
+      status: {
+        investments: {
+          last_successful_update: "2026-08-08T12:00:00Z",
+          last_failed_update: null,
+        },
+      },
+      request_id: "synthetic-status",
+    };
+    const credential = {
+      itemId: "synthetic-item",
+      institutionKey: "synthetic-robinhood",
+    };
+    expect(
+      certifyInventoryStatus(
+        status,
+        status,
+        credential,
+        "2026-08-09T12:00:00Z",
+      ),
+    ).toBe("2026-08-08T12:00:00.000Z");
+    const variants = [
+      { ...status, status: null },
+      {
+        ...status,
+        item: { ...status.item, error: { error_code: "SYNTHETIC_FAILURE" } },
+      },
+      { ...status, item: { ...status.item, item_id: "different-item" } },
+      {
+        ...status,
+        item: { ...status.item, institution_id: "different-institution" },
+      },
+      {
+        ...status,
+        status: {
+          investments: {
+            last_successful_update: null,
+            last_failed_update: null,
+          },
+        },
+      },
+      {
+        ...status,
+        status: {
+          investments: {
+            last_successful_update: "2026-08-08T13:00:00Z",
+            last_failed_update: null,
+          },
+        },
+      },
+      {
+        ...status,
+        status: {
+          investments: {
+            last_successful_update: "2026-08-08T12:00:00Z",
+            last_failed_update: "2026-08-08T13:00:00Z",
+          },
+        },
+      },
+    ];
+    for (const after of variants)
+      expect(() =>
+        certifyInventoryStatus(
+          status,
+          after,
+          credential,
+          "2026-08-09T12:00:00Z",
+        ),
+      ).toThrow("complete holdings report");
+    expect(() =>
+      certifyInventoryStatus(
+        status,
+        status,
+        credential,
+        "2026-08-07T12:00:00Z",
+      ),
+    ).toThrow("complete holdings report");
+  });
+
   it("rejects an oversized provider response before parsing it", async () => {
     const client = new FetchPlaidInvestmentsClient(
       {
@@ -818,7 +906,7 @@ describe("Plaid Investments sync", () => {
     const response = syntheticHoldingsResponse();
     const responseBytes = new TextEncoder().encode(JSON.stringify(response));
     const updateItemWebhook = vi.fn();
-    const client: PlaidInvestmentsClient = {
+    const client = {
       createLinkToken: vi.fn(),
       exchangeInvestmentToken: vi.fn().mockResolvedValue({
         version: 1,
@@ -830,11 +918,33 @@ describe("Plaid Investments sync", () => {
       removeItem: vi.fn(),
       updateItemWebhook,
       getWebhookVerificationKey: vi.fn(),
+      getInvestmentStatus: vi.fn().mockImplementation((token: string) => {
+        const parsed = {
+          item: {
+            item_id: token.includes("legacy")
+              ? "synthetic-legacy-item"
+              : "synthetic-item",
+            institution_id: "synthetic-robinhood",
+            error: null,
+          },
+          status: {
+            investments: {
+              last_successful_update: "2026-08-08T12:00:00.000Z",
+              last_failed_update: null,
+            },
+          },
+          request_id: "synthetic-status",
+        };
+        return Promise.resolve({
+          parsed,
+          bytes: new TextEncoder().encode(JSON.stringify(parsed)),
+        });
+      }),
       getHoldings: vi.fn().mockResolvedValue({
         bytes: responseBytes,
         parsed: response,
       }),
-    };
+    } satisfies PlaidInvestmentsClient;
 
     await connectInvestmentConnection({
       env,
@@ -1057,6 +1167,18 @@ describe("Plaid Investments sync", () => {
       }),
     );
     expect(storage.values.has(sourceKey)).toBe(true);
+    const objectsBefore = storage.values.size;
+    stagePlaidInvestmentsHoldingImport.mockRejectedValueOnce(
+      new Error("Synthetic staging outcome unknown."),
+    );
+    await expect(retry()).rejects.toThrow("safely prepare");
+    const uncertain = stagePlaidInvestmentsHoldingImport.mock.calls.at(-1)![1];
+    expect(storage.values.get(uncertain.objectKey)).toEqual(responseBytes);
+    expect(storage.values.has(uncertain.inventoryEvidence!.objectKey)).toBe(
+      true,
+    );
+    expect(storage.values.size).toBe(objectsBefore + 2);
+    expect(client.getInvestmentStatus).toHaveBeenCalledTimes(8);
   });
 
   it("records an empty snapshot without inferring a disposition", async () => {
@@ -1080,6 +1202,28 @@ describe("Plaid Investments sync", () => {
       removeItem: vi.fn(),
       updateItemWebhook: vi.fn(),
       getWebhookVerificationKey: vi.fn(),
+      getInvestmentStatus: vi.fn().mockImplementation((token: string) => {
+        const parsed = {
+          item: {
+            item_id: token.includes("legacy")
+              ? "synthetic-legacy-item"
+              : "synthetic-item",
+            institution_id: "synthetic-robinhood",
+            error: null,
+          },
+          status: {
+            investments: {
+              last_successful_update: "2026-08-08T12:00:00.000Z",
+              last_failed_update: null,
+            },
+          },
+          request_id: "synthetic-status",
+        };
+        return Promise.resolve({
+          parsed,
+          bytes: new TextEncoder().encode(JSON.stringify(parsed)),
+        });
+      }),
       getHoldings: vi.fn().mockResolvedValue({
         bytes: new TextEncoder().encode(JSON.stringify(emptyResponse)),
         parsed: emptyResponse,
@@ -1196,6 +1340,28 @@ describe("Plaid Investments sync", () => {
       removeItem: vi.fn(),
       updateItemWebhook: vi.fn(),
       getWebhookVerificationKey: vi.fn(),
+      getInvestmentStatus: vi.fn().mockImplementation((token: string) => {
+        const parsed = {
+          item: {
+            item_id: token.includes("legacy")
+              ? "synthetic-legacy-item"
+              : "synthetic-item",
+            institution_id: "synthetic-robinhood",
+            error: null,
+          },
+          status: {
+            investments: {
+              last_successful_update: "2026-08-08T12:00:00.000Z",
+              last_failed_update: null,
+            },
+          },
+          request_id: "synthetic-status",
+        };
+        return Promise.resolve({
+          parsed,
+          bytes: new TextEncoder().encode(JSON.stringify(parsed)),
+        });
+      }),
       getHoldings: vi.fn().mockResolvedValue({
         bytes: new TextEncoder().encode(JSON.stringify(mismatchedResponse)),
         parsed: mismatchedResponse,
@@ -1251,6 +1417,28 @@ describe("Plaid Investments sync", () => {
       removeItem,
       updateItemWebhook: vi.fn(),
       getWebhookVerificationKey: vi.fn(),
+      getInvestmentStatus: vi.fn().mockImplementation((token: string) => {
+        const parsed = {
+          item: {
+            item_id: token.includes("legacy")
+              ? "synthetic-legacy-item"
+              : "synthetic-item",
+            institution_id: "synthetic-robinhood",
+            error: null,
+          },
+          status: {
+            investments: {
+              last_successful_update: "2026-08-08T12:00:00.000Z",
+              last_failed_update: null,
+            },
+          },
+          request_id: "synthetic-status",
+        };
+        return Promise.resolve({
+          parsed,
+          bytes: new TextEncoder().encode(JSON.stringify(parsed)),
+        });
+      }),
       getHoldings: vi.fn(),
     };
     await connectInvestmentConnection({
@@ -1299,6 +1487,28 @@ describe("Plaid Investments sync", () => {
       removeItem: vi.fn(),
       updateItemWebhook: vi.fn(),
       getWebhookVerificationKey: vi.fn(),
+      getInvestmentStatus: vi.fn().mockImplementation((token: string) => {
+        const parsed = {
+          item: {
+            item_id: token.includes("legacy")
+              ? "synthetic-legacy-item"
+              : "synthetic-item",
+            institution_id: "synthetic-robinhood",
+            error: null,
+          },
+          status: {
+            investments: {
+              last_successful_update: "2026-08-08T12:00:00.000Z",
+              last_failed_update: null,
+            },
+          },
+          request_id: "synthetic-status",
+        };
+        return Promise.resolve({
+          parsed,
+          bytes: new TextEncoder().encode(JSON.stringify(parsed)),
+        });
+      }),
       getHoldings: vi.fn(),
     };
     await connectInvestmentConnection({
@@ -1348,6 +1558,28 @@ describe("Plaid Investments sync", () => {
       removeItem,
       updateItemWebhook: vi.fn(),
       getWebhookVerificationKey: vi.fn(),
+      getInvestmentStatus: vi.fn().mockImplementation((token: string) => {
+        const parsed = {
+          item: {
+            item_id: token.includes("legacy")
+              ? "synthetic-legacy-item"
+              : "synthetic-item",
+            institution_id: "synthetic-robinhood",
+            error: null,
+          },
+          status: {
+            investments: {
+              last_successful_update: "2026-08-08T12:00:00.000Z",
+              last_failed_update: null,
+            },
+          },
+          request_id: "synthetic-status",
+        };
+        return Promise.resolve({
+          parsed,
+          bytes: new TextEncoder().encode(JSON.stringify(parsed)),
+        });
+      }),
       getHoldings: vi.fn(),
     };
 

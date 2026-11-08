@@ -25,7 +25,7 @@ const SchemaObject = z.object({
   sql: z.string().nullable(),
 });
 const FixtureSchema = z.object({
-  frontier: z.enum(["0088", "0089", "0090", "0090-public", "0091"]),
+  frontier: z.enum(["0088", "0089", "0090", "0090-public", "0091", "0092"]),
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
   unrelatedPositions: z.literal(120),
@@ -116,7 +116,7 @@ export function hasUsableMigrationForeignKeyIndex(
         return false;
       const details = db
         .prepare(
-          `EXPLAIN QUERY PLAN SELECT rowid FROM ${identifier(child)} WHERE ${identifier(column)}=?`,
+          `EXPLAIN QUERY PLAN SELECT ${identifier(column)} FROM ${identifier(child)} WHERE ${identifier(column)}=?`,
         )
         .all("synthetic-missing-reference")
         .map((row) => String(row.detail));
@@ -360,7 +360,7 @@ async function buildFixture(
         valuation: { state: "unknown" },
       });
     }
-    if (["0090", "0090-public", "0091"].includes(frontier)) {
+    if (["0090", "0090-public", "0091", "0092"].includes(frontier)) {
       if (captureOld) captureOld(snapshotFixture("0089"));
       statements.clear();
       db.exec(
@@ -370,17 +370,31 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0090-public" || frontier === "0091") {
+    if (
+      frontier === "0090-public" ||
+      frontier === "0091" ||
+      frontier === "0092"
+    ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
       await publicMigrationHistory(db, history);
       if (captureOld) captureOld(snapshotFixture("0090-public"));
     }
-    if (frontier === "0091") {
+    if (frontier === "0091" || frontier === "0092") {
       statements.clear();
       db.exec(
         readFileSync(
           "packages/database/migrations/0091_public_source_reviews.sql",
+          "utf8",
+        ),
+      );
+    }
+    if (frontier === "0092") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0091"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0092_public_holding_inventories.sql",
           "utf8",
         ),
       );
@@ -427,12 +441,20 @@ async function buildFixture(
       db
         .prepare(`PRAGMA foreign_key_list(${identifier(child)})`)
         .all()
-        .filter((row) =>
-          [
-            "holding_import_rows",
-            "holding_position_snapshots",
-            "portfolio_baseline_items",
-          ].includes(String(row.table)),
+        .filter(
+          (row) =>
+            [
+              "holding_import_rows",
+              "holding_position_snapshots",
+              "portfolio_baseline_items",
+            ].includes(String(row.table)) ||
+            [
+              "public_holding_inventory_evidence",
+              "public_holding_inventories",
+              "public_holding_account_inventory_heads",
+              "public_holding_presence_heads",
+              "public_holding_active_positions",
+            ].includes(child),
         )
         .map((row) => ({
           child,
@@ -522,6 +544,7 @@ export function populatedMigrationFixtures() {
             "0090": z.string(),
             "0090-public": z.string(),
             "0091": z.string(),
+            "0092": z.string(),
           })
           .strict()
           .parse(JSON.parse(stdout)),
@@ -668,7 +691,11 @@ export async function preparePopulatedMigrationSeed(
 
 export async function populatedMigrationDatabase(
   fixture: PopulatedMigrationFixture,
-  options: { persist?: string; seed?: PopulatedMigrationSeed } = {},
+  options: {
+    persist?: string;
+    seed?: PopulatedMigrationSeed;
+    replayWorker?: string;
+  } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), "keel-populated-migration-"));
   let runtime: Miniflare | undefined;
@@ -692,8 +719,34 @@ export async function populatedMigrationDatabase(
         persist,
         populatedMigrationSeedInput(fixture, carriedPlatformObjects!),
       );
+    const { script, modules, ...bindings } = runtimeOptions;
     runtime = new Miniflare({
-      ...runtimeOptions,
+      ...bindings,
+      ...(options.replayWorker
+        ? {
+            modules: [
+              {
+                type: "ESModule" as const,
+                path: "populated-main.js",
+                contents: `import bootstrap from './populated-bootstrap.js';
+import replay from './populated-replay.js';
+export default { fetch(request, env, context) {
+  return (new URL(request.url).pathname === '/replay' ? replay : bootstrap).fetch(request, env, context);
+} };`,
+              },
+              {
+                type: "ESModule" as const,
+                path: "populated-bootstrap.js",
+                contents: script,
+              },
+              {
+                type: "ESModule" as const,
+                path: "populated-replay.js",
+                contents: options.replayWorker,
+              },
+            ],
+          }
+        : { script, modules }),
       log: new Log(LogLevel.NONE),
       d1Persist: persist,
     });
@@ -761,6 +814,7 @@ export async function populatedMigrationDatabase(
       database,
       platformSchemaObjects,
       close,
+      dispatchFetch: runtime.dispatchFetch.bind(runtime),
       async execute(sql: string[]) {
         const response = await runtime!.dispatchFetch(
           "https://synthetic-populated-migration.invalid",
@@ -921,7 +975,7 @@ export async function migrationForeignKeyPlans(
     lookups.map((lookup) =>
       database
         .prepare(
-          `EXPLAIN QUERY PLAN SELECT rowid FROM ${identifier(lookup.child)} WHERE ${identifier(lookup.from)}=?`,
+          `EXPLAIN QUERY PLAN SELECT ${identifier(lookup.from)} FROM ${identifier(lookup.child)} WHERE ${identifier(lookup.from)}=?`,
         )
         .bind(lookup.value),
     ),
@@ -957,14 +1011,14 @@ if (
     .union([z.literal(12), z.literal(24)])
     .parse(Number(process.argv[3]));
   const frontier = z
-    .enum(["0088", "0089", "0090", "0090-public", "0091", "both"])
+    .enum(["0088", "0089", "0090", "0090-public", "0091", "0092", "both"])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0091", (fixture) => {
+    const terminal = await buildFixture(history, "0092", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0091": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0092": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

@@ -229,6 +229,7 @@ describe("Plaid webhook queue recovery", () => {
         removeItem: vi.fn(),
         updateItemWebhook: vi.fn(),
         getWebhookVerificationKey: vi.fn(),
+        getInvestmentStatus: vi.fn(),
         getHoldings: vi.fn(),
       };
       const connection = await connectInvestmentConnection({
@@ -252,15 +253,32 @@ describe("Plaid webhook queue recovery", () => {
         throw new Error("Synthetic webhook delivery was not claimed.");
       }
       await repository.markPlaidWebhookDelivery(claim.deliveryId, "queued");
-      const plaidFetch = vi.fn().mockResolvedValue(
-        new Response(responseBytes, {
-          status: 200,
-          headers: {
-            "Content-Length": String(responseBytes.byteLength),
-            "Content-Type": "application/json",
-          },
-        }),
-      );
+      const plaidFetch = vi.fn((url: string | URL | Request) => {
+        const requestUrl = url instanceof Request ? url.url : url.toString();
+        const bytes = requestUrl.endsWith("/item/get")
+          ? new TextEncoder().encode(
+              JSON.stringify({
+                item: { ...response.item, error: null },
+                status: {
+                  investments: {
+                    last_successful_update: new Date(startedAt).toISOString(),
+                    last_failed_update: null,
+                  },
+                },
+                request_id: "synthetic-status",
+              }),
+            )
+          : responseBytes;
+        return Promise.resolve(
+          new Response(bytes, {
+            status: 200,
+            headers: {
+              "Content-Length": String(bytes.byteLength),
+              "Content-Type": "application/json",
+            },
+          }),
+        );
+      });
       vi.stubGlobal("fetch", plaidFetch);
       const job = {
         type: "plaid_holdings_webhook",
@@ -298,7 +316,7 @@ describe("Plaid webhook queue recovery", () => {
       await handlePortfolioWatchQueue(recovery.batch, env);
       expect(recovery.ack).toHaveBeenCalledOnce();
       expect(recovery.retry).not.toHaveBeenCalled();
-      expect(plaidFetch).toHaveBeenCalledOnce();
+      expect(plaidFetch).toHaveBeenCalledTimes(3);
       await expect(
         repository.getPlaidWebhookDelivery(claim.deliveryId),
       ).resolves.toMatchObject({ status: "processed" });
@@ -324,7 +342,7 @@ describe("Plaid webhook queue recovery", () => {
       await handlePortfolioWatchQueue(replay.batch, env);
       expect(replay.ack).toHaveBeenCalledOnce();
       expect(replay.retry).not.toHaveBeenCalled();
-      expect(plaidFetch).toHaveBeenCalledOnce();
+      expect(plaidFetch).toHaveBeenCalledTimes(3);
     } finally {
       sqlite.close();
     }

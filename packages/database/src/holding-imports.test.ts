@@ -506,6 +506,50 @@ function robinhoodStageInput(
   };
 }
 
+function authoritativeInventoryInput(
+  day: number,
+  entries: readonly {
+    key: string;
+    name: string;
+    type: string;
+    quantity: number;
+    value: number;
+  }[],
+) {
+  const input = robinhoodStageInput(
+    day.toString(16).padStart(2, "0").repeat(32),
+  );
+  const date = `2026-08-${String(day).padStart(2, "0")}`;
+  input.objectKey = `synthetic/inventory/${day}.json`;
+  input.retrievedAt = `${date}T14:00:00.000Z`;
+  input.inventoryEvidence = {
+    sourceUpdatedAt: `${date}T12:00:00.000Z`,
+    objectKey: `synthetic/inventory/${day}-status.json`,
+    sha256: day.toString(16).padStart(2, "0").repeat(32),
+    byteSize: 512,
+  };
+  input.rows = entries.map((entry, index) => ({
+    ...input.rows[0]!,
+    rowNumber: index + 1,
+    naturalKeySha256: entry.key.repeat(64),
+    securityName: entry.name,
+    ticker: entry.name,
+    securityType: entry.type,
+    quantityMicros: entry.quantity,
+    marketValueMinor: entry.value,
+    costBasisMinor: entry.type === "cash" ? null : entry.value,
+    issues: entry.type === "cash" ? ["Cost basis is unavailable."] : [],
+  }));
+  input.canonicalScope.rows = entries.map((entry, index) => ({
+    sourceRowNumber: index + 1,
+    protectedAccountKey: robinhoodAccountKey,
+    protectedPositionKey: entry.key.repeat(64),
+    publicExposureIdentityKind: entry.type === "cash" ? null : "cusip",
+    protectedExposureKey: entry.type === "cash" ? null : entry.key.repeat(64),
+  }));
+  return input;
+}
+
 function providerTemplateStageInput(
   provider: "tokenfolio" | "sydecar" | "wefunder",
 ): HoldingImportStageInput {
@@ -1023,10 +1067,11 @@ describe("AngelList holding import persistence", () => {
       const projectionSql = database.preparedSql
         .filter(
           (sql) =>
-            sql.includes("FROM holding_positions position") &&
+            sql.includes("FROM current_positions position") &&
             sql.includes("prior_application"),
         )
         .at(-1)!;
+      expect(projectionSql).toBeDefined();
       const plan = sqlite
         .prepare(`EXPLAIN QUERY PLAN ${projectionSql}`)
         .all("hh_demo") as Array<{ detail: string }>;
@@ -2753,7 +2798,7 @@ describe("AngelList holding import persistence", () => {
 
     expect(adjudication).toEqual({
       importId: staged.preview.id,
-      policyVersion: "plaid-investments-holdings-auto-v4",
+      policyVersion: "plaid-investments-holdings-auto-v5",
       autoAppliedCount: 1,
       quarantinedCount: 0,
       preservedPositionCount: 0,
@@ -2837,6 +2882,588 @@ describe("AngelList holding import persistence", () => {
     ).toBe(1);
   });
 
+  it("reconciles authoritative inventory without inventing trades and reuses a returned security", async () => {
+    const subject = "synthetic-access-subject";
+    const db = database as unknown as D1Database;
+    const core = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const syn = {
+      key: "b",
+      name: "SYN",
+      type: "equity",
+      quantity: 100_000_000,
+      value: 500000,
+    };
+    const cash = {
+      key: "c",
+      name: "USD",
+      type: "cash",
+      quantity: 1000_000_000,
+      value: 100000,
+    };
+    const nova = {
+      key: "d",
+      name: "NOVA",
+      type: "equity",
+      quantity: 10_000_000,
+      value: 120000,
+    };
+    const capture = async (input: PlaidInvestmentsHoldingImportStageInput) => {
+      const staged = await repository.stagePlaidInvestmentsHoldingImport(
+        subject,
+        input,
+      );
+      expect(staged.created).toBe(true);
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+      return repository.getHoldingImport(subject, staged.preview.id);
+    };
+    const batch = database.batch.bind(database);
+    vi.spyOn(database, "batch").mockImplementationOnce(async (statements) => {
+      await batch(statements);
+      throw new Error("Synthetic staging response lost after commit.");
+    });
+    const first = await capture(
+      authoritativeInventoryInput(11, [core, syn, cash]),
+    );
+    const original = first.rows.find((row) => row.ticker === "CORE")!;
+    expect(first.inventory).toMatchObject({
+      acceptedAt: expect.any(String),
+      closedPositions: [],
+    });
+    const originalSnapshot = sqlite
+      .prepare("SELECT * FROM holding_position_snapshots WHERE position_id=?")
+      .get(original.positionId!);
+    const current = async () => {
+      const view = await new D1InvestmentPositionViewRepository(db).list(
+        subject,
+      );
+      const rows = view.connections
+        .filter((connection) => connection.id === robinhoodConnectionId)
+        .flatMap((connection) =>
+          connection.containers.flatMap((container) => container.positions),
+        );
+      return {
+        view,
+        rows,
+        total: rows.reduce(
+          (sum, row) => sum + BigInt(row.snapshot.unrealizedValue.minor ?? 0),
+          0n,
+        ),
+      };
+    };
+    expect((await current()).total).toBe(800000n);
+    const baselines = new D1PortfolioBaselineRepository(db);
+    const initialPlanning = await baselines.getState(subject);
+    const acceptedBaseline = await baselines.confirm(subject, {
+      sourceRevision: initialPlanning.sourceRevision!,
+      baseForecastSnapshotId: initialPlanning.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: initialPlanning.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: true,
+      cashOverlapReviewConfirmed: true,
+      changeNote: "Reviewed synthetic starting inventory.",
+    });
+    const historicalBaseline = sqlite
+      .prepare("SELECT * FROM portfolio_baselines WHERE id=?")
+      .get(acceptedBaseline.baseline.id);
+
+    const second = await capture(
+      authoritativeInventoryInput(12, [
+        { ...syn, quantity: 80_000_000, value: 440000 },
+        nova,
+        { ...cash, quantity: 2500_000_000, value: 250000 },
+      ]),
+    );
+    expect(second.summary).toMatchObject({
+      autoAppliedCount: 3,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    expect(second.inventory?.closedPositions).toMatchObject([
+      {
+        positionId: original.positionId,
+        valueMinor: 200000,
+        quantityMicros: 20_000_000,
+      },
+    ]);
+    expect((await current()).total).toBe(810000n);
+    expect(
+      (await refreshAcceptedPortfolioBaseline(baselines, subject)).status,
+    ).toBe("refreshed");
+    const nextPlanning = await baselines.getState(subject);
+    expect(nextPlanning.positions.map((position) => position.id)).not.toContain(
+      original.positionId,
+    );
+    expect(
+      sqlite
+        .prepare("SELECT * FROM portfolio_baselines WHERE id=?")
+        .get(acceptedBaseline.baseline.id),
+    ).toEqual(historicalBaseline);
+
+    expect((await current()).rows.map((row) => row.id)).not.toContain(
+      original.positionId,
+    );
+    const exposures = await new D1InvestmentExposureViewRepository(db).list(
+      subject,
+    );
+    expect(JSON.stringify(exposures)).not.toContain(original.positionId!);
+    const alpha = await new D1AlphaRepository(db).getAlphaData(subject);
+    expect(alpha.holdings.map((holding) => holding.id)).not.toContain(
+      original.positionId,
+    );
+    expect(
+      sqlite
+        .prepare("SELECT * FROM holding_position_snapshots WHERE id=?")
+        .get(originalSnapshot!.id as string),
+    ).toEqual(originalSnapshot);
+    await Promise.all([
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        second.id,
+      ),
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        second.id,
+      ),
+    ]);
+    expect(
+      sqlite
+        .prepare("SELECT COUNT(*) count FROM public_holding_inventories")
+        .get(),
+    ).toEqual({ count: 2 });
+    const third = await capture(
+      authoritativeInventoryInput(13, [
+        { ...core, quantity: 5_000_000, value: 50000 },
+        { ...syn, quantity: 80_000_000, value: 440000 },
+        nova,
+        { ...cash, quantity: 2000_000_000, value: 200000 },
+      ]),
+    );
+    expect(third.inventory?.returnedPositionIds).toEqual([original.positionId]);
+    expect(third.rows.find((row) => row.ticker === "CORE")?.positionId).toBe(
+      original.positionId,
+    );
+    expect((await current()).total).toBe(810000n);
+    expect(
+      (await current()).rows.filter((row) => row.id === original.positionId),
+    ).toHaveLength(1);
+    const stale = authoritativeInventoryInput(14, [core, syn, cash]);
+    stale.inventoryEvidence!.sourceUpdatedAt = "2026-08-12T12:00:00.000Z";
+    const stalePreview = await capture(stale);
+    expect(stalePreview.inventory?.acceptedAt).toBeNull();
+    expect((await current()).total).toBe(810000n);
+    const empty = await capture(
+      authoritativeInventoryInput(15, [{ ...cash, quantity: 0, value: 0 }]),
+    );
+    expect(empty.inventory?.closedPositions).toHaveLength(3);
+    expect((await current()).total).toBe(0n);
+    expect(
+      (await current()).rows.filter(
+        (row) => row.snapshot.instrumentType !== "cash",
+      ),
+    ).toEqual([]);
+    expect(
+      sqlite
+        .prepare("SELECT COUNT(*) count FROM public_holding_inventories")
+        .get(),
+    ).toEqual({ count: 4 });
+    const zeroInventory = authoritativeInventoryInput(16, []);
+    zeroInventory.inventoryEvidence!.zeroCashAccountKeys = [
+      robinhoodAccountKey,
+    ];
+    const zero = await capture(zeroInventory);
+    expect(zero.summary.rowCount).toBe(0);
+    expect(zero.inventory).toMatchObject({
+      complete: true,
+      closedPositions: [expect.objectContaining({ instrumentType: "cash" })],
+    });
+    expect((await current()).rows).toEqual([]);
+    expect(
+      (await refreshAcceptedPortfolioBaseline(baselines, subject)).status,
+    ).toBe("refreshed");
+    expect((await baselines.getState(subject)).positions).toEqual([]);
+    expect(() =>
+      sqlite
+        .prepare(
+          "UPDATE public_holding_inventories SET source_updated_at='2026-01-01' WHERE import_id=?",
+        )
+        .run(second.id),
+    ).toThrow("immutable");
+    expect(() =>
+      sqlite
+        .prepare(
+          "DELETE FROM public_holding_inventory_evidence WHERE import_id=?",
+        )
+        .run(second.id),
+    ).toThrow("immutable");
+  });
+
+  it("preserves an incomplete account while independently reconciling a complete account", async () => {
+    const subject = "synthetic-access-subject";
+    const stock = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const cash = {
+      key: "c",
+      name: "USD",
+      type: "cash",
+      quantity: 1000_000_000,
+      value: 100000,
+    };
+    const capture = async (input: PlaidInvestmentsHoldingImportStageInput) => {
+      const staged = await repository.stagePlaidInvestmentsHoldingImport(
+        subject,
+        input,
+      );
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+      return repository.getHoldingImport(subject, staged.preview.id);
+    };
+    const initial = await capture(
+      authoritativeInventoryInput(11, [stock, cash]),
+    );
+    const ids = initial.rows.map((row) => row.positionId!);
+    for (const kind of ["partial", "malformed", "cash-unavailable"] as const) {
+      const input = authoritativeInventoryInput(
+        kind === "partial" ? 16 : kind === "malformed" ? 17 : 18,
+        [
+          { ...stock, key: "d", name: "NOVA" },
+          ...(kind === "cash-unavailable" ? [] : [{ ...cash, value: 250000 }]),
+        ],
+      );
+      if (kind === "partial")
+        input.canonicalScope.containers[0]!.completeness = "partial";
+      if (kind === "malformed")
+        input.rows[0]!.issues = ["Unsupported source data."];
+      const result = await capture(input);
+      expect(result.inventory?.acceptedAt).toBeNull();
+      expect(
+        sqlite
+          .prepare(
+            "SELECT position_id FROM public_holding_active_positions ORDER BY position_id",
+          )
+          .all()
+          .map((row) => row.position_id)
+          .sort(),
+      ).toEqual([...ids].sort());
+    }
+    // The source reports one complete new account and explicitly partial prior account.
+    const partial = authoritativeInventoryInput(19, [cash]);
+    partial.canonicalScope.containers[0]!.completeness = "partial";
+    partial.canonicalScope.containers.push({
+      ...partial.canonicalScope.containers[0]!,
+      protectedAccountKey: "e".repeat(64),
+      displayLabel: "Synthetic separate account",
+      completeness: "complete",
+    });
+    partial.rows.push({
+      ...partial.rows[0]!,
+      rowNumber: 2,
+      naturalKeySha256: "f".repeat(64),
+      accountLabel: "Synthetic separate account",
+    });
+    partial.canonicalScope.rows.push({
+      sourceRowNumber: 2,
+      protectedAccountKey: "e".repeat(64),
+      protectedPositionKey: "f".repeat(64),
+      publicExposureIdentityKind: null,
+      protectedExposureKey: null,
+    });
+    const result = await capture(partial);
+    expect(result.summary.autoAppliedCount).toBe(1);
+    expect(result.inventory).toMatchObject({
+      complete: false,
+      acceptedAt: expect.any(String),
+      closedPositions: [],
+    });
+    const active = sqlite
+      .prepare("SELECT position_id FROM public_holding_active_positions")
+      .all()
+      .map((row) => row.position_id);
+    expect(active).toEqual(expect.arrayContaining(ids));
+    expect(active).toHaveLength(3);
+    // An account missing entirely is outside the later inventory's authority.
+    const onlyNew = authoritativeInventoryInput(20, [cash]);
+    onlyNew.canonicalScope.containers[0]!.protectedAccountKey = "e".repeat(64);
+    onlyNew.canonicalScope.rows[0]!.protectedAccountKey = "e".repeat(64);
+    onlyNew.canonicalScope.rows[0]!.protectedPositionKey = "f".repeat(64);
+    const complete = await capture(onlyNew);
+    expect(complete.inventory?.closedPositions).toEqual([]);
+    expect(
+      sqlite
+        .prepare("SELECT COUNT(*) count FROM public_holding_active_positions")
+        .get(),
+    ).toEqual({ count: 3 });
+  });
+
+  it("refuses older certified ownership and ambiguous account replacements before financial acceptance", async () => {
+    const subject = "synthetic-access-subject";
+    const stock = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const cash = {
+      key: "c",
+      name: "USD",
+      type: "cash",
+      quantity: 1000_000_000,
+      value: 100000,
+    };
+    const legacy = authoritativeInventoryInput(20, [stock, cash]);
+    delete legacy.inventoryEvidence;
+    const first = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      legacy,
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      first.preview.id,
+    );
+    const old = sqlite
+      .prepare(
+        "SELECT position_id,snapshot_id,application_id FROM holding_import_application_heads ORDER BY position_id",
+      )
+      .all();
+    const input = authoritativeInventoryInput(21, [
+      { ...stock, key: "d", name: "NOVA" },
+      cash,
+    ]);
+    input.inventoryEvidence!.sourceUpdatedAt = "2026-08-19T12:00:00.000Z";
+    const report = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      input,
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      report.preview.id,
+    );
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) count FROM holding_import_row_decisions d JOIN holding_import_rows r ON r.id=d.import_row_id WHERE r.import_id=?",
+        )
+        .get(report.preview.id),
+    ).toEqual({ count: 0 });
+    await expect(
+      repository.applyHoldingImport(
+        subject,
+        report.preview.id,
+        {
+          currency: "USD",
+          decisions: report.preview.rows.map((row) => ({
+            rowId: row.id,
+            decision: "accepted",
+            rationale: "Synthetic stale policy attempt.",
+          })),
+        },
+        {
+          source: "policy",
+          policyVersion: "plaid-investments-holdings-auto-v5",
+          allowPartial: true,
+          reasonCodesByRow: new Map(),
+        },
+      ),
+    ).rejects.toThrow("newer account inventory");
+    expect(
+      sqlite
+        .prepare(
+          "SELECT position_id,snapshot_id,application_id FROM holding_import_application_heads ORDER BY position_id",
+        )
+        .all(),
+    ).toEqual(old);
+    const replacement = authoritativeInventoryInput(22, [stock, cash]);
+    replacement.canonicalScope.containers[0]!.protectedAccountKey = "e".repeat(
+      64,
+    );
+    replacement.canonicalScope.rows = replacement.canonicalScope.rows.map(
+      (row) => ({ ...row, protectedAccountKey: "e".repeat(64) }),
+    );
+    const ambiguous = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      replacement,
+    );
+    expect(ambiguous.preview.coverage[0]?.completeness).toBe("ambiguous");
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      ambiguous.preview.id,
+    );
+    expect(
+      (await repository.getHoldingImport(subject, ambiguous.preview.id)).summary
+        .autoAppliedCount,
+    ).toBe(0);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT position_id,snapshot_id,application_id FROM holding_import_application_heads ORDER BY position_id",
+        )
+        .all(),
+    ).toEqual(old);
+  });
+
+  it("keeps manual source corrections authoritative without reviving historical inventory", async () => {
+    const subject = "synthetic-access-subject";
+    const db = database as unknown as D1Database;
+    const core = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const cash = {
+      key: "c",
+      name: "USD",
+      type: "cash",
+      quantity: 1000_000_000,
+      value: 100000,
+    };
+    const capture = async (input: PlaidInvestmentsHoldingImportStageInput) => {
+      const report = await repository.stagePlaidInvestmentsHoldingImport(
+        subject,
+        input,
+      );
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        report.preview.id,
+      );
+      return repository.getHoldingImport(subject, report.preview.id);
+    };
+    const first = await capture(authoritativeInventoryInput(23, [core, cash]));
+    const old = first.rows.find((row) => row.ticker === "CORE")!;
+    const rotatedInput = authoritativeInventoryInput(24, [
+      { ...core, key: "d" },
+      cash,
+    ]);
+    rotatedInput.canonicalScope.rows[0]!.protectedExposureKey = "a".repeat(64);
+    rotatedInput.effectiveDate = "2026-08-08";
+    rotatedInput.rows = rotatedInput.rows.map((row) => ({
+      ...row,
+      observedOn: "2026-08-07",
+    }));
+    let rotated = await capture(rotatedInput);
+    let row = rotated.rows.find((row) => row.ticker === "CORE")!;
+    expect(row.sourceReview?.decision).toBe("same");
+    expect(row.currentObservedAt).toBe("2026-08-07T00:00:00.000Z");
+    expect(row.positionId).not.toBe(old.positionId);
+    const total = async () => {
+      const view = await new D1InvestmentPositionViewRepository(db).list(
+        subject,
+      );
+      return view.connections
+        .filter((connection) => connection.id === robinhoodConnectionId)
+        .flatMap((connection) =>
+          connection.containers.flatMap((container) => container.positions),
+        )
+        .reduce(
+          (sum, position) =>
+            sum + BigInt(position.snapshot.unrealizedValue.minor ?? 0),
+          0n,
+        );
+    };
+    expect(await total()).toBe(300000n);
+    const effects = await repository.publicHoldingReviewEffects(
+      subject,
+      rotated.id,
+      row.id,
+      old.positionId!,
+    );
+    expect(effects).toMatchObject({
+      currentTotalMinor: 300000,
+      sameTotalMinor: 300000,
+      separateTotalMinor: 500000,
+      ignoreTotalMinor: 300000,
+    });
+    const choose = async (decision: "separate" | "ignore") => {
+      row = rotated.rows.find((item) => item.ticker === "CORE")!;
+      rotated = await repository.reviewPublicHoldingImport(
+        subject,
+        rotated.id,
+        row.id,
+        {
+          decision,
+          expectedReviewId: row.identityReviewId ?? null,
+          expectedSourceSnapshotId: row.currentSnapshotId ?? null,
+          priorPositionId: null,
+          expectedPriorSnapshotId: null,
+        },
+      );
+    };
+    await choose("separate");
+    expect(await total()).toBe(500000n);
+    await choose("ignore");
+    expect(await total()).toBe(300000n);
+    const nextInput = authoritativeInventoryInput(25, [
+      { ...core, key: "d", quantity: 22_000_000, value: 220000 },
+      cash,
+    ]);
+    nextInput.canonicalScope.rows[0]!.protectedExposureKey = "a".repeat(64);
+    const next = await capture(nextInput);
+    expect(next.status).toBe("applied");
+    expect(
+      next.rows.find((item) => item.ticker === "CORE")?.adjudicationStatus,
+    ).toBe("ignored");
+    expect(await total()).toBe(100000n);
+    const excluded = next.rows.find((item) => item.ticker === "CORE")!;
+    expect(
+      await repository.publicHoldingReviewEffects(
+        subject,
+        next.id,
+        excluded.id,
+        null,
+      ),
+    ).toMatchObject({ currentTotalMinor: 100000, separateTotalMinor: 320000 });
+    const included = await repository.reviewPublicHoldingImport(
+      subject,
+      next.id,
+      excluded.id,
+      {
+        decision: "separate",
+        expectedReviewId: excluded.identityReviewId ?? null,
+        expectedSourceSnapshotId: excluded.currentSnapshotId ?? null,
+        priorPositionId: null,
+        expectedPriorSnapshotId: null,
+      },
+    );
+    expect(await total()).toBe(320000n);
+    await capture(authoritativeInventoryInput(26, [cash]));
+    expect(await total()).toBe(100000n);
+    // An old identity correction cannot revive a holding absent from a newer inventory.
+    const historical = await repository.getHoldingImport(subject, included.id);
+    const historicalRow = historical.rows.find(
+      (item) => item.ticker === "CORE",
+    )!;
+    await repository.reviewPublicHoldingImport(
+      subject,
+      historical.id,
+      historicalRow.id,
+      {
+        decision: "ignore",
+        expectedReviewId: historicalRow.identityReviewId ?? null,
+        expectedSourceSnapshotId: historicalRow.currentSnapshotId ?? null,
+        priorPositionId: null,
+        expectedPriorSnapshotId: null,
+      },
+    );
+    expect(await total()).toBe(100000n);
+  });
+
   it("auto-applies clear Robinhood rows and quarantines only ambiguous changes", async () => {
     const initialInput = robinhoodStageInput();
     initialInput.rows[0] = {
@@ -2871,7 +3498,7 @@ describe("AngelList holding import persistence", () => {
       );
     expect(initialAdjudication).toEqual({
       importId: initial.preview.id,
-      policyVersion: "plaid-investments-holdings-auto-v4",
+      policyVersion: "plaid-investments-holdings-auto-v5",
       autoAppliedCount: 2,
       quarantinedCount: 0,
       preservedPositionCount: 0,
@@ -2929,7 +3556,7 @@ describe("AngelList holding import persistence", () => {
       );
     expect(changedAdjudication).toEqual({
       importId: changed.preview.id,
-      policyVersion: "plaid-investments-holdings-auto-v4",
+      policyVersion: "plaid-investments-holdings-auto-v5",
       autoAppliedCount: 1,
       quarantinedCount: 1,
       preservedPositionCount: 1,

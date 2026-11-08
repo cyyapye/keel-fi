@@ -838,7 +838,7 @@ describe("canonical investment position view", () => {
 
     const positionSql = database.preparedSql.find(
       (sql) =>
-        sql.includes("FROM holding_positions position") &&
+        sql.includes("FROM current_positions position") &&
         sql.includes("prior_application"),
     );
     expect(positionSql).toBeDefined();

@@ -393,12 +393,29 @@
       "histories": [12, 24],
       "maxRowsRead": 15000,
       "maxRowsWritten": 10000
+    },
+    {
+      "kind": "upgrade",
+      "id": "public-inventory-v1",
+      "frontier": "0091_public_source_reviews.sql",
+      "migrations": [
+        {
+          "name": "0092_public_holding_inventories.sql",
+          "sha256": "6aac72acc3bc8f53bedc5e54247055edd015ecfcf446651b51ddd00897197d97"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 15000,
+      "maxRowsWritten": 5000
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "public-source-schema-v1",
-    "frontier": "0091_public_source_reviews.sql",
+    "id": "public-inventory-schema-v1",
+    "frontier": "0092_public_holding_inventories.sql",
     "pending": [],
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,

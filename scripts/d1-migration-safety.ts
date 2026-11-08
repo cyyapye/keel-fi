@@ -83,8 +83,8 @@ export const MigrationSafetyBaselineScenarioSchema = z
   .object({
     ...commonScenario,
     history: z.literal(24),
-    tablesPreserved: z.literal(143),
-    schemaObjectsPreserved: z.literal(726),
+    tablesPreserved: z.literal(147),
+    schemaObjectsPreserved: z.literal(746),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -301,7 +301,11 @@ export const IMPLEMENTED_BASELINE_TABLES: readonly string[] = [
   "public_company_match_runs",
   "public_exposure_company_links",
   "public_exposure_company_reviews",
+  "public_holding_account_inventory_heads",
+  "public_holding_active_positions",
   "public_holding_import_heads",
+  "public_holding_inventories",
+  "public_holding_inventory_evidence",
   "public_holding_security_heads",
   "public_holding_source_heads",
   "public_holding_source_reviews",
@@ -323,7 +327,7 @@ const digest = (value: string | Uint8Array) =>
 const same = (left: unknown, right: unknown) =>
   JSON.stringify(left) === JSON.stringify(right);
 const baselineTableNamesDigest =
-  "bfc151c59ab651349d16a6872d9cf5fb357feb3a69ef5435189ba06826776524";
+  "a6cad06c6dc3a215120c1143def92539b8d0be477b8d1f571f44057cd990bf60";
 const safetySources = [
   "package.json",
   "pnpm-lock.yaml",
@@ -425,15 +429,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "public-source-schema-v1" ||
-    registry.baseline.frontier !== "0091_public_source_reviews.sql" ||
+    registry.baseline.id !== "public-inventory-schema-v1" ||
+    registry.baseline.frontier !== "0092_public_holding_inventories.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 2 ||
+    registry.cases.length !== 3 ||
+    registry.cases[2]?.id !== "public-inventory-v1" ||
+    registry.cases[2].frontier !== "0091_public_source_reviews.sql" ||
+    registry.cases[2].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[2].migrations.map((item) => item.name),
+      ["0092_public_holding_inventories.sql"],
+    ) ||
     registry.cases[1]?.id !== "public-source-reviews-v1" ||
     registry.cases[1].frontier !== "0090_distribution_reviews.sql" ||
     registry.cases[1].fixture !== "public-holding-history-v1" ||
@@ -574,7 +585,8 @@ export function validateMigrationSafetyReceipt(
       );
     validateFootprint(actual.scenarios, review.histories, false);
     if (
-      review.id === "public-source-reviews-v1" &&
+      (review.id === "public-source-reviews-v1" ||
+        review.id === "public-inventory-v1") &&
       actual.scenarios.some(
         (scenario) =>
           (scenario.tableRows.holding_positions ?? 0) < 480 ||
@@ -591,7 +603,8 @@ export function validateMigrationSafetyReceipt(
           scenario.rowsRead > review.maxRowsRead ||
           scenario.rowsWritten > review.maxRowsWritten ||
           scenario.inboundForeignKeyPlans !==
-            (review.id === "public-source-reviews-v1"
+            (review.id === "public-source-reviews-v1" ||
+            review.id === "public-inventory-v1"
               ? "indexed-current-head-backfill-no-parent-rebuild"
               : "not-applicable-trigger-only-no-table-dml"),
       )

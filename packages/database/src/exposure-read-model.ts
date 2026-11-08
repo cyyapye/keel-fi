@@ -23,6 +23,7 @@ import {
   InvestmentPositionViewSchema,
   type InvestmentPositionView,
 } from "@keel/domain/position-read-model";
+import { includesCurrentInvestment } from "@keel/domain/investment-review";
 
 import {
   D1InvestmentPositionViewRepository,
@@ -323,58 +324,50 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
     suppliedPositionView:
       InvestmentPositionView | Promise<InvestmentPositionView>,
   ): Promise<InvestmentExposureView> {
-    const [
-      positionViewInput,
-      exposureRows,
-      mappingRows,
-      acceptedValuationRows,
-    ] = await Promise.all([
-      suppliedPositionView,
-      all<CanonicalExposureRow>(
-        this.db
-          .prepare(
-            `SELECT
+    const positionViewInput = await suppliedPositionView;
+    const sourceState = publicSourceStateFor(positionViewInput);
+    const positionIds = JSON.stringify([
+      ...new Set([
+        ...positionViewInput.connections.flatMap((connection) =>
+          connection.containers.flatMap((container) =>
+            container.positions
+              .filter(includesCurrentInvestment)
+              .map((position) => position.id),
+          ),
+        ),
+        ...(sourceState?.positions.map((position) => position.id) ?? []),
+      ]),
+    ]);
+    const [exposureRows, mappingRows, acceptedValuationRows] =
+      await Promise.all([
+        all<CanonicalExposureRow>(
+          this.db
+            .prepare(
+              `WITH current_exposures AS (
+               SELECT DISTINCT head.exposure_id FROM json_each(?) selected
+               CROSS JOIN holding_position_exposure_heads head INDEXED BY sqlite_autoindex_holding_position_exposure_heads_1 ON head.position_id=selected.value AND head.household_id=? AND head.status='active'
+             ) SELECT
                canonical_exposures.id, canonical_exposures.household_id,
                exposure_kind, canonical_name,
                protected_identity_key, canonical_exposures.company_id,
                resolution_method, evidence_sha256, created_at,
                COALESCE(redirect.company_id, link.company_id)
                  AS linked_company_id
-             FROM canonical_exposures
+             FROM current_exposures current CROSS JOIN canonical_exposures ON canonical_exposures.id=current.exposure_id
              LEFT JOIN public_exposure_company_links link
                ON link.public_exposure_id = canonical_exposures.id
              LEFT JOIN company_redirects redirect
                ON redirect.source_company_id = link.company_id
               AND redirect.household_id = link.household_id
              WHERE canonical_exposures.household_id = ?
-               AND EXISTS (
-                 SELECT 1
-                 FROM holding_position_exposure_mappings current_mapping
-                 WHERE current_mapping.exposure_id = canonical_exposures.id
-                   AND current_mapping.household_id = canonical_exposures.household_id
-                   AND current_mapping.status = 'active'
-                   AND NOT EXISTS (SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=current_mapping.position_id AND link.state='linked')
-                   AND NOT EXISTS (
-                     SELECT 1
-                     FROM holding_position_continuities continuity
-                     WHERE continuity.predecessor_position_id =
-                           current_mapping.position_id
-                   )
-                   AND NOT EXISTS (
-                     SELECT 1
-                     FROM holding_position_exposure_mappings later_mapping
-                     WHERE later_mapping.supersedes_mapping_id =
-                           current_mapping.id
-                   )
-               )
              ORDER BY lower(canonical_name), canonical_exposures.id`,
-          )
-          .bind(householdId),
-      ),
-      all<PositionExposureMappingRow>(
-        this.db
-          .prepare(
-            `SELECT
+            )
+            .bind(positionIds, householdId, householdId),
+        ),
+        all<PositionExposureMappingRow>(
+          this.db
+            .prepare(
+              `SELECT
                mapping.id, mapping.household_id, mapping.position_id,
                mapping.exposure_id, mapping.relationship_kind,
                mapping.allocation_ppm, mapping.status,
@@ -382,7 +375,8 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                mapping.evidence_sha256, mapping.effective_at,
                mapping.version, mapping.supersedes_mapping_id,
                mapping.accepted_at
-             FROM holding_position_exposure_mappings mapping
+             FROM json_each(?) selected CROSS JOIN holding_position_exposure_heads head INDEXED BY sqlite_autoindex_holding_position_exposure_heads_1 ON head.position_id=selected.value
+             CROSS JOIN holding_position_exposure_mappings mapping ON mapping.id=head.mapping_id
              WHERE mapping.household_id = ?
                AND NOT EXISTS (SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=mapping.position_id AND link.state='linked')
                AND NOT EXISTS (
@@ -390,19 +384,14 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                  FROM holding_position_continuities continuity
                  WHERE continuity.predecessor_position_id = mapping.position_id
                )
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM holding_position_exposure_mappings later
-                 WHERE later.supersedes_mapping_id = mapping.id
-               )
              ORDER BY mapping.position_id, mapping.exposure_id`,
-          )
-          .bind(householdId),
-      ),
-      all<AcceptedFinancingValuationRow>(
-        this.db
-          .prepare(
-            `SELECT
+            )
+            .bind(positionIds, householdId),
+        ),
+        all<AcceptedFinancingValuationRow>(
+          this.db
+            .prepare(
+              `SELECT
                observation.company_id,
                event.id AS evidence_event_id,
                event.effective_date,
@@ -421,10 +410,10 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                AND event.status = 'accepted'
              ORDER BY observation.company_id, event.effective_date,
                       event.id`,
-          )
-          .bind(householdId),
-      ),
-    ]);
+            )
+            .bind(householdId),
+        ),
+      ]);
     const positionView = InvestmentPositionViewSchema.parse(positionViewInput);
     const canonicalView = createInvestmentExposureView(
       positionView,

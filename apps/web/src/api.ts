@@ -1883,10 +1883,12 @@ export async function refreshPortfolioBaseline(
 
 export async function loadHoldingImport(
   importId: string,
+  signal?: AbortSignal,
 ): Promise<HoldingImportPreview> {
   const response = await fetch(
     `/api/holding-imports/${encodeURIComponent(importId)}`,
     {
+      ...(signal ? { signal } : {}),
       credentials: "same-origin",
       headers: { Accept: "application/json" },
     },

@@ -28,7 +28,7 @@ INVENTORY = ROOT / ".tugling/pilot-cases.json"
 ARTIFACTS = ROOT / ".tugling/local/pilot"
 SHARED_MEMORY = Path("/dev/shm")
 PYTHON_SUITES = ("test_linux_test_run", "test_tugling_pilot", "test_pdf_sandbox_owner", "test_ci_diagnostics", "test_ci_verification")
-BROWSER_LANES = ("mocked", "mocked-development", "stateful-development", "stateful-a", "stateful-b")
+BROWSER_LANES = ("mocked", "mocked-development", "stateful-development", "stateful-a", "stateful-b", "stateful-source")
 BROWSER_MAX_ACTIVE_WORKERS = 4
 BROWSER_RUNTIME = ROOT / ".keel-local/e2e-lanes"
 BROWSER_SEED = ROOT / ".keel-local/pilot-browser-seed"
@@ -146,10 +146,11 @@ def validate_browser_execution(lanes, execution, schedule):
 
     expected_schedule = {
         "mocked": [],
-        "mocked-development": ["mocked"],
+        "mocked-development": ["stateful-development"],
         "stateful-development": [],
         "stateful-a": [],
         "stateful-b": [],
+        "stateful-source": ["mocked"],
     }
     if schedule != expected_schedule:
         raise ValueError("browser lane dependencies differ from the reviewed four-slot schedule")
@@ -160,6 +161,7 @@ def validate_browser_execution(lanes, execution, schedule):
         "stateful-development": ("stateful", "development"),
         "stateful-a": ("stateful", "production"),
         "stateful-b": ("stateful", "production"),
+        "stateful-source": ("stateful", "production"),
     }
     for lane in BROWSER_LANES:
         config = execution[lane]
