@@ -49,6 +49,39 @@ const decisionLabel = (decision: PublicHoldingReviewInput["decision"]) =>
     ignore: "Reported position ignored",
   })[decision];
 
+export function SourceInventoryOutcome({
+  removedCount = 0,
+  preservedCount,
+  preservedObservedAt,
+}: {
+  removedCount?: number | undefined;
+  preservedCount: number;
+  preservedObservedAt?: string | undefined;
+}) {
+  return (
+    <>
+      {removedCount > 0 && (
+        <p>
+          {removedCount} unreported{" "}
+          {removedCount === 1 ? "holding removed" : "holdings removed"} from
+          current totals.
+        </p>
+      )}
+      {preservedCount > 0 && (
+        <p>
+          {preservedCount} unreported{" "}
+          {preservedCount === 1 ? "holding is" : "holdings are"} still counted
+          at {preservedCount === 1 ? "its" : "their"}{" "}
+          {preservedObservedAt
+            ? formatDate(preservedObservedAt)
+            : "last accepted"}{" "}
+          {preservedCount === 1 ? "value" : "values"}.
+        </p>
+      )}
+    </>
+  );
+}
+
 function SourceInventoryActivity({
   preview,
   working,
@@ -541,6 +574,7 @@ export function PublicSourceUpdate({
   const applied = preview.summary.autoAppliedCount;
   const kept = preview.preservedPositions ?? [];
   const completeInventory = preview.inventory?.complete === true;
+  const keptDates = new Set(kept.map((position) => position.observedAt));
   return (
     <section
       className="public-source-update"
@@ -561,31 +595,19 @@ export function PublicSourceUpdate({
                       ? `${applied} ${applied === 1 ? "position updated" : "positions updated"} automatically.`
                       : preview.rows.length === 0
                         ? "No positions in the latest report."
-                        : preview.status === "pending_review"
-                          ? "This report is incomplete. Prior holdings stay unchanged."
-                          : "Latest report checked."}{" "}
+                        : "Latest report checked."}{" "}
                   {unresolved.length > 0
                     ? `${unresolved.length} ${unresolved.length === 1 ? "decision needs" : "decisions need"} you.`
                     : "No decisions needed."}
                 </strong>
               </p>
-              {preview.inventory && !completeInventory && (
-                <p>
-                  The latest report did not establish a complete current
-                  inventory. Missing positions have not been removed.
-                </p>
-              )}
-              {kept.length > 0 && (
-                <p>
-                  {kept.length} prior{" "}
-                  {kept.length === 1
-                    ? "holding keeps its"
-                    : "holdings keep their"}{" "}
-                  dated values because{" "}
-                  {kept.length === 1 ? "it was" : "they were"} not reported. No
-                  sale was inferred.
-                </p>
-              )}
+              <SourceInventoryOutcome
+                removedCount={preview.inventory?.closedPositions.length}
+                preservedCount={kept.length}
+                preservedObservedAt={
+                  keptDates.size === 1 ? kept[0]!.observedAt : undefined
+                }
+              />
             </>
           )}
           {saved && (

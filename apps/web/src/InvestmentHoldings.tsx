@@ -1,4 +1,7 @@
-import { PublicSourceUpdate } from "./PublicSourceUpdate";
+import {
+  PublicSourceUpdate,
+  SourceInventoryOutcome,
+} from "./PublicSourceUpdate";
 import { includesCurrentInvestment } from "@keel/domain/investment-review";
 import {
   addMinorUnits,
@@ -2872,41 +2875,19 @@ export function InvestmentHoldings({
                           )}
                         </strong>
                       </p>
-                      {!summaryPending &&
-                        status.latestAdjudication.inventoryAccepted ===
-                          false && (
-                          <p>
-                            The report did not establish a complete current
-                            inventory. Missing positions have not been removed.
-                          </p>
-                        )}
-                      {!summaryPending &&
-                        status.latestAdjudication.preservedPositionCount >
-                          0 && (
-                          <p>
-                            {status.latestAdjudication.preservedPositionCount}{" "}
-                            prior{" "}
-                            {status.latestAdjudication
-                              .preservedPositionCount === 1
-                              ? "holding"
-                              : "holdings"}{" "}
-                            kept at{" "}
-                            {status.latestAdjudication
-                              .preservedPositionCount === 1
-                              ? "its"
-                              : "their"}{" "}
-                            {status.latestAdjudication.preservedObservedAt
-                              ? formatDate(
-                                  status.latestAdjudication.preservedObservedAt,
-                                )
-                              : "dated"}{" "}
-                            {status.latestAdjudication
-                              .preservedPositionCount === 1
-                              ? "value"
-                              : "values"}
-                            .
-                          </p>
-                        )}
+                      {!summaryPending && (
+                        <SourceInventoryOutcome
+                          removedCount={
+                            status.latestAdjudication.closedPositionCount
+                          }
+                          preservedCount={
+                            status.latestAdjudication.preservedPositionCount
+                          }
+                          preservedObservedAt={
+                            status.latestAdjudication.preservedObservedAt
+                          }
+                        />
+                      )}
                       <TextLink
                         onClick={() =>
                           setOpenSourceActivity((current) =>

@@ -244,6 +244,7 @@
     "apps/api/src/watch-website-search.test.ts :: bounded official website search suggestions > calls only the search endpoint and returns safe distinct unconfirmed hosts",
     "apps/api/src/watch-website-search.test.ts :: bounded official website search suggestions > rejects provider failures, oversized and malformed responses",
     "apps/web/src/AgreementEvidence.test.tsx :: explains each blocked agreement without exposing a download or an assignment",
+    "apps/web/src/InvestmentHoldings.test.tsx :: distinguishes removed holdings from unreported holdings still counted in source outcomes",
     "apps/web/src/InvestmentHoldings.test.tsx :: renders a manual Fund estimate without treating contributed cash as basis or return",
     "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment",
     "apps/web/src/InvestmentHoldings.test.tsx :: withholds returns from holding and exposure summaries when refund inclusion is unknown",

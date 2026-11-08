@@ -13,6 +13,7 @@ import {
 } from "../../../e2e/purchase-detail-fixtures";
 import { InvestmentHoldings } from "./InvestmentHoldings";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
+import { SourceInventoryOutcome } from "./PublicSourceUpdate";
 
 function renderExposures(data: InvestmentHoldingsView, holdings: Holding[]) {
   return renderToStaticMarkup(
@@ -40,6 +41,32 @@ function renderExposures(data: InvestmentHoldingsView, holdings: Holding[]) {
     />,
   );
 }
+
+test("distinguishes removed holdings from unreported holdings still counted in source outcomes", () => {
+  const render = (removedCount: number, preservedCount: number) =>
+    renderToStaticMarkup(
+      <SourceInventoryOutcome
+        removedCount={removedCount}
+        preservedCount={preservedCount}
+        preservedObservedAt="2026-10-31T12:00:00.000Z"
+      />,
+    ).replace(/<[^>]+>/gu, "");
+
+  // Different accounts in one report can have different inventory coverage.
+  const mixed = render(2, 1);
+  expect(mixed).toContain("2 unreported holdings removed from current totals.");
+  expect(mixed).toContain(
+    "1 unreported holding is still counted at its Oct 31, 2026 value.",
+  );
+  expect(mixed).not.toContain("Missing positions have not been removed");
+  expect(render(1, 0)).toBe(
+    "1 unreported holding removed from current totals.",
+  );
+  expect(render(0, 0)).toBe("");
+  expect(render(0, 2)).toBe(
+    "2 unreported holdings are still counted at their Oct 31, 2026 values.",
+  );
+});
 
 test("renders a manual Fund estimate without treating contributed cash as basis or return", () => {
   const { current, view } = manualFundWithEstimate();

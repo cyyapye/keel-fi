@@ -1113,9 +1113,12 @@ test(
       ),
     ).toBeVisible();
     await expect(
-      page.getByText("1 prior holding kept at its dated value.", {
-        exact: true,
-      }),
+      page.getByText(
+        "1 unreported holding is still counted at its last accepted value.",
+        {
+          exact: true,
+        },
+      ),
     ).toBeVisible();
     await expect(
       page.getByText("The position identity conflicts", { exact: false }),
