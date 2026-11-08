@@ -145,12 +145,21 @@ export async function publicSourceFixture(label: string, verified = false) {
           portfolioBaselineId: null,
         },
       });
-      if (next)
+      if (next) {
+        // Keep the visible check date deterministic across midnight and later
+        // replays. This mutates only this isolated synthetic browser account.
+        await db
+          .prepare(
+            "UPDATE connector_accounts SET last_synced_at = ? WHERE id = ?",
+          )
+          .bind("2026-11-07T12:00:00.000Z", connection.connectorAccountId)
+          .run();
         return {
           connectionId: connection.id,
           importId: staged.preview.id,
           nonce,
         };
+      }
     }
     throw new Error("Synthetic report was not created.");
   } finally {
