@@ -376,14 +376,31 @@
       "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
+    },
+    {
+      "kind": "upgrade",
+      "id": "public-source-reviews-v1",
+      "frontier": "0090_distribution_reviews.sql",
+      "migrations": [
+        {
+          "name": "0091_public_source_reviews.sql",
+          "sha256": "464a22585c9358a726c71e98266348a44227c7fbf7a0432056fb9927409ce61c"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 15000,
+      "maxRowsWritten": 10000
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "distribution-schema-v1",
-    "frontier": "0090_distribution_reviews.sql",
+    "id": "public-source-schema-v1",
+    "frontier": "0091_public_source_reviews.sql",
     "pending": [],
-    "fixture": "holding-history-v1",
+    "fixture": "public-holding-history-v1",
     "mainPositions": 120,
     "unrelatedPositions": 120,
     "histories": [24]

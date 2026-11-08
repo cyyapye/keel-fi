@@ -2163,6 +2163,291 @@ describe("AngelList holding import persistence", () => {
     ).toEqual({ count: 1 });
   });
 
+  it("records and corrects only the selected public identity decision without rewriting accepted history", async () => {
+    const subject = "synthetic-access-subject";
+    const initial = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      robinhoodStageInput(),
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      initial.preview.id,
+    );
+    const baselines = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
+    const initialPlan = await baselines.getState(subject);
+    await baselines.confirm(subject, {
+      sourceRevision: initialPlan.sourceRevision!,
+      baseForecastSnapshotId: initialPlan.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: initialPlan.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: false,
+      cashOverlapReviewConfirmed: false,
+      changeNote: "Synthetic public source baseline.",
+    });
+    const next = robinhoodStageInput("e1".repeat(32));
+    next.sha256 = "e2".repeat(32);
+    next.effectiveDate = "2026-08-11";
+    next.retrievedAt = "2026-08-11T12:00:00.000Z";
+    next.rows[0] = {
+      ...next.rows[0]!,
+      naturalKeySha256: "e3".repeat(32),
+      marketValueMinor: 130_000,
+      observedOn: "2026-08-11",
+    };
+    next.canonicalScope.rows[0] = {
+      ...next.canonicalScope.rows[0]!,
+      protectedPositionKey: "e3".repeat(32),
+      publicExposureIdentityKind: null,
+      protectedExposureKey: null,
+    };
+    const staged = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      next,
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    let preview = await repository.getHoldingImport(subject, staged.preview.id);
+    expect(preview.summary).toMatchObject({
+      quarantinedCount: 1,
+      preservedPositionCount: 1,
+    });
+    const prior = preview.priorPositions![0]!;
+    const decide = async (decision: "same" | "separate" | "ignore") => {
+      const row = preview.rows[0]!;
+      preview = await repository.reviewPublicHoldingImport(
+        subject,
+        preview.id,
+        row.id,
+        {
+          decision,
+          expectedReviewId: row.identityReviewId ?? null,
+          expectedSourceSnapshotId: row.currentSnapshotId ?? null,
+          priorPositionId: decision === "same" ? prior.positionId : null,
+          expectedPriorSnapshotId:
+            decision === "same" ? prior.snapshotId : null,
+        },
+      );
+      expect(
+        await refreshAcceptedPortfolioBaseline(baselines, subject),
+      ).toMatchObject({ status: "refreshed" });
+      const plan = await baselines.getState(subject);
+      expect(plan.exceptions).toEqual([]);
+      expect(plan.status).toBe("current");
+      expect(plan.latestBaseline?.fiEligibleLiquidMinor).toBe(
+        decision === "same"
+          ? 130000
+          : decision === "separate"
+            ? 253457
+            : 123457,
+      );
+      const view = await new D1InvestmentPositionViewRepository(
+        database as unknown as D1Database,
+      ).list(subject);
+      return view.connections
+        .filter((c) => c.adapterType === "plaid-investments")
+        .flatMap((c) => c.containers.flatMap((a) => a.positions))
+        .map((p) => p.snapshot.unrealizedValue.minor)
+        .sort((a, b) => (a ?? 0) - (b ?? 0));
+    };
+    expect(await decide("same")).toEqual([130_000]);
+    expect(preview.summary).toMatchObject({
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    const firstReceipt = preview.rows[0]!.sourceReview!.id;
+    await expect(
+      repository.reviewPublicHoldingImport(
+        subject,
+        preview.id,
+        preview.rows[0]!.id,
+        {
+          decision: "ignore",
+          expectedReviewId: null,
+          expectedSourceSnapshotId: preview.rows[0]!.currentSnapshotId ?? null,
+          priorPositionId: null,
+          expectedPriorSnapshotId: null,
+        },
+      ),
+    ).rejects.toThrow("decision changed");
+    expect(() =>
+      sqlite
+        .prepare(
+          "UPDATE public_holding_source_reviews SET decision='separate' WHERE id=?",
+        )
+        .run(firstReceipt),
+    ).toThrow("immutable");
+    expect(() =>
+      sqlite
+        .prepare("DELETE FROM public_holding_source_reviews WHERE id=?")
+        .run(firstReceipt),
+    ).toThrow("immutable");
+    expect(await decide("separate")).toEqual([123_457, 130_000]);
+    expect(await decide("ignore")).toEqual([123_457]);
+    expect(await decide("separate")).toEqual([123_457, 130_000]);
+    expect(
+      sqlite
+        .prepare("SELECT COUNT(*) count FROM public_holding_source_reviews")
+        .get(),
+    ).toEqual({ count: 4 });
+    expect(
+      sqlite
+        .prepare("SELECT id FROM public_holding_source_reviews WHERE id=?")
+        .get(firstReceipt),
+    ).toEqual({ id: firstReceipt });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) count FROM holding_position_snapshots s JOIN holding_positions p ON p.id=s.position_id WHERE p.provider='plaid_investments'",
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+    expect(() =>
+      sqlite.exec("UPDATE public_holding_source_reviews SET decision='ignore'"),
+    ).toThrow("immutable");
+    expect(() =>
+      sqlite.exec("DELETE FROM public_holding_source_reviews"),
+    ).toThrow("immutable");
+  });
+
+  it("ignores an unresolved report without accepting its financial facts and permits a later recorded correction", async () => {
+    const subject = "synthetic-access-subject";
+    const first = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      robinhoodStageInput(),
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      first.preview.id,
+    );
+    const next = robinhoodStageInput("d1".repeat(32));
+    next.sha256 = "d2".repeat(32);
+    next.effectiveDate = "2026-08-12";
+    next.retrievedAt = "2026-08-12T12:00:00.000Z";
+    next.rows[0] = { ...next.rows[0]!, naturalKeySha256: "d3".repeat(32) };
+    next.canonicalScope.rows[0] = {
+      ...next.canonicalScope.rows[0]!,
+      protectedPositionKey: "d3".repeat(32),
+      publicExposureIdentityKind: null,
+      protectedExposureKey: null,
+    };
+    const staged = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      next,
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    let preview = await repository.reviewPublicHoldingImport(
+      subject,
+      staged.preview.id,
+      staged.preview.rows[0]!.id,
+      {
+        decision: "ignore",
+        expectedReviewId: null,
+        expectedSourceSnapshotId: null,
+        priorPositionId: null,
+        expectedPriorSnapshotId: null,
+      },
+    );
+    expect(preview.status).toBe("applied");
+    expect(preview.rows[0]!.sourceReview).toMatchObject({
+      decision: "ignore",
+      appliesToThisReport: true,
+      importId: preview.id,
+      rowId: preview.rows[0]!.id,
+    });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) count FROM holding_import_applications a JOIN holding_import_rows r ON r.id=a.import_row_id WHERE r.import_id=?",
+        )
+        .get(preview.id),
+    ).toEqual({ count: 0 });
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      preview.id,
+    );
+    expect(
+      (await repository.getHoldingImport(subject, preview.id)).rows[0]!
+        .adjudicationStatus,
+    ).toBe("ignored");
+    expect(
+      await repository.listPendingHoldingImports(subject),
+    ).not.toContainEqual(expect.objectContaining({ id: preview.id }));
+    preview = await repository.reviewPublicHoldingImport(
+      subject,
+      preview.id,
+      preview.rows[0]!.id,
+      {
+        decision: "separate",
+        expectedReviewId: null,
+        expectedSourceSnapshotId: null,
+        priorPositionId: null,
+        expectedPriorSnapshotId: null,
+      },
+    );
+    expect(preview.rows[0]!.sourceReview).toMatchObject({
+      decision: "separate",
+      decisionSource: "manual",
+    });
+  });
+
+  it("resolves a unique verified public security identity automatically before presenting a decision", async () => {
+    const subject = "synthetic-access-subject";
+    const first = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      robinhoodStageInput(),
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      first.preview.id,
+    );
+    const next = robinhoodStageInput("c1".repeat(32));
+    next.sha256 = "c2".repeat(32);
+    next.effectiveDate = "2026-08-13";
+    next.retrievedAt = "2026-08-13T12:00:00.000Z";
+    next.rows[0] = {
+      ...next.rows[0]!,
+      naturalKeySha256: "c3".repeat(32),
+      marketValueMinor: 150_000,
+    };
+    next.canonicalScope.rows[0] = {
+      ...next.canonicalScope.rows[0]!,
+      protectedPositionKey: "c3".repeat(32),
+    };
+    const staged = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      next,
+    );
+    const result = await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    expect(result).toMatchObject({
+      autoAppliedCount: 1,
+      quarantinedCount: 0,
+      preservedPositionCount: 0,
+    });
+    expect(
+      (await repository.getHoldingImport(subject, staged.preview.id)).rows[0]!
+        .sourceReview,
+    ).toMatchObject({ decision: "same", decisionSource: "policy" });
+    const view = await new D1InvestmentPositionViewRepository(
+      database as unknown as D1Database,
+    ).list(subject);
+    expect(
+      view.connections
+        .filter((c) => c.adapterType === "plaid-investments")
+        .flatMap((c) => c.containers.flatMap((a) => a.positions))
+        .map((p) => p.snapshot.unrealizedValue.minor),
+    ).toEqual([150_000]);
+  });
+
   it("retains a complete zero-row account observation", async () => {
     const input = robinhoodStageInput("0".repeat(64));
     input.objectKey = "holding-imports/synthetic-empty-robinhood.json";
@@ -2249,7 +2534,7 @@ describe("AngelList holding import persistence", () => {
 
     expect(adjudication).toEqual({
       importId: staged.preview.id,
-      policyVersion: "plaid-investments-holdings-auto-v3",
+      policyVersion: "plaid-investments-holdings-auto-v4",
       autoAppliedCount: 1,
       quarantinedCount: 0,
       preservedPositionCount: 0,
@@ -2299,10 +2584,11 @@ describe("AngelList holding import persistence", () => {
     ).resolves.toMatchObject({
       autoAppliedCount: 0,
       quarantinedCount: 0,
-      preservedPositionCount: 0,
+      preservedPositionCount: 1,
     });
 
     const laterInput = robinhoodStageInput("e".repeat(64));
+    laterInput.canonicalScope.rows[0]!.protectedPositionKey = "ef".repeat(32);
     laterInput.objectKey = "holding-imports/synthetic-later-robinhood.json";
     laterInput.sha256 = "e".repeat(64);
     const later = await repository.stagePlaidInvestmentsHoldingImport(
@@ -2317,12 +2603,14 @@ describe("AngelList holding import persistence", () => {
     ).resolves.toMatchObject({
       autoAppliedCount: 1,
       quarantinedCount: 0,
-      preservedPositionCount: 0,
+      preservedPositionCount: 1,
     });
     expect(
       (
         sqlite
-          .prepare("SELECT COUNT(*) AS count FROM holding_import_quarantines")
+          .prepare(
+            "SELECT COUNT(*) AS count FROM holding_import_quarantines WHERE import_row_id IS NOT NULL",
+          )
           .get() as { count: number }
       ).count,
     ).toBe(1);
@@ -2362,7 +2650,7 @@ describe("AngelList holding import persistence", () => {
       );
     expect(initialAdjudication).toEqual({
       importId: initial.preview.id,
-      policyVersion: "plaid-investments-holdings-auto-v3",
+      policyVersion: "plaid-investments-holdings-auto-v4",
       autoAppliedCount: 2,
       quarantinedCount: 0,
       preservedPositionCount: 0,
@@ -2420,9 +2708,9 @@ describe("AngelList holding import persistence", () => {
       );
     expect(changedAdjudication).toEqual({
       importId: changed.preview.id,
-      policyVersion: "plaid-investments-holdings-auto-v3",
+      policyVersion: "plaid-investments-holdings-auto-v4",
       autoAppliedCount: 1,
-      quarantinedCount: 2,
+      quarantinedCount: 1,
       preservedPositionCount: 1,
     });
     const preview = await repository.getHoldingImport(
@@ -2433,7 +2721,7 @@ describe("AngelList holding import persistence", () => {
       status: "quarantined",
       summary: {
         autoAppliedCount: 1,
-        quarantinedCount: 2,
+        quarantinedCount: 1,
         preservedPositionCount: 1,
       },
       rows: [
@@ -3264,8 +3552,8 @@ describe("reviewed portfolio baseline persistence", () => {
       "manual_required",
       "refreshed",
     ]);
-    // Two bounded attempts plus one projection read after the losing race.
-    expect(database.roundTripCount).toBeLessThanOrEqual(106);
+    // Two bounded attempts, each reading current source heads, plus one projection read after the losing race.
+    expect(database.roundTripCount).toBeLessThanOrEqual(120);
     let partial = await filtered.getState(subject);
     expect(partial.status).toBe("ready");
     expect(partial.automaticUpdateCount).toBe(0);
@@ -3284,7 +3572,14 @@ describe("reviewed portfolio baseline persistence", () => {
     expect(partial.exceptions).toHaveLength(2);
     expect(partial.latestBaseline?.fiEligibleLiquidMinor).toBe(12_135_000);
     // The forward migration preserves populated baselines and their child references.
+    const publicGuard = sqlite
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='baseline_public_source_guard'",
+      )
+      .get() as { sql: string };
     sqlite.exec("BEGIN");
+    // This historical replay predates 0091; reinstall its later dependent guard after rebuilding the parent.
+    sqlite.exec("DROP TRIGGER baseline_public_source_guard");
     sqlite.exec(
       readFileSync(
         resolve(
@@ -3293,6 +3588,7 @@ describe("reviewed portfolio baseline persistence", () => {
         "utf8",
       ),
     );
+    sqlite.exec(publicGuard.sql);
     sqlite.exec("COMMIT");
     expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     const countBefore = sqlite

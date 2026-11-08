@@ -3032,9 +3032,11 @@ describe("holding ownership and exposure reconciliation migration", () => {
     const database = new DatabaseSync(":memory:");
     database.exec("PRAGMA foreign_keys = ON");
     try {
-      migrationFiles.forEach((file) => {
-        database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
-      });
+      migrationFiles
+        .filter((file) => !file.endsWith("0091_public_source_reviews.sql"))
+        .forEach((file) => {
+          database.exec(readFileSync(resolve(process.cwd(), file), "utf8"));
+        });
       database.exec(
         "DROP TRIGGER holding_position_exposure_mappings_ownership_insert",
       );
@@ -3219,6 +3221,12 @@ describe("holding ownership and exposure reconciliation migration", () => {
         ),
       );
 
+      database.exec(
+        readFileSync(
+          "packages/database/migrations/0091_public_source_reviews.sql",
+          "utf8",
+        ),
+      );
       const projection = await exposureView.list(
         accessSubject,
         "2026-08-16T12:00:00.000Z",

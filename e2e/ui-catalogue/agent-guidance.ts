@@ -10,6 +10,7 @@ export type Guidance = {
 };
 
 const controls = "Controls and form feedback";
+export const consumerRules = ["Verification and enforcement"];
 const navigation = "Selection and responsive navigation";
 const hierarchy = "Type and spacing hierarchy";
 const example = (symbol: string, title?: string): Guidance["examples"] => [

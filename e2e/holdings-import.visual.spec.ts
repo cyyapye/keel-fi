@@ -366,7 +366,7 @@ const robinhoodImportPreview = {
     unchangedCount: 0,
     needsAttentionCount: 1,
     autoAppliedCount: 2,
-    quarantinedCount: 2,
+    quarantinedCount: 1,
     preservedPositionCount: 1,
   },
   rows: [
@@ -420,6 +420,7 @@ const robinhoodImportPreview = {
     },
     {
       id: "robinhood_row_3",
+      acceptanceBlocked: true,
       sourceRowNumber: 3,
       positionName: "CASH · Cash",
       exposureName: "Cash",
@@ -810,9 +811,9 @@ test(
             latestImportId: robinhoodImportPreview.id,
             latestAdjudication: {
               importId: robinhoodImportPreview.id,
-              policyVersion: "plaid-investments-holdings-auto-v3",
+              policyVersion: "plaid-investments-holdings-auto-v4",
               autoAppliedCount: 2,
-              quarantinedCount: 2,
+              quarantinedCount: 1,
               preservedPositionCount: 1,
               baselineRefreshStatus: "refreshed",
             },
@@ -827,31 +828,47 @@ test(
       },
     );
 
+    await page.route(
+      "**/api/holding-imports/holding_import_synthetic_robinhood/rows/*/review*",
+      (route) =>
+        route.fulfill({
+          json: {
+            rowId: "robinhood_row_3",
+            priorPositionId: null,
+            currentTotalMinor: null,
+            sameTotalMinor: null,
+            separateTotalMinor: null,
+            ignoreTotalMinor: null,
+          },
+        }),
+    );
     await page.goto("/holdings/sources");
     await expect(
       page.getByRole("heading", { name: "Brokerages" }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Add brokerage" }).click();
 
-    await expect(page).toHaveURL(
-      /\/holdings\/imports\/holding_import_synthetic_robinhood$/,
-    );
-    await expect(
-      page.getByRole("heading", { name: "Uncertain records stayed unchanged" }),
-    ).toBeFocused();
+    await expect(page).toHaveURL(/\/holdings\/sources$/u);
     await expect(
       page.getByText(
-        "Keel kept the last accepted values and did not infer sales.",
+        "2 positions updated automatically. 1 decision needs you.",
+        { exact: true },
       ),
     ).toBeVisible();
-    const summary = page.getByLabel("Automatic review summary");
-    await expect(summary).toContainText("2Applied");
-    await expect(summary).toContainText("2Exceptions");
-    await expect(summary).toContainText("1Prior positions kept");
     await expect(
-      page.getByText("The position identity conflicts"),
+      page.getByText("1 prior holding kept at its dated value.", {
+        exact: true,
+      }),
     ).toBeVisible();
-
+    await expect(
+      page.getByText("The position identity conflicts", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Confirm same holding", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Add separately", exact: true }),
+    ).toBeDisabled();
     const viewportWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,
@@ -875,9 +892,7 @@ test(
       },
     );
 
-    await expect(
-      page.getByRole("button", { name: "Back to holdings" }),
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Check now" })).toBeVisible();
     expect(exchangeBodies).toEqual([{ publicToken: "public-synthetic" }]);
   },
 );

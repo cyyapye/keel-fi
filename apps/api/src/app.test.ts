@@ -495,6 +495,74 @@ function providerBrowserSessionRepository(
 }
 
 describe("Keel API", () => {
+  it("validates public source decisions and keeps both comparison and acceptance authenticated", async () => {
+    const app = createApp();
+    const path =
+      "/api/holding-imports/synthetic-report/rows/synthetic-row/review";
+    expect((await app.request(path, {}, testEnv("production"))).status).toBe(
+      401,
+    );
+    expect(
+      (
+        await app.request(
+          path,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              decision: "ignore",
+              expectedReviewId: null,
+              expectedSourceSnapshotId: null,
+              priorPositionId: null,
+              expectedPriorSnapshotId: null,
+            }),
+          },
+          testEnv("production"),
+        )
+      ).status,
+    ).toBe(401);
+    for (const body of [
+      {
+        decision: "same",
+        expectedReviewId: null,
+        expectedSourceSnapshotId: null,
+        priorPositionId: null,
+        expectedPriorSnapshotId: null,
+      },
+      {
+        decision: "ignore",
+        expectedReviewId: null,
+        expectedSourceSnapshotId: null,
+        priorPositionId: null,
+        expectedPriorSnapshotId: null,
+        acceptAll: true,
+      },
+    ]) {
+      expect(
+        (
+          await app.request(
+            path,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            },
+            testEnv("local"),
+          )
+        ).status,
+      ).toBe(400);
+    }
+    expect(
+      (
+        await app.request(
+          path + "?priorPositionId=" + "x".repeat(201),
+          {},
+          testEnv("local"),
+        )
+      ).status,
+    ).toBe(400);
+  });
+
   it("keeps import reads passive and runs automatic reconciliation only on an authenticated POST", async () => {
     const reconcileHoldingImport = vi
       .fn()

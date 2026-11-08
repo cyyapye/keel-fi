@@ -35,12 +35,19 @@ it("keeps partial baseline refresh costs bounded with 120 sources, tied-date his
       cashOverlapReviewConfirmed: false,
       changeNote: "Set synthetic cost baseline.",
     });
+    const publicGuard = await fixture.database
+      .prepare(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='baseline_public_source_guard'",
+      )
+      .first<{ sql: string }>();
+    await fixture.execute("DROP TRIGGER baseline_public_source_guard");
     await fixture.execute(
       readFileSync(
         "packages/database/migrations/0068_exception_baseline_empty.sql",
         "utf8",
       ),
     );
+    await fixture.execute(publicGuard!.sql);
     expect(
       (await fixture.database.prepare("PRAGMA foreign_key_check").all())
         .results,

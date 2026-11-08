@@ -114,14 +114,14 @@ function exactSet(actual: string[], expected: string[], label: string) {
     throw new Error(`${label}: missing, duplicate or unknown entries`);
 }
 function walk(path: string): string[] {
-  if (lstatSync(path).isSymbolicLink()) throw new Error(`Symlink: ${path}`);
-  return lstatSync(path).isDirectory()
-    ? readdirSync(path)
-        .sort()
-        .flatMap((name) => walk(join(path, name)))
-    : /\.(?:tsx?|css|json|md)$/u.test(path)
-      ? [path]
-      : [];
+  const entry = lstatSync(path);
+  if (entry.isSymbolicLink()) throw new Error(`Symlink: ${path}`);
+  if (entry.isDirectory())
+    return readdirSync(path)
+      .sort()
+      .flatMap((name) => walk(join(path, name)));
+  if (!entry.isFile()) throw new Error(`Not a regular source file: ${path}`);
+  return [path];
 }
 export function sourceFiles(root: string): string[] {
   const adapter = adapterSchema.parse(readJson(join(root, ".tugling/ui.json")));

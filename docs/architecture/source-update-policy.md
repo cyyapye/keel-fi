@@ -33,6 +33,49 @@ fixed round-trip budget and an indexed latest-observation query plan. Opening
 Holdings can recover its bounded pending queue of at most 20 imports through
 separate authenticated POSTs, after the initial read has rendered.
 
+### Public brokerage source updates
+
+`plaid-investments-holdings-auto-v4` accepts clear complete USD reports and
+reuses recorded source matches. A unique verified CUSIP, ISIN or SEDOL in the
+same account, currency and instrument type can establish continuity when a
+source key changes. Tickers, names and similar amounts can prefill a comparison;
+they never accept a match. Conflicts, multiple candidates and independently
+accepted separate holdings retain their identity boundary. Partial or invalid
+reports preserve accepted values.
+
+Only unresolved incoming rows count as decisions. An omitted accepted holding
+keeps its named, dated value and never creates an acknowledgement or review
+task. Such preservation remains in optional activity. A decision elsewhere does
+not block the next due source check or the clear rows in its report. The daily
+admission and retry budgets remain in force.
+
+The source comparison offers three direct choices using recorded facts: confirm
+the same holding, add a separate holding, or ignore this reported position. It
+shows the resulting accepted total before saving; an unavailable amount remains
+unknown. A recorded match counts one actual accepted position and snapshot,
+retaining both source histories. Separate counts both; Ignore retains the prior
+holding. Ignore applies to this report and repeated copies of it. A later report
+is evaluated afresh against evidence and the saved identity decision.
+
+Source decisions are append-only. Activity can change the recorded choice
+without rewriting earlier decisions or accepted snapshots. Report-only ignores
+do not accept financial facts. Corrections to an already included source can
+exclude that record and restore the dated prior holding. Accepted planning
+baselines reuse the same confirmed aliases and exclusions; they do not ask for
+the identity decision again or infer a sale. Each subsequent baseline binds its
+source graph version at commit, while existing manual planning choices remain.
+
+Migration `0091` precedes this API/web release. It backfills indexed
+latest-import and current-security projections, maintains them during
+ingestion/acceptance, and guards manual decisions, unique verified policy
+matches, stale snapshots, cycles, account/household scope and append-only
+history. Routine policy acceptance rechecks the latest report, observation and
+identity atomically. GETs read these projections without recovery or writes. The
+UI loads one comparison on demand, bounds activity to 20 rows per batch, and
+never replays an uncertain financial write automatically. A failed save keeps
+the selection and offers an explicit status read before another deliberate
+attempt.
+
 ### Manual Wefunder template
 
 Use **Holdings → Sources → Import holdings → Wefunder** to download Keel’s CSV

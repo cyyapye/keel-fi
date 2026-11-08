@@ -83,8 +83,8 @@ export const MigrationSafetyBaselineScenarioSchema = z
   .object({
     ...commonScenario,
     history: z.literal(24),
-    tablesPreserved: z.literal(137),
-    schemaObjectsPreserved: z.literal(693),
+    tablesPreserved: z.literal(143),
+    schemaObjectsPreserved: z.literal(726),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -105,6 +105,7 @@ export const MigrationSafetyScenarioSchema = z
     inboundForeignKeyPlans: z.enum([
       "indexed-positive-and-empty-before-destructive-statements",
       "not-applicable-trigger-only-no-table-dml",
+      "indexed-current-head-backfill-no-parent-rebuild",
     ]),
     completeSequence: z.literal("preparation-through-cleanup"),
   })
@@ -276,6 +277,7 @@ export const IMPLEMENTED_BASELINE_TABLES: readonly string[] = [
   "portfolio_baseline_cash_items",
   "portfolio_baseline_items",
   "portfolio_baseline_policy_decisions",
+  "portfolio_baseline_public_source_versions",
   "portfolio_baselines",
   "portfolio_watch_checks",
   "portfolio_watch_read_receipts",
@@ -299,6 +301,11 @@ export const IMPLEMENTED_BASELINE_TABLES: readonly string[] = [
   "public_company_match_runs",
   "public_exposure_company_links",
   "public_exposure_company_reviews",
+  "public_holding_import_heads",
+  "public_holding_security_heads",
+  "public_holding_source_heads",
+  "public_holding_source_reviews",
+  "public_holding_source_versions",
   "public_source_observations",
   "retained_public_exposure_document_failures",
   "review_decisions",
@@ -316,7 +323,7 @@ const digest = (value: string | Uint8Array) =>
 const same = (left: unknown, right: unknown) =>
   JSON.stringify(left) === JSON.stringify(right);
 const baselineTableNamesDigest =
-  "cea70f69ba7f5e12f9f0dde90c0eb087a8cca4dcea33a15d843f8824dedd443b";
+  "bfc151c59ab651349d16a6872d9cf5fb357feb3a69ef5435189ba06826776524";
 const safetySources = [
   "package.json",
   "pnpm-lock.yaml",
@@ -418,15 +425,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "distribution-schema-v1" ||
-    registry.baseline.frontier !== "0090_distribution_reviews.sql" ||
-    registry.baseline.fixture !== "holding-history-v1"
+    registry.baseline.id !== "public-source-schema-v1" ||
+    registry.baseline.frontier !== "0091_public_source_reviews.sql" ||
+    registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 1 ||
+    registry.cases.length !== 2 ||
+    registry.cases[1]?.id !== "public-source-reviews-v1" ||
+    registry.cases[1].frontier !== "0090_distribution_reviews.sql" ||
+    registry.cases[1].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[1].migrations.map((item) => item.name),
+      ["0091_public_source_reviews.sql"],
+    ) ||
     registry.cases[0]?.id !== "distribution-reviews-v1" ||
     registry.cases[0].frontier !== "0089_manual_holdings.sql" ||
     registry.cases[0].fixture !== "holding-history-v1" ||
@@ -482,6 +496,15 @@ function validateFootprint(
     )
       throw new Error(
         "Migration footprint evidence is incomplete or has unexpected table keys",
+      );
+    if (
+      baseline &&
+      ((scenario.tableRows.holding_positions ?? 0) < 480 ||
+        (scenario.tableRows.holding_position_snapshots ?? 0) <
+          240 * (scenario.history + 2))
+    )
+      throw new Error(
+        "Migration footprint evidence is below its declared populated scale",
       );
     if (
       (scenario.tableRows.holding_positions ?? 0) < 240 ||
@@ -551,12 +574,26 @@ export function validateMigrationSafetyReceipt(
       );
     validateFootprint(actual.scenarios, review.histories, false);
     if (
+      review.id === "public-source-reviews-v1" &&
+      actual.scenarios.some(
+        (scenario) =>
+          (scenario.tableRows.holding_positions ?? 0) < 480 ||
+          (scenario.tableRows.holding_position_snapshots ?? 0) <
+            240 * (scenario.history + 2),
+      )
+    )
+      throw new Error(
+        "Public source migration needs populated public and unrelated history",
+      );
+    if (
       actual.scenarios.some(
         (scenario) =>
           scenario.rowsRead > review.maxRowsRead ||
           scenario.rowsWritten > review.maxRowsWritten ||
           scenario.inboundForeignKeyPlans !==
-            "not-applicable-trigger-only-no-table-dml",
+            (review.id === "public-source-reviews-v1"
+              ? "indexed-current-head-backfill-no-parent-rebuild"
+              : "not-applicable-trigger-only-no-table-dml"),
       )
     )
       throw new Error(

@@ -65,6 +65,8 @@ import {
   HoldingImportApplyInputSchema,
   HoldingImportApplyResultSchema,
   HoldingImportPreviewSchema,
+  PublicHoldingReviewInputSchema,
+  PublicHoldingReviewEffectsSchema,
   HoldingImportSummariesSchema,
   LiabilitiesStateSchema,
   LiabilityApplyInputSchema,
@@ -115,6 +117,7 @@ import {
   type GoalDraftInput,
   type HoldingImportApplyInput,
   type HoldingImportApplyResult,
+  type PublicHoldingReviewInput,
   type HoldingImportPreview,
   type HoldingImportSummary,
   type LiabilitiesState,
@@ -1810,6 +1813,44 @@ export async function reconcileHoldingImport(
   );
   if (!response.ok)
     throw new Error("This update could not be checked. Try again.");
+  return HoldingImportPreviewSchema.parse(await response.json());
+}
+
+export async function loadPublicHoldingReviewEffects(
+  importId: string,
+  rowId: string,
+  priorPositionId: string | null,
+  signal?: AbortSignal,
+) {
+  const params = new URLSearchParams();
+  if (priorPositionId) params.set("priorPositionId", priorPositionId);
+  const response = await fetch(
+    `/api/holding-imports/${encodeURIComponent(importId)}/rows/${encodeURIComponent(rowId)}/review?${params}`,
+    { signal: signal ?? null },
+  );
+  if (!response.ok)
+    throw await responseError(response, "This comparison could not be loaded.");
+  return PublicHoldingReviewEffectsSchema.parse(await response.json());
+}
+
+export async function reviewPublicHoldingImport(
+  importId: string,
+  rowId: string,
+  input: PublicHoldingReviewInput,
+): Promise<HoldingImportPreview> {
+  const response = await fetch(
+    `/api/holding-imports/${encodeURIComponent(importId)}/rows/${encodeURIComponent(rowId)}/review`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(PublicHoldingReviewInputSchema.parse(input)),
+    },
+  );
+  if (!response.ok)
+    throw await responseError(
+      response,
+      "Keel could not confirm this source decision.",
+    );
   return HoldingImportPreviewSchema.parse(await response.json());
 }
 

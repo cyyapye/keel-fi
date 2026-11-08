@@ -29,6 +29,10 @@ import {
 } from "@keel/domain/investment-review";
 import { LegalNameDocumentReferenceSchema } from "@keel/domain/provider-legal-documents";
 import { z } from "zod";
+import {
+  publicSourceState,
+  bindPublicSourceState,
+} from "./public-source-state";
 import { AutomaticInvestmentReviewSchema } from "@keel/domain/automatic-investment-review";
 
 type HouseholdIdentity = {
@@ -753,7 +757,50 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
           .bind(householdId),
       ),
     ]);
-    return groupRows(connectionRows, containerRows, positionRows, asOf);
+    const publicConnections = new Set(
+      connectionRows
+        .filter((row) => row.adapter_type === "plaid-investments")
+        .map((row) => row.connection_id),
+    );
+    const publicContainers = new Set(
+      containerRows
+        .filter((row) => publicConnections.has(row.connection_id))
+        .map((row) => row.container_id),
+    );
+    const sourceState =
+      !includeLinked &&
+      positionRows.some((row) => publicContainers.has(row.container_id))
+        ? await publicSourceState(this.db, householdId)
+        : null;
+    if (sourceState) {
+      const rowsById = new Map(
+        positionRows.map((row) => [row.position_id, row]),
+      );
+      for (const position of sourceState.positions) {
+        if (
+          !publicContainers.has(position.container_id) ||
+          sourceState.hiddenIds.has(position.id)
+        )
+          continue;
+        if (rowsById.get(position.id)?.snapshot_id !== position.snapshot_id)
+          throw new Error(
+            "Public source read changed. Reload the latest holdings.",
+          );
+      }
+    }
+    return bindPublicSourceState(
+      groupRows(
+        connectionRows,
+        containerRows,
+        sourceState
+          ? positionRows.filter(
+              (row) => !sourceState.hiddenIds.has(row.position_id),
+            )
+          : positionRows,
+        asOf,
+      ),
+      sourceState,
+    );
   }
 
   private async findIdentity(

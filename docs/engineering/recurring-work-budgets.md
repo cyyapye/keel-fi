@@ -847,3 +847,47 @@ holdings or recommendations. The smoke requires a validated provider response
 responses. This adds at most one provider request per smoke attempt, at most
 three during the existing version-propagation retry budget, and zero idle calls.
 Live review verification remains necessary to prove a particular recommendation.
+
+## Brokerage source decisions and routine updates
+
+Source identity decisions add no scheduler, timer, provider read or object
+operation. Comparisons are passive GETs opened deliberately for one row or
+candidate. A choice sends one authenticated POST, followed by one existing
+planning-refresh POST and bounded holdings/status readback. An uncertain save
+exposes a status GET before a deliberate retry; it is never replayed by a timer.
+An idle open source panel adds zero requests. Closing the page does not cancel
+an already admitted atomic acceptance.
+
+A pending identity exception or retained omitted holding no longer blocks the
+next daily investment check. The same atomic one-attempt-per-rolling-24-hours
+claim, active connection requirement, bounded due batch and existing failure
+classification remain. The virtual-clock connection test covers 24 hourly
+attempts around an unresolved report, the first eligible next-day claim, and a
+failed attempt consuming its cooldown. Authentication and webhook/queue retry
+limits are unchanged. No background recovery producer is added.
+
+The 120-position public holdout grows source observations and append-only source
+decisions independently to 12 and 24 per position, with a separate 120-position
+household and repeated observation/application dates. Real workerd D1 counters
+measure current source state at one query, 1,203 reads and zero writes, and the
+report preview at six queries, under 4,800 reads and zero writes. The complete
+next 120-position ingestion and automatic acceptance costs 39 D1 round trips,
+about 23,000 reads and 3,501 index-inclusive writes. Appending 120 simple source
+decisions costs 1,680 reads and 2,040 writes. The source graph rejects cycles
+and components over 500 members.
+
+These public captures share the existing three-capture useful-work reserve; they
+are not an additional daily allocation. Keep the existing 60,000-read and
+8,000-write allowance per admitted 120-position capture and the shared account
+headroom above. Fifty simultaneously large brokerage updates, arbitrary manual
+imports, more households or additional capture volume still require a reviewed
+combined envelope. This holdout does not establish an arbitrary target's
+footprint or activate draft account quota controls.
+
+Migration 0091 includes the covering report-row index needed to keep acceptance
+local to its import, plus current import/security projections. The registered
+OLD-0090 upgrade includes that index from the first measured statement, with 120
+public and 120 unrelated public positions added to the retained private, review
+and baseline chains. Its native runner preserves every old table and schema
+object, verifies the derived heads and checks new foreign-key lookup plans.
+Empty migration replay is separate from this populated proof.

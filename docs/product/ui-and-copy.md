@@ -415,3 +415,27 @@ Before handing off a material interface change:
 Screenshot changes are reviewed product changes. Do not update a baseline only
 to make a failing test green; first confirm the new image satisfies this
 contract.
+
+## Brokerage source decisions
+
+The ordinary source task needs no action: show the automatic result, accepted
+holdings total, report date and last successful check. Connection health does
+not establish freshness; omit repeated healthy badges. Name a genuine decision
+count and reveal the dated holdings retained by omission in optional activity.
+An omission alone never supplies a Review button or acknowledgement.
+
+For an unresolved source identity, compare the existing and reported position
+with account, shares, value and date. Prefill a unique compatible comparison;
+keep alternate candidates reachable without re-entry. Give each direct choice
+its accepted-total effect: same holding, separate holding, or ignore this
+report. Keep unknown totals visibly unavailable. One ordinary identity decision
+requires one explicit choice. Save once, keep failures beside the choices, read
+uncertain status explicitly, and allow later correction in activity. Saved
+choices and routine automatic updates must survive reload without a repeated
+identity/planning approval. The source-update policy owns acceptance; these
+controls compose the existing shared library in the application.
+
+After a decision is saved, keep stale source totals and decision counts out of
+the summary until its readback succeeds. A failed refresh must preserve the
+saved receipt, identify the pending readback and offer its own recovery. An
+invalid source must not offer acceptance actions that its controls disable.

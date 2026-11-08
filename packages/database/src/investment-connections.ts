@@ -7,6 +7,7 @@ import {
   type InvestmentSyncErrorCode,
 } from "@keel/domain";
 import { z } from "zod";
+import { publicSourceState } from "./public-source-state";
 
 const CONNECTOR_TYPE = "plaid-investments";
 const INVESTMENT_SYNC_STALE_AFTER_MS = 5 * 60 * 1_000;
@@ -46,19 +47,10 @@ const DUE_AUTOMATIC_INVESTMENT_CONNECTIONS_SQL = `
     AND account.status = 'active'
     AND account.provider_account_key IS NOT NULL
     AND state.lifecycle_state = 'active'
-    AND NOT EXISTS (
-      SELECT 1 FROM holding_import_connections import_scope
-      JOIN holding_imports import ON import.id = import_scope.import_id
-      JOIN source_documents document ON document.id = import.source_document_id
-      WHERE import_scope.household_id = connection.household_id
-        AND import_scope.connection_id = connection.id
-        AND document.review_status = 'pending_review'
-    )
     AND (
       latest.id IS NULL
       OR (
         latest.started_at < ?
-        AND latest.quarantined_count = 0
         AND (
           latest.status IN ('queued', 'running', 'succeeded')
           OR (
@@ -125,6 +117,11 @@ type ConnectionStatusRow = LatestRunRow & {
   run_id: string | null;
   pending_import_id: string | null;
   latest_linked_import_id: string | null;
+  report_reused: number;
+  preserved_observed_at?: string;
+  unresolved: number;
+  omitted: string;
+  reported: string;
 };
 
 type InvestmentConnectionRow = {
@@ -404,28 +401,16 @@ export class D1InvestmentConnectionsRepository
         run.adjudication_policy_version, run.auto_applied_count,
         run.quarantined_count, run.preserved_position_count,
         run.baseline_refresh_status, link.holding_import_id,
-        (
-          SELECT import_scope.import_id
-          FROM holding_import_connections import_scope
-          JOIN holding_imports import ON import.id = import_scope.import_id
-          JOIN source_documents document ON document.id = import.source_document_id
-          JOIN connector_sync_imports imported ON imported.holding_import_id = import.id
-          WHERE import_scope.household_id = connection.household_id
-            AND import_scope.connection_id = connection.id
-            AND imported.household_id = connection.household_id
-            AND document.review_status = 'pending_review'
-          ORDER BY imported.created_at DESC, imported.id DESC LIMIT 1
-        ) AS pending_import_id,
-        (
-          SELECT imported.holding_import_id
-          FROM holding_import_connections import_scope
-          JOIN connector_sync_imports imported ON imported.holding_import_id = import_scope.import_id
-          WHERE import_scope.household_id = connection.household_id
-            AND import_scope.connection_id = connection.id
-            AND imported.household_id = connection.household_id
-          ORDER BY imported.created_at DESC, imported.id DESC LIMIT 1
-        ) AS latest_linked_import_id
+        NULL AS pending_import_id,head.import_id AS latest_linked_import_id,
+        CASE WHEN head.created_at<run.started_at AND (link.holding_import_id IS NULL OR link.holding_import_id=head.import_id) THEN 1 ELSE 0 END report_reused,
+        COALESCE((SELECT COUNT(*) FROM holding_import_quarantines q JOIN holding_import_rows r ON r.id=q.import_row_id
+         WHERE q.import_id=head.import_id AND q.import_row_id IS NOT NULL
+         AND NOT EXISTS(SELECT 1 FROM holding_import_row_decisions d WHERE d.import_row_id=r.id)
+         AND NOT EXISTS(SELECT 1 FROM public_holding_source_heads h WHERE h.review_key='report:'||r.id AND h.decision='ignore')),0) unresolved,
+        (SELECT json_group_array(q.position_id) FROM holding_import_quarantines q WHERE q.import_id=head.import_id AND q.position_id IS NOT NULL) omitted,
+        (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported
       FROM investment_connections connection
+      LEFT JOIN public_holding_import_heads head ON head.connection_id=connection.id AND head.household_id=connection.household_id
       LEFT JOIN connector_sync_runs run ON run.id = (
         SELECT candidate.id FROM connector_sync_investment_connections scope
         JOIN connector_sync_runs candidate ON candidate.id = scope.sync_run_id
@@ -446,7 +431,78 @@ export class D1InvestmentConnectionsRepository
       )
       .bind(householdId, JSON.stringify(ids))
       .all<ConnectionStatusRow>();
-    return new Map(rows.results.map((row) => [row.connection_id, row]));
+    const live = {
+      results: rows.results
+        .filter((row) => row.latest_linked_import_id !== null)
+        .map((row) => ({
+          connection_id: row.connection_id,
+          import_id: row.latest_linked_import_id!,
+          unresolved: row.unresolved,
+          omitted: row.omitted,
+          reported: row.reported,
+        })),
+    };
+    const state = live.results.some((row) => row.omitted !== "[]")
+      ? await publicSourceState(this.db, householdId)
+      : null;
+    const liveById = new Map(
+      live.results.map((row) => {
+        const reported = new Set(
+          z
+            .array(z.string())
+            .parse(JSON.parse(row.reported))
+            .map((id) => state?.visibleById.get(id) ?? id),
+        );
+        const preserved = new Set(
+          z
+            .array(z.string())
+            .parse(JSON.parse(row.omitted))
+            .flatMap((id) => {
+              const visible = state?.visibleById.get(id);
+              return visible &&
+                !reported.has(visible) &&
+                !state?.ignoredIds.has(visible)
+                ? [visible]
+                : [];
+            }),
+        );
+        const dates = new Set(
+          [...preserved].flatMap((id) => {
+            const date = state?.byId.get(id)?.observed_at;
+            return date ? [date] : [];
+          }),
+        );
+        return [
+          row.connection_id,
+          {
+            ...row,
+            preserved: preserved.size,
+            preservedDate: dates.size === 1 ? [...dates][0] : undefined,
+          },
+        ];
+      }),
+    );
+    return new Map(
+      rows.results.map((row) => {
+        const current = liveById.get(row.connection_id);
+        return [
+          row.connection_id,
+          current
+            ? {
+                ...row,
+                quarantined_count: current.unresolved,
+                preserved_position_count: current.preserved,
+                ...(current.preservedDate
+                  ? { preserved_observed_at: current.preservedDate }
+                  : {}),
+                pending_import_id:
+                  current.unresolved > 0 ? current.import_id : null,
+                holding_import_id: current.import_id,
+              }
+            : row,
+        ];
+      }),
+    );
   }
 
   private connectionStatus(
@@ -535,6 +591,10 @@ export class D1InvestmentConnectionsRepository
             importId: adjudicationImportId,
             policyVersion: latestRun.adjudication_policy_version,
             autoAppliedCount: latestRun.auto_applied_count,
+            ...(latestRun.report_reused === 1 ? { reportReused: true } : {}),
+            ...(latestRun.preserved_observed_at
+              ? { preservedObservedAt: latestRun.preserved_observed_at }
+              : {}),
             quarantinedCount: latestRun.quarantined_count,
             preservedPositionCount: latestRun.preserved_position_count,
             baselineRefreshStatus: latestRun.baseline_refresh_status,
@@ -1412,16 +1472,7 @@ export class D1InvestmentConnectionsRepository
                  AND recent_scope.connection_id = ?
                  AND recent.started_at >= ?
              )
-             AND NOT EXISTS (
-               SELECT 1
-               FROM holding_import_connections import_scope
-               JOIN holding_imports import ON import.id = import_scope.import_id
-               JOIN source_documents document
-                 ON document.id = import.source_document_id
-               WHERE import_scope.household_id = ?
-                 AND import_scope.connection_id = ?
-                 AND document.review_status = 'pending_review'
-             )`,
+`,
           )
           .bind(
             runId,
@@ -1438,8 +1489,6 @@ export class D1InvestmentConnectionsRepository
             connection.connectorAccountId,
             connection.id,
             syncedAfter,
-            identity.household_id,
-            connection.id,
           ),
         this.db
           .prepare(

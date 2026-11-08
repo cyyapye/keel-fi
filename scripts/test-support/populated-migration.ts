@@ -1,3 +1,4 @@
+import { publicMigrationHistory } from "./public-migration-history";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -24,7 +25,7 @@ const SchemaObject = z.object({
   sql: z.string().nullable(),
 });
 const FixtureSchema = z.object({
-  frontier: z.enum(["0088", "0089", "0090"]),
+  frontier: z.enum(["0088", "0089", "0090", "0090-public", "0091"]),
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
   unrelatedPositions: z.literal(120),
@@ -359,12 +360,27 @@ async function buildFixture(
         valuation: { state: "unknown" },
       });
     }
-    if (frontier === "0090") {
+    if (["0090", "0090-public", "0091"].includes(frontier)) {
       if (captureOld) captureOld(snapshotFixture("0089"));
       statements.clear();
       db.exec(
         readFileSync(
           "packages/database/migrations/0090_distribution_reviews.sql",
+          "utf8",
+        ),
+      );
+    }
+    if (frontier === "0090-public" || frontier === "0091") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0090"));
+      await publicMigrationHistory(db, history);
+      if (captureOld) captureOld(snapshotFixture("0090-public"));
+    }
+    if (frontier === "0091") {
+      statements.clear();
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0091_public_source_reviews.sql",
           "utf8",
         ),
       );
@@ -504,6 +520,8 @@ export function populatedMigrationFixtures() {
             "0088": z.string(),
             "0089": z.string(),
             "0090": z.string(),
+            "0090-public": z.string(),
+            "0091": z.string(),
           })
           .strict()
           .parse(JSON.parse(stdout)),
@@ -939,14 +957,14 @@ if (
     .union([z.literal(12), z.literal(24)])
     .parse(Number(process.argv[3]));
   const frontier = z
-    .enum(["0088", "0089", "0090", "both"])
+    .enum(["0088", "0089", "0090", "0090-public", "0091", "both"])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0090", (fixture) => {
+    const terminal = await buildFixture(history, "0091", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0090": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0091": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }
