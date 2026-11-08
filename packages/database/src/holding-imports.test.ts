@@ -2513,6 +2513,7 @@ describe("AngelList holding import persistence", () => {
     ).resolves.toMatchObject({ autoAppliedCount: 0, quarantinedCount: 1 });
 
     const input = robinhoodStageInput("c".repeat(64));
+    input.retrievedAt = "2026-08-10T13:00:00.000Z";
     input.rows[0] = {
       ...input.rows[0]!,
       naturalKeySha256: "c".repeat(64),
@@ -2567,6 +2568,7 @@ describe("AngelList holding import persistence", () => {
     );
 
     const omittedCryptoInput = robinhoodStageInput("d".repeat(64));
+    omittedCryptoInput.retrievedAt = "2026-08-10T14:00:00.000Z";
     omittedCryptoInput.objectKey =
       "holding-imports/synthetic-omitted-crypto.json";
     omittedCryptoInput.sha256 = "de".repeat(32);
@@ -2588,6 +2590,7 @@ describe("AngelList holding import persistence", () => {
     });
 
     const laterInput = robinhoodStageInput("e".repeat(64));
+    laterInput.retrievedAt = "2026-08-10T15:00:00.000Z";
     laterInput.canonicalScope.rows[0]!.protectedPositionKey = "ef".repeat(32);
     laterInput.objectKey = "holding-imports/synthetic-later-robinhood.json";
     laterInput.sha256 = "e".repeat(64);
