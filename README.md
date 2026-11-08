@@ -90,6 +90,9 @@ The [product delivery roadmap](docs/product/roadmap.md) records shipped evidence
 and the ordered, checkable milestones for the private alpha. Its first unchecked
 milestone is the active product slice.
 
+See the [owner outlook API](docs/api/owner-outlook-v1.md) for versioned goal,
+liquidity and SPV evidence reads, unsaved scenarios and a synthetic quickstart.
+
 ## Workspace
 
 ```text

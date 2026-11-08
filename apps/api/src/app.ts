@@ -271,7 +271,10 @@ import { providerBrowserFailureDiagnostic } from "./provider-browser-diagnostics
 import type { AccessIdentity, Env } from "./types";
 import { registerProviderLegalDocumentRoutes } from "./provider-legal-documents";
 
+import { permitsAgentRead, registerAgentRoutes } from "./agent-api/routes";
+
 type Variables = {
+  agentReadHousehold: string;
   identity: AccessIdentity;
   macAgentTarget: MacAgentTarget | null;
   requestId: string;
@@ -1142,6 +1145,8 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.use("/api/*", async (context, next) => {
+    if (context.req.path.startsWith("/api/v1/"))
+      context.header("Cache-Control", "private, no-store");
     const target = machineRouteTarget(context.req.method, context.req.path);
     const authorization = context.req.header("Authorization");
     if (target !== null && authorization !== undefined) {
@@ -1197,7 +1202,12 @@ export function createApp(options: AppOptions = {}) {
 
     if (token === undefined || token.length === 0) {
       return context.json(
-        { error: "Cloudflare Access authentication is required." },
+        {
+          ...(context.req.path.startsWith("/api/v1/")
+            ? { code: "unauthenticated" }
+            : {}),
+          error: "Cloudflare Access authentication is required.",
+        },
         401,
       );
     }
@@ -1206,11 +1216,23 @@ export function createApp(options: AppOptions = {}) {
       const identity = await verifier(token, context.env);
       if (
         identity.kind === "service" &&
+        !permitsAgentRead(
+          context.env,
+          identity,
+          context.req.method,
+          context.req.path,
+        ) &&
         (context.req.method !== "POST" ||
-          context.req.path !== "/api/deployment-smoke")
+          context.req.path !== "/api/deployment-smoke" ||
+          identity.subject === context.env.AGENT_READ_SERVICE_SUBJECT)
       ) {
         return context.json(
-          { error: "Access identity is not authorized for this route." },
+          {
+            ...(context.req.path.startsWith("/api/v1/")
+              ? { code: "forbidden" }
+              : {}),
+            error: "Access identity is not authorized for this route.",
+          },
           403,
         );
       }
@@ -1220,7 +1242,12 @@ export function createApp(options: AppOptions = {}) {
       return;
     } catch {
       return context.json(
-        { error: "Access identity could not be validated." },
+        {
+          ...(context.req.path.startsWith("/api/v1/")
+            ? { code: "unauthenticated" }
+            : {}),
+          error: "Access identity could not be validated.",
+        },
         401,
       );
     }
@@ -5749,6 +5776,7 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
 
   app.notFound((context) => context.json({ error: "Not found." }, 404));
 
+  registerAgentRoutes(app);
   registerProviderLegalDocumentRoutes(app);
   return app;
 }

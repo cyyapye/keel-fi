@@ -1219,7 +1219,48 @@ or external notification was added; approved incremental external spend remains
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M11 — Actual distributions and forecast reconciliation — **Active**
+### [ ] Owner goal outlook API v1 — **Active**
+
+Priority change, 2026-11-08: the owner needs an on-demand answer about dated
+wealth targets and usable liquidity. Deliver a read-only agent contract before
+expanding distribution reconciliation. M11 remains next for actual cash events.
+
+**User outcome:** Compare recorded wealth with near- and long-term dated
+targets, quantify the gap and the change needed to close it, test whether
+liquidity lasts through a date, and inspect the private marks behind the answer.
+Name the scope, evidence dates, assumptions and unavailable inputs.
+
+**Trust boundary:** Read approved household records from D1. An agent grant
+identifies one household and permits only documented reads and unsaved
+calculations. Private paper, public valuation signals and received cash are
+distinct. A scenario never becomes an accepted plan.
+
+The [v1 API guide](../api/owner-outlook-v1.md) describes the contract and
+protected-preview rollout.
+
+**Dependencies and cost:** Reuse versioned goals, accepted portfolio baselines,
+reviewed debt, plans, position snapshots and valuation evidence. Bound payloads
+and D1 work. On-demand reads add no scheduler, model call or provider fetch.
+
+**Exit gates:**
+
+- [ ] Ship a versioned HTTP contract with discovery, evidence references, a
+      working synthetic client and independently revocable read access.
+- [x] Demonstrate 12-month and 10-year target comparisons, a dated reserve test
+      and quantified options. Never substitute the five-year FI forecast for a
+      net-worth forecast, or a partial portfolio for household wealth.
+- [x] Prove review and source scope, unknowns, household isolation, historical
+      growth, zero financial writes and fixed read budgets in synthetic D1.
+- [ ] Pass exact-revision verification, deploy to protected preview, exercise
+      the read-only client there and obtain owner acceptance.
+
+**Later:** Ingest authorized GP messages and agreements, reconcile complex SPV
+terms and public signals into evidence-backed proposals, and apply recorded
+policies to routine updates. Test a new GP mark changing supported wealth
+without adding spendable cash. Add CLI/MCP clients to the proven contract.
+Trading, transfers and autonomous planning decisions are outside v1.
+
+### [ ] M11 — Actual distributions and forecast reconciliation
 
 **User outcome:** When a private holding produces cash, Keel records what became
 usable, reconciles it with the prior forecast, and shows the resulting FI and

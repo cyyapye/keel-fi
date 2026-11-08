@@ -79,6 +79,21 @@ describe("preview deployment configuration", () => {
       false,
     );
 
+    const grant = environment("/tmp/unused");
+    grant.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT = "a".repeat(32) + ".access";
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(
+      false,
+    );
+    grant.KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID = "hh_demo";
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(
+      true,
+    );
+    grant.KEEL_PREVIEW_ACCESS_CLIENT_ID =
+      grant.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT;
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(
+      false,
+    );
+
     const partialConnector = environment("/tmp/unused");
     delete partialConnector.KEEL_PREVIEW_PLAID_SECRET;
     expect(
