@@ -691,7 +691,11 @@ export async function preparePopulatedMigrationSeed(
 
 export async function populatedMigrationDatabase(
   fixture: PopulatedMigrationFixture,
-  options: { persist?: string; seed?: PopulatedMigrationSeed } = {},
+  options: {
+    persist?: string;
+    seed?: PopulatedMigrationSeed;
+    replayWorker?: string;
+  } = {},
 ) {
   const directory = mkdtempSync(join(tmpdir(), "keel-populated-migration-"));
   let runtime: Miniflare | undefined;
@@ -715,8 +719,34 @@ export async function populatedMigrationDatabase(
         persist,
         populatedMigrationSeedInput(fixture, carriedPlatformObjects!),
       );
+    const { script, modules, ...bindings } = runtimeOptions;
     runtime = new Miniflare({
-      ...runtimeOptions,
+      ...bindings,
+      ...(options.replayWorker
+        ? {
+            modules: [
+              {
+                type: "ESModule" as const,
+                path: "populated-main.js",
+                contents: `import bootstrap from './populated-bootstrap.js';
+import replay from './populated-replay.js';
+export default { fetch(request, env, context) {
+  return (new URL(request.url).pathname === '/replay' ? replay : bootstrap).fetch(request, env, context);
+} };`,
+              },
+              {
+                type: "ESModule" as const,
+                path: "populated-bootstrap.js",
+                contents: script,
+              },
+              {
+                type: "ESModule" as const,
+                path: "populated-replay.js",
+                contents: options.replayWorker,
+              },
+            ],
+          }
+        : { script, modules }),
       log: new Log(LogLevel.NONE),
       d1Persist: persist,
     });
@@ -784,6 +814,7 @@ export async function populatedMigrationDatabase(
       database,
       platformSchemaObjects,
       close,
+      dispatchFetch: runtime.dispatchFetch.bind(runtime),
       async execute(sql: string[]) {
         const response = await runtime!.dispatchFetch(
           "https://synthetic-populated-migration.invalid",

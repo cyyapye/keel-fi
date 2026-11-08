@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { build } from "esbuild";
+import { z } from "zod";
 import { expect, it } from "vitest";
 import {
   populatedMigrationFixtures,
@@ -11,6 +13,21 @@ import {
 } from "../packages/database/src/public-source-state";
 import { D1ExposureRepository } from "../packages/database/src/exposures";
 import { D1HoldingImportRepository } from "../packages/database/src/holding-imports";
+
+import { publicInventoryCostInput } from "./test-support/public-inventory-cost-worker";
+
+const inventoryWorker = build({
+  entryPoints: ["scripts/test-support/public-inventory-cost-worker.ts"],
+  bundle: true,
+  write: false,
+  format: "esm",
+  platform: "neutral",
+  target: "es2022",
+  conditions: ["workerd", "worker", "browser"],
+  mainFields: ["browser", "module", "main"],
+  external: ["node:*", "cloudflare:*"],
+  logLevel: "silent",
+}).then((result) => result.outputFiles[0]!.text);
 
 const fixture = populatedMigrationFixtures();
 for (const history of [12, 24] as const) {
@@ -410,75 +427,16 @@ for (const history of [12, 24] as const) {
   }, 120_000);
   it(`keeps current inventory reads bounded across ${history} presence transitions for 120 securities`, async () => {
     const stored = await fixture(history, "0092");
-    const runtime = await populatedMigrationDatabase(stored);
+    const runtime = await populatedMigrationDatabase(stored, {
+      replayWorker: await inventoryWorker,
+    });
     try {
-      const hash = (value: string) =>
-        createHash("sha256").update(value).digest("hex");
       const measured = measureD1(runtime.database);
       const imports = new D1HoldingImportRepository(measured.database);
       const capture = async (round: number, empty: boolean) => {
-        const sourceUpdatedAt = new Date(
-          Date.UTC(2026, 8, 1) + round * 3600000,
-        ).toISOString();
-        const keys = empty
-          ? [119]
-          : Array.from({ length: 120 }, (_, index) => index);
         const report = await imports.stagePlaidInvestmentsHoldingImport(
           "synthetic-access-subject",
-          {
-            objectKey: `synthetic/inventory-cost/${round}.json`,
-            sha256: hash(`raw:${round}`),
-            byteSize: 24000,
-            normalizedFingerprint: hash(`inventory:${round}`),
-            effectiveDate: "2026-08-30",
-            retrievedAt: sourceUpdatedAt,
-            inventoryEvidence: {
-              sourceUpdatedAt,
-              objectKey: `synthetic/inventory-cost/${round}-capture.json`,
-              sha256: hash(`capture:${round}`),
-              byteSize: 512,
-            },
-            rows: keys.map((index, row) => ({
-              rowNumber: row + 1,
-              naturalKeySha256: hash(`row:${index}`),
-              securityName: `Synthetic Inventory ${index}`,
-              ticker: `S${index}`,
-              securityType: index === 119 ? "cash" : "equity",
-              accountLabel: "Synthetic Brokerage",
-              quantityMicros: 1_000_000,
-              costBasisMinor: 10000,
-              marketValueMinor: 12000,
-              observedOn: "2026-08-30",
-              currency: "USD",
-              issues: [],
-            })),
-            canonicalScope: {
-              connection: {
-                mode: "existing",
-                connectionId: "synthetic_public_migration_hh_demo",
-              },
-              containers: [
-                {
-                  protectedAccountKey: hash("hh_demo:account"),
-                  displayLabel: "Synthetic Brokerage",
-                  containerKind: "brokerage",
-                  taxTreatment: "taxable",
-                  completeness: "complete",
-                },
-              ],
-              rows: keys.map((index, row) => ({
-                sourceRowNumber: row + 1,
-                protectedAccountKey: hash("hh_demo:account"),
-                protectedPositionKey:
-                  index === 119
-                    ? hash("inventory:cash")
-                    : hash(`hh_demo:position:${index}`),
-                publicExposureIdentityKind: index === 119 ? null : "cusip",
-                protectedExposureKey:
-                  index === 119 ? null : hash(`hh_demo:security:${index}`),
-              })),
-            },
-          },
+          publicInventoryCostInput(round, empty),
         );
         await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
           "synthetic-access-subject",
@@ -486,8 +444,18 @@ for (const history of [12, 24] as const) {
         );
         return report.preview.id;
       };
-      for (let round = 0; round < history; round++)
-        await capture(round, round % 2 === 1);
+      // Replay the same production producer inside workerd. Per-statement
+      // host-proxy handles are test transport, not part of this history holdout.
+      const prepared = await runtime.dispatchFetch(
+        "https://synthetic-public-inventory.invalid/replay",
+        { method: "POST", body: JSON.stringify({ history }) },
+      );
+      if (!prepared.ok) throw new Error(await prepared.text());
+      const preparedHistory = z
+        .object({ ids: z.array(z.string().min(1)).length(history) })
+        .strict()
+        .parse(await prepared.json());
+      expect(new Set(preparedHistory.ids).size).toBe(history);
       measured.reset();
       const latest = await capture(history, false);
       const captureCost = { ...measured.cost };
