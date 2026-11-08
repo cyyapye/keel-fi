@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { HoldingImportPreviewSchema } from "../packages/domain/src/index";
 import { HoldingsPageSchema } from "../packages/domain/src/holdings-page";
-import { publicSourceFixture } from "./public-source-fixture";
+import { test } from "./public-source-fixture";
 
 const SOURCE_CAPTURE_STYLE = `
   .topbar,.mobile-nav{visibility:hidden!important}
@@ -69,6 +69,7 @@ test.setTimeout(90_000);
 
 test("keeps safe updates automatic and records each selected identity correction through the real API and D1", async ({
   page,
+  publicSourceFixture,
 }) => {
   const label = `Synthetic review ${test.info().project.name}`;
   const fixture = await publicSourceFixture(label);
@@ -218,10 +219,17 @@ test("keeps safe updates automatic and records each selected identity correction
       { exact: true },
     ),
   ).toBeVisible();
-  await captureSource(source, "later-edit");
   await form
-    .getByRole("button", { name: "Add separately", exact: true })
+    .getByRole("button", { name: "Add as a new holding instead", exact: true })
     .click();
+  await expect(
+    form.getByText(
+      "Count both holdings separately. Restore Microsoft to its Oct 31, 2026 accepted value of $10,375.00.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await captureSource(source, "later-edit");
+  await form.getByRole("button", { name: "Add MSFT", exact: true }).click();
   await expect(
     source.getByText("Added as a separate holding. Your decision is saved.", {
       exact: true,
@@ -229,6 +237,11 @@ test("keeps safe updates automatic and records each selected identity correction
   ).toBeVisible();
   positions = await readPositions();
   expect(positions.filter((item) => item.ticker === "MSFT")).toHaveLength(2);
+  expect(
+    positions
+      .filter((item) => item.ticker === "MSFT")
+      .map((item) => item.valueMinor),
+  ).toEqual(expect.arrayContaining([1_037_500, 1_062_500]));
   await source
     .getByRole("button", { name: "Change decision", exact: true })
     .click();
@@ -269,6 +282,7 @@ test("keeps safe updates automatic and records each selected identity correction
 
 test("a unique verified security match needs no human decision and keeps omissions in optional activity", async ({
   page,
+  publicSourceFixture,
 }) => {
   const label = `Synthetic automatic ${test.info().project.name}`;
   await publicSourceFixture(label, true);
@@ -297,6 +311,7 @@ test("a unique verified security match needs no human decision and keeps omissio
 for (const failurePhase of ["planning", "sources"] as const) {
   test(`keeps a failed decision draft and recovers ${failurePhase} readback without another receipt`, async ({
     page,
+    publicSourceFixture,
   }) => {
     const label = `Synthetic failure ${failurePhase} ${test.info().project.name}`;
     const fixture = await publicSourceFixture(label);

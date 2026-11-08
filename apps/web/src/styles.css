@@ -10276,6 +10276,9 @@ h1,
   display: block;
   overflow-wrap: anywhere;
 }
+.public-source-decision__compare[data-has-prior="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
 .public-source-decision__compare p {
   margin: 6px 0;
 }

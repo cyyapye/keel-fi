@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./api-mocked-test";
+import { resolve } from "node:path";
 
 import { routeHoldingsPage } from "./holdings-page-fixtures";
 import { emptyInvestmentHoldingsView } from "./investment-holdings-fixtures";
@@ -43,6 +44,46 @@ function investmentState(
   };
 }
 
+const baselineState = {
+  status: "waiting_for_reviewed_holdings",
+  sourceRevision: null,
+  observedAt: null,
+  baseForecastSnapshotId: null,
+  baseForecastSnapshotVersion: null,
+  summary: null,
+  positions: [],
+  cashAccounts: [],
+  changes: { positions: [], cashAccounts: [] },
+  planning: {
+    currentFiEligibleLiquidMinor: 182_500_000,
+    protectedCashFloorMinor: 10_300_000,
+    householdBurnMonthlyMinor: 2_850_000,
+    businessBurnMonthlyMinor: 1_250_000,
+    fiTargetMinor: 325_000_000,
+    p25FiveYearLiquidityMinor: 94_000_000,
+    p50FiveYearLiquidityMinor: 210_000_000,
+    p75FiveYearLiquidityMinor: 354_000_000,
+    forecastHorizonDate: "2031-12-31",
+  },
+  suggestedOtherFiEligibleLiquidMinor: 0,
+  currentImpact: {
+    fiEligibleLiquidMinor: 182_500_000,
+    fiEligibleChangeMinor: 0,
+    protectedRunwayMonths: 42,
+    fiGapMinor: 142_500_000,
+    lowerTotalAvailableMinor: 276_500_000,
+    middleTotalAvailableMinor: 392_500_000,
+    higherTotalAvailableMinor: 536_500_000,
+    probabilityCrossingFiPpm: 640_000,
+  },
+  latestBaseline: null,
+  hasSourceChanges: false,
+  hasCashAccountChanges: false,
+  requiresDuplicateReview: false,
+  requiresCashOverlapReview: false,
+  canConfirm: false,
+};
+
 test.beforeEach(async ({ page }) => {
   await routeHoldingsPage(page, {
     householdName: alphaFixture.dashboard.householdName,
@@ -84,49 +125,9 @@ test.beforeEach(async ({ page }) => {
       },
     });
   });
-  await page.route("**/api/portfolio-baseline", async (route) => {
-    await route.fulfill({
-      json: {
-        status: "waiting_for_reviewed_holdings",
-        sourceRevision: null,
-        observedAt: null,
-        baseForecastSnapshotId: null,
-        baseForecastSnapshotVersion: null,
-        summary: null,
-        positions: [],
-        cashAccounts: [],
-        changes: { positions: [], cashAccounts: [] },
-        planning: {
-          currentFiEligibleLiquidMinor: 182_500_000,
-          protectedCashFloorMinor: 10_300_000,
-          householdBurnMonthlyMinor: 2_850_000,
-          businessBurnMonthlyMinor: 1_250_000,
-          fiTargetMinor: 325_000_000,
-          p25FiveYearLiquidityMinor: 94_000_000,
-          p50FiveYearLiquidityMinor: 210_000_000,
-          p75FiveYearLiquidityMinor: 354_000_000,
-          forecastHorizonDate: "2031-12-31",
-        },
-        suggestedOtherFiEligibleLiquidMinor: 0,
-        currentImpact: {
-          fiEligibleLiquidMinor: 182_500_000,
-          fiEligibleChangeMinor: 0,
-          protectedRunwayMonths: 42,
-          fiGapMinor: 142_500_000,
-          lowerTotalAvailableMinor: 276_500_000,
-          middleTotalAvailableMinor: 392_500_000,
-          higherTotalAvailableMinor: 536_500_000,
-          probabilityCrossingFiPpm: 640_000,
-        },
-        latestBaseline: null,
-        hasSourceChanges: false,
-        hasCashAccountChanges: false,
-        requiresDuplicateReview: false,
-        requiresCashOverlapReview: false,
-        canConfirm: false,
-      },
-    });
-  });
+  await page.route("**/api/portfolio-baseline", (route) =>
+    route.fulfill({ json: baselineState }),
+  );
   await page.route("**/api/investment-connections", async (route) => {
     await route.fulfill({
       json: {
@@ -612,6 +613,258 @@ test(
   },
 );
 
+test("adds a new security without preselecting an unrelated prior holding", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-08-10T16:00:00.000Z") });
+  const prior = {
+    positionId: "position_synthetic_orbital",
+    containerId: "container_synthetic_brokerage",
+    name: "Orbital Systems",
+    accountLabel: "Synthetic brokerage",
+    ticker: "ORBT",
+    instrumentType: "equity",
+    snapshotId: "snapshot_synthetic_orbital",
+    observedAt: "2026-08-01T12:00:00.000Z",
+    quantityMicros: 40_000_000,
+    valueMinor: 650_000,
+  };
+  const row = {
+    ...robinhoodImportPreview.rows[0]!,
+    id: "row_synthetic_photon",
+    positionName: "PHOT · Photon Components",
+    exposureName: "Photon Components",
+    ownerLabel: "Synthetic brokerage",
+    ticker: "PHOT",
+    quantityMicros: 15_000_000,
+    investedMinor: 225_000,
+    administratorNavMinor: 225_000,
+    costBasisMinor: null,
+    action: "needs_attention",
+    adjudicationStatus: "quarantined",
+    decisionSource: null,
+    reasonCodes: [],
+    containerId: prior.containerId,
+    instrumentType: "equity",
+    positionId: null,
+    currentSnapshotId: null,
+    identityReviewId: null,
+    acceptanceBlocked: false,
+  };
+  let added = false;
+  const bodies: unknown[] = [];
+  let releaseSave: () => void = () => undefined;
+  const saveGate = new Promise<void>((complete) => {
+    releaseSave = complete;
+  });
+  const comparisons: Array<string | null> = [];
+  const preview = () => ({
+    ...robinhoodImportPreview,
+    id: "import_synthetic_new_security",
+    status: added ? "applied" : "quarantined",
+    summary: {
+      ...robinhoodImportPreview.summary,
+      rowCount: 1,
+      createCount: 1,
+      administratorValueCount: 1,
+      autoAppliedCount: 0,
+      quarantinedCount: added ? 0 : 1,
+      needsAttentionCount: added ? 0 : 1,
+    },
+    rows: [
+      {
+        ...row,
+        ...(added
+          ? {
+              adjudicationStatus: "manually_resolved",
+              decisionSource: "manual",
+              identityReviewId: "review_synthetic_photon",
+              sourceReview: {
+                id: "review_synthetic_photon",
+                decision: "separate",
+                priorPositionId: null,
+                decisionSource: "manual",
+                createdAt: "2026-08-10T16:00:00.000Z",
+                appliesToThisReport: true,
+                importId: "import_synthetic_new_security",
+                rowId: row.id,
+              },
+            }
+          : {}),
+      },
+    ],
+    priorPositions: [prior],
+    preservedPositions: [prior],
+  });
+  await page.route(/\/api\/investment-connections(?:\/auto-sync)?$/u, (route) =>
+    route.fulfill({
+      json: investmentState([
+        investmentStatus({
+          institutionLabel: "Synthetic brokerage",
+          latestImportId: preview().id,
+          latestAdjudication: {
+            importId: preview().id,
+            policyVersion: "plaid-investments-holdings-auto-v4",
+            autoAppliedCount: 0,
+            quarantinedCount: added ? 0 : 1,
+            preservedPositionCount: 1,
+            preservedObservedAt: prior.observedAt,
+            baselineRefreshStatus: "not_needed",
+          },
+        }),
+      ]),
+    }),
+  );
+  await page.route(`**/api/holding-imports/${preview().id}`, (route) =>
+    route.fulfill({ json: preview() }),
+  );
+  await page.route(
+    `**/api/holding-imports/${preview().id}/rows/${row.id}/review*`,
+    async (route) => {
+      if (route.request().method() === "POST") {
+        bodies.push(route.request().postDataJSON());
+        if (bodies.length === 1) {
+          await saveGate;
+          return route.fulfill({
+            status: 503,
+            json: { error: "Synthetic save failure." },
+          });
+        }
+        added = true;
+        return route.fulfill({ json: preview() });
+      }
+      const id = new URL(route.request().url()).searchParams.get(
+        "priorPositionId",
+      );
+      comparisons.push(id);
+      return route.fulfill({
+        json: {
+          rowId: row.id,
+          priorPositionId: id,
+          currentTotalMinor: 650_000,
+          sameTotalMinor: id ? 225_000 : null,
+          separateTotalMinor: 875_000,
+          ignoreTotalMinor: 650_000,
+        },
+      });
+    },
+  );
+  await page.route("**/api/portfolio-baseline/refresh", (route) =>
+    route.fulfill({ json: baselineState }),
+  );
+  await page.goto("/holdings/sources");
+  await page.getByRole("button", { name: "Resolve 1 decision" }).click();
+  const form = page.locator(".public-source-decision");
+  const capture = async (state: string) => {
+    const root = process.env.KEEL_SOURCE_REVIEW_DIR;
+    if (root)
+      await page.locator(".public-source-update").screenshot({
+        path: resolve(
+          root,
+          `new-security-${state}-${test.info().project.name}.png`,
+        ),
+        animations: "disabled",
+        scale: "css",
+        style: ".topbar,.mobile-nav{visibility:hidden!important}",
+      });
+  };
+  await expect(form).toBeVisible();
+  await expect(form.getByText(prior.name, { exact: true })).toHaveCount(0);
+  await expect(
+    form.getByRole("button", { name: "Confirm same holding", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    form.getByText("Your existing holdings stay unchanged."),
+  ).toBeVisible();
+  const add = form.getByRole("button", { name: "Add PHOT", exact: true });
+  await expect(add).toBeEnabled();
+  expect(comparisons.length).toBeGreaterThan(0);
+  expect(comparisons.every((id) => id === null)).toBe(true);
+  for (let step = 0; step < 80; step++) {
+    if (await add.evaluate((element) => element === document.activeElement))
+      break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(add).toBeFocused();
+  const box = await add.boundingBox();
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+  await expectNoHorizontalOverflow(page);
+  await capture("initial");
+  await expect(form).toHaveScreenshot("brokerage-new-holding.png", {
+    animations: "disabled",
+    stylePath: resolve("e2e/purchase-details.capture.css"),
+  });
+  await form
+    .getByRole("button", { name: "Match to an existing holding" })
+    .click();
+  await form
+    .getByRole("combobox", { name: "Prior holding", exact: true })
+    .click();
+  await page.getByRole("option", { name: /Orbital Systems/u }).click();
+  await expect(form.getByText(prior.name, { exact: true })).toBeVisible();
+  await expect(
+    form.getByText(
+      "You chose Orbital Systems to compare with PHOT. Confirm a match only if they are the same holding.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    form.getByRole("button", { name: "Confirm same holding", exact: true }),
+  ).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+  expect(bodies).toEqual([]);
+  await capture("explicit-comparison");
+  await form
+    .getByRole("button", { name: "Add as a new holding instead" })
+    .click();
+  await expect(form.getByText(prior.name, { exact: true })).toHaveCount(0);
+  await expect(add).toBeEnabled();
+  await add.click();
+  await expect(
+    form.getByRole("button", { name: "Saving…", exact: true }),
+  ).toBeDisabled();
+  await capture("saving");
+  releaseSave();
+  await expect(
+    form.getByText(
+      "Keel could not confirm whether this decision was saved. Check its status before saving again.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(add).toBeDisabled();
+  expect(bodies).toHaveLength(1);
+  await capture("failure");
+  await form
+    .getByRole("button", { name: "Check decision status", exact: true })
+    .click();
+  await expect(add).toBeEnabled();
+  expect(bodies).toHaveLength(1);
+  await add.click();
+  await expect(
+    page.getByText("Added as a separate holding. Your decision is saved.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(bodies).toEqual([
+    {
+      decision: "separate",
+      expectedReviewId: null,
+      expectedSourceSnapshotId: null,
+      priorPositionId: null,
+      expectedPriorSnapshotId: null,
+    },
+    {
+      decision: "separate",
+      expectedReviewId: null,
+      expectedSourceSnapshotId: null,
+      priorPositionId: null,
+      expectedPriorSnapshotId: null,
+    },
+  ]);
+  await capture("saved");
+});
+
 function exceptionPreview() {
   return {
     ...importPreview,
@@ -865,9 +1118,9 @@ test(
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Confirm same holding", exact: true }),
-    ).toBeDisabled();
+    ).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Add separately", exact: true }),
+      page.getByRole("button", { name: "Add as a new holding", exact: true }),
     ).toBeDisabled();
     const viewportWidths = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,
@@ -882,6 +1135,16 @@ test(
       }
     `,
     });
+    const reviewRoot = process.env.KEEL_SOURCE_REVIEW_DIR;
+    if (reviewRoot)
+      await page.locator(".public-source-update").screenshot({
+        path: resolve(
+          reviewRoot,
+          `invalid-source-${test.info().project.name}.png`,
+        ),
+        animations: "disabled",
+        scale: "css",
+      });
     await expect(page.locator(".screen-stack")).toHaveScreenshot(
       "holdings-robinhood-exceptions.png",
       {
