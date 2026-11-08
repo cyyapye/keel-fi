@@ -84,7 +84,8 @@ async function evidenceFromDocument(
   const bytes = new Uint8Array(await object.arrayBuffer());
   if (
     bytes.byteLength !== document.byteSize ||
-    (await sha256Bytes(bytes)) !== document.evidenceSha256
+    (await sha256Bytes(bytes)) !==
+      (document.objectSha256 ?? document.evidenceSha256)
   ) {
     throw new Error("Retained public exposure document checksum changed.");
   }

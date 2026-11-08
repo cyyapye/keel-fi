@@ -6,18 +6,20 @@ operations run during ingestion or an authenticated POST, never a GET.
 
 ## Holdings
 
-Plaid retains its existing automatic policy. AngelList, Tokenfolio, Sydecar, and
-Wefunder use `private-holdings-auto-v1`. It accepts normalized USD rows with a
-valid source and ownership scope, including clearly identified new legal
-positions. Partial templates can update reported positions but cannot establish
-omissions.
+Public brokerage inventories follow the policy below. AngelList, Tokenfolio,
+Sydecar, and Wefunder use `private-holdings-auto-v1`. It accepts normalized USD
+rows with a valid source and ownership scope, including clearly identified new
+legal positions. Partial templates can update reported positions but cannot
+establish omissions.
 
 Duplicate keys, invalid scope or currency, instrument changes, and possible
 identity replacements remain exceptions. A newly reported key is not assumed to
 be a new asset when a prior position disappears in the same complete account
 snapshot, or the same legal vehicle appears under a different owner or key.
 Separate vehicles investing in the same company remain separate positions.
-Missing positions retain their prior accepted values; absence is never a sale.
+Missing private positions retain their prior accepted values; absence is never a
+sale. The verified public-inventory policy below has a different
+current-ownership boundary.
 
 Older dated observations are recorded as ignored policy decisions. Unchanged
 facts reuse their snapshot. Unique row decisions and atomic application batches
@@ -35,19 +37,62 @@ separate authenticated POSTs, after the initial read has rendered.
 
 ### Public brokerage source updates
 
-`plaid-investments-holdings-auto-v4` accepts clear complete USD reports and
-reuses recorded source matches. A unique verified CUSIP, ISIN or SEDOL in the
-same account, currency and instrument type can establish continuity when a
-source key changes. Tickers, names and similar amounts can prefill a comparison;
-they never accept a match. Conflicts, multiple candidates and independently
-accepted separate holdings retain their identity boundary. Partial or invalid
-reports preserve accepted values.
+`plaid-investments-holdings-auto-v5` accepts a verified complete account
+inventory as a set. A distinct new security is an addition even when another
+security has disappeared. A unique verified CUSIP, ISIN or SEDOL in the same
+account, currency and instrument type still establishes continuity before
+additions and removals. Recorded source-identity matches retain their separate
+v4 policy and manual boundaries. Names, tickers and equal amounts never
+establish a match.
 
-Only unresolved incoming rows count as decisions. An omitted accepted holding
-keeps its named, dated value and never creates an acknowledgement or review
-task. Such preservation remains in optional activity. A decision elsewhere does
-not block the next due source check or the clear rows in its report. The daily
-admission and retry budgets remain in force.
+An admitted capture reads bounded `/item/get` status before and after the
+holdings response. Both must identify the same Item/institution, have no Item
+error, and establish the same non-null successful Investments update with no
+later failed update. A price date or successful HTTP response is not ownership
+freshness. Unknown, failed, changing or future status stops acceptance. Original
+holdings bytes remain unchanged in private object storage. A checksum-bound
+capture manifest retains their key/hash/size and the status pair; the import's
+source document identifies that manifest. Derived grouping reads the original
+object once and validates its separate checksum, while its recorded evidence
+continues to bind the owning capture document.
+
+`public-holding-inventory-v1` records eligible accounts, source time, previous
+snapshots, closures, returns and changed-fact count in one immutable receipt.
+Financial applications, verified identity decisions and that receipt commit
+atomically. Eligibility is per account: complete coverage, explicit cash (or no
+securities and an explicit USD account balance of zero), valid USD rows,
+established account scope, and accepted rows or recorded manual exclusions. A
+newly seen account accompanied by a missing accepted account is ambiguous; it
+cannot silently duplicate an account whose provider ID changed. A missing entire
+account, partial/malformed data, unknown cash, stale source or genuine identity
+conflict preserves that account's accepted state. Other clear accounts can
+proceed. A current-report manual identity choice retains its boundary until a
+subsequent authoritative report.
+
+Absence from an eligible inventory stops contributing to current holdings,
+exposures, connection totals and subsequent FI baselines. It does not create a
+sale, proceeds, realized return, zero-price loss or tax lot. Historical
+snapshots and decisions remain. A later return reuses the account/security
+identity and is counted once. The current source watermark is guarded against
+both accepted inventories and legacy accepted observations. Application heads
+cache that accepted public source time; a newer inventory can update ownership
+even when its price date is older. Unchanged facts reuse their snapshot
+independently of the capture time. An unchanged provider watermark reuses its
+existing report.
+
+Only genuine incoming identity exceptions need a decision. Closures, returns,
+share changes and reported cash appear in optional, bounded activity. Earlier
+reports show saved source quantities and values without changing current totals
+or offering financial actions. Manual exclusions remain authoritative.
+Deliberate Same/Separate/Ignore corrections to the current inventory project
+their stated effects; editing historical identity alone cannot revive ownership
+absent from a newer inventory. A decision elsewhere does not block the next due
+source check. Daily admission and retry budgets remain unchanged.
+
+This is positions-only reconciliation. The connector does not download
+`/investments/transactions/get` or activate paid `/investments/refresh`.
+Transaction histories, realized performance and tax lots require their own
+stable transaction IDs, pagination, corrections/cancellations and evidence.
 
 The source comparison offers three direct choices using recorded facts: confirm
 the same holding, add a separate holding, or ignore this reported position. It
@@ -101,8 +146,8 @@ baselines reuse the same confirmed aliases and exclusions; they do not ask for
 the identity decision again or infer a sale. Each subsequent baseline binds its
 source graph version at commit, while existing manual planning choices remain.
 
-Migration `0091` precedes this API/web release. It backfills indexed
-latest-import and current-security projections, maintains them during
+Migration `0091` establishes source review history and projections. It backfills
+indexed latest-import and current-security projections, maintains them during
 ingestion/acceptance, and guards manual decisions, unique verified policy
 matches, stale snapshots, cycles, account/household scope and append-only
 history. Routine policy acceptance rechecks the latest report, observation and
@@ -111,6 +156,17 @@ UI loads one comparison on demand, bounds activity to 20 rows per batch, and
 never replays an uncertain financial write automatically. A failed save keeps
 the selection and offers an explicit status read before another deliberate
 attempt.
+
+Migration `0092` adds inventory evidence/receipts, current account heads and an
+indexed active-position set. It adds the public source-time cache to existing
+application heads, replaces the existing ownership-scope index with one that
+also seeks exact source keys, and adds provider ordering to the existing
+household-position index without adding another index to private acceptance. It
+avoids rewriting unchanged security identity proofs. Populated OLD-0091
+certification preserves every old table column and record, explicitly verifies
+these index/trigger/cache transformations, tests append-only history, and
+measures the complete upgrade before its first SQL statement. Current GETs use
+projections only; history is never reconciled on a read.
 
 ### Manual Wefunder template
 

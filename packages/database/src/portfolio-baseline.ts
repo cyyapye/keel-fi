@@ -809,7 +809,10 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
     let excluded = 0;
     const positions = prior.positions.flatMap((item) => {
       if (item.source.provider !== "plaid_investments") return [item];
-      if (state.ignoredIds.has(item.position_id)) {
+      if (
+        state.ignoredIds.has(item.position_id) ||
+        !state.visibleById.has(item.position_id)
+      ) {
         excluded++;
         return [];
       }

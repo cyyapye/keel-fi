@@ -16,6 +16,7 @@ import {
   RecordRow,
   SearchSelect,
   TextLink,
+  Text,
 } from "@keel/ui";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -47,6 +48,197 @@ const decisionLabel = (decision: PublicHoldingReviewInput["decision"]) =>
     separate: "Added as a separate holding",
     ignore: "Reported position ignored",
   })[decision];
+
+function SourceInventoryActivity({
+  preview,
+  working,
+  onChangeDecision,
+  readOnly = false,
+}: {
+  preview: HoldingImportPreview;
+  working: boolean;
+  onChangeDecision?: (row: HoldingImportRowPreview) => void;
+  readOnly?: boolean;
+}) {
+  const [page, setPage] = useState(0);
+  const [openDetail, setOpenDetail] = useState<string | null>(null);
+  const closed = [...(preview.inventory?.closedPositions ?? [])].sort(
+    (left, right) =>
+      left.accountLabel.localeCompare(right.accountLabel) ||
+      (left.ticker ?? left.name).localeCompare(right.ticker ?? right.name),
+  );
+  const kept = preview.preservedPositions ?? [];
+  const priorQuantities = new Map(
+    preview.inventory?.priorQuantities.map((prior) => [
+      prior.rowId,
+      prior.quantityMicros,
+    ]) ?? [],
+  );
+  const unchangedRows = new Set(
+    preview.inventory?.priorQuantities
+      .filter((prior) => prior.factsUnchanged)
+      .map((prior) => prior.rowId) ?? [],
+  );
+  const rows = preview.rows.filter(
+    (row) => row.adjudicationStatus !== "quarantined",
+  );
+  const accounts = [
+    ...closed.map((position) => ({
+      id: position.containerId,
+      label: position.accountLabel,
+    })),
+    ...kept.map((position) => ({
+      id: position.containerId,
+      label: position.accountLabel,
+    })),
+    ...rows.map((row) => ({ id: row.containerId, label: row.ownerLabel })),
+  ];
+  const sharedAccount =
+    accounts.length > 0 &&
+    accounts[0]!.id &&
+    accounts.every((account) => account.id === accounts[0]!.id)
+      ? accounts[0]!.label
+      : null;
+  const accountDetail = (account: string, quantity: string) =>
+    sharedAccount ? quantity : [account, quantity].filter(Boolean).join(" · ");
+  const records = [
+    ...closed.map((position) => ({
+      key: position.positionId,
+      title: `${position.ticker ?? position.name} · ${position.instrumentType === "cash" ? "No balance counted" : "No longer held"}`,
+      detail:
+        position.instrumentType === "cash"
+          ? accountDetail(position.accountLabel, "")
+          : accountDetail(
+              position.accountLabel,
+              `${shares(position.quantityMicros)} → 0 shares`,
+            ),
+      value: position.instrumentType === "cash" ? "Not counted" : "0 shares",
+      metadata: `${position.instrumentType === "cash" ? "" : "Not counted · "}Complete report ${formatDate(preview.inventory!.sourceUpdatedAt!)}`,
+      details: `Last reported value: ${amount(position.valueMinor)} on ${formatDate(position.observedAt)}. Its history is retained. This holdings report does not establish sale price, proceeds or realized return.`,
+      row: null,
+    })),
+    ...kept.map((position) => ({
+      key: position.positionId,
+      title: `${position.name} · value kept`,
+      detail: accountDetail(
+        position.accountLabel,
+        shares(position.quantityMicros),
+      ),
+      value: amount(position.valueMinor),
+      metadata: `Not reported in this update · Last accepted ${formatDate(position.observedAt)}`,
+      details: null,
+      row: null,
+    })),
+    ...rows.map((row) => ({
+      key: row.id,
+      title: readOnly
+        ? row.exposureName
+        : `${row.exposureName} · ${preview.inventory?.returnedPositionIds.includes(row.positionId ?? "") ? "Holding returned" : row.sourceReview ? decisionLabel(row.sourceReview.decision) : row.adjudicationStatus === "ignored" ? "Older observation ignored" : row.action === "no_change" || unchangedRows.has(row.id) ? "No change" : row.action === "create_position" ? "Added automatically" : row.instrumentType === "cash" ? "Updated automatically" : priorQuantities.has(row.id) && priorQuantities.get(row.id) !== row.quantityMicros ? "Shares updated" : "Updated automatically"}`,
+      detail: accountDetail(
+        row.ownerLabel,
+        row.instrumentType === "cash"
+          ? ""
+          : `${priorQuantities.has(row.id) && priorQuantities.get(row.id) !== row.quantityMicros ? `${shares(priorQuantities.get(row.id))} → ` : ""}${shares(row.quantityMicros)}`,
+      ),
+      value: amount(row.administratorNavMinor),
+      metadata: `Reported ${formatDate(preview.inventory?.sourceUpdatedAt ?? preview.observedAt)}${!readOnly && row.sourceReview ? ` · ${row.sourceReview.decisionSource === "manual" ? "Your decision" : "Verified identity match"}` : ""}`,
+      details: preview.inventory?.returnedPositionIds.includes(
+        row.positionId ?? "",
+      )
+        ? "The same account and security is active again. Earlier history is retained and the holding is counted once. No purchase price or sale proceeds were inferred."
+        : null,
+      row,
+    })),
+  ];
+  return (
+    <>
+      {sharedAccount && (
+        <Text id={`source-account-${preview.id}`} variant="supporting">
+          {sharedAccount}
+        </Text>
+      )}
+      <RecordGroup
+        aria-describedby={
+          sharedAccount ? `source-account-${preview.id}` : undefined
+        }
+        aria-label={
+          readOnly ? "Earlier source activity" : "Latest source activity"
+        }
+      >
+        {records
+          .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+          .map((record) => (
+            <RecordRow
+              key={record.key}
+              title={record.title}
+              detail={
+                record.detail ||
+                (openDetail === record.key && record.details) ? (
+                  <>
+                    {record.detail}
+                    {openDetail === record.key && record.details && (
+                      <Text variant="supporting">{record.details}</Text>
+                    )}
+                  </>
+                ) : undefined
+              }
+              value={record.value}
+              metadata={record.metadata}
+              action={
+                record.details ? (
+                  <TextLink
+                    aria-expanded={openDetail === record.key}
+                    onClick={() =>
+                      setOpenDetail(
+                        openDetail === record.key ? null : record.key,
+                      )
+                    }
+                  >
+                    {openDetail === record.key ? "Hide details" : "Details"}
+                  </TextLink>
+                ) : !readOnly &&
+                  record.row?.sourceReview &&
+                  onChangeDecision ? (
+                  <TextLink
+                    disabled={working}
+                    onClick={() => {
+                      if (record.row) onChangeDecision(record.row);
+                    }}
+                  >
+                    Change decision
+                  </TextLink>
+                ) : undefined
+              }
+            />
+          ))}
+      </RecordGroup>
+      {records.length === 0 && <p>No accepted changes in this report.</p>}
+      {records.length > PAGE_SIZE && (
+        <ActionGroup>
+          <Button
+            tone="quiet"
+            disabled={page === 0}
+            onClick={() => setPage((value) => value - 1)}
+          >
+            Previous activity
+          </Button>
+          <span>
+            {page * PAGE_SIZE + 1}–
+            {Math.min((page + 1) * PAGE_SIZE, records.length)} of{" "}
+            {records.length}
+          </span>
+          <Button
+            tone="quiet"
+            disabled={(page + 1) * PAGE_SIZE >= records.length}
+            onClick={() => setPage((value) => value + 1)}
+          >
+            Next activity
+          </Button>
+        </ActionGroup>
+      )}
+    </>
+  );
+}
 
 export function PublicSourceUpdate({
   importId,
@@ -94,7 +286,34 @@ export function PublicSourceUpdate({
   const working = saving !== null || refreshing;
   const [loading, setLoading] = useState(false);
   const [comparisonRevision, setComparisonRevision] = useState(0);
-  const [activityLimit, setActivityLimit] = useState(PAGE_SIZE);
+  const [earlier, setEarlier] = useState<HoldingImportPreview | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyRequest = useRef<AbortController | null>(null);
+  const historyTrigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => () => historyRequest.current?.abort(), []);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!historyLoading && (historyError || earlier))
+      historyTrigger.current?.focus({ preventScroll: true });
+  }, [historyLoading, historyError, earlier]);
+  async function loadEarlier(id: string) {
+    historyRequest.current?.abort();
+    const controller = new AbortController();
+    historyRequest.current = controller;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const report = await loadHoldingImport(id, controller.signal);
+      if (!controller.signal.aborted) setEarlier(report);
+    } catch {
+      if (!controller.signal.aborted)
+        setHistoryError("Earlier activity could not be loaded. Try again.");
+    } finally {
+      if (!controller.signal.aborted) {
+        setHistoryLoading(false);
+      }
+    }
+  }
   const [needsStatusCheck, setNeedsStatusCheck] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const savedMessage = useRef<HTMLDivElement>(null);
@@ -293,8 +512,13 @@ export function PublicSourceUpdate({
   function change(row: HoldingImportRowPreview) {
     if (!row.sourceReview) return;
     setLoading(preview?.id !== row.sourceReview.importId);
-    setTargetImportId(row.sourceReview.importId);
-    setSelectedId(row.sourceReview.rowId);
+    const currentExclusion =
+      row.sourceReview.decision === "ignore" &&
+      preview?.inventory?.currentContainerIds.includes(row.containerId ?? "");
+    setTargetImportId(
+      currentExclusion ? preview!.id : row.sourceReview.importId,
+    );
+    setSelectedId(currentExclusion ? row.id : row.sourceReview.rowId);
     setError(null);
     setSaved(null);
     window.requestAnimationFrame(() => heading.current?.focus());
@@ -316,9 +540,7 @@ export function PublicSourceUpdate({
     );
   const applied = preview.summary.autoAppliedCount;
   const kept = preview.preservedPositions ?? [];
-  const activity = preview.rows.filter(
-    (row) => row.adjudicationStatus !== "quarantined",
-  );
+  const completeInventory = preview.inventory?.complete === true;
   return (
     <section
       className="public-source-update"
@@ -331,18 +553,28 @@ export function PublicSourceUpdate({
             <>
               <p>
                 <strong>
-                  {applied > 0
-                    ? `${applied} ${applied === 1 ? "position updated" : "positions updated"} automatically.`
-                    : preview.rows.length === 0
-                      ? "No positions in the latest report."
-                      : preview.status === "pending_review"
-                        ? "This report is incomplete. Prior holdings stay unchanged."
-                        : "Latest report checked."}{" "}
+                  {completeInventory
+                    ? preview.inventory!.changeCount === 0
+                      ? "Holdings are current. No new changes."
+                      : `${preview.inventory!.changeCount} ${preview.inventory!.changeCount === 1 ? "change" : "changes"} applied automatically.`
+                    : applied > 0
+                      ? `${applied} ${applied === 1 ? "position updated" : "positions updated"} automatically.`
+                      : preview.rows.length === 0
+                        ? "No positions in the latest report."
+                        : preview.status === "pending_review"
+                          ? "This report is incomplete. Prior holdings stay unchanged."
+                          : "Latest report checked."}{" "}
                   {unresolved.length > 0
                     ? `${unresolved.length} ${unresolved.length === 1 ? "decision needs" : "decisions need"} you.`
                     : "No decisions needed."}
                 </strong>
               </p>
+              {preview.inventory && !completeInventory && (
+                <p>
+                  The latest report did not establish a complete current
+                  inventory. Missing positions have not been removed.
+                </p>
+              )}
               {kept.length > 0 && (
                 <p>
                   {kept.length} prior{" "}
@@ -617,50 +849,64 @@ export function PublicSourceUpdate({
           </CollapsibleTrigger>
         )}
         <CollapsibleContent id={`source-activity-${importId}`}>
-          <RecordGroup aria-label="Latest source activity">
-            {kept.slice(0, activityLimit).map((position) => (
-              <RecordRow
-                key={position.positionId}
-                title={`${position.name} · value kept`}
-                detail={`${position.accountLabel} · ${shares(position.quantityMicros)}`}
-                value={amount(position.valueMinor)}
-                metadata={`Not reported in this update · Last accepted ${formatDate(position.observedAt)}`}
-              />
-            ))}
-            {activity
-              .slice(0, Math.max(0, activityLimit - kept.length))
-              .map((row) => (
-                <RecordRow
-                  key={row.id}
-                  title={`${row.exposureName} · ${row.sourceReview ? decisionLabel(row.sourceReview.decision) : row.adjudicationStatus === "ignored" ? "Older observation ignored" : row.action === "no_change" ? "No change" : "Updated automatically"}`}
-                  detail={row.ownerLabel}
-                  value={amount(
-                    row.currentValueMinor ?? row.administratorNavMinor,
+          <SourceInventoryActivity
+            key={preview.id}
+            preview={preview}
+            working={working || refreshPending}
+            onChangeDecision={change}
+          />
+          {preview.inventory?.previousImportId && (
+            <>
+              <Button
+                ref={historyTrigger}
+                tone="quiet"
+                disabled={historyLoading}
+                onClick={() =>
+                  earlier
+                    ? setEarlier(null)
+                    : void loadEarlier(preview.inventory!.previousImportId!)
+                }
+              >
+                {historyLoading
+                  ? "Loading earlier activity…"
+                  : earlier
+                    ? "Hide earlier activity"
+                    : "Earlier activity"}
+              </Button>
+              {historyError && (
+                <FormMessage tone="error">{historyError}</FormMessage>
+              )}
+              {earlier && (
+                <section aria-label="Earlier account report">
+                  <h3>
+                    {formatDate(
+                      earlier.inventory?.sourceUpdatedAt ?? earlier.observedAt,
+                    )}{" "}
+                    · Earlier report
+                  </h3>
+                  <Text variant="supporting">
+                    Historical activity. Current holdings are unchanged.
+                  </Text>
+                  <SourceInventoryActivity
+                    key={earlier.id}
+                    preview={earlier}
+                    working={false}
+                    readOnly
+                  />
+                  {earlier.inventory?.previousImportId && (
+                    <Button
+                      tone="quiet"
+                      disabled={historyLoading}
+                      onClick={() =>
+                        void loadEarlier(earlier.inventory!.previousImportId!)
+                      }
+                    >
+                      Earlier report
+                    </Button>
                   )}
-                  metadata={`Reported ${formatDate(preview.observedAt)}${row.sourceReview ? ` · ${row.sourceReview.decisionSource === "manual" ? "Your decision" : "Verified identity match"}` : ""}`}
-                  action={
-                    row.sourceReview && (
-                      <TextLink
-                        disabled={working || refreshPending}
-                        onClick={() => change(row)}
-                      >
-                        Change decision
-                      </TextLink>
-                    )
-                  }
-                />
-              ))}
-          </RecordGroup>
-          {activity.length + kept.length > activityLimit && (
-            <Button
-              onClick={() => setActivityLimit((limit) => limit + PAGE_SIZE)}
-              tone="quiet"
-            >
-              Show more activity
-            </Button>
-          )}
-          {activity.length + kept.length === 0 && (
-            <p>No accepted changes in this report.</p>
+                </section>
+              )}
+            </>
           )}
         </CollapsibleContent>
       </Collapsible>

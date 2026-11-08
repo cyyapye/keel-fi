@@ -28,10 +28,11 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0092_unmeasured.sql";
+const futureMigration = "0093_unmeasured.sql";
 const immutableFrontier = "0089_manual_holdings.sql";
 const distributionFrontier = "0090_distribution_reviews.sql";
-const frontier = "0091_public_source_reviews.sql";
+const sourceFrontier = "0091_public_source_reviews.sql";
+const frontier = "0092_public_holding_inventories.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -75,7 +76,7 @@ function receipt(): MigrationSafetyReceipt {
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "public-source-schema-v1",
+      id: "public-inventory-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -85,8 +86,8 @@ function receipt(): MigrationSafetyReceipt {
           unrelatedPositions: 120,
           fixtureHash: "d".repeat(64),
           tableRows: tableRows(24),
-          tablesPreserved: 143,
-          schemaObjectsPreserved: 726,
+          tablesPreserved: 147,
+          schemaObjectsPreserved: 746,
           foreignKeyViolations: 0,
           immutableProbes: 3,
           validation: "applied-schema-preservation",
@@ -116,12 +117,19 @@ function receipt(): MigrationSafetyReceipt {
         tableRows: tableRows(
           history as 12 | 24,
           false,
-          review.id === "public-source-reviews-v1",
+          review.id !== "distribution-reviews-v1",
         ),
+        tablesPreserved: Object.keys(
+          tableRows(
+            history as 12 | 24,
+            false,
+            review.id !== "distribution-reviews-v1",
+          ),
+        ).length,
         rowsRead: 10,
         rowsWritten: 4,
         inboundForeignKeyPlans:
-          review.id === "public-source-reviews-v1"
+          review.id !== "distribution-reviews-v1"
             ? "indexed-current-head-backfill-no-parent-rebuild"
             : "not-applicable-trigger-only-no-table-dml",
       })),
@@ -199,16 +207,21 @@ describe("populated D1 migration evidence", () => {
       {
         id: "public-source-reviews-v1",
         frontier: distributionFrontier,
+        migrations: [{ name: sourceFrontier }],
+      },
+      {
+        id: "public-inventory-v1",
+        frontier: sourceFrontier,
         migrations: [{ name: frontier }],
       },
     ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "public-source-schema-v1",
+      id: "public-inventory-schema-v1",
       frontier,
       pending: [],
     });
-    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(143);
+    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(147);
   });
 
   it("refuses a registry that attempts to approve rewritten applied history", () => {
@@ -283,7 +296,7 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "public-source-schema-v1",
+      caseId: "public-inventory-schema-v1",
       migrationCost: null,
       footprint: { households: 2, holding_position_snapshots: 6241 },
     });
@@ -303,20 +316,20 @@ describe("populated D1 migration evidence", () => {
     ).toMatchObject({ rowsRead: 10, rowsWritten: 4 });
     expect(
       admit(evidence, {
-        frontier: distributionFrontier,
+        frontier: sourceFrontier,
         pending: [frontier],
         gitSha,
       }),
     ).toMatchObject({
       kind: "upgrade",
-      caseId: "public-source-reviews-v1",
+      caseId: "public-inventory-v1",
       migrationCost: { rowsRead: 10, rowsWritten: 4 },
     });
     // An older target has two pending migrations; neither individual case claims that complete sequence.
     expect(() =>
       admit(evidence, {
         frontier: immutableFrontier,
-        pending: [distributionFrontier, frontier],
+        pending: [distributionFrontier, sourceFrontier, frontier],
         gitSha,
       }),
     ).toThrow("no exact baseline or populated OLD-schema evidence");
@@ -357,7 +370,12 @@ describe("populated D1 migration evidence", () => {
     expect(() =>
       admit(undefined, {
         frontier: legacyFrontier,
-        pending: [immutableFrontier, distributionFrontier, frontier],
+        pending: [
+          immutableFrontier,
+          distributionFrontier,
+          sourceFrontier,
+          frontier,
+        ],
         gitSha,
       }),
     ).toThrow("forward indexes run after the unsafe rebuild");

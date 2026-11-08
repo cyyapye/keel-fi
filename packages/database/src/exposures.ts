@@ -310,6 +310,7 @@ type PublicExposureMappingInsert = {
 type RetainedPublicExposureDocumentRow = {
   import_id: string;
   object_key: string;
+  object_sha256: string;
   byte_size: number;
   evidence_sha256: string;
   import_row_id: string;
@@ -343,6 +344,7 @@ type RetainedStructuredAssetExposureEvidenceRow = {
 export type RetainedPublicExposureDocument = {
   readonly importId: string;
   readonly objectKey: string;
+  readonly objectSha256?: string;
   readonly byteSize: number;
   readonly evidenceSha256: string;
   readonly rows: readonly {
@@ -1516,15 +1518,16 @@ export class D1ExposureRepository {
         .prepare(
           `SELECT
              import.id AS import_id,
-             document.object_key,
-             document.byte_size,
-             document.sha256 AS evidence_sha256,
+             COALESCE(inventory.holdings_object_key,document.object_key) object_key,
+             COALESCE(inventory.holdings_byte_size,document.byte_size) byte_size,
+             document.sha256 AS evidence_sha256,COALESCE(inventory.holdings_sha256,document.sha256) object_sha256,
              row.id AS import_row_id,
              row.source_row_number
            FROM holding_import_rows row
            JOIN holding_imports import ON import.id = row.import_id
            JOIN source_documents document
              ON document.id = import.source_document_id
+           LEFT JOIN public_holding_inventory_evidence inventory ON inventory.import_id=import.id
            WHERE import.household_id = ?
              ${importId === undefined ? "" : "AND import.id = ?"}
              AND import.provider IN ('robinhood', 'plaid_investments')
@@ -1596,6 +1599,9 @@ export class D1ExposureRepository {
           objectKey: row.object_key,
           byteSize: row.byte_size,
           evidenceSha256: row.evidence_sha256,
+          ...(row.object_sha256 !== row.evidence_sha256
+            ? { objectSha256: row.object_sha256 }
+            : {}),
           rows: [
             {
               importRowId: row.import_row_id,

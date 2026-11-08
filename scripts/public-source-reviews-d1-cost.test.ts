@@ -15,7 +15,7 @@ import { D1HoldingImportRepository } from "../packages/database/src/holding-impo
 const fixture = populatedMigrationFixtures();
 for (const history of [12, 24] as const) {
   it(`reads 120 public source heads independently of ${history} observations and decisions per position`, async () => {
-    const stored = await fixture(history, "0091");
+    const stored = await fixture(history, "0092");
     const runtime = await populatedMigrationDatabase(stored);
     try {
       const db = runtime.database;
@@ -77,7 +77,7 @@ for (const history of [12, 24] as const) {
       );
       expect(empty.positions).toEqual([]);
       expect(measured.cost.roundTrips).toBe(1);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(1);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(2);
       expect(measured.cost.rowsWritten).toBe(0);
       const importId = (await db
         .prepare(
@@ -219,6 +219,10 @@ for (const history of [12, 24] as const) {
         ),
       ).toMatchObject({ autoAppliedCount: 120, quarantinedCount: 0 });
       const fallbackCaptureCost = { ...measured.cost };
+      const fallbackQueries = [...measured.byQuery]
+        .sort((a, b) => b[1].rowsRead - a[1].rowsRead)
+        .slice(0, 4)
+        .map(([sql, cost]) => ({ sql: sql.slice(0, 220), ...cost }));
       expect(fallbackCaptureCost.roundTrips).toBeLessThanOrEqual(40);
       measured.reset();
       await imports.getHoldingImport(
@@ -266,6 +270,10 @@ for (const history of [12, 24] as const) {
         fallback.preview.id,
       );
       const completionCost = { ...measured.cost };
+      const completionQueries = [...measured.byQuery]
+        .sort((a, b) => b[1].rowsRead - a[1].rowsRead)
+        .slice(0, 4)
+        .map(([sql, cost]) => ({ sql: sql.slice(0, 220), ...cost }));
       const mappingSql = [...measured.byQuery.keys()].find((query) =>
         query.includes("current_application.application_id"),
       )!;
@@ -280,6 +288,18 @@ for (const history of [12, 24] as const) {
       expect(measured.cost.rowsWritten).toBe(0);
 
       expect(completionCost.roundTrips).toBeLessThanOrEqual(16);
+      console.info(
+        JSON.stringify({
+          completionBudget: {
+            history,
+            fallbackCaptureCost,
+            completionCost,
+            completionResponseReads,
+            fallbackQueries,
+            completionQueries,
+          },
+        }),
+      );
       expect(
         fallbackCaptureCost.rowsRead +
           discoveryCost.rowsRead +
@@ -362,10 +382,12 @@ for (const history of [12, 24] as const) {
           .all<{ detail: string }>()
       ).results.map((row) => row.detail);
       expect(
-        plan.some((detail) => /SCAN (?:r|s|a|review|later)\b/u.test(detail)),
+        plan.some((detail) =>
+          /SCAN (?:active|r|s|a|review|later)\b/u.test(detail),
+        ),
       ).toBe(false);
       expect(
-        plan.some((detail) => /public_holding_security_match/u.test(detail)),
+        plan.some((detail) => /public_active_household/u.test(detail)),
       ).toBe(true);
       expect(
         (await db.prepare("PRAGMA foreign_key_check").all()).results,
@@ -379,6 +401,163 @@ for (const history of [12, 24] as const) {
             captureCost,
             receiptCost,
             plan,
+          },
+        }),
+      );
+    } finally {
+      await runtime.close();
+    }
+  }, 120_000);
+  it(`keeps current inventory reads bounded across ${history} presence transitions for 120 securities`, async () => {
+    const stored = await fixture(history, "0092");
+    const runtime = await populatedMigrationDatabase(stored);
+    try {
+      const hash = (value: string) =>
+        createHash("sha256").update(value).digest("hex");
+      const measured = measureD1(runtime.database);
+      const imports = new D1HoldingImportRepository(measured.database);
+      const capture = async (round: number, empty: boolean) => {
+        const sourceUpdatedAt = new Date(
+          Date.UTC(2026, 8, 1) + round * 3600000,
+        ).toISOString();
+        const keys = empty
+          ? [119]
+          : Array.from({ length: 120 }, (_, index) => index);
+        const report = await imports.stagePlaidInvestmentsHoldingImport(
+          "synthetic-access-subject",
+          {
+            objectKey: `synthetic/inventory-cost/${round}.json`,
+            sha256: hash(`raw:${round}`),
+            byteSize: 24000,
+            normalizedFingerprint: hash(`inventory:${round}`),
+            effectiveDate: "2026-08-30",
+            retrievedAt: sourceUpdatedAt,
+            inventoryEvidence: {
+              sourceUpdatedAt,
+              objectKey: `synthetic/inventory-cost/${round}-capture.json`,
+              sha256: hash(`capture:${round}`),
+              byteSize: 512,
+            },
+            rows: keys.map((index, row) => ({
+              rowNumber: row + 1,
+              naturalKeySha256: hash(`row:${index}`),
+              securityName: `Synthetic Inventory ${index}`,
+              ticker: `S${index}`,
+              securityType: index === 119 ? "cash" : "equity",
+              accountLabel: "Synthetic Brokerage",
+              quantityMicros: 1_000_000,
+              costBasisMinor: 10000,
+              marketValueMinor: 12000,
+              observedOn: "2026-08-30",
+              currency: "USD",
+              issues: [],
+            })),
+            canonicalScope: {
+              connection: {
+                mode: "existing",
+                connectionId: "synthetic_public_migration_hh_demo",
+              },
+              containers: [
+                {
+                  protectedAccountKey: hash("hh_demo:account"),
+                  displayLabel: "Synthetic Brokerage",
+                  containerKind: "brokerage",
+                  taxTreatment: "taxable",
+                  completeness: "complete",
+                },
+              ],
+              rows: keys.map((index, row) => ({
+                sourceRowNumber: row + 1,
+                protectedAccountKey: hash("hh_demo:account"),
+                protectedPositionKey:
+                  index === 119
+                    ? hash("inventory:cash")
+                    : hash(`hh_demo:position:${index}`),
+                publicExposureIdentityKind: index === 119 ? null : "cusip",
+                protectedExposureKey:
+                  index === 119 ? null : hash(`hh_demo:security:${index}`),
+              })),
+            },
+          },
+        );
+        await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
+          "synthetic-access-subject",
+          report.preview.id,
+        );
+        return report.preview.id;
+      };
+      for (let round = 0; round < history; round++)
+        await capture(round, round % 2 === 1);
+      measured.reset();
+      const latest = await capture(history, false);
+      const captureCost = { ...measured.cost };
+      expect(captureCost.roundTrips).toBeLessThanOrEqual(40);
+      expect(captureCost.rowsRead).toBeLessThanOrEqual(60000);
+      expect(captureCost.rowsWritten).toBeLessThanOrEqual(8000);
+      measured.reset();
+      const state = await publicSourceState(measured.database, "hh_demo");
+      expect(
+        state.positions.filter((position) => !state.hiddenIds.has(position.id)),
+      ).toHaveLength(120);
+      expect(measured.cost.roundTrips).toBe(1);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(2500);
+      expect(measured.cost.rowsWritten).toBe(0);
+      const currentCost = { ...measured.cost };
+      measured.reset();
+      const report = await imports.getHoldingImport(
+        "synthetic-access-subject",
+        latest,
+      );
+      expect(report.inventory).toMatchObject({
+        complete: true,
+        returnedPositionIds: expect.any(Array),
+        changeCount: 119,
+      });
+      expect(report.inventory?.returnedPositionIds).toHaveLength(119);
+      expect(measured.cost.roundTrips).toBe(6);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(14000);
+      expect(measured.cost.rowsWritten).toBe(0);
+      const previewCost = { ...measured.cost };
+      measured.reset();
+      await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
+        "synthetic-access-subject",
+        latest,
+      );
+      expect(measured.cost.rowsWritten).toBe(0);
+      expect(
+        await runtime.database
+          .prepare(
+            "SELECT COUNT(*) count FROM public_holding_inventories WHERE household_id='hh_demo'",
+          )
+          .first("count"),
+      ).toBe(history + 1);
+      expect(
+        await runtime.database
+          .prepare(
+            "SELECT COUNT(*) count FROM public_holding_active_positions WHERE household_id='hh_migration_foreign'",
+          )
+          .first("count"),
+      ).toBe(120);
+      const plans = (
+        await runtime.database
+          .prepare(`EXPLAIN QUERY PLAN ${PUBLIC_SOURCE_POSITIONS_SQL}`)
+          .bind("hh_demo")
+          .all<{ detail: string }>()
+      ).results.map((row) => row.detail);
+      expect(plans.some((plan) => /public_active_household/u.test(plan))).toBe(
+        true,
+      );
+      expect(plans.some((plan) => /SCAN (?:active|k|o|p)\b/u.test(plan))).toBe(
+        false,
+      );
+      console.info(
+        JSON.stringify({
+          publicInventory: {
+            history,
+            captureCost,
+            currentCost,
+            previewCost,
+            plans,
           },
         }),
       );

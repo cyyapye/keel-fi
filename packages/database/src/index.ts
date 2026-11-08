@@ -925,15 +925,16 @@ export class D1AlphaRepository implements AlphaRepository {
                  economics_evidence.management_fee_ppm
                    AS reported_management_fee_ppm,
                  economics_evidence.carry_ppm AS reported_carry_ppm
-               FROM holding_positions position
-               JOIN holding_position_snapshots snapshot
-                 ON snapshot.id = (
+               FROM (SELECT * FROM holding_positions WHERE household_id=? AND provider IN('angellist','sydecar','tokenfolio','wefunder','manual')
+                 UNION ALL SELECT p.* FROM public_holding_active_positions active JOIN holding_positions p ON p.id=active.position_id WHERE active.household_id=?) position
+               CROSS JOIN holding_position_snapshots snapshot
+                 ON snapshot.id = CASE WHEN position.provider='plaid_investments' THEN (SELECT snapshot_id FROM holding_import_application_heads WHERE position_id=position.id) ELSE (
                    SELECT latest.id
                    FROM holding_position_snapshots latest
                    WHERE latest.position_id = position.id
                    ORDER BY latest.observed_at DESC, latest.created_at DESC
                    LIMIT 1
-                 )
+                 ) END
                JOIN holding_import_applications latest_application
                  ON latest_application.id = (
                    SELECT application.id
@@ -1012,7 +1013,7 @@ export class D1AlphaRepository implements AlphaRepository {
              ) holdings
              ORDER BY exposure_name, position_name`,
           )
-          .bind(householdId, householdId),
+          .bind(householdId, householdId, householdId, householdId),
       ),
       all<EvidenceRow>(
         this.db

@@ -507,7 +507,10 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
       all<InvestmentPositionRow>(
         this.db
           .prepare(
-            `SELECT
+            `WITH scope AS (SELECT ? household_id), current_positions AS (
+               SELECT * FROM holding_positions WHERE household_id=(SELECT household_id FROM scope) AND provider IN('angellist','sydecar','tokenfolio','wefunder','manual')
+               UNION ALL SELECT p.* FROM public_holding_active_positions active CROSS JOIN holding_positions p ON p.id=active.position_id WHERE active.household_id=(SELECT household_id FROM scope)
+             ) SELECT
              purchase_review.receipt_json AS purchase_receipt_json,
              CASE WHEN proxy_link.position_id IS NOT NULL THEN json_object(
                'lastObservationAt',proxy_observation.observed_at,
@@ -619,7 +622,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              economics_evidence.management_fee_ppm
                AS reported_management_fee_ppm,
              economics_evidence.carry_ppm AS reported_carry_ppm
-           FROM holding_positions position
+           FROM current_positions position
            LEFT JOIN manual_holding_identity_heads manual_head ON manual_head.position_id=position.id AND manual_head.household_id=position.household_id
            LEFT JOIN manual_holding_identity_versions manual_identity ON manual_identity.id=manual_head.version_id
            LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id=position.id AND purchase_head.household_id=position.household_id
@@ -630,16 +633,16 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            LEFT JOIN holding_price_quotes proxy_observation ON proxy_observation.id=proxy_head.observation_id
            LEFT JOIN holding_positions proxy_position ON proxy_position.id=proxy_link.source_position_id
            LEFT JOIN provider_portfolio_agents proxy_agent ON proxy_agent.household_id=position.household_id AND proxy_agent.provider=proxy_position.provider
-           JOIN holding_position_ownerships ownership
+           CROSS JOIN holding_position_ownerships ownership
              ON ownership.position_id = position.id
             AND NOT EXISTS (
               SELECT 1
               FROM holding_position_ownerships later_ownership
               WHERE later_ownership.supersedes_ownership_id = ownership.id
             )
-           JOIN ownership_containers container
+           CROSS JOIN ownership_containers container
              ON container.id = ownership.container_id
-           JOIN holding_import_applications application
+           CROSS JOIN holding_import_applications application
              ON application.id = (
                SELECT candidate.id
                FROM holding_import_applications candidate
@@ -651,7 +654,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                         candidate.id DESC
                LIMIT 1
              )
-           JOIN holding_position_snapshots snapshot
+           CROSS JOIN holding_position_snapshots snapshot
              ON snapshot.id = application.snapshot_id
            LEFT JOIN holding_import_applications prior_application
              ON prior_application.id = (
@@ -668,13 +671,13 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              )
            LEFT JOIN holding_position_snapshots prior_snapshot
              ON prior_snapshot.id = prior_application.snapshot_id
-           JOIN holding_import_rows accepted_row
+           CROSS JOIN holding_import_rows accepted_row
              ON accepted_row.id = application.import_row_id
            LEFT JOIN holding_import_row_provider_investments provider_identity ON provider_identity.import_row_id = accepted_row.id
            LEFT JOIN holding_import_row_reported_economics_evidence
              economics_evidence
              ON economics_evidence.import_row_id = accepted_row.id
-           JOIN holding_imports accepted_import
+           CROSS JOIN holding_imports accepted_import
              ON accepted_import.id = accepted_row.import_id
            LEFT JOIN provider_legal_document_latest legal_latest
              ON legal_latest.household_id = position.household_id
@@ -690,7 +693,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
   LEFT JOIN investment_company_reviews company_review ON company_review.id = (
              SELECT id FROM investment_company_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
            )
-           JOIN source_documents document
+           CROSS JOIN source_documents document
              ON document.id = accepted_import.source_document_id
            LEFT JOIN holding_position_value_proposals adjustment
              ON adjustment.id = (
@@ -743,7 +746,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            LEFT JOIN automatic_investment_reviews automatic ON automatic.id = (
              SELECT id FROM automatic_investment_reviews WHERE household_id = position.household_id AND position_id = position.id ORDER BY version DESC LIMIT 1
            )
-           WHERE position.household_id = ?
+           WHERE position.household_id = (SELECT household_id FROM scope)
              ${includeLinked ? "" : `AND NOT EXISTS (SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=position.id AND link.state='linked')`}
              AND NOT EXISTS (
                SELECT 1

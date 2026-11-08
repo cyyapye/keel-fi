@@ -94,6 +94,37 @@ const PlaidItemResponseSchema = z
   })
   .passthrough();
 
+// Price dates are not ownership freshness. Keep the original Item status pair
+// as evidence and require a stable, successful Investments update around the read.
+export const PlaidInvestmentStatusSchema = z
+  .object({
+    item: z
+      .object({
+        item_id: z.string().min(1).max(512),
+        institution_id: z.string().min(1).max(512).nullable(),
+        error: z
+          .object({ error_code: z.string().min(1).max(512) })
+          .passthrough()
+          .nullable(),
+      })
+      .passthrough(),
+    status: z
+      .object({
+        investments: z
+          .object({
+            last_successful_update: z.iso.datetime({ offset: true }).nullable(),
+            last_failed_update: z.iso.datetime({ offset: true }).nullable(),
+          })
+          .passthrough()
+          .nullable(),
+      })
+      .passthrough()
+      .nullable(),
+    request_id: z.string().min(1).max(512),
+  })
+  .passthrough();
+type InvestmentStatus = z.infer<typeof PlaidInvestmentStatusSchema>;
+
 const PlaidItemWebhookUpdateResponseSchema = z
   .object({
     item: z.object({ webhook: z.url().max(2_048).nullable() }).passthrough(),
@@ -195,6 +226,9 @@ export interface PlaidInvestmentsClient {
   getWebhookVerificationKey(
     keyId: string,
   ): Promise<PlaidWebhookVerificationKey>;
+  getInvestmentStatus(
+    accessToken: string,
+  ): Promise<{ bytes: Uint8Array; parsed: InvestmentStatus }>;
   getHoldings(accessToken: string): Promise<{
     bytes: Uint8Array;
     parsed: PlaidInvestmentsHoldingsResponse;
@@ -396,6 +430,7 @@ async function sha256Bytes(value: Uint8Array): Promise<string> {
 
 async function readBoundedPlaidResponse(
   response: Response,
+  maxBytes = MAX_PLAID_RESPONSE_BYTES,
 ): Promise<Uint8Array> {
   if (response.body === null) {
     throw new PlaidInvestmentsClientError(
@@ -413,7 +448,7 @@ async function readBoundedPlaidResponse(
         break;
       }
       byteLength += value.byteLength;
-      if (byteLength > MAX_PLAID_RESPONSE_BYTES) {
+      if (byteLength > maxBytes) {
         await reader.cancel().catch(() => undefined);
         throw new PlaidInvestmentsClientError(
           "response_invalid",
@@ -543,6 +578,29 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
     }
   }
 
+  public async getInvestmentStatus(
+    accessToken: string,
+  ): Promise<{ bytes: Uint8Array; parsed: InvestmentStatus }> {
+    const bytes = await this.request(
+      "/item/get",
+      { access_token: z.string().min(1).max(4096).parse(accessToken) },
+      32768,
+    );
+    try {
+      return {
+        bytes,
+        parsed: PlaidInvestmentStatusSchema.parse(
+          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+        ),
+      };
+    } catch {
+      throw new PlaidInvestmentsClientError(
+        "holdings_incomplete",
+        "The institution did not establish a current, complete holdings report. Previous holdings are unchanged.",
+      );
+    }
+  }
+
   public async getHoldings(accessToken: string): Promise<{
     bytes: Uint8Array;
     parsed: PlaidInvestmentsHoldingsResponse;
@@ -636,7 +694,11 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
     return parsed.data;
   }
 
-  private async request(path: string, body: unknown): Promise<Uint8Array> {
+  private async request(
+    path: string,
+    body: unknown,
+    maxBytes = MAX_PLAID_RESPONSE_BYTES,
+  ): Promise<Uint8Array> {
     let response: Response;
     try {
       response = await this.fetcher(
@@ -664,14 +726,14 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
     if (
       contentLength !== null &&
       (/^\d+$/u.test(contentLength) === false ||
-        BigInt(contentLength) > BigInt(MAX_PLAID_RESPONSE_BYTES))
+        BigInt(contentLength) > BigInt(maxBytes))
     ) {
       throw new PlaidInvestmentsClientError(
         "response_invalid",
         "Plaid returned an oversized response.",
       );
     }
-    const bytes = await readBoundedPlaidResponse(response);
+    const bytes = await readBoundedPlaidResponse(response, maxBytes);
     if (!response.ok) {
       throw new PlaidInvestmentsClientError(
         response.status === 400 || response.status === 401
@@ -968,11 +1030,51 @@ type InvestmentConnectionSyncInput = InvestmentSyncDependencies & {
   connectionId: string;
 };
 
+export function certifyInventoryStatus(
+  before: InvestmentStatus,
+  after: InvestmentStatus,
+  credential: {
+    itemId: string;
+    institutionKey?: string;
+    institutionId?: string;
+  },
+  retrievedAt: string,
+): string {
+  const first = before.status?.investments;
+  const last = after.status?.investments;
+  const success = first?.last_successful_update;
+  const valid = [before, after].every(
+    (value) =>
+      value.item.item_id === credential.itemId &&
+      value.item.institution_id ===
+        (credential.institutionKey ?? credential.institutionId) &&
+      value.item.error === null,
+  );
+  if (
+    !valid ||
+    !success ||
+    !last?.last_successful_update ||
+    Date.parse(success) !== Date.parse(last.last_successful_update) ||
+    Date.parse(success) > Date.parse(retrievedAt) ||
+    [first?.last_failed_update, last.last_failed_update].some(
+      (failed) => failed && Date.parse(failed) >= Date.parse(success),
+    )
+  ) {
+    throw new PlaidInvestmentsClientError(
+      "holdings_incomplete",
+      "The institution did not establish a current, complete holdings report. Previous holdings are unchanged.",
+    );
+  }
+  return new Date(success).toISOString();
+}
+
 async function executeInvestmentConnectionSync(
   input: InvestmentSyncDependencies,
   run: InvestmentSyncRun,
 ): Promise<InvestmentConnectionStatus> {
   let stagedObjectKey: string | null = null;
+  let stagedStatusKey: string | null = null;
+  let stagingAttempted = false;
   try {
     const encrypted = await input.env.DOCUMENTS.get(
       run.connection.secretReference,
@@ -989,15 +1091,27 @@ async function executeInvestmentConnectionSync(
       input.accessSubject,
       run.connection.secretReference,
     );
-    const retrievedAt = new Date().toISOString();
+    const before = await input.client.getInvestmentStatus(
+      credential.accessToken,
+    );
     const holdings = await input.client.getHoldings(credential.accessToken);
+    const after = await input.client.getInvestmentStatus(
+      credential.accessToken,
+    );
+    const retrievedAt = new Date().toISOString();
+    const sourceUpdatedAt = certifyInventoryStatus(
+      before.parsed,
+      after.parsed,
+      credential,
+      retrievedAt,
+    );
     let normalized: Awaited<
       ReturnType<typeof normalizePlaidInvestmentsHoldings>
     >;
     try {
       normalized = await normalizePlaidInvestmentsHoldings(
         holdings.parsed,
-        retrievedAt,
+        sourceUpdatedAt,
         run.connection.institutionLabel,
       );
     } catch {
@@ -1026,7 +1140,62 @@ async function executeInvestmentConnectionSync(
       );
     }
 
+    const zeroAccountBalance = z
+      .object({
+        balances: z
+          .object({
+            current: z.union([
+              z.literal(0),
+              z.string().regex(/^0+(?:\.0+)?$/u),
+            ]),
+            iso_currency_code: z.literal("USD"),
+            unofficial_currency_code: z.null(),
+          })
+          .passthrough(),
+      })
+      .passthrough();
+    const zeroCashAccountKeys = (
+      await Promise.all(
+        holdings.parsed.accounts
+          .filter(
+            (account) =>
+              !holdings.parsed.holdings.some(
+                (holding) => holding.account_id === account.account_id,
+              ) && zeroAccountBalance.safeParse(account).success,
+          )
+          .map((account) =>
+            plaidInvestmentsAccountKey(
+              input.env,
+              run.connection.providerAccountKey!,
+              account.persistent_account_id ?? account.account_id,
+            ),
+          ),
+      )
+    ).sort();
     stagedObjectKey = `holding-imports/${crypto.randomUUID()}.json`;
+    stagedStatusKey = `holding-imports/${crypto.randomUUID()}-status.json`;
+    const rawSha256 = await sha256Bytes(holdings.bytes);
+    const statusBytes = new TextEncoder().encode(
+      JSON.stringify({
+        version: 1,
+        retrievedAt,
+        holdings: {
+          objectKey: stagedObjectKey,
+          sha256: rawSha256,
+          byteSize: holdings.bytes.byteLength,
+        },
+        before: JSON.parse(new TextDecoder().decode(before.bytes)) as unknown,
+        after: JSON.parse(new TextDecoder().decode(after.bytes)) as unknown,
+      }),
+    );
+    if (statusBytes.byteLength > 131072)
+      throw new PlaidInvestmentsClientError(
+        "holdings_incomplete",
+        "The holdings status evidence is too large. Previous holdings are unchanged.",
+      );
+    await input.env.DOCUMENTS.put(stagedStatusKey, statusBytes, {
+      httpMetadata: { contentType: "application/json" },
+    });
     await input.env.DOCUMENTS.put(stagedObjectKey, holdings.bytes, {
       httpMetadata: { contentType: "application/json" },
     });
@@ -1036,13 +1205,31 @@ async function executeInvestmentConnectionSync(
       >
     >;
     try {
+      stagingAttempted = true;
       staged = await input.holdingImports.stagePlaidInvestmentsHoldingImport(
         input.accessSubject,
         {
           objectKey: stagedObjectKey,
-          sha256: await sha256Bytes(holdings.bytes),
+          sha256: rawSha256,
           byteSize: holdings.bytes.byteLength,
-          normalizedFingerprint: normalized.normalizedFingerprint,
+          normalizedFingerprint: await sha256(
+            JSON.stringify([
+              "plaid-inventory-capture-v1",
+              normalized.normalizedFingerprint,
+              sourceUpdatedAt,
+              canonicalScope.containers
+                .map((container) => container.protectedAccountKey)
+                .sort(),
+              zeroCashAccountKeys,
+            ]),
+          ),
+          inventoryEvidence: {
+            sourceUpdatedAt,
+            zeroCashAccountKeys,
+            objectKey: stagedStatusKey,
+            sha256: await sha256Bytes(statusBytes),
+            byteSize: statusBytes.byteLength,
+          },
           effectiveDate: normalized.effectiveDate,
           retrievedAt,
           rows: normalized.rows,
@@ -1057,11 +1244,14 @@ async function executeInvestmentConnectionSync(
     }
     if (!staged.created) {
       await input.env.DOCUMENTS.delete(stagedObjectKey).catch(() => undefined);
+      await input.env.DOCUMENTS.delete(stagedStatusKey).catch(() => undefined);
       stagedObjectKey = null;
+      stagedStatusKey = null;
     } else {
       // The holding import now owns this private object. Never delete it during
       // later sync-run bookkeeping failures.
       stagedObjectKey = null;
+      stagedStatusKey = null;
     }
     // Re-enter idempotent acceptance on identical reports as well: a prior
     // attempt may have committed acceptance before grouping or planning failed.
@@ -1096,9 +1286,13 @@ async function executeInvestmentConnectionSync(
       run.connection.id,
     );
   } catch (error) {
-    if (stagedObjectKey !== null) {
+    // A failed status/readback does not prove the atomic stage rolled back.
+    // Preserve potentially owned evidence instead of deleting it on an uncertain response.
+    if (!stagingAttempted && stagedObjectKey !== null) {
       await input.env.DOCUMENTS.delete(stagedObjectKey).catch(() => undefined);
     }
+    if (!stagingAttempted && stagedStatusKey !== null)
+      await input.env.DOCUMENTS.delete(stagedStatusKey).catch(() => undefined);
     const code = syncErrorCode(error);
     await input.repository.failSync(input.accessSubject, run.id, code);
     throw error;

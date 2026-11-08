@@ -421,8 +421,14 @@ contract.
 The ordinary source task needs no action: show the automatic result, accepted
 holdings total, report date and last successful check. Connection health does
 not establish freshness; omit repeated healthy badges. Name a genuine decision
-count and reveal the dated holdings retained by omission in optional activity.
-An omission alone never supplies a Review button or acknowledgement.
+count. A verified complete account inventory removes absent holdings from
+current totals automatically; show “No longer held”, the quantity transition,
+source date and optional dated prior value in activity. Do not imply sale
+proceeds or a realized loss. Incomplete accounts keep their dated accepted
+holdings. An omission alone never supplies a Review button or acknowledgement.
+Reappearance counts one identity. Earlier activity is read-only and uses the
+saved report's values. Count changed financial facts and presence changes,
+rather than calling every unchanged accepted row a new change.
 
 For an unresolved source identity, compare the existing and reported position
 with account, shares, value and date. Prefill only a credible unique comparison

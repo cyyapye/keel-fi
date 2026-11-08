@@ -273,25 +273,51 @@ describe("populated OLD-schema D1 migration safety", () => {
   for (const review of registry.cases) {
     for (const history of review.histories) {
       it(`certifies ${review.id} from populated ${review.frontier} at ${history} captures`, async () => {
-        if (review.id === "public-source-reviews-v1") {
-          expect(review.frontier).toBe("0090_distribution_reviews.sql");
+        if (
+          review.id === "public-source-reviews-v1" ||
+          review.id === "public-inventory-v1"
+        ) {
+          const inventory = review.id === "public-inventory-v1";
+          expect(review.frontier).toBe(
+            inventory
+              ? "0091_public_source_reviews.sql"
+              : "0090_distribution_reviews.sql",
+          );
           expect(review.migrations.map((item) => item.name)).toEqual([
-            "0091_public_source_reviews.sql",
+            inventory
+              ? "0092_public_holding_inventories.sql"
+              : "0091_public_source_reviews.sql",
           ]);
           const pending = unstable_splitSqlQuery(
             readFileSync(
-              "packages/database/migrations/0091_public_source_reviews.sql",
+              `packages/database/migrations/${inventory ? "0092_public_holding_inventories.sql" : "0091_public_source_reviews.sql"}`,
               "utf8",
             ),
           );
-          expect(
-            pending.every((sql) => !/^\s*(DROP|DELETE|UPDATE)\b/u.test(sql)),
-          ).toBe(true);
+          if (!inventory)
+            expect(
+              pending.every((sql) => !/^\s*(DROP|DELETE|UPDATE)\b/u.test(sql)),
+            ).toBe(true);
+          else
+            expect(
+              pending.flatMap((sql) =>
+                [...sql.matchAll(/\bDROP TRIGGER ([a-z_]+)/gu)].map(
+                  (match) => match[1],
+                ),
+              ),
+            ).toEqual([
+              "public_holding_security_head",
+              "public_holding_security_head_update",
+              "holding_import_application_head",
+            ]);
           const fixture = await populatedMigrationFixture(
             history,
-            "0090-public",
+            inventory ? "0091" : "0090-public",
           );
-          const terminal = await populatedMigrationFixture(history, "0091");
+          const terminal = await populatedMigrationFixture(
+            history,
+            inventory ? "0092" : "0091",
+          );
           expect(fixture.counts.holding_positions).toBe(481);
           expect(fixture.counts.holding_position_snapshots).toBe(
             240 * (history + 2) + 1,
@@ -344,6 +370,81 @@ describe("populated OLD-schema D1 migration safety", () => {
                   .first<{ count: number }>()
               )?.count,
             ).toBe(2);
+            if (inventory) {
+              expect(
+                await runtime.database
+                  .prepare(
+                    `SELECT COUNT(*) count FROM holding_import_application_heads a
+                JOIN holding_import_applications application ON application.id=a.application_id
+                JOIN holding_import_rows r ON r.id=application.import_row_id JOIN holding_imports i ON i.id=r.import_id
+                JOIN source_documents d ON d.id=i.source_document_id JOIN public_holding_security_heads public ON public.position_id=a.position_id WHERE a.source_updated_at IS NOT strftime('%Y-%m-%dT%H:%M:%fZ',d.retrieved_at)`,
+                  )
+                  .first("count"),
+              ).toBe(0);
+              expect(
+                pending.flatMap((sql) =>
+                  [...sql.matchAll(/\bDROP INDEX ([a-z_]+)/gu)].map(
+                    (match) => match[1],
+                  ),
+                ),
+              ).toEqual([
+                "holding_position_ownerships_household_container_idx",
+                "holding_positions_household_id_idx",
+              ]);
+              expect(
+                terminal.objects.find(
+                  (object) =>
+                    object.type === "index" &&
+                    object.name ===
+                      "holding_position_ownerships_household_container_idx",
+                )?.sql,
+              ).toContain("protected_position_key");
+              expect(
+                terminal.objects.find(
+                  (object) =>
+                    object.type === "index" &&
+                    object.name === "holding_positions_household_id_idx",
+                )?.sql,
+              ).toContain("household_id,provider,id");
+              expect(
+                await runtime.database
+                  .prepare(
+                    "SELECT COUNT(*) count FROM public_holding_active_positions",
+                  )
+                  .first("count"),
+              ).toBe(240);
+              expect(
+                await runtime.database
+                  .prepare(
+                    "SELECT COUNT(*) count FROM public_holding_inventories",
+                  )
+                  .first("count"),
+              ).toBe(0);
+              for (const trigger of [
+                "public_holding_security_head",
+                "public_holding_security_head_update",
+              ]) {
+                const after = terminal.objects.find(
+                  (object) =>
+                    object.type === "trigger" && object.name === trigger,
+                )!;
+                const before = fixture.objects.find(
+                  (object) =>
+                    object.type === "trigger" && object.name === trigger,
+                )!;
+                expect(after.sql).not.toBe(before.sql);
+                expect(after.sql).toContain(
+                  "excluded.identity_key IS NOT public_holding_security_heads.identity_key",
+                );
+              }
+              expect(
+                terminal.objects.find(
+                  (object) =>
+                    object.type === "trigger" &&
+                    object.name === "holding_import_application_head",
+                )?.sql,
+              ).toContain("source_updated_at");
+            }
             const immutableProbes = await immutableMigrationProbes(
               runtime.database,
               fixture,
@@ -516,14 +617,14 @@ describe("populated OLD-schema D1 migration safety", () => {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "public-holding-history-v1" ||
-        registry.baseline.frontier !== "0091_public_source_reviews.sql" ||
-        registry.cases.length !== 2 ||
+        registry.baseline.frontier !== "0092_public_holding_inventories.sql" ||
+        registry.cases.length !== 3 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0091");
+      const fixture = await populatedMigrationFixture(history, "0092");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
@@ -594,8 +695,8 @@ describe("populated OLD-schema D1 migration safety", () => {
           true,
         );
         expect(preservation).toEqual({
-          tablesPreserved: 143,
-          schemaObjectsPreserved: 726,
+          tablesPreserved: 147,
+          schemaObjectsPreserved: 746,
           foreignKeyViolations: 0,
         });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({

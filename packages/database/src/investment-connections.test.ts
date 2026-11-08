@@ -792,7 +792,7 @@ describe("Plaid Investments connection state", () => {
       latestImportId: null,
       latestAdjudication: {
         importId: staged.preview.id,
-        policyVersion: "plaid-investments-holdings-auto-v4",
+        policyVersion: "plaid-investments-holdings-auto-v5",
         autoAppliedCount: 1,
         quarantinedCount: 0,
       },
