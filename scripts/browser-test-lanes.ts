@@ -83,7 +83,6 @@ export const BROWSER_TEST_LANES = {
     "legal-name-resolution.visual.spec.ts",
     "purchase-details.visual.spec.ts",
     "share-basis.spec.ts",
-    "public-source-updates.spec.ts",
     "legal-entities.visual.spec.ts",
     "manual-holdings.spec.ts",
     "obligations.visual.spec.ts",
@@ -93,6 +92,7 @@ export const BROWSER_TEST_LANES = {
     "position-links.visual.spec.ts",
     "private-alpha.spec.ts",
   ],
+  "stateful-source": ["public-source-updates.spec.ts"],
 } as const satisfies Record<string, readonly string[]>;
 
 const DEVELOPMENT_ONLY_STATEFUL_SPECS = [
@@ -139,6 +139,13 @@ export const BROWSER_TEST_EXECUTION = {
     webPort: 31_033,
     workers: 1,
   },
+  "stateful-source": {
+    apiPort: 32_036,
+    frontend: "production",
+    server: "stateful",
+    webPort: 31_036,
+    workers: 1,
+  },
 } as const satisfies Record<
   keyof typeof BROWSER_TEST_LANES,
   {
@@ -152,10 +159,12 @@ export const BROWSER_TEST_EXECUTION = {
 
 export const BROWSER_TEST_SCHEDULE = {
   mocked: [],
-  "mocked-development": ["mocked"],
+  "mocked-development": ["stateful-development"],
   "stateful-development": [],
   "stateful-a": [],
   "stateful-b": [],
+  // Reuse completed worker slots; never overlap more than four browsers.
+  "stateful-source": ["mocked"],
 } as const satisfies Record<
   keyof typeof BROWSER_TEST_LANES,
   readonly (keyof typeof BROWSER_TEST_LANES)[]

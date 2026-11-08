@@ -215,7 +215,11 @@ describe("browser test lanes", () => {
       server: "stateful",
       workers: 1,
     });
-    for (const lane of ["stateful-a", "stateful-b"] as const) {
+    for (const lane of [
+      "stateful-a",
+      "stateful-b",
+      "stateful-source",
+    ] as const) {
       expect(
         resolveBrowserTestLane({ e2eDirectory: "e2e", lane }),
       ).toMatchObject({
@@ -236,7 +240,10 @@ describe("browser test lanes", () => {
     expect([null, 0, 1, 2].map(browserServerFailureExitCode)).toEqual([
       1, 1, 1, 2,
     ]);
-    expect(BROWSER_TEST_SCHEDULE["mocked-development"]).toEqual(["mocked"]);
+    expect(BROWSER_TEST_SCHEDULE["mocked-development"]).toEqual([
+      "stateful-development",
+    ]);
+    expect(BROWSER_TEST_SCHEDULE["stateful-source"]).toEqual(["mocked"]);
     expect(
       Object.entries(BROWSER_TEST_SCHEDULE)
         .filter(([, dependencies]) => dependencies.length === 0)

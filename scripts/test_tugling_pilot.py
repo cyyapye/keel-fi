@@ -193,7 +193,7 @@ class NativeAccountingTests(unittest.TestCase):
         native.compare_cases("playwright", native.playwright_cases(merged), inventory)
         self.assertEqual(merged["stats"]["expected"], len(native.BROWSER_LANES))
         self.assertEqual(merged["stats"]["duration"], 10)
-        self.assertEqual(merged["totalWorkDuration"], 50)
+        self.assertEqual(merged["totalWorkDuration"], 60)
         self.assertEqual(merged["errors"], reports["mocked"]["errors"])
         for incomplete in (
             {"mocked": reports["mocked"]},
@@ -210,17 +210,19 @@ class NativeAccountingTests(unittest.TestCase):
             "stateful-development": {"server": "stateful", "frontend": "development", "workers": 1, "webPort": 31035, "apiPort": 32035},
             "stateful-a": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31032, "apiPort": 32032},
             "stateful-b": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31033, "apiPort": 32033},
+            "stateful-source": {"server": "stateful", "frontend": "production", "workers": 1, "webPort": 31036, "apiPort": 32036},
         }
         schedule = {
             "mocked": [],
-            "mocked-development": ["mocked"],
+            "mocked-development": ["stateful-development"],
             "stateful-development": [],
             "stateful-a": [],
             "stateful-b": [],
+            "stateful-source": ["mocked"],
         }
         self.assertEqual(
             native.validate_browser_execution(lanes, execution, schedule),
-            [31031, 31034, 31035, 32035, 31032, 32032, 31033, 32033],
+            [31031, 31034, 31035, 32035, 31032, 32032, 31033, 32033, 31036, 32036],
         )
         for lane, field, value in (
             ("mocked", "workers", 2),
@@ -228,6 +230,7 @@ class NativeAccountingTests(unittest.TestCase):
             ("mocked-development", "frontend", "development"),
             ("stateful-a", "webPort", 40000),
             ("stateful-b", "apiPort", 32032),
+            ("stateful-source", "frontend", "development"),
         ):
             invalid = {name: dict(config) for name, config in execution.items()}
             invalid[lane][field] = value
@@ -246,10 +249,11 @@ class NativeAccountingTests(unittest.TestCase):
 
         schedule = {
             "mocked": [],
-            "mocked-development": ["mocked"],
+            "mocked-development": ["stateful-development"],
             "stateful-development": [],
             "stateful-a": [],
             "stateful-b": [],
+            "stateful-source": ["mocked"],
         }
         execution = {lane: {"workers": 1} for lane in native.BROWSER_LANES}
 
@@ -310,7 +314,14 @@ class NativeAccountingTests(unittest.TestCase):
         self.assertNotIn("mocked", processes)
         completed.add("mocked")
         handoff = native.ready_browser_lanes(started, completed, schedule)
-        self.assertEqual(handoff, ["mocked-development"])
+        self.assertEqual(handoff, ["stateful-source"])
+        processes["stateful-source"] = Process()
+        started.add("stateful-source")
+        self.assertEqual(native.active_browser_workers(processes, execution), 4)
+        processes["stateful-development"].running = False
+        self.assertEqual(native.active_browser_workers(processes, execution), 3)
+        completed.add("stateful-development")
+        self.assertEqual(native.ready_browser_lanes(started, completed, schedule), ["mocked-development"])
         processes["mocked-development"] = Process()
         self.assertEqual(native.active_browser_workers(processes, execution), 4)
 
@@ -666,6 +677,7 @@ class NativeAccountingTests(unittest.TestCase):
                 "stateful-development": {"server": "stateful"},
                 "stateful-a": {"server": "stateful"},
                 "stateful-b": {"server": "stateful"},
+                "stateful-source": {"server": "stateful"},
             }
             def export_base(command, **_options):
                 if command[0] == "node":
@@ -704,7 +716,7 @@ class NativeAccountingTests(unittest.TestCase):
                 run.assert_not_called()
                 for lane in ("mocked", "mocked-development"):
                     self.assertEqual(list((runtime / lane).iterdir()), [])
-                for lane in ("stateful-development", "stateful-a", "stateful-b"):
+                for lane in ("stateful-development", "stateful-a", "stateful-b", "stateful-source"):
                     self.assertEqual(
                         (runtime / lane / "v3/d1/seed.sqlite").read_text(), "base synthetic"
                     )

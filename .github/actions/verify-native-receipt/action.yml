@@ -21,5 +21,5 @@ runs:
       env:
         NATIVE_RECEIPT: ${{ inputs.receipt }}
         TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
-        TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v7
+        TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v8
       run: python3 -I scripts/ci-verification.py check

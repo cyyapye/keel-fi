@@ -378,14 +378,26 @@ decisions and link records. The test still meters every positive, history, empty
 and unrelated-household read against real D1, with the same 120-position scale,
 row budgets and query-plan assertions.
 
-Browser verification produces five reports with at most four active workers.
-Three stateful partitions and one mocked partition start together. When the
-first mocked partition validates its report and releases its server, its worker
-slot runs the remaining mocked holdings and agreement-security checks. The other
-partitions can finish independently. The checked-in case inventory defines the
-required executions and explicit exclusions on each platform. Each retired case
-and its remaining coverage are recorded in
-[test performance coverage](test-performance-coverage.md).
+Browser verification produces six reports with at most four active workers.
+Three stateful partitions and one mocked partition start together. The first
+mocked partition releases its slot to the isolated production source-update
+partition. The development stateful partition releases its slot to the remaining
+mocked holdings and agreement-security checks. This separates the real source
+fixture from the longer general production partition while retaining every case
+and the complete 300-second deadline. At most four stateful API processes can
+overlap; neither mocked partition starts an API. The other partitions can finish
+independently.
+
+A November 8 Linux x64 canonical replay accounted for all 178 cases: 163 passed,
+15 existing exclusions, zero unexpected or flaky results. Its merged browser
+span was 276.477 seconds and the enclosing 300-second command passed. Across 140
+two-second host samples, available memory stayed above 4,033 MiB of 11,676 MiB.
+This standalone browser trial is separate from the complete exact-revision CI
+gate and is not an isolated causal comparison.
+
+The checked-in case inventory defines the required executions and explicit
+exclusions on each platform. Each retired case and its remaining coverage are
+recorded in [test performance coverage](test-performance-coverage.md).
 
 The manual-holding visual tests and UI catalogue use the fail-closed API-mocked
 fixture inside production stateful-a. API mocking belongs to each test's
@@ -407,7 +419,7 @@ The migration flow runs every migration and the base synthetic seed, then copies
 its closed D1 tree into a dedicated allowlisted browser path before applying
 default-scenario additions and checking all canonical invariants. It verifies
 the browser binding/readback and seals both source inputs and complete fixture
-contents. The required browser command only accepts that seal, clones three
+contents. The required browser command only accepts that seal, clones four
 profiles and consumes the seed; it never falls back to a reset on the browser
 critical path. The standalone `pilot_native.py playwright` command retains its
 reset-and-verify behavior and uses a separate seed path. All commands share the
@@ -502,14 +514,16 @@ The required migration flow owns the default database reset and readback. The
 developer `make bootstrap` still seeds a ready-to-use local database. Removing
 the duplicate CI reset does not remove the migration or seed verification.
 
-New or unclassified specs fail partition validation. All five reports must
+New or unclassified specs fail partition validation. All six reports must
 individually match their partition and jointly match the complete reviewed
 inventory; one green lane cannot substitute for the suite. Merged elapsed time
 is the span of the concurrent lanes, not their summed work. Per-suite leases
 reject duplicate writers, and cancellation cleans owned process groups before
 removing the isolated database profiles. The reviewed dependency map is exact:
-the second mocked lane waits for its predecessor to validate its report and
-release its process group and port. All five lanes run within the timed phase.
+each delayed lane waits for its designated predecessor to validate its report
+and release its process group and port. The source lane follows the first mocked
+lane; the second mocked lane follows the development stateful lane. All six
+lanes run within the timed phase, with at most four active browser workers.
 
 The initial OVH capacity inspection found six CPUs, 11.4 GiB RAM, approximately
 9.3 GiB available memory and low CPU/I/O pressure. This is a starting snapshot,
