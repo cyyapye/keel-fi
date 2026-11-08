@@ -160,6 +160,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "apps/web/src/api.ts | refreshDueCashAccounts | network | fetch | c17c10c078c6156c",
   "apps/web/src/api.ts | refreshLiabilities | network | fetch | 596fcf1ec11b2fcb",
   "apps/web/src/api.ts | refreshPortfolioBaseline | network | fetch | 8ead4d715b09b323",
+  "apps/web/src/api.ts | refreshPublicHoldingImportExposures | network | fetch | 6eda0d9c16a7b6de",
   "apps/web/src/api.ts | requestAngelListUpdate | network | fetch | d3b5831a11a5d57e",
   "apps/web/src/api.ts | requestProviderPortfolioUpdate | network | fetch | 134a35a47f7388d1",
   "apps/web/src/api.ts | resolveInvestmentReviews | network | fetch | 09d0d104453a5f97",

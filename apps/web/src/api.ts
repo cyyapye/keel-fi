@@ -1854,6 +1854,21 @@ export async function reviewPublicHoldingImport(
   return HoldingImportPreviewSchema.parse(await response.json());
 }
 
+export async function refreshPublicHoldingImportExposures(
+  importId: string,
+): Promise<HoldingImportPreview> {
+  const response = await fetch(
+    `/api/holding-imports/${encodeURIComponent(importId)}/exposures/refresh`,
+    { method: "POST" },
+  );
+  if (!response.ok)
+    throw await responseError(
+      response,
+      "Security grouping could not be refreshed.",
+    );
+  return HoldingImportPreviewSchema.parse(await response.json());
+}
+
 export async function refreshPortfolioBaseline(
   signal?: AbortSignal,
 ): Promise<PortfolioBaselineState> {

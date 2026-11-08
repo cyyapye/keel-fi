@@ -2173,6 +2173,24 @@ describe("AngelList holding import persistence", () => {
       subject,
       initial.preview.id,
     );
+    const exposureViews = new D1InvestmentExposureViewRepository(
+      database as unknown as D1Database,
+    );
+    const priorExposure = (await exposureViews.list(subject)).exposures[0]!;
+    const initialAccepted = await repository.getHoldingImport(
+      subject,
+      initial.preview.id,
+    );
+    const reportedHolding = (
+      await new D1AlphaRepository(
+        database as unknown as D1Database,
+      ).getAlphaData(subject)
+    ).holdings.find(
+      (holding) => holding.id === initialAccepted.rows[0]!.positionId,
+    );
+    expect(reportedHolding?.exposureName).toBe(
+      "SYN · Synthetic Public Company",
+    );
     const baselines = new D1PortfolioBaselineRepository(
       database as unknown as D1Database,
     );
@@ -2244,6 +2262,21 @@ describe("AngelList holding import persistence", () => {
             ? 253457
             : 123457,
       );
+      const exposureView = await exposureViews.list(subject);
+      const retainedGroup = exposureView.exposures.find(
+        (group) => group.exposure.id === priorExposure.exposure.id,
+      );
+      expect(retainedGroup?.totals[0]?.allocatedValueMinor).toBe(
+        decision === "same" ? 130000 : 123457,
+      );
+      if (decision === "same") {
+        expect(
+          exposureView.positions.filter(
+            (position) => position.ticker === next.rows[0]!.ticker,
+          ),
+        ).toHaveLength(1);
+        expect(retainedGroup?.contributions).toHaveLength(1);
+      }
       const view = await new D1InvestmentPositionViewRepository(
         database as unknown as D1Database,
       ).list(subject);
@@ -2311,6 +2344,103 @@ describe("AngelList holding import persistence", () => {
     expect(() =>
       sqlite.exec("DELETE FROM public_holding_source_reviews"),
     ).toThrow("immutable");
+
+    // A later explicit grouping review stays authoritative across source aliases.
+    const exposureRepository = new D1ExposureRepository(
+      database as unknown as D1Database,
+    );
+    const reviewedGroup = await exposureRepository.resolveExposure(subject, {
+      exposureKind: "public_instrument",
+      canonicalName: "Synthetic reviewed issuer group",
+      protectedIdentityKey: "d9".repeat(32),
+      evidenceSha256: "d8".repeat(32),
+    });
+    const reviewedPositionId = preview.rows[0]!.positionId!;
+    await exposureRepository.recordMapping(subject, {
+      positionId: reviewedPositionId,
+      exposureId: reviewedGroup.id,
+      relationshipKind: "direct",
+      allocationPpm: 1_000_000,
+      status: "active",
+      decisionSource: "review",
+      decisionReference: "synthetic-explicit-grouping",
+      evidenceSha256: "d8".repeat(32),
+      effectiveAt: "2026-08-11T12:00:00.000Z",
+    });
+    const recorded = preview.rows[0]!;
+    preview = await repository.reviewPublicHoldingImport(
+      subject,
+      preview.id,
+      recorded.id,
+      {
+        decision: "same",
+        expectedReviewId: recorded.identityReviewId ?? null,
+        expectedSourceSnapshotId: recorded.currentSnapshotId ?? null,
+        priorPositionId: prior.positionId,
+        expectedPriorSnapshotId: prior.snapshotId,
+      },
+    );
+    const reviewedView = await exposureViews.list(subject);
+    expect(
+      reviewedView.exposures.find(
+        (group) => group.exposure.id === reviewedGroup.id,
+      )?.totals[0]?.allocatedValueMinor,
+    ).toBe(130_000);
+    expect(
+      reviewedView.exposures.some(
+        (group) => group.exposure.id === priorExposure.exposure.id,
+      ),
+    ).toBe(false);
+    expect(
+      await refreshAcceptedPortfolioBaseline(baselines, subject),
+    ).toMatchObject({ status: "refreshed" });
+    expect(await decide("separate")).toEqual([123_457, 130_000]);
+    expect(
+      (await exposureViews.list(subject)).exposures.find(
+        (group) => group.exposure.id === reviewedGroup.id,
+      )?.totals[0]?.allocatedValueMinor,
+    ).toBe(130_000);
+
+    await exposureRepository.recordMapping(subject, {
+      positionId: reviewedPositionId,
+      exposureId: reviewedGroup.id,
+      relationshipKind: "direct",
+      allocationPpm: null,
+      status: "withdrawn",
+      decisionSource: "review",
+      decisionReference: "synthetic-withdrawn-grouping",
+      evidenceSha256: "d8".repeat(32),
+      effectiveAt: "2026-08-12T12:00:00.000Z",
+    });
+    const beforeSame = preview.rows[0]!;
+    preview = await repository.reviewPublicHoldingImport(
+      subject,
+      preview.id,
+      beforeSame.id,
+      {
+        decision: "same",
+        expectedReviewId: beforeSame.identityReviewId ?? null,
+        expectedSourceSnapshotId: beforeSame.currentSnapshotId ?? null,
+        priorPositionId: prior.positionId,
+        expectedPriorSnapshotId: prior.snapshotId,
+      },
+    );
+    await exposureRepository.reconcileAcceptedPublicExposureHistory(
+      subject,
+      preview.id,
+    );
+    const excluded = (await exposureViews.list(subject)).positions.find(
+      (position) => position.id === reviewedPositionId,
+    )!;
+    expect(excluded.mappedExposureIds).toEqual([]);
+    expect(excluded.valueMinor).toBe(130_000);
+    expect(
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) count FROM holding_position_snapshots s JOIN holding_positions p ON p.id=s.position_id WHERE p.provider='plaid_investments'",
+        )
+        .get(),
+    ).toEqual({ count: 2 });
   });
 
   it("ignores an unresolved report without accepting its financial facts and permits a later recorded correction", async () => {
@@ -2395,6 +2525,94 @@ describe("AngelList holding import persistence", () => {
       decision: "separate",
       decisionSource: "manual",
     });
+  });
+
+  it("uses verified global grouping over a provider fallback after a recorded source match", async () => {
+    const subject = "synthetic-access-subject";
+    const firstInput = robinhoodStageInput();
+    firstInput.canonicalScope.rows[0] = {
+      ...firstInput.canonicalScope.rows[0]!,
+      publicExposureIdentityKind: null,
+      protectedExposureKey: null,
+    };
+    const first = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      firstInput,
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      first.preview.id,
+    );
+    const exposures = new D1ExposureRepository(
+      database as unknown as D1Database,
+    );
+    await exposures.recordRetainedPublicExposureEvidence(subject, [
+      {
+        importRowId: first.preview.rows[0]!.id,
+        resolutionStatus: "no_strong_identifier",
+        evidenceSha256: firstInput.sha256,
+      },
+    ]);
+    await exposures.recordRetainedProviderExposureEvidence(subject, [
+      {
+        importRowId: first.preview.rows[0]!.id,
+        resolutionStatus: "scoped_identifier",
+        protectedIdentityKey: "a4".repeat(32),
+        evidenceSha256: firstInput.sha256,
+      },
+    ]);
+    await exposures.reconcileAcceptedPublicExposureHistory(
+      subject,
+      first.preview.id,
+    );
+    const views = new D1InvestmentExposureViewRepository(
+      database as unknown as D1Database,
+    );
+    const fallback = (await views.list(subject)).exposures[0]!.exposure.id;
+    const next = robinhoodStageInput("a1".repeat(32));
+    next.sha256 = "a2".repeat(32);
+    next.effectiveDate = "2026-08-13";
+    next.retrievedAt = "2026-08-13T12:00:00.000Z";
+    next.rows[0] = {
+      ...next.rows[0]!,
+      naturalKeySha256: "a3".repeat(32),
+      marketValueMinor: 150_000,
+    };
+    next.canonicalScope.rows[0] = {
+      ...next.canonicalScope.rows[0]!,
+      protectedPositionKey: "a3".repeat(32),
+    };
+    const staged = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      next,
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    const preview = await repository.getHoldingImport(
+      subject,
+      staged.preview.id,
+    );
+    const row = preview.rows[0]!;
+    const prior = preview.priorPositions![0]!;
+    await repository.reviewPublicHoldingImport(subject, preview.id, row.id, {
+      decision: "same",
+      expectedReviewId: row.identityReviewId ?? null,
+      expectedSourceSnapshotId: row.currentSnapshotId ?? null,
+      priorPositionId: prior.positionId,
+      expectedPriorSnapshotId: prior.snapshotId,
+    });
+    await exposures.reconcileAcceptedPublicExposureHistory(subject, preview.id);
+    const view = await views.list(subject);
+    expect(view.exposures).toHaveLength(1);
+    expect(view.exposures[0]!.exposure.id).not.toBe(fallback);
+    expect(view.exposures[0]!.exposure.protectedIdentityKey).toBe(
+      next.canonicalScope.rows[0].protectedExposureKey,
+    );
+    expect(view.exposures[0]!.totals[0]!.allocatedValueMinor).toBe(150_000);
+    expect(view.exposures[0]!.contributions).toHaveLength(1);
+    expect(view.positions).toHaveLength(1);
   });
 
   it("resolves a unique verified public security identity automatically before presenting a decision", async () => {

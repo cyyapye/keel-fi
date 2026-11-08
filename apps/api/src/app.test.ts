@@ -564,14 +564,23 @@ describe("Keel API", () => {
   });
 
   it("keeps import reads passive and runs automatic reconciliation only on an authenticated POST", async () => {
+    const getHoldingImport = vi.fn().mockResolvedValue(holdingImportPreview);
     const reconcileHoldingImport = vi
       .fn()
       .mockResolvedValue(holdingImportPreview);
     const repository = {
-      getHoldingImport: vi.fn().mockResolvedValue(holdingImportPreview),
+      getHoldingImport,
       reconcileHoldingImport,
     } as unknown as AlphaRepository;
-    const app = createApp({ repository });
+    const completeExposures = vi.fn().mockResolvedValue({
+      documentCount: 1,
+      skippedDocumentCount: 0,
+      identityCount: 1,
+    });
+    const app = createApp({
+      repository,
+      retainedPublicExposureReconciler: { reconcile: completeExposures },
+    });
     expect(
       (
         await app.request(
@@ -617,6 +626,64 @@ describe("Keel API", () => {
         )
       ).status,
     ).toBe(503);
+
+    const refreshPath =
+      "/api/holding-imports/synthetic-import/exposures/refresh";
+    const financialCalls = reconcileHoldingImport.mock.calls.length;
+    expect(
+      (
+        await app.request(
+          refreshPath,
+          { method: "POST" },
+          testEnv("production"),
+        )
+      ).status,
+    ).toBe(401);
+    expect(completeExposures).not.toHaveBeenCalled();
+    expect(
+      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
+        .status,
+    ).toBe(409);
+    expect(completeExposures).not.toHaveBeenCalled();
+    getHoldingImport.mockResolvedValue({
+      ...holdingImportPreview,
+      provider: "plaid_investments",
+    });
+    expect(
+      (
+        await app.request(
+          "/api/holding-imports/synthetic-import",
+          {},
+          testEnv("local"),
+        )
+      ).status,
+    ).toBe(200);
+    expect(completeExposures).not.toHaveBeenCalled();
+    completeExposures.mockRejectedValueOnce(
+      new Error("Synthetic grouping outage"),
+    );
+    expect(
+      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
+        .status,
+    ).toBe(503);
+    expect(
+      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
+        .status,
+    ).toBe(200);
+    expect(completeExposures).toHaveBeenLastCalledWith(
+      "synthetic-access-subject",
+      "synthetic-import",
+    );
+    expect(reconcileHoldingImport.mock.calls).toHaveLength(financialCalls);
+    const completionCalls = completeExposures.mock.calls.length;
+    getHoldingImport.mockRejectedValueOnce(
+      new Error("Holding import not found"),
+    );
+    expect(
+      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
+        .status,
+    ).toBe(404);
+    expect(completeExposures.mock.calls).toHaveLength(completionCalls);
   });
 
   it("preserves staged source evidence if automatic reconciliation needs a retry", async () => {

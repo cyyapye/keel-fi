@@ -5264,6 +5264,52 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
     }
   });
 
+  app.post(
+    "/api/holding-imports/:importId/exposures/refresh",
+    async (context) => {
+      const importId = z
+        .string()
+        .min(1)
+        .max(200)
+        .safeParse(context.req.param("importId"));
+      if (!importId.success)
+        return context.json({ error: "Source report is invalid." }, 400);
+      const accessSubject = context.get("identity").subject;
+      try {
+        const repository = repositoryFor(context.env);
+        const preview = await repository.getHoldingImport(
+          accessSubject,
+          importId.data,
+        );
+        if (preview.provider !== "plaid_investments")
+          return context.json(
+            { error: "This report has no public security evidence." },
+            409,
+          );
+        await retainedPublicExposureReconcilerFor(context.env).reconcile(
+          accessSubject,
+          importId.data,
+        );
+        return context.json(
+          await repository.getHoldingImport(accessSubject, importId.data),
+          200,
+          {
+            "Cache-Control": "private, no-store",
+          },
+        );
+      } catch (error) {
+        return context.json(
+          {
+            error:
+              "Your saved decision is unchanged. Security grouping could not be refreshed. Try the refresh again.",
+          },
+          errorMessage(error).includes("not found") ? 404 : 503,
+          { "Cache-Control": "private, no-store" },
+        );
+      }
+    },
+  );
+
   app.post("/api/holding-imports/:importId/reconcile", async (context) => {
     try {
       const preview = await repositoryFor(context.env).reconcileHoldingImport(

@@ -648,6 +648,7 @@
     "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > stages sydecar template evidence for review before accepting a provider-scoped position",
     "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > stages tokenfolio template evidence for review before accepting a provider-scoped position",
     "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > stages wefunder template evidence for review before accepting a provider-scoped position",
+    "packages/database/src/holding-imports.test.ts :: AngelList holding import persistence > uses verified global grouping over a provider fallback after a recorded source match",
     "packages/database/src/holding-imports.test.ts :: exception-based source updates > accepts clear sydecar rows from partial coverage without inventing omissions",
     "packages/database/src/holding-imports.test.ts :: exception-based source updates > accepts clear tokenfolio rows from partial coverage without inventing omissions",
     "packages/database/src/holding-imports.test.ts :: exception-based source updates > accepts clear wefunder rows from partial coverage without inventing omissions",

@@ -22,6 +22,7 @@ import {
   loadHoldingImport,
   loadPublicHoldingReviewEffects,
   refreshPortfolioBaseline,
+  refreshPublicHoldingImportExposures,
   reviewPublicHoldingImport,
 } from "./api";
 import { formatDate, formatMoney } from "./format";
@@ -179,19 +180,52 @@ export function PublicSourceUpdate({
     return () => controller.abort();
   }, [comparisonKey, previewId, rowId, priorId]);
   async function readStatus() {
+    if (working) return;
+    setRefreshing(true);
+    onSavingChange?.(true);
     setLoading(true);
     setError(null);
     try {
-      setPreview(await loadHoldingImport(targetImportId));
+      const next = await loadHoldingImport(targetImportId);
+      setPreview(next);
       setNeedsStatusCheck(false);
       setComparisonRevision((value) => value + 1);
+      const recorded = next.rows.find(
+        (row) => row.id === selected?.id,
+      )?.sourceReview;
+      if (recorded?.appliesToThisReport) {
+        onReadbackPendingChange?.(true);
+        setSelectedId(null);
+        setChoosePrior(false);
+        setPriorSelection(null);
+        setSaved(
+          `${decisionLabel(recorded.decision)}. Your decision is saved.`,
+        );
+        window.requestAnimationFrame(() => savedMessage.current?.focus());
+        try {
+          await finishReadback(next.id);
+          onReadbackPendingChange?.(false);
+        } catch {
+          setRefreshPending(true);
+          setSaved(
+            `${decisionLabel(recorded.decision)}. Your decision is saved; the latest holdings or planning view could not be refreshed.`,
+          );
+        }
+      }
     } catch {
       setError(
         "The decision status is unavailable. Check again before saving.",
       );
     } finally {
       setLoading(false);
+      setRefreshing(false);
+      onSavingChange?.(false);
     }
+  }
+  async function finishReadback(importId: string) {
+    setPreview(await refreshPublicHoldingImportExposures(importId));
+    await refreshPortfolioBaseline();
+    await onSaved?.();
   }
   async function save(decision: PublicHoldingReviewInput["decision"]) {
     if (!selected || !preview || working || needsStatusCheck || refreshPending)
@@ -220,8 +254,7 @@ export function PublicSourceUpdate({
       setSaved(`${decisionLabel(decision)}. Your decision is saved.`);
       // Receipt is committed before these independent projection/planning refreshes.
       try {
-        await refreshPortfolioBaseline();
-        await onSaved?.();
+        await finishReadback(next.id);
         onReadbackPendingChange?.(false);
       } catch {
         setRefreshPending(true);
@@ -246,8 +279,7 @@ export function PublicSourceUpdate({
     setRefreshing(true);
     onSavingChange?.(true);
     try {
-      await refreshPortfolioBaseline();
-      await onSaved?.();
+      await finishReadback(targetImportId);
       onReadbackPendingChange?.(false);
       setRefreshPending(false);
       setSaved("Your decision is saved. Holdings and planning are refreshed.");

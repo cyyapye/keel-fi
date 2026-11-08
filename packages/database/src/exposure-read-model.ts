@@ -1,6 +1,7 @@
 import {
   publicSourceStateFor,
   bindPublicSourceState,
+  type PublicSourceState,
 } from "./public-source-state";
 import {
   CanonicalExposureSchema,
@@ -54,13 +55,14 @@ type PositionExposureMappingRow = {
   exposure_id: string;
   relationship_kind: "direct" | "look_through";
   allocation_ppm: number | null;
-  status: "active";
+  status: "active" | "withdrawn";
   decision_source: "deterministic_policy" | "review";
   decision_reference: string;
   evidence_sha256: string;
   effective_at: string;
   version: number;
   supersedes_mapping_id: string | null;
+  accepted_at: string;
 };
 
 type AcceptedFinancingValuationRow = {
@@ -107,6 +109,77 @@ function mappingFrom(row: PositionExposureMappingRow): PositionExposureMapping {
     version: row.version,
     supersedesMappingId: row.supersedes_mapping_id,
   });
+}
+
+// A recorded same-holding choice joins source observations, not investments.
+// Reuse the family's accepted allocation while displaying its latest value.
+// Explicit allocation reviews take precedence over automatic source mappings;
+// verified global identity beats provider fallback, then the original mapped
+// identity is retained. Reviewed withdrawals remain exclusions. Corrections split the family
+// again through the current source-decision graph, without rewriting mappings.
+function sourceMappings(
+  rows: readonly PositionExposureMappingRow[],
+  state: PublicSourceState | null,
+) {
+  if (!state) return rows.map(mappingFrom);
+  const byPosition = new Map<string, PositionExposureMappingRow[]>();
+  for (const row of rows) {
+    const current = byPosition.get(row.position_id) ?? [];
+    current.push(row);
+    byPosition.set(row.position_id, current);
+  }
+  const owners = new Map<
+    string,
+    {
+      id: string;
+      reviewOrder: string;
+      globallyVerified: boolean;
+      sourceOrder: string;
+    }
+  >();
+  for (const position of state.positions) {
+    const mappings = byPosition.get(position.id);
+    if (!mappings) continue;
+    const root = state.rootById.get(position.id)!;
+    const reviewOrder = mappings.reduce(
+      (order, row) =>
+        row.decision_source === "review" &&
+        `${row.accepted_at}\0${row.id}` > order
+          ? `${row.accepted_at}\0${row.id}`
+          : order,
+      "",
+    );
+    const sourceOrder = `${position.observed_at}\0${position.applied_at}\0${position.application_id}`;
+    const globallyVerified = mappings.some((row) =>
+      row.decision_reference.startsWith("public-strong-identifier-v1:"),
+    );
+    const prior = owners.get(root);
+    if (
+      !prior ||
+      reviewOrder > prior.reviewOrder ||
+      (reviewOrder === prior.reviewOrder &&
+        ((globallyVerified && !prior.globallyVerified) ||
+          (globallyVerified === prior.globallyVerified &&
+            (position.id === root ||
+              (prior.id !== root && sourceOrder < prior.sourceOrder)))))
+    )
+      owners.set(root, {
+        id: position.id,
+        reviewOrder,
+        globallyVerified,
+        sourceOrder,
+      });
+  }
+  const projected = rows
+    .filter((row) => !state.byId.has(row.position_id))
+    .map(mappingFrom);
+  for (const owner of owners.values()) {
+    const visible = state.visibleById.get(owner.id);
+    if (!visible) continue;
+    for (const mapping of byPosition.get(owner.id)!)
+      projected.push(mappingFrom({ ...mapping, position_id: visible }));
+  }
+  return projected;
 }
 
 function acceptedFinancingValuationFrom(
@@ -307,10 +380,10 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
                mapping.allocation_ppm, mapping.status,
                mapping.decision_source, mapping.decision_reference,
                mapping.evidence_sha256, mapping.effective_at,
-               mapping.version, mapping.supersedes_mapping_id
+               mapping.version, mapping.supersedes_mapping_id,
+               mapping.accepted_at
              FROM holding_position_exposure_mappings mapping
              WHERE mapping.household_id = ?
-               AND mapping.status = 'active'
                AND NOT EXISTS (SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=mapping.position_id AND link.state='linked')
                AND NOT EXISTS (
                  SELECT 1
@@ -356,14 +429,7 @@ export class D1InvestmentExposureViewRepository implements InvestmentExposureVie
     const canonicalView = createInvestmentExposureView(
       positionView,
       exposureRows.map(canonicalExposureFrom),
-      mappingRows
-        .filter(
-          (row) =>
-            !publicSourceStateFor(positionViewInput)?.hiddenIds.has(
-              row.position_id,
-            ),
-        )
-        .map(mappingFrom),
+      sourceMappings(mappingRows, publicSourceStateFor(positionViewInput)),
       unambiguousAcceptedValuations(acceptedValuationRows),
     );
     const activeExposureIds = new Set(

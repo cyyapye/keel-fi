@@ -440,6 +440,14 @@ automatic updates must survive reload without a repeated identity/planning
 approval. The source-update policy owns acceptance; these controls compose the
 existing shared library in the application.
 
+A saved source decision completes exact security grouping before the accepted
+holdings readback. A new legal position joins an existing exposure only when its
+verified security identity agrees; it does not become the same legal position. A
+confirmed same-holding observation retains its accepted grouping. Pending
+grouping uses the existing saved-but-refresh-pending state, with one explicit
+refresh of derived state and no repeated financial decision. A status read that
+discovers an already saved receipt follows this same recovery path.
+
 After a decision is saved, keep stale source totals and decision counts out of
 the summary until its readback succeeds. A failed refresh must preserve the
 saved receipt, identify the pending readback and offer its own recovery. An

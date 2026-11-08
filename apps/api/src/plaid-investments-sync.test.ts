@@ -898,9 +898,15 @@ describe("Plaid Investments sync", () => {
     const confirm = vi.fn().mockResolvedValue({
       baseline: { id: "synthetic-auto-baseline" },
     });
+    const reconcileExposures = vi.fn().mockResolvedValue({
+      documentCount: 0,
+      skippedDocumentCount: 0,
+      identityCount: 0,
+    });
     await syncInvestmentConnection({
       env,
       repository,
+      exposureReconciler: { reconcile: reconcileExposures },
       holdingImports: {
         stagePlaidInvestmentsHoldingImport,
         autoAdjudicatePlaidInvestmentsHoldingImport,
@@ -982,6 +988,75 @@ describe("Plaid Investments sync", () => {
       "accepted-sources-auto-v1",
     );
     expect(repository.failSync).not.toHaveBeenCalled();
+
+    expect(
+      autoAdjudicatePlaidInvestmentsHoldingImport.mock.invocationCallOrder[0],
+    ).toBeLessThan(reconcileExposures.mock.invocationCallOrder[0]!);
+    expect(reconcileExposures.mock.invocationCallOrder[0]).toBeLessThan(
+      getState.mock.invocationCallOrder[0]!,
+    );
+    expect(getState.mock.invocationCallOrder[0]).toBeLessThan(
+      repository.completeSync.mock.invocationCallOrder[0]!,
+    );
+    expect(reconcileExposures).toHaveBeenCalledWith(
+      "synthetic-access-subject",
+      "synthetic-import",
+    );
+    const firstStage =
+      await stagePlaidInvestmentsHoldingImport.mock.results[0]!.value;
+    stagePlaidInvestmentsHoldingImport.mockResolvedValue({
+      ...firstStage,
+      created: false,
+      preview: { ...firstStage.preview, status: "applied" },
+    });
+    const sourceKey =
+      stagePlaidInvestmentsHoldingImport.mock.calls[0]![1].objectKey;
+    const retry = () =>
+      syncInvestmentConnection({
+        env,
+        repository,
+        exposureReconciler: { reconcile: reconcileExposures },
+        holdingImports: {
+          stagePlaidInvestmentsHoldingImport,
+          autoAdjudicatePlaidInvestmentsHoldingImport,
+        },
+        portfolioBaselines: { getState, confirm },
+        client,
+        accessSubject: "synthetic-access-subject",
+        connectionId: "synthetic-investment-connection",
+      });
+    reconcileExposures.mockRejectedValueOnce(
+      new Error("Synthetic grouping outage"),
+    );
+    await expect(retry()).rejects.toThrow("Synthetic grouping outage");
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(repository.completeSync).toHaveBeenCalledTimes(1);
+    expect(storage.values.has(sourceKey)).toBe(true);
+    autoAdjudicatePlaidInvestmentsHoldingImport.mockResolvedValue({
+      importId: "synthetic-import",
+      policyVersion: "plaid-investments-holdings-auto-v3",
+      autoAppliedCount: 0,
+      quarantinedCount: 0,
+      preservedPositionCount: 1,
+    });
+    await retry();
+    expect(autoAdjudicatePlaidInvestmentsHoldingImport).toHaveBeenCalledTimes(
+      3,
+    );
+    expect(reconcileExposures).toHaveBeenCalledTimes(3);
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(repository.completeSync).toHaveBeenLastCalledWith(
+      "synthetic-access-subject",
+      "synthetic-run",
+      expect.objectContaining({
+        proposedCount: 0,
+        importId: "synthetic-import",
+        adjudication: expect.objectContaining({
+          baselineRefreshStatus: "refreshed",
+        }),
+      }),
+    );
+    expect(storage.values.has(sourceKey)).toBe(true);
   });
 
   it("records an empty snapshot without inferring a disposition", async () => {
@@ -1047,9 +1122,15 @@ describe("Plaid Investments sync", () => {
         preservedPositionCount: 0,
       });
 
+    const reconcileExposures = vi.fn().mockResolvedValue({
+      documentCount: 0,
+      skippedDocumentCount: 0,
+      identityCount: 0,
+    });
     await syncInvestmentConnection({
       env,
       repository,
+      exposureReconciler: { reconcile: reconcileExposures },
       holdingImports: {
         stagePlaidInvestmentsHoldingImport,
         autoAdjudicatePlaidInvestmentsHoldingImport,

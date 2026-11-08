@@ -300,6 +300,53 @@ describe("retained public exposure reconciliation", () => {
     expect(source.reconcileAcceptedPublicExposureHistory).toHaveBeenCalledWith(
       "synthetic-access-subject",
     );
+
+    await new D1RetainedPublicExposureReconciler(env, source).reconcile(
+      "synthetic-access-subject",
+      "import_synthetic_retained",
+    );
+    expect(source.listRetainedPublicExposureDocuments).toHaveBeenLastCalledWith(
+      "synthetic-access-subject",
+      "import_synthetic_retained",
+    );
+    expect(
+      source.reconcileAcceptedPublicExposureHistory,
+    ).toHaveBeenLastCalledWith(
+      "synthetic-access-subject",
+      "import_synthetic_retained",
+    );
+    const evidenceWrites =
+      source.recordRetainedPublicExposureEvidence.mock.calls.length;
+    vi.spyOn(env.DOCUMENTS, "get").mockResolvedValueOnce(null);
+    await expect(
+      new D1RetainedPublicExposureReconciler(env, source).reconcile(
+        "synthetic-access-subject",
+        "import_synthetic_retained",
+      ),
+    ).rejects.toThrow(/unavailable/u);
+    expect(source.recordRetainedPublicExposureEvidence.mock.calls).toHaveLength(
+      evidenceWrites,
+    );
+    expect(
+      source.recordRetainedPublicExposureDocumentFailures,
+    ).not.toHaveBeenCalled();
+    source.listRetainedPublicExposureDocuments.mockResolvedValueOnce([]);
+    await new D1RetainedPublicExposureReconciler(env, source).reconcile(
+      "synthetic-access-subject",
+      "import_synthetic_retained",
+    );
+    expect(
+      source.reconcileAcceptedPublicExposureHistory,
+    ).toHaveBeenLastCalledWith(
+      "synthetic-access-subject",
+      "import_synthetic_retained",
+    );
+    await expect(
+      new D1RetainedPublicExposureReconciler(env, source).reconcile(
+        "synthetic-access-subject",
+        "synthetic-other-import",
+      ),
+    ).rejects.toThrow(/scope/u);
   });
 
   it("caps a 120-document backlog at five object reads and one write batch per evidence kind", async () => {

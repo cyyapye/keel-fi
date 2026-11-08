@@ -52,6 +52,7 @@ export type PublicSourceState = {
   hiddenIds: ReadonlySet<string>;
   ignoredIds: ReadonlySet<string>;
   visibleById: ReadonlyMap<string, string>;
+  rootById: ReadonlyMap<string, string>;
 };
 
 /** Current heads only: receipt and snapshot history never enter this traversal. */
@@ -127,7 +128,17 @@ export function buildPublicSourceState(
     if (ignoredIds.has(position.id) || visible?.id !== position.id)
       hiddenIds.add(position.id);
   }
-  return { version, positions, byId, hiddenIds, ignoredIds, visibleById };
+  return {
+    version,
+    positions,
+    byId,
+    hiddenIds,
+    ignoredIds,
+    visibleById,
+    rootById: new Map(
+      positions.map((position) => [position.id, root(position.id)]),
+    ),
+  };
 }
 
 // Per-result provenance for repository composition, never a cross-request cache.
