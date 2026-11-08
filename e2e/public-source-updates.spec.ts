@@ -95,9 +95,12 @@ test("keeps safe updates automatic and records each selected identity correction
     ),
   ).toBeVisible();
   await expect(
-    source.getByText("2 prior holdings kept at their Oct 31, 2026 values.", {
-      exact: true,
-    }),
+    source.getByText(
+      "2 unreported holdings are still counted at their Oct 31, 2026 values.",
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
   await expect(source.getByText("Up to date", { exact: true })).toHaveCount(0);
   await source
@@ -311,9 +314,12 @@ test("a unique verified security match needs no human decision and keeps omissio
     source.getByRole("button", { name: /Resolve|Review/ }),
   ).toHaveCount(0);
   await expect(
-    source.getByText("1 prior holding kept at its Oct 31, 2026 value.", {
-      exact: true,
-    }),
+    source.getByText(
+      "1 unreported holding is still counted at its Oct 31, 2026 value.",
+      {
+        exact: true,
+      },
+    ),
   ).toBeVisible();
   await captureSource(source, "automatic");
   await expectSourceSnapshot(page, source, "public-source-automatic.png");
@@ -665,6 +671,14 @@ test("reconciles a complete brokerage inventory automatically and keeps historic
     }),
   ).toBeVisible();
   await expect(source.getByRole("button", { name: /Resolve/ })).toHaveCount(0);
+  await expect(
+    source.getByText("1 unreported holding removed from current totals.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    source.getByText(/still counted|Missing positions have not/),
+  ).toHaveCount(0);
   const activity = source.getByRole("button", {
     name: "View activity",
     exact: true,
@@ -794,9 +808,10 @@ test("reconciles a complete brokerage inventory automatically and keeps historic
   expect(partial.inventory?.acceptedAt).toBeNull();
   expect(partial.summary.autoAppliedCount).toBe(0);
   await page.reload();
+  // An incomplete report with no actual carryovers needs no carryover warning.
   await expect(
-    source.getByText(/Missing positions have not been removed/),
-  ).toBeVisible();
+    source.getByText(/still counted|Missing positions have not been removed/),
+  ).toHaveCount(0);
   await expect(source.locator(".investment-institution__value")).toHaveText(
     "$0.00",
   );
