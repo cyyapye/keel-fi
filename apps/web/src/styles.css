@@ -2889,125 +2889,12 @@ h1,
   padding: 38px 0 12px;
 }
 
-.cash-holdings {
-  padding: 34px 0;
-  border-bottom: 1px solid var(--line);
-}
-
-.cash-holdings__heading {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
-  align-items: end;
-  gap: 32px;
-}
-
-.cash-holdings__heading h2 {
-  margin-bottom: 8px;
-  font-size: clamp(22px, 2.8vw, 34px);
-  font-weight: 630;
-  letter-spacing: -0.045em;
-}
-
-.cash-holdings__heading p:not(.eyebrow),
-.investment-views__heading p:not(.eyebrow),
-.cash-holdings__error {
+.investment-views__heading p:not(.eyebrow) {
   max-width: 680px;
   margin: 0;
   color: var(--muted);
   font-size: var(--text-supporting);
   line-height: 1.6;
-}
-
-.cash-holdings__total {
-  display: grid;
-  justify-items: end;
-  min-width: 180px;
-}
-
-.cash-holdings__total small {
-  color: var(--faint);
-  font-size: var(--text-xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.cash-holdings__total strong {
-  margin-top: 4px;
-  font-size: 18px;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.025em;
-  text-align: right;
-}
-
-.cash-holdings__total > span {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: var(--text-sm);
-  text-align: right;
-}
-
-.cash-holdings__rows {
-  display: grid;
-  margin-top: 24px;
-}
-
-.cash-holdings__rows article {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 24px;
-  padding: 15px 0;
-  border-top: 1px solid var(--line-soft);
-}
-
-.cash-holdings__rows strong,
-.cash-holdings__rows small {
-  display: block;
-}
-
-.cash-holdings__rows strong {
-  font-size: var(--text-body);
-  font-weight: 600;
-}
-
-.cash-holdings__title-link {
-  min-height: 44px;
-  font-size: inherit;
-  font-weight: inherit;
-  white-space: normal;
-  text-align: left;
-  text-decoration: underline;
-}
-
-.cash-holdings__rows small {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: var(--text-supporting);
-  line-height: 1.5;
-}
-
-.cash-holdings__rows article > strong {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.cash-holdings__small-balances {
-  display: grid;
-  margin-top: 0;
-}
-
-.cash-holdings__error {
-  margin-top: 18px;
-}
-
-.cash-holdings__disclosure {
-  margin-top: 8px;
-}
-
-.cash-holdings__disclosure .keel-link {
-  gap: 8px;
-  min-height: 44px;
 }
 
 .investment-views__heading {
@@ -7701,8 +7588,7 @@ h1,
     grid-template-columns: 100px minmax(0, 1fr);
   }
 
-  .position-value-adjustment__heading,
-  .cash-holdings__heading {
+  .position-value-adjustment__heading {
     grid-template-columns: 1fr;
     gap: 18px;
   }
@@ -7718,20 +7604,6 @@ h1,
 
   .holding-reviewed-mark__commentary {
     grid-column: 1;
-  }
-
-  .cash-holdings__total {
-    justify-items: start;
-  }
-
-  .cash-holdings__total strong,
-  .cash-holdings__total > span {
-    text-align: left;
-  }
-
-  .cash-holdings__rows article {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
   }
 
   .portfolio-access-detail {

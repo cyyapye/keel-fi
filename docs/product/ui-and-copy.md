@@ -164,6 +164,9 @@ every visual fix.
 
 The [Holdings concept map](holdings-concept-map.md) is the first worked example.
 
+The [Cash accounts view](cash-accounts-view.md) defines account grouping,
+conditional small-balance folding, exact totals and bounded balance history.
+
 ### Propose and approve the interaction
 
 A new UI concept changes navigation, task steps, editing ownership, decision

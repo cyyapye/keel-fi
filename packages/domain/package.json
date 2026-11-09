@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./cash-balance-history": "./src/cash-balance-history.ts",
     "./agreement-economics": "./src/agreement-economics.ts",
     "./automatic-investment-review": "./src/automatic-investment-review.ts",
     "./exposure-read-model": "./src/exposure-read-model.ts",

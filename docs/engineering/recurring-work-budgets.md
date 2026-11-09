@@ -92,6 +92,18 @@ encrypted export before its first migration.
 
 ## Holding detail interactions
 
+Cash balance history adds no polling, provider reads, object-storage operations
+or writes. Opening an account requests at most one five-entry page; full history
+requests ten entries per explicit page action. A view-local cache reuses saved
+pages for the same accepted revision. Reads abort when the view closes. Failure
+waits for an explicit retry and never replays financial acceptance. Thus idle
+and unattended failure days add zero work. Bank history uses three fixed D1
+reads and projects the connection's accepted identity history linearly;
+brokerage history uses two reads with indexed lookups for its recorded matching
+family. The real D1 scale case measures history growth separately from returned
+page size, using the bank maximum of 100 accounts, 120 brokerage positions and a
+foreign household, and asserts zero writes.
+
 Holding valuation evidence loads once when its editor mounts. History loads one
 page when its disclosure mounts, then one page per explicit pagination or retry
 action. Both reads abort on unmount, do not poll, and make no application

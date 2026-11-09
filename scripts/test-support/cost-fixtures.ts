@@ -14,6 +14,7 @@ export async function seedCostHoldings(
   revision = 1,
   legacy = false,
   observations: {
+    instrument?: string;
     status?: "Live" | "Realized";
     investedMinor?: number;
     allocationMinor?: number;
@@ -77,7 +78,7 @@ export async function seedCostHoldings(
           ? { sharePrices: observations.sharePrices }
           : {}),
         allocationMinor: observations.allocationMinor ?? 100_000,
-        instrument: "Membership interest",
+        instrument: observations.instrument ?? "Membership interest",
         roundSizeMinor: null,
         valuationOrCapType: null,
         valuationOrCapMinor: null,

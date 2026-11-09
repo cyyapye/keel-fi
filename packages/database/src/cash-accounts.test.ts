@@ -1546,6 +1546,15 @@ describe("reviewed cash accounts", () => {
       new Set(state.acceptedAccounts.map((account) => account.naturalKeySha256))
         .size,
     ).toBe(2);
+    for (const account of state.acceptedAccounts) {
+      const history = await repository.balanceHistory(
+        "synthetic-access-subject",
+        account.id,
+        5,
+      );
+      expect(history?.entries).toHaveLength(1);
+      expect(history?.entries[0]?.valueMinor).toBe(account.valueMinor);
+    }
   });
 
   it("requires review before linking a one-to-one opaque account rotation", async () => {
@@ -1585,6 +1594,58 @@ describe("reviewed cash accounts", () => {
         valueState: "reported",
       }),
     ]);
+    const accountId = afterReview.acceptedAccounts[0]!.id;
+    const reads = measured.roundTrips;
+    const journal = await repository.balanceHistory(
+      "synthetic-access-subject",
+      accountId,
+      5,
+    );
+    expect(measured.roundTrips - reads).toBe(3);
+    expect(journal?.entries.map((entry) => entry.valueMinor)).toEqual([
+      130_000, 120_000,
+    ]);
+    expect(journal?.entries[0]?.previousValueMinor).toBe(120_000);
+    const earlier = await repository.balanceHistory(
+      "synthetic-access-subject",
+      journal!.entries[1]!.id,
+      5,
+    );
+    expect(earlier?.total).toBe(1);
+    expect(earlier?.entries[0]?.valueMinor).toBe(120_000);
+    expect(
+      await repository.balanceHistory(
+        "another-synthetic-subject",
+        accountId,
+        5,
+      ),
+    ).toBeNull();
+    const app = createApp();
+    const historyEnv = {
+      DB: measured as unknown as D1Database,
+      DOCUMENTS: {} as R2Bucket,
+      INGESTION_QUEUE: {} as Queue,
+      ENVIRONMENT: "local",
+    } satisfies Env;
+    const response = await app.request(
+      `/api/cash-balance-history?kind=bank&id=${accountId}&limit=5`,
+      {},
+      historyEnv,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await response.json()).toEqual(journal);
+    const beforeInvalid = measured.roundTrips;
+    expect(
+      (
+        await app.request(
+          `/api/cash-balance-history?kind=bank&id=${accountId}&limit=999`,
+          {},
+          historyEnv,
+        )
+      ).status,
+    ).toBe(400);
+    expect(measured.roundTrips).toBe(beforeInvalid);
     expect(() =>
       sqlite
         .prepare(

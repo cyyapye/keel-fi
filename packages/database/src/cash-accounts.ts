@@ -21,6 +21,7 @@ import {
   type CashBalanceProposal,
 } from "@keel/domain";
 import { z } from "zod";
+import { cashBalanceHistoryPage } from "@keel/domain/cash-balance-history";
 
 import {
   projectCashAccountIdentities,
@@ -573,6 +574,61 @@ export class D1CashAccountsRepository implements CashAccountsRepository {
     return this.usagePlan === "free"
       ? FREE_LIVE_REFRESH_LIMIT
       : PAID_LIVE_REFRESH_LIMIT;
+  }
+
+  public async balanceHistory(
+    subject: string,
+    decisionId: string,
+    limit: number,
+    after?: string,
+  ) {
+    const owned = await this.db
+      .prepare(
+        `SELECT d.household_id, p.connector_account_id, r.natural_key_sha256
+      FROM cash_balance_review_decisions d
+      JOIN cash_balance_proposals p ON p.id=d.proposal_id
+      JOIN cash_balance_proposal_rows r ON r.id=d.proposal_row_id
+      JOIN households h ON h.id=d.household_id JOIN users u ON u.id=h.owner_user_id
+      WHERE d.id=? AND d.decision='accepted' AND u.access_subject=?`,
+      )
+      .bind(decisionId, subject)
+      .first<{
+        household_id: string;
+        connector_account_id: string;
+        natural_key_sha256: string;
+      }>();
+    if (!owned) return null;
+    // Reuse the accepted identity projection: provider Item keys and recorded
+    // Same-account decisions join history; labels and equal balances never do.
+    // Three fixed reads, scoped to this connection, with no per-row operations.
+    const projection = await this.acceptedIdentityState(
+      owned.household_id,
+      owned.connector_account_id,
+    );
+    const canonical = projection.canonicalNaturalKeyForNatural(
+      owned.connector_account_id,
+      owned.natural_key_sha256,
+    );
+    return cashBalanceHistoryPage(
+      projection.history
+        .filter(
+          (row) =>
+            projection.canonicalNaturalKeyForNatural(
+              row.connector_account_id,
+              row.natural_key_sha256,
+            ) === canonical,
+        )
+        .map((row) => ({
+          id: row.decision_id,
+          observedAt: row.observed_at,
+          acceptedAt: row.decided_at,
+          valueMinor: row.value_minor,
+          order: `${row.value_state === "reported" ? "1" : "0"}${row.item_account_key_sha256 === null ? "0" : "1"}`,
+        })),
+      limit,
+      after,
+      decisionId,
+    );
   }
 
   public async listAcceptedAccountsForHousehold(
