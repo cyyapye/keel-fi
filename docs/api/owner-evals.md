@@ -16,7 +16,7 @@ separately records reviews and accepts baselines.
 | With a reviewed baseline and debt, how am I doing at one and ten years? | $120,001.20 tracked wealth. Flat net growth gives gaps of $1,998.80 to $122k and $29,998.80 to $150k. The one-year break-even increase is $1,998.80.                                                                |
 | Is my SPV marked to market?                                             | The baseline carries $1,000.01. A later provider snapshot reports $1,000.02 with the same observation date. The public source reports company financing. There is no accepted share quote or reviewed GP valuation. |
 | Can Keel read the GP email and agreement and book the terms?            | The API identifies a membership interest. Email coverage and reviewed terms are unavailable. The v1 contract exposes no operation for reconciliation or mark acceptance.                                            |
-| Did the accepted paper gain extend runway?                              | Across 120 interests, tracked wealth rose $1.20 while projected ending cash changed by $0.                                                                                                                          |
+| What changed between two portfolio reviews?                             | Across 120 interests, the $1.20 increase in tracked wealth reconciles to $1.20 of private paper. Liquid assets, reviewed debt and projected ending cash changed by $0.                                              |
 
 ## Rerun the checks
 
@@ -49,18 +49,33 @@ changes:
    question. A packet replay tests interpretation of supplied evidence. A
    live-agent run also tests which calls it chooses.
 
-## Useful questions to add next
+## After the first v1 rollout
 
-- **Which underlying company is my largest exposure across direct holdings and
-  SPVs?** Include two vehicles with the same company, a partly mapped fund and
-  an unknown allocation. Score known exposure and unquantified exposure
-  separately.
-- **What changed since my last review?** Separate contributions, distributions,
-  debt, valuation changes and revisions to the goal. Require an explicit
-  remainder when the records cannot explain the total.
-- **Which capital calls are committed but absent from the cash plan?** Test an
-  agreement, an amended notice and a payment that is already included. The
-  current preview takes an owner-supplied outflow.
+1. **Explain the change since my last review.** The suite already supplies two
+   outlooks and scores the component changes without telling the agent the
+   cause. Next, try it from only the API origin. An accepted baseline can be
+   reopened by ID, but v1 has no record of which outlook the owner last
+   reviewed. Start by retaining the prior outlook and its evidence references in
+   the client. Compare it to today's outlook. Test a missing prior review and a
+   change that the evidence only partly explains. A
+   $10,000 increase
+   with $7,000 explained should leave $3,000 explicitly
+   unexplained. Report goal edits separately from changes in wealth.
+2. **Measure one company's exposure across direct holdings and SPVs.** Position
+   detail exposes company mappings, but omits allocation weights. The next
+   fixture should include $50,000 held directly, a $100,000 SPV with a
+   documented 20% exposure by value, and a second SPV with unknown weight. On a
+   common valuation date the supported exposure is $70,000 plus an unquantified
+   interest. Use that case to design the allocation read.
+3. **Find capital calls missing from the cash plan.** Schedule this with GP
+   reconciliation. A caller can stress-test a known outflow today. To discover
+   missing calls, Keel needs the obligation, latest notice, payment status and
+   link to the plan. Test a $50,000 notice amended to $40,000, of which
+   $10,000 was paid and $15,000 of the outstanding balance is already in the
+   plan. Only $15,000 still needs to be added.
+
+Related reconciliation case:
+
 - **Two GP documents disagree about carry or share class. Which terms apply?**
   Once ingestion exists, test document dates, vehicle identity, superseded terms
   and a proposed correction with its evidence and decision authority.

@@ -99,12 +99,15 @@
   },
   {
     "id": "paper-vs-cash",
-    "question": "After the revised private marks are accepted, how much did tracked net worth change? Did that give me any additional cash for the next year?",
+    "question": "What changed between these two portfolio reviews, what accounts for the difference, and does it change how much cash I have for the next year?",
     "facts": {
       "wealthIncreaseCents": 120,
+      "privatePaperChangeCents": 120,
+      "liquidAssetsChangeCents": 0,
+      "reviewedDebtChangeCents": 0,
       "projectedCashIncreaseCents": 0
     },
     "sources": ["beforeAcceptance", "afterAcceptance"],
-    "review": "Distinguish the accepted paper change across all 120 interests from a cash distribution and from an investment-period return."
+    "review": "Identify the two accepted baselines and reconcile the net change to private paper, liquid assets and reviewed debt. State whether ending cash changed. The snapshots establish a change in recorded values, not a cash distribution or an investment-period return."
   }
 ]

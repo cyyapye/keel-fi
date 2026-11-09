@@ -264,6 +264,18 @@ it("answers the owner question bank from synthetic household HTTP responses", as
     const delta = (latest: number | null, earlier: number | null) =>
       Number(BigInt(z.int().parse(latest)) - BigInt(z.int().parse(earlier)));
     observed["paper-vs-cash"] = {
+      privatePaperChangeCents: delta(
+        after.baseline!.privatePaperMinor,
+        before.baseline!.privatePaperMinor,
+      ),
+      liquidAssetsChangeCents: delta(
+        after.baseline!.liquidMinor,
+        before.baseline!.liquidMinor,
+      ),
+      reviewedDebtChangeCents: delta(
+        after.wealth.reviewedDebtMinor,
+        before.wealth.reviewedDebtMinor,
+      ),
       wealthIncreaseCents: delta(
         after.wealth.trackedNetWorthMinor,
         before.wealth.trackedNetWorthMinor,
