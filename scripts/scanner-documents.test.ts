@@ -42,12 +42,17 @@ describe("synthetic scanner budget PDFs", () => {
       inflateSync(bytes.subarray(offset, offset + Number(match[1]))),
     ).toEqual(marker);
   });
-  it.each([0, -1, 1.5, 11_001, Number.NaN, Number.POSITIVE_INFINITY])(
-    "bounds fixture generation for %s",
-    (count) => {
-      expect(() => syntheticManyStreamPdf(count)).toThrow(
+  it("bounds fixture generation for invalid stream counts", () => {
+    for (const count of [
+      0,
+      -1,
+      1.5,
+      11_001,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+    ])
+      expect(() => syntheticManyStreamPdf(count), String(count)).toThrow(
         "Synthetic stream count",
       );
-    },
-  );
+  });
 });

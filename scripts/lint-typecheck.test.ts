@@ -207,9 +207,6 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
       expect(bad.output).toMatch(/(?:^|\n)main\.ts\(\d+,\d+\): error TS2322:/u);
     },
   );
-  const clean = await run();
-  expect(clean.status, clean.output).toBe(0);
-  expect(clean.output).toContain('"contexts":2');
   for (const [fixture, failure] of [
     [
       {
@@ -268,7 +265,9 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
     },
     async (cwd) => {
       const owned = fixtureSession();
-      expect((await owned.request(cwd)).status).toBe(0);
+      const clean = await owned.request(cwd);
+      expect(clean.status, clean.stdout + clean.stderr).toBe(0);
+      expect(clean.stdout).toContain('"contexts":2');
       const hidden = join(cwd, "hidden.ts");
       const before = statSync(hidden);
       writeFileSync(hidden, "export const hidden: string = 1;\n");

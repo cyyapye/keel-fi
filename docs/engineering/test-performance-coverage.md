@@ -21,12 +21,12 @@ passed when the password guard was removed or the limit incorrectly became
 and a throwing malformed-input path. These are in-memory mutations of the actual
 source module; production code is unchanged.
 
-Registered unit identities fall from 1,671 to 1,652. Browser inventory, D1 cost
-and migration proof, authentication, acceptance, append-only checks, worker
-limits and deadlines remain unchanged. The three compiler-fixture cases retain
-CLI diagnostics, active-context completeness, command/host rejection, cache
-freshness, child deadlines, output bounds and cleanup. Only the retired
-proposal-specific setup and controls are removed.
+That change reduced registered unit identities from 1,671 to 1,652. Browser
+inventory, D1 cost and migration proof, authentication, acceptance, append-only
+checks, worker limits and deadlines remain unchanged. The three compiler-fixture
+cases retain CLI diagnostics, active-context completeness, command/host
+rejection, cache freshness, child deadlines, output bounds and cleanup. Only the
+retired proposal-specific setup and controls are removed.
 
 Three alternating macOS pairs compare the combined source checker and the two
 affected unit files separately, using fresh processes and identical commands per
@@ -40,6 +40,14 @@ checks do not establish ordinary Linux CI timing.
 The two unit files fall from a median 8.581 seconds (range 8.414–8.828) to 7.744
 seconds (range 7.728–7.747). Every comparison passes its complete selected
 inventory.
+
+A further fixture review removes one standalone healthy combined-check
+invocation. The existing stale-source fixture owns its success and two-context
+assertions; real CLI success/error checks and all failure controls remain. Six
+invalid PDF stream-count registrations become one owner with all six inputs,
+taking active unit registrations to 1,647. The separate clean 512-stream
+structure and compressed late-marker checks remain. These are modest work and
+accounting reductions; no whole-CI timing improvement is established.
 
 ## Test necessity
 
