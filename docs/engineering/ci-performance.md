@@ -1201,3 +1201,15 @@ Vitest and Playwright vectors. Pass `--suite python`, `--suite vitest` or
 `--suite playwright` to rank a completed suite when another was interrupted. An
 unavailable historical merge object must be recovered from an existing checkout
 of that revision before the log can be decoded.
+
+## Owner API release scheduling
+
+PR #354 run `42556673393`, attempt 2, passed all 1,682 reviewed Vitest cases but
+reached the complete gate's 900-second deadline during the browser lanes. The
+existing public-source review D1 fixture took 265 seconds. Its old 114-second
+scheduling estimate admitted it after shorter files and left it on the unit-test
+tail. The sequencer now uses the measured 265 seconds and starts it ahead of
+Portfolio Watch activity. Its regression verifies the order and preserves every
+discovered test specification. Coverage, SQL workloads, worker counts and all
+deadlines stay the same. A complete native receipt must establish the result of
+this scheduling change.
