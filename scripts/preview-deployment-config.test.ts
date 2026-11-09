@@ -88,6 +88,27 @@ describe("preview deployment configuration", () => {
     expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(
       true,
     );
+    const writer = {
+      ...grant,
+      KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT: "b".repeat(32) + ".access",
+    };
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(writer).success).toBe(
+      false,
+    );
+    const complete = {
+      ...writer,
+      KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID: "hh_demo",
+    };
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(complete).success).toBe(
+      true,
+    );
+    expect(
+      PreviewDeploymentEnvironmentSchema.safeParse({
+        ...complete,
+        KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT:
+          grant.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT,
+      }).success,
+    ).toBe(false);
     grant.KEEL_PREVIEW_ACCESS_CLIENT_ID =
       grant.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT;
     expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(

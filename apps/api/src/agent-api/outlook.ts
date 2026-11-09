@@ -1,3 +1,4 @@
+import { OUTLOOK_GOAL_SOURCE } from "@keel/domain";
 import { z } from "zod";
 import {
   type baselineRow,
@@ -28,8 +29,10 @@ function ceilRatio(n: bigint, d: bigint) {
 function gap(target: number, value: number) {
   return Math.max(0, numberOf(BigInt(target) - BigInt(value)));
 }
-function currentDebts(rows: Records["decisions"]) {
-  const latest = new Map<string, Records["decisions"][number]>();
+export function currentDebts<T extends Records["decisions"][number]>(
+  rows: T[],
+) {
+  const latest = new Map<string, T>();
   for (const row of rows) {
     if (row.decision !== "accepted") continue;
     const old = latest.get(row.key);
@@ -83,31 +86,40 @@ export function projectOutlook(
   const goals = data.goals
     .slice(0, GOAL_PAGE)
     .filter((g) => !g.archivedAt)
-    .map((g) => ({
-      goalId: g.goalId,
-      versionId: g.versionId,
-      name: g.name,
-      metric: g.metric,
-      unit: g.unit,
-      isPrimary: g.primaryGoal === 1,
-      current: g.current,
-      currentSource: g.currentSource,
-      recordedAt: g.recordedAt,
-      target: g.target,
-      targetDate: g.targetDate,
-      currentShortfall: g.target === null ? null : gap(g.target, g.current),
-      forecastId: g.forecastId,
-      forecastDate: g.forecastDate,
-      forecastMiddle: g.forecastMiddle,
-      projectedShortfallAtTarget:
-        g.target !== null &&
-        g.forecastMode === "modeled" &&
-        g.targetDate !== null &&
-        g.targetDate === g.forecastDate &&
-        g.forecastMiddle !== null
-          ? gap(g.target, g.forecastMiddle)
-          : null,
-    }));
+    .map((g) => {
+      const current =
+        g.currentSource === OUTLOOK_GOAL_SOURCE
+          ? g.metric === "net_worth"
+            ? net
+            : null
+          : g.current;
+      return {
+        goalId: g.goalId,
+        versionId: g.versionId,
+        name: g.name,
+        metric: g.metric,
+        unit: g.unit,
+        isPrimary: g.primaryGoal === 1,
+        current,
+        currentSource: g.currentSource,
+        recordedAt: g.recordedAt,
+        target: g.target,
+        targetDate: g.targetDate,
+        currentShortfall:
+          g.target === null || current === null ? null : gap(g.target, current),
+        forecastId: g.forecastId,
+        forecastDate: g.forecastDate,
+        forecastMiddle: g.forecastMiddle,
+        projectedShortfallAtTarget:
+          g.target !== null &&
+          g.forecastMode === "modeled" &&
+          g.targetDate !== null &&
+          g.targetDate === g.forecastDate &&
+          g.forecastMiddle !== null
+            ? gap(g.target, g.forecastMiddle)
+            : null,
+      };
+    });
   const targets = [
     ...goals.flatMap((g) =>
       g.metric === "net_worth" &&
@@ -191,6 +203,8 @@ export function projectOutlook(
       assumedNoDebt,
       debtEvidence: debts.map((d) => ({
         decisionId: d.id,
+        liabilityId: d.key,
+        evidenceId: "debt-review:" + d.id,
         effectiveDate: d.effectiveDate,
       })),
     },
@@ -230,6 +244,24 @@ export function projectOutlook(
               .slice(0, 10)
           : null,
     },
+    liquidityTargets: goals.flatMap((g) => {
+      if (g.metric !== "liquidity_through_date" || !g.targetDate) return [];
+      const horizon = daysApart(evaluatedOn, g.targetDate);
+      const balance =
+        start !== null && burn !== null && horizon >= 0
+          ? numberOf(start - ceilRatio(burn * 12n * BigInt(horizon), 365n))
+          : null;
+      return [
+        {
+          goalId: g.goalId,
+          through: g.targetDate,
+          lastsThroughDate:
+            balance !== null && plan ? balance >= plan.floorMinor : null,
+          reserveShortfallMinor:
+            balance !== null && plan ? gap(plan.floorMinor, balance) : null,
+        },
+      ];
+    }),
     emailCoverage: "not_connected_by_this_api",
   });
 }

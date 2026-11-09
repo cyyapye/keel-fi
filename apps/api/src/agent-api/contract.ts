@@ -42,7 +42,7 @@ export const goalRow = z.object({
   archivedAt: text.nullable(),
   target: amount.nullable(),
   targetDate: date.nullable(),
-  current: amount,
+  current: integer.nullable(),
   currentSource: text,
   recordedAt: text,
   forecastId: id.nullable(),
@@ -119,7 +119,14 @@ export const outlook = z.strictObject({
     trackedNetWorthMinor: nullableAmount,
     reviewedDebtMinor: nullableAmount,
     reasons: z.array(statusReason),
-    debtEvidence: z.array(z.object({ decisionId: id, effectiveDate: date })),
+    debtEvidence: z.array(
+      z.object({
+        decisionId: id,
+        liabilityId: id,
+        evidenceId: id,
+        effectiveDate: date,
+      }),
+    ),
     assumedNoDebt: z.boolean(),
   }),
   goals: z.array(goal),
@@ -157,6 +164,14 @@ export const outlook = z.strictObject({
     ]),
     firstBelowReserveDate: date.nullable(),
   }),
+  liquidityTargets: z.array(
+    z.object({
+      goalId: id,
+      through: date,
+      lastsThroughDate: z.boolean().nullable(),
+      reserveShortfallMinor: nullableAmount,
+    }),
+  ),
   emailCoverage: z.literal("not_connected_by_this_api"),
 });
 export const mark = z.object({
@@ -212,10 +227,17 @@ export const marksPage = z.strictObject({
 export const errorBody = z.object({
   code: z.enum([
     "invalid_request",
+    "idempotency_conflict",
+    "stale_revision",
+    "archived",
+    "primary_goal",
+    "unsupported_goal",
+    "precondition_required",
     "unauthenticated",
     "forbidden",
     "not_found",
     "data_unavailable",
   ]),
   error: text,
+  reason: z.literal("debt_history_limit").optional(),
 });

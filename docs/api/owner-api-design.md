@@ -1,47 +1,66 @@
-# Owner API design for review
+# Owner API v1
 
 All paths start with `/api/v1`. One credential selects one household. A goal
 expresses what the owner wants. Accounts, positions and liabilities describe
 what the household has. The outlook evaluates those records against the goals.
-This proposal covers the HTTP API used by an external agent and, later, by
+This contract covers the HTTP API used by an external agent and, later, by
 Keel's built-in agent.
 
 ## MVP route map
 
-“Local” means implemented in the local branch. “Proposed” means the route is up
-for design review. The [current API guide](owner-outlook-v1.md) describes the
-runnable operations and their current response fields.
+“Local” means implemented in the local branch and awaiting protected preview.
+The [current API guide](owner-outlook-v1.md) describes the runnable operations
+and their current response fields.
 
-| Resource            | Method and path                                       | What the agent uses it for                                                                                                                            | State    |
-| ------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| API contract        | `GET /openapi.json`                                   | Discover supported operations and schemas.                                                                                                            | Local    |
-| Goals               | `POST /goals`                                         | Save a dated net-worth or liquidity target specified by the owner.                                                                                    | Proposed |
-| Goals               | `GET /goals`                                          | Find saved targets. Default to active goals and support `?status=archived`.                                                                           | Proposed |
-| Goal                | `GET /goals/{goalId}`                                 | Read the target, date, status and current revision, including after archive.                                                                          | Proposed |
-| Goal                | `PATCH /goals/{goalId}`                               | Change the target or date, or archive with `{"status":"archived"}`. Return the new revision.                                                          | Proposed |
-| Goal history        | `GET /goals/{goalId}/versions`                        | See when the owner changed a target and what it used to be.                                                                                           | Proposed |
-| Accounts            | `GET /accounts` · `GET /accounts/{accountId}`         | Find cash and brokerage accounts, their balances, observation dates and evidence.                                                                     | Proposed |
-| Positions           | `GET /positions` · `GET /positions/{positionId}`      | Inspect a public holding or an SPV interest, its legal vehicle, available terms, underlying exposures and valuation evidence.                         | Proposed |
-| Liabilities         | `GET /liabilities` · `GET /liabilities/{liabilityId}` | Inspect reviewed balances and how each payment affects runway.                                                                                        | Proposed |
-| Portfolio baseline  | `GET /baselines/{baselineId}`                         | Reopen the accepted asset totals used in an answer. Include dated component amounts, linked records where available, and any owner-entered aggregate. | Proposed |
-| Valuation evidence  | `GET /marks?baselineId={baselineId}`                  | Page through the values used in that baseline alongside the latest recorded provider evidence and mapped public signals.                              | Local    |
-| Evidence citation   | `GET /evidence/{evidenceId}`                          | Resolve a citation to its source type, reference, effective date and capture time. Missing dates are explicit.                                        | Proposed |
-| Household outlook   | `GET /outlook`                                        | Answer “Where do I stand?” with tracked wealth, saved goals, shortfalls, the cash plan and its reserve.                                               | Local    |
-| What-if calculation | `POST /outlook/preview`                               | Test a through-date, hypothetical targets, an assumed annual wealth change or a one-time cash outflow. Saving a goal is a separate operation.         | Local    |
+| Resource            | Method and path                                       | What the agent uses it for                                                                                                                            | State |
+| ------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
+| API contract        | `GET /openapi.json`                                   | Discover supported operations and schemas.                                                                                                            | Local |
+| Goals               | `POST /goals`                                         | Save a dated net-worth or liquidity target specified by the owner.                                                                                    | Local |
+| Goals               | `GET /goals`                                          | Find saved targets. Default to active goals and support `?status=archived`.                                                                           | Local |
+| Goal                | `GET /goals/{goalId}`                                 | Read the target, date, status and current revision, including after archive.                                                                          | Local |
+| Goal                | `PATCH /goals/{goalId}`                               | Change the target or date, or archive with `{"status":"archived"}`. Return the new revision.                                                          | Local |
+| Goal history        | `GET /goals/{goalId}/versions`                        | See when the owner changed a target and what it used to be.                                                                                           | Local |
+| Accounts            | `GET /accounts` · `GET /accounts/{accountId}`         | Find cash and brokerage accounts, their balances, observation dates and evidence.                                                                     | Local |
+| Positions           | `GET /positions` · `GET /positions/{positionId}`      | Inspect a public holding or an SPV interest, its legal vehicle, available terms, underlying exposures and valuation evidence.                         | Local |
+| Liabilities         | `GET /liabilities` · `GET /liabilities/{liabilityId}` | Inspect reviewed balances and how each payment affects runway.                                                                                        | Local |
+| Portfolio baseline  | `GET /baselines/{baselineId}`                         | Reopen the accepted asset totals used in an answer. Include dated component amounts, linked records where available, and any owner-entered aggregate. | Local |
+| Valuation evidence  | `GET /marks?baselineId={baselineId}`                  | Page through the values used in that baseline alongside the latest recorded provider evidence and mapped public signals.                              | Local |
+| Evidence citation   | `GET /evidence/{evidenceId}`                          | Resolve a citation to its source type, reference, effective date and capture time. Missing dates are explicit.                                        | Local |
+| Household outlook   | `GET /outlook`                                        | Answer “Where do I stand?” with tracked wealth, saved goals, shortfalls, the cash plan and its reserve.                                               | Local |
+| What-if calculation | `POST /outlook/preview`                               | Test a through-date, hypothetical targets, an assumed annual wealth change or a one-time cash outflow. Saving a goal is a separate operation.         | Local |
 
-The proposed reads use stable resource IDs and paginated collections. An SPV
-position identifies the legal interest owned by the household. Two vehicles
-holding the same company have separate position IDs. A current position or
-account can change after a baseline is accepted. To explain an earlier answer,
-use the value and evidence pinned to the baseline. Current liability detail
-links to the reviewed decision used in the outlook. The proposed citation links
-identify the specific source through a household-scoped ID. The API returns
-unknowns when a recorded figure lacks supporting detail.
+The reads use stable resource IDs and paginated collections. An SPV position
+identifies the legal interest owned by the household. Two vehicles holding the
+same company have separate position IDs. A current position or account can
+change after a baseline is accepted. To explain an earlier answer, use the value
+and evidence pinned to the baseline. Current liability detail links to the
+reviewed decision used in the outlook. The citation links identify the specific
+source through a household-scoped ID. The API returns unknowns when a recorded
+figure lacks supporting detail.
+
+Follow `nextAfter` until it is null, including on empty pages. The accounts
+collection pages through the account directory, ownership containers, and
+reviewed cash from the most recent accepted baseline. A directory or container
+without an independently reported balance has a null balance. These records can
+describe overlapping sources. Use the baseline's components for totals. Pass
+`baselineId` on the accounts collection to read cash from a historical baseline.
+Position detail reads 120 mappings per page. Pass `nextAfterExposure` as
+`afterExposure` to inspect the remaining underlying exposures. Closed public
+positions retain their last reported value for history. Only the accepted
+baseline determines the assets counted in wealth.
+
+Goal pages carry the stable ID, version ID, revision, metric, target value, unit
+and target date. The history is oldest first. The outlook evaluates saved
+liquidity goals at their individual dates in `liquidityTargets`. A through-date
+that already passed has an unknown projected result. An owner can archive an
+existing secondary goal from any template. Editing a target or date via v1
+supports net worth and dated liquidity. Other templates retain their existing
+goal editor.
 
 ## Two calls an agent would make
 
-An agent would use the proposed goal endpoint to save “reach $2 million by
-November 2036.”
+An agent would use the goal endpoint to save “reach $2 million by November
+2036.”
 
 ```http
 POST /api/v1/goals
@@ -53,7 +72,7 @@ Content-Type: application/json
 
 The response returns `201`, a stable goal ID, a revision and an `ETag`. The
 caller supplies the target. Keel calculates current progress from accepted
-records and reports missing inputs. A proposed liquidity goal uses
+records and reports missing inputs. A liquidity goal uses
 `metric: "liquidity_through_date"` and `targetDate` to test the saved plan's
 reserve on that date. Saving the goal leaves the cash plan under its existing
 planning workflow.
@@ -73,7 +92,7 @@ monthly spending reduction needed under the stated assumptions. The agent can
 explain that option and cite the plan. A private valuation increase affects
 paper wealth. Cash starts contributing to runway when the plan recognizes it.
 
-## Write contract proposed for goals
+## Goal writes
 
 The read credential also covers unsaved previews. A separate household goal
 write grant permits an owner-directed create, revision or archive. A write

@@ -1,3 +1,4 @@
+import { params, registerResources, resourceError } from "./resource-routes";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
@@ -18,10 +19,27 @@ const grant = z.object({
   AGENT_READ_SERVICE_SUBJECT: z.string().regex(/^[a-f0-9]{32}\.access$/i),
   AGENT_READ_HOUSEHOLD_ID: z.string().trim().min(1).max(256),
 });
+const writer = z.object({
+  AGENT_GOAL_WRITE_SERVICE_SUBJECT: z.string().regex(/^[a-f0-9]{32}\.access$/i),
+  AGENT_GOAL_WRITE_HOUSEHOLD_ID: z.string().trim().min(1).max(256),
+});
+function writeHousehold(env: Env, identity: AccessIdentity) {
+  const binding = writer.safeParse(env);
+  if (
+    identity.kind !== "service" ||
+    !binding.success ||
+    identity.subject !== binding.data.AGENT_GOAL_WRITE_SERVICE_SUBJECT ||
+    identity.subject === env.AGENT_READ_SERVICE_SUBJECT
+  )
+    return null;
+  return binding.data.AGENT_GOAL_WRITE_HOUSEHOLD_ID;
+}
 export function serviceHousehold(env: Env, identity: AccessIdentity) {
+  if (identity.kind !== "service") return null;
+  if (identity.subject === env.AGENT_GOAL_WRITE_SERVICE_SUBJECT)
+    return writeHousehold(env, identity);
   const result = grant.safeParse(env);
-  return identity.kind === "service" &&
-    result.success &&
+  return result.success &&
     identity.subject === result.data.AGENT_READ_SERVICE_SUBJECT
     ? result.data.AGENT_READ_HOUSEHOLD_ID
     : null;
@@ -32,13 +50,19 @@ export function permitsAgentRead(
   method: string,
   path: string,
 ) {
+  if (!serviceHousehold(env, identity)) return false;
+  if (method === "GET")
+    return (
+      Object.values(paths).some((p) => p === path && p !== paths.preview) ||
+      /^\/api\/v1\/(?:goals(?:\/[^/]+(?:\/versions)?)?|(?:accounts|positions|liabilities)(?:\/[^/]+)?|(?:baselines|evidence)\/[^/]+)$/.test(
+        path,
+      )
+    );
+  if (method === "POST" && path === paths.preview) return true;
   return (
-    serviceHousehold(env, identity) !== null &&
-    ((method === "GET" &&
-      (path === paths.spec ||
-        path === paths.outlook ||
-        path === paths.marks)) ||
-      (method === "POST" && path === paths.preview))
+    writeHousehold(env, identity) !== null &&
+    ((method === "POST" && path === "/api/v1/goals") ||
+      (method === "PATCH" && /^\/api\/v1\/goals\/[^/]+$/.test(path)))
   );
 }
 async function householdFor(env: Env, identity: AccessIdentity) {
@@ -58,23 +82,9 @@ async function householdFor(env: Env, identity: AccessIdentity) {
     .all<{ id: string }>();
   return found.results.length === 1 ? found.results[0]!.id : null;
 }
-function queryParams(url: string) {
-  const params = new URL(url).searchParams;
-  if (new Set(params.keys()).size !== params.size) return null;
-  return Object.fromEntries(params);
-}
 export function registerAgentRoutes(parent: Hono<AppEnvironment>) {
   const app = new Hono<AppEnvironment>();
-  app.onError((_error, c) =>
-    c.json(
-      {
-        code: "data_unavailable",
-        error: "The financial projection is unavailable.",
-      },
-      503,
-      { "Cache-Control": "private, no-store" },
-    ),
-  );
+  app.onError(resourceError);
   app.use("/api/v1/*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
     const household = await householdFor(c.env, c.get("identity"));
@@ -88,7 +98,7 @@ export function registerAgentRoutes(parent: Hono<AppEnvironment>) {
   });
   app.get(paths.spec, (c) => c.json(openApi()));
   app.get(paths.outlook, async (c) => {
-    const query = pageQuery.safeParse(queryParams(c.req.url));
+    const query = pageQuery.safeParse(params(c.req.url));
     if (!query.success)
       return c.json(
         {
@@ -119,7 +129,7 @@ export function registerAgentRoutes(parent: Hono<AppEnvironment>) {
         ),
     }),
     async (c) => {
-      const query = pageQuery.safeParse(queryParams(c.req.url));
+      const query = pageQuery.safeParse(params(c.req.url));
       const input = previewInput.safeParse(
         await c.req.json().catch(() => null),
       );
@@ -152,7 +162,7 @@ export function registerAgentRoutes(parent: Hono<AppEnvironment>) {
     },
   );
   app.get(paths.marks, async (c) => {
-    const query = marksQuery.safeParse(queryParams(c.req.url));
+    const query = marksQuery.safeParse(params(c.req.url));
     if (!query.success)
       return c.json(
         {
@@ -171,5 +181,6 @@ export function registerAgentRoutes(parent: Hono<AppEnvironment>) {
       ? c.json(page)
       : c.json({ code: "not_found", error: "Baseline not found." }, 404);
   });
+  registerResources(app);
   parent.route("/", app);
 }

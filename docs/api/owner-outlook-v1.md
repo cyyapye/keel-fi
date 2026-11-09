@@ -2,9 +2,10 @@
 
 An agent can compare household targets with the wealth Keel has recorded, test a
 liquidity reserve through a chosen date, and cite the underlying baseline, plan,
-goal versions and price evidence. Every operation reads a single authorized
-household. The OpenAPI 3.1 document is generated from the response validators at
-`GET /api/v1/openapi.json`.
+goal versions and price evidence. Each credential is scoped to one household.
+The [owner API resource map](owner-api-design.md) lists the goal writes and
+portfolio reads. The OpenAPI 3.1 document is generated from the response
+validators at `GET /api/v1/openapi.json`.
 
 | Operation                        | Use                                                                                                      |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -44,10 +45,11 @@ Confirm an initial Portfolio Baseline through Holdings to include portfolio
 wealth. When there are no reviewed liabilities, v1 returns a missing-debt
 reason. An owner who explicitly wants a zero-debt scenario can supply
 `"assumeNoDebt": true`. It cannot override an existing reviewed debt. A scenario
-uses the supplied targets for this request only. To persist a dated wealth
-target, save a custom monetary goal with metric key `net_worth` through the
-existing goal workflow. Its saved progress and the calculation from tracked
-assets have distinct evidence.
+uses the supplied targets for this request only. Use `POST /api/v1/goals` to
+persist a dated target. The agent can discover its current revision and ETag
+with `GET /api/v1/goals/{id}`. The outlook evaluates both net-worth targets and
+dated liquidity targets from accepted records. Target creation does not require
+a manual progress entry.
 
 For a reproducible example with a populated portfolio, run
 `pnpm exec vitest run apps/api/src/agent-api/outlook.test.ts scripts/agent-outlook-d1-cost.test.ts`.
@@ -118,7 +120,15 @@ Set the protected preview environment secrets
 in `.access`) and `KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID` (the canonical D1
 household ID). The release workflow configures both on the API Worker. Supplying
 neither disables agent access. Signed-in owners with one provisioned household
-can also use v1. Self-hosted deployments use the corresponding
+can also use v1.
+
+For owner-directed goal writes, provision a separate Access service token. Set
+`KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT` and
+`KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID` together. The write token can read
+the household and create, revise or archive goals. The read token can run
+unsaved previews. Set the write grant only when enabling that capability for the
+owner. For self-hosting, use `AGENT_GOAL_WRITE_SERVICE_SUBJECT` and
+`AGENT_GOAL_WRITE_HOUSEHOLD_ID`. The read grant uses
 `AGENT_READ_SERVICE_SUBJECT` and `AGENT_READ_HOUSEHOLD_ID` Worker bindings.
 
 Set `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` in the client's private
@@ -131,5 +141,6 @@ redeploy to withdraw Worker access, or revoke the service token at Access. See
 
 The Worker returns structured error codes for invalid input (400), missing
 authentication (401), authorization failure (403), a missing or foreign baseline
-(404), an oversized preview (413) and unavailable data (503). Cloudflare Access
-can reject a request before it reaches the Worker.
+(404), an oversized body (413), conflicting goal changes or key reuse (409), a
+stale revision (412), a missing write precondition (428) and unavailable data
+(503). Cloudflare Access can reject a request before it reaches the Worker.

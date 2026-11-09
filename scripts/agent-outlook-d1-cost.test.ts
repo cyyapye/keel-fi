@@ -1,3 +1,9 @@
+import { positionDetail } from "../apps/api/src/agent-api/resources";
+import {
+  debtWorkflow,
+  goalWorkflow,
+  portfolioReads,
+} from "./test-support/owner-api-acceptance";
 import { expect, it } from "vitest";
 import { createApp } from "../apps/api/src/app";
 import type { Env } from "../apps/api/src/types";
@@ -61,6 +67,11 @@ it("serves isolated versioned outlooks and evidence pages under fixed D1 budgets
       ).status,
     ).toBe(403);
     expect((await get("outlook?householdId=hh_demo")).status).toBe(400);
+    await db
+      .prepare(
+        "INSERT INTO households (id,owner_user_id,name,base_currency,created_at) SELECT 'api-other',owner_user_id,'Synthetic second household',base_currency,created_at FROM households WHERE id='hh_demo'",
+      )
+      .run();
     const offsets = JSON.stringify(Array.from({ length: 120 }, (_, i) => i));
     await db.batch([
       db
@@ -183,9 +194,81 @@ it("serves isolated versioned outlooks and evidence pages under fixed D1 budgets
     expect(revised.liquidity).toEqual(modeled.liquidity);
     await db
       .prepare(
-        "INSERT INTO households (id,owner_user_id,name,base_currency,created_at) SELECT 'api-other',owner_user_id,'Synthetic second household',base_currency,created_at FROM households WHERE id='hh_demo'",
+        "INSERT INTO asset_accounts(id,household_id,name,account_type,created_at) SELECT 'directory-'||value,'hh_demo','Synthetic account '||value,'cash','2026-01-01' FROM json_each(?)",
       )
+      .bind(offsets)
       .run();
+    await portfolioReads(app, env, headers, meter, base);
+    await goalWorkflow(app, env, headers, subject);
+    const fundId = first.positions[0]!.positionId;
+    const exposureNumbers = JSON.stringify(
+      Array.from({ length: 121 }, (_, i) => i),
+    );
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO canonical_exposures(id,household_id,exposure_kind,canonical_name,resolution_method,evidence_sha256,created_by_user_id,created_at,immutable)
+        SELECT 'fund-exposure-'||value,'hh_demo','unresolved','Underlying '||value,'unresolved',?,'usr_demo','2026-01-01',1 FROM json_each(?)`,
+        )
+        .bind("a".repeat(64), exposureNumbers),
+      db
+        .prepare(
+          `INSERT INTO holding_position_exposure_mappings(id,household_id,position_id,exposure_id,relationship_kind,status,decision_source,decision_reference,evidence_sha256,effective_at,version,accepted_by_user_id,accepted_at,immutable)
+        SELECT 'fund-mapping-'||value,'hh_demo',?,'fund-exposure-'||value,'look_through','active','review','Synthetic fund exposure',?,'2026-01-01',1,'usr_demo','2026-01-01',1 FROM json_each(?)`,
+        )
+        .bind(fundId, "a".repeat(64), exposureNumbers),
+    ]);
+    const exposures = new Set<string>();
+    let afterExposure: string | null = null;
+    do {
+      meter.reset();
+      const page = positionDetail.parse(
+        await (
+          await get(
+            "positions/" +
+              fundId +
+              (afterExposure
+                ? "?afterExposure=" + encodeURIComponent(afterExposure)
+                : ""),
+          )
+        ).json(),
+      );
+      expect(meter.cost).toMatchObject({ roundTrips: 2, rowsWritten: 0 });
+      expect(meter.cost.rowsRead).toBeLessThan(1050);
+      for (const e of page.exposures) exposures.add(e.id);
+      afterExposure = page.nextAfterExposure;
+    } while (afterExposure);
+    expect(exposures.has("fund-exposure-120")).toBe(true);
+    expect(
+      [...exposures].filter((id) => id.startsWith("fund-exposure-")),
+    ).toHaveLength(121);
+    await debtWorkflow(db, app, env, headers, meter);
+    // EXPLAIN the actual SQL used by the paged operations, including composed queries.
+    const statements = [...meter.queries].filter((q) =>
+      /^(?:SELECT|WITH) /i.test(q.trim()),
+    );
+    const plans = await db.batch<{ detail: string }>(
+      statements.map((q) =>
+        db
+          .prepare("EXPLAIN QUERY PLAN " + q)
+          .bind(...Array.from(q.matchAll(/\?/g), () => null)),
+      ),
+    );
+    for (const [i, plan] of plans.entries())
+      for (const row of plan.results) {
+        const sql = statements[i]!;
+        if (
+          (row.detail === "SCAN g" ||
+            row.detail === "SCAN d" ||
+            row.detail === "SCAN i") &&
+          /FROM (?:page|mapped) (?:g|d|i)\b/.test(sql)
+        )
+          continue;
+        expect(row.detail, sql).not.toMatch(
+          /^(?:SCAN (?:g|v|d|r|p|c|i|s|iv|ih|e|h|o|k|a|f)\b|USE TEMP B-TREE FOR RIGHT PART OF ORDER BY)/,
+        );
+      }
+
     expect(
       (
         await get("marks?baselineId=" + base, {

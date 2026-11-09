@@ -34,6 +34,8 @@ function formatExpectedGoalValue(
 function expectedGoalProgress(
   version: AlphaData["goals"][number]["versions"][number],
 ) {
+  if (version.currentValueInteger === null)
+    throw new Error("This seeded goal must have measured progress.");
   const target = version.targetValueInteger;
   if (target === null) return 0;
   if (target === 0) return 1_000_000;
@@ -46,6 +48,8 @@ function expectedGoalProgress(
 function expectedGoalPosition(
   version: AlphaData["goals"][number]["versions"][number],
 ) {
+  if (version.currentValueInteger === null)
+    throw new Error("This seeded goal must have measured progress.");
   const target = version.targetValueInteger;
   if (target === null) return "Not available";
   const difference = version.currentValueInteger - target;

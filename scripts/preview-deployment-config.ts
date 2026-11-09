@@ -109,6 +109,12 @@ export const PreviewDeploymentEnvironmentSchema = z
     KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID: OptionalEnvironmentValue(
       z.string().trim().min(1).max(256),
     ),
+    KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT: OptionalEnvironmentValue(
+      z.string().regex(/^[a-f0-9]{32}\.access$/i),
+    ),
+    KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID: OptionalEnvironmentValue(
+      z.string().trim().min(1).max(256),
+    ),
     KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN: OptionalEnvironmentValue(
       z.enum(["free", "paid"]),
     ),
@@ -127,6 +133,21 @@ export const PreviewDeploymentEnvironmentSchema = z
   })
   .superRefine(validateCompletePlaidEnvironment)
   .superRefine((value, ctx) => {
+    const writeId = value.KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT;
+    if (
+      (writeId === undefined) !==
+        (value.KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID === undefined) ||
+      (writeId !== undefined &&
+        [
+          value.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT,
+          value.KEEL_PREVIEW_ACCESS_CLIENT_ID,
+        ].includes(writeId))
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Goal writes require a distinct service identity and a household.",
+      });
     if (
       (value.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT === undefined) !==
         (value.KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID === undefined) ||
@@ -215,6 +236,14 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
               configuration.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT,
             AGENT_READ_HOUSEHOLD_ID:
               configuration.KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID,
+          }
+        : {}),
+      ...(configuration.KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT
+        ? {
+            AGENT_GOAL_WRITE_SERVICE_SUBJECT:
+              configuration.KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT,
+            AGENT_GOAL_WRITE_HOUSEHOLD_ID:
+              configuration.KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID,
           }
         : {}),
       INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",

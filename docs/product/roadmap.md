@@ -1243,7 +1243,7 @@ resources, paths, verbs and permissions. The
 [v1 API guide](../api/owner-outlook-v1.md) covers the local read-only slice and
 its protected-preview rollout.
 
-**Resource contract before calling the MVP complete (planned):**
+**Resource contract implemented locally:**
 
 - Goals: create, list, get by stable ID, revise and archive. A revision keeps
   the prior version; archiving removes a goal from active outlooks while its ID
@@ -1276,12 +1276,13 @@ and D1 work. On-demand reads add no scheduler, model call or provider fetch.
 - [x] Prove review and source scope, unknowns, household isolation, historical
       growth, zero financial writes on reads/previews and fixed read budgets in
       synthetic D1.
-- [ ] From one external client, create 12-month and 10-year goals, read them in
+- [x] From one external client, create 12-month and 10-year goals, read them in
       the outlook, change one target, archive it and retrieve its history. Prove
       duplicate retries, stale edits and foreign-household writes are safe.
       Follow a contributing asset or debt to its source via a resource read.
 - [ ] Pass exact-revision verification, deploy to protected preview, exercise
-      the read-only client there and obtain owner acceptance.
+      the read client and the separately authorized goal-write workflow there,
+      and obtain owner acceptance.
 
 **Later:** Ingest authorized GP messages and agreements, reconcile complex SPV
 terms and public signals into evidence-backed proposals, and apply recorded

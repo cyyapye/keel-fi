@@ -1,3 +1,4 @@
+import { OUTLOOK_GOAL_SOURCE } from "@keel/domain";
 import { PurchaseFeeSchema } from "@keel/domain/position-economics";
 import {
   AlphaDataSchema,
@@ -2858,7 +2859,7 @@ export class D1AlphaRepository implements AlphaRepository {
           targetValueInteger: number | null;
           targetUnit: GoalRow["target_unit"];
           targetDate: string | null;
-          currentValueInteger: number;
+          currentValueInteger: number | null;
           currentValueSource: string;
           changeNote: string;
           createdAt: string;
@@ -2899,7 +2900,10 @@ export class D1AlphaRepository implements AlphaRepository {
         targetValueInteger: row.target_value_integer,
         targetUnit: row.target_unit,
         targetDate: row.target_date,
-        currentValueInteger: row.current_value_integer,
+        currentValueInteger:
+          row.current_value_source === OUTLOOK_GOAL_SOURCE
+            ? null
+            : row.current_value_integer,
         currentValueSource: row.current_value_source,
         changeNote: row.change_note,
         createdAt: row.version_created_at,

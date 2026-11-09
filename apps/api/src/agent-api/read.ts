@@ -13,6 +13,18 @@ import {
 } from "./contract";
 import { DEBT_WINDOW, GOAL_PAGE, type Records } from "./outlook";
 
+export function debtStatement(db: D1Database, household: string) {
+  return db
+    .prepare(
+      `WITH page AS MATERIALIZED (SELECT id,household_id,proposal_row_id,decision,decided_at,payment_treatment
+      FROM liability_review_decisions WHERE household_id=? ORDER BY decided_at DESC,rowid DESC LIMIT ?)
+      SELECT d.id,d.decision,d.decided_at decidedAt,d.payment_treatment treatment,r.natural_key_sha256 key,
+      r.account_label name,r.kind,r.balance_minor balanceMinor,r.payment_minor paymentMinor,r.effective_date effectiveDate FROM page d
+      JOIN liability_proposal_rows r ON r.id=d.proposal_row_id AND r.household_id=d.household_id`,
+    )
+    .bind(household, DEBT_WINDOW + 1);
+}
+
 export async function readRecords(
   db: D1Database,
   household: string,
@@ -51,15 +63,7 @@ export async function readRecords(
       )
       .bind(household, after, GOAL_PAGE + 1),
     // Limit the indexed source before joins. Incomplete histories never yield a partial debt total.
-    db
-      .prepare(
-        `WITH page AS MATERIALIZED (SELECT id,household_id,proposal_row_id,decision,decided_at,payment_treatment
-      FROM liability_review_decisions WHERE household_id=? ORDER BY decided_at DESC,rowid DESC LIMIT ?)
-      SELECT d.id,d.decision,d.decided_at decidedAt,d.payment_treatment treatment,r.natural_key_sha256 key,
-      r.balance_minor balanceMinor,r.payment_minor paymentMinor,r.effective_date effectiveDate FROM page d
-      JOIN liability_proposal_rows r ON r.id=d.proposal_row_id AND r.household_id=d.household_id`,
-      )
-      .bind(household, DEBT_WINDOW + 1),
+    debtStatement(db, household),
   ]);
   return {
     baselines: z.array(baselineRow).parse(baselines!.results),

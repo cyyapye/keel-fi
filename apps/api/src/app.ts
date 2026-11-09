@@ -1224,7 +1224,8 @@ export function createApp(options: AppOptions = {}) {
         ) &&
         (context.req.method !== "POST" ||
           context.req.path !== "/api/deployment-smoke" ||
-          identity.subject === context.env.AGENT_READ_SERVICE_SUBJECT)
+          identity.subject === context.env.AGENT_READ_SERVICE_SUBJECT ||
+          identity.subject === context.env.AGENT_GOAL_WRITE_SERVICE_SUBJECT)
       ) {
         return context.json(
           {
