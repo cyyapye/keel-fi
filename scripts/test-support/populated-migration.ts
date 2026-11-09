@@ -530,28 +530,42 @@ function packFixture(fixture: PopulatedMigrationFixture) {
   return gzipSync(json, { level: 1 }).toString("base64");
 }
 
-export function populatedMigrationFixtures() {
-  const fixtures = new Map<12 | 24, Promise<Record<Frontier, string>>>();
+export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
+  const fixtures = new Map<
+    12 | 24,
+    Promise<Partial<Record<Frontier, string>>>
+  >();
 
   return async (history: 12 | 24, frontier: Frontier) => {
+    if (selectedFrontier !== undefined && frontier !== selectedFrontier)
+      throw new Error("Requested a boundary outside the selected fixture");
     let result = fixtures.get(history);
     if (!result) {
-      result = fixtureOutput(history, "both").then((stdout) =>
-        z
-          .object({
-            "0088": z.string(),
-            "0089": z.string(),
-            "0090": z.string(),
-            "0090-public": z.string(),
-            "0091": z.string(),
-            "0092": z.string(),
-          })
-          .strict()
-          .parse(JSON.parse(stdout)),
+      result = fixtureOutput(history, selectedFrontier ?? "both").then(
+        (stdout) => {
+          if (selectedFrontier !== undefined) {
+            const selected = FixtureSchema.parse(JSON.parse(stdout));
+            return { [selectedFrontier]: packFixture(selected) };
+          }
+          return z
+            .object({
+              "0088": z.string(),
+              "0089": z.string(),
+              "0090": z.string(),
+              "0090-public": z.string(),
+              "0091": z.string(),
+              "0092": z.string(),
+            })
+            .strict()
+            .parse(JSON.parse(stdout));
+        },
       );
       fixtures.set(history, result);
     }
-    const text = gunzipSync(Buffer.from((await result)[frontier], "base64"), {
+    const packed = (await result)[frontier];
+    if (packed === undefined)
+      throw new Error("Missing populated migration fixture boundary");
+    const text = gunzipSync(Buffer.from(packed, "base64"), {
       maxOutputLength: fixtureByteLimit,
     }).toString("utf8");
     const fixture = FixtureSchema.parse(JSON.parse(text));

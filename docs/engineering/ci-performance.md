@@ -1202,14 +1202,21 @@ Vitest and Playwright vectors. Pass `--suite python`, `--suite vitest` or
 unavailable historical merge object must be recovered from an existing checkout
 of that revision before the log can be decoded.
 
-## Owner API release scheduling
+## Owner API release fixture work
 
 PR #354 run `42556673393`, attempt 2, passed all 1,682 reviewed Vitest cases but
-reached the complete gate's 900-second deadline during the browser lanes. The
-existing public-source review D1 fixture took 265 seconds. Its old 114-second
-scheduling estimate admitted it after shorter files and left it on the unit-test
-tail. The sequencer now uses the measured 265 seconds and starts it ahead of
-Portfolio Watch activity. Its regression verifies the order and preserves every
-discovered test specification. Coverage, SQL workloads, worker counts and all
-deadlines stay the same. A complete native receipt must establish the result of
-this scheduling change.
+reached the complete gate's 900-second deadline during the browser lanes.
+Starting the existing public-source review fixture earlier, using its measured
+265-second duration, increased contention in run `42559752387`; its 24-history
+case exceeded the existing 120-second deadline. That scheduling trial was
+reverted.
+
+The public-source read cases require only the populated `0092` schema. Their
+fixture builder previously also collected, hashed and serialized five unused
+older-schema snapshots. The builder now accepts a selected frontier, retains the
+same history cache and produces that single snapshot through the existing
+fixture construction path. Migration certification still requests every old
+frontier. Compare both forms at 12 and 24 captures for identical fixture
+content, then run the registered D1 cases and full native gate. SQL workloads,
+data scale, actual billing assertions, worker counts and all deadlines stay the
+same.

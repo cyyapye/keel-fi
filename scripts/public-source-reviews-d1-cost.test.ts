@@ -29,7 +29,7 @@ const inventoryWorker = build({
   logLevel: "silent",
 }).then((result) => result.outputFiles[0]!.text);
 
-const fixture = populatedMigrationFixtures();
+const fixture = populatedMigrationFixtures("0092");
 for (const history of [12, 24] as const) {
   it(`reads 120 public source heads independently of ${history} observations and decisions per position`, async () => {
     const stored = await fixture(history, "0092");
