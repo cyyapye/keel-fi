@@ -139,16 +139,14 @@ export async function getVersions(
     .object({ archivedAt: z.string().nullable(), latestVersionId: resourceId })
     .parse(found!.results[0]);
   const rows = z.array(goalVersion).parse(versions!.results);
-  const items = rows
-    .slice(0, 50)
-    .map((v) => ({
-      ...v,
-      status:
-        header.archivedAt === v.recordedAt &&
-        header.latestVersionId === v.versionId
-          ? "archived"
-          : "active",
-    }));
+  const items = rows.slice(0, 50).map((v) => ({
+    ...v,
+    status:
+      header.archivedAt === v.recordedAt &&
+      header.latestVersionId === v.versionId
+        ? "archived"
+        : "active",
+  }));
   return goalVersions.parse({
     items,
     nextAfter: rows.length > 50 ? String(rows[49]!.revision) : null,
