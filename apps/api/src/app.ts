@@ -55,6 +55,11 @@ import {
   WatchReadInputSchema,
 } from "@keel/domain/portfolio-watch-activity";
 import { WatchWebsiteInputSchema } from "@keel/domain/watch-website";
+import {
+  CashBalanceHistoryQuerySchema,
+  CashBalanceHistoryCursorError,
+} from "@keel/domain/cash-balance-history";
+import { D1BrokerageCashHistoryRepository } from "@keel/database";
 import { searchWatchWebsite } from "./watch-website-search";
 import {
   AngelListCsvParseError,
@@ -1554,6 +1559,41 @@ export function createApp(options: AppOptions = {}) {
         { error: "Keel could not defer this decision." },
         500,
         { "Cache-Control": "private, no-store" },
+      );
+    }
+  });
+
+  app.get("/api/cash-balance-history", async (context) => {
+    const query = CashBalanceHistoryQuerySchema.safeParse(context.req.query());
+    if (!query.success)
+      return context.json({ error: "Invalid cash history request." }, 400);
+    const { kind, id, limit, after, revision } = query.data;
+    try {
+      const subject = context.get("identity").subject;
+      const result =
+        kind === "bank"
+          ? await new D1CashAccountsRepository(context.env.DB).balanceHistory(
+              subject,
+              id,
+              limit,
+              after,
+            )
+          : await new D1BrokerageCashHistoryRepository(context.env.DB).history(
+              subject,
+              id,
+              limit,
+              after,
+              revision,
+            );
+      return result === null
+        ? context.json({ error: "Cash balance was not found." }, 404)
+        : context.json(result, 200, { "Cache-Control": "private, no-store" });
+    } catch (error) {
+      if (error instanceof CashBalanceHistoryCursorError)
+        return context.json({ error: error.message }, 400);
+      return context.json(
+        { error: "Balance history could not be loaded." },
+        503,
       );
     }
   });

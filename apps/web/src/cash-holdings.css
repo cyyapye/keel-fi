@@ -1,0 +1,171 @@
+.cash-holdings {
+  padding: 34px 0;
+  border-bottom: 1px solid var(--line);
+  scroll-margin-top: 96px;
+}
+.cash-holdings > .section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.cash-holdings > .section-heading .stat {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.cash-holdings__total {
+  min-width: 0;
+}
+.cash-holdings > .section-heading .stat__value {
+  font-size: 34px;
+}
+.cash-holdings > .section-heading .stat__label,
+.cash-holdings > .section-heading .stat__detail {
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.cash-holdings > .section-heading h2 {
+  font-size: 34px;
+  letter-spacing: -0.045em;
+}
+.cash-holdings .cash-history__account-name {
+  font-size: var(--text-body);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.cash-holdings__group + .cash-holdings__group {
+  margin-top: 28px;
+}
+.cash-holdings__group-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.cash-holdings__group-heading h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+}
+.cash-holdings__group-heading p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: var(--text-supporting);
+}
+.cash-holdings__group-heading > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.cash-holdings__account:nth-child(odd) {
+  background: var(--wash);
+}
+.cash-holdings__account-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  width: 100%;
+  align-items: start;
+  gap: 12px;
+  padding: 16px;
+  text-align: left;
+}
+.cash-holdings__account-summary > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cash-holdings__account-summary strong {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.cash-holdings__account-summary > strong {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cash-holdings__account-summary small {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  line-height: 1.5;
+  font-weight: 400;
+  margin-top: 4px;
+}
+.cash-holdings__account [data-slot="collapsible-content"] {
+  padding: 0 16px 16px;
+}
+.cash-holdings__fold {
+  margin-bottom: 24px;
+}
+.cash-holdings__fold .cash-history__meta {
+  margin-top: 8px;
+}
+.cash-history h4 {
+  font-size: var(--text-supporting);
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+.cash-history__meta {
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  margin: 8px 0 16px;
+}
+.cash-history__recent {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.cash-history__recent li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: var(--text-supporting);
+}
+.cash-history__recent li + li {
+  margin-top: 15px;
+}
+.cash-history__recent li > span:last-of-type {
+  font-variant-numeric: tabular-nums;
+}
+.cash-history__recent small {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: inherit;
+}
+.cash-history__paging {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+.cash-history__paging > span {
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  text-align: center;
+}
+.cash-history__ledger .record-row {
+  grid-template-columns: minmax(100px, 1fr) minmax(0, auto);
+}
+@media (max-width: 600px) {
+  .cash-holdings > .section-heading {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  .cash-holdings > .section-heading .stat {
+    text-align: left;
+  }
+  .cash-holdings__account-summary {
+    gap: 8px;
+    padding: 16px 10px;
+  }
+  .cash-holdings__group-heading p {
+    max-width: 22ch;
+  }
+}

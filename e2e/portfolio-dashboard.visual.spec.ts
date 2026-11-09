@@ -570,7 +570,9 @@ test(
       }
       await expect(page).toHaveURL(/\/holdings\?access=/u);
       expect(new URL(page.url()).searchParams.get("access")).toBe(access.key);
-      const detail = page.getByRole("region", { name: access.label });
+      const detail = page
+        .getByRole("region", { name: access.label, exact: true })
+        .filter({ has: page.locator("#portfolio-access-detail-title") });
       await expect(
         detail.getByRole("heading", { name: access.label }),
       ).toBeFocused();

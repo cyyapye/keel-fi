@@ -56,6 +56,7 @@ export const BROWSER_TEST_LANES = {
     "investment-review.visual.spec.ts",
   ],
   "mocked-development": [
+    "cash-holdings.visual.spec.ts",
     "agreement-security.visual.spec.ts",
     "investment-holdings.visual.spec.ts",
   ],

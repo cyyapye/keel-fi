@@ -1,5 +1,30 @@
 import { requestKeel } from "./api-request";
 import {
+  CashBalanceHistoryPageSchema,
+  CashBalanceHistoryQuerySchema,
+  type CashBalanceHistoryQuery,
+} from "@keel/domain/cash-balance-history";
+
+export async function loadCashBalanceHistory(
+  input: CashBalanceHistoryQuery,
+  signal?: AbortSignal,
+) {
+  const query = CashBalanceHistoryQuerySchema.parse(input);
+  const params = new URLSearchParams({
+    kind: query.kind,
+    id: query.id,
+    limit: String(query.limit),
+  });
+  if (query.after) params.set("after", query.after);
+  if (query.revision) params.set("revision", query.revision);
+  const response = await requestKeel(`/api/cash-balance-history?${params}`, {
+    ...(signal ? { signal } : {}),
+  });
+  if (!response.ok)
+    throw new Error("Balance history could not be loaded. Try again.");
+  return CashBalanceHistoryPageSchema.parse(await response.json());
+}
+import {
   AcceptPositionLinkSchema,
   PositionLinkReceiptSchema,
   PositionLinkWorkspaceSchema,

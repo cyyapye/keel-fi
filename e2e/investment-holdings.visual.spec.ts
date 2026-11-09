@@ -752,7 +752,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     await expect(sort).toBeFocused();
   }
   await expect(page.locator(".cash-holdings")).toContainText(
-    "Portfolio cash$28.55k",
+    "Total cash$28,550.00",
   );
   const harbor = page.locator(".exposure-group").filter({
     has: page.getByText("Harbor Health Systems", { exact: true }),
@@ -1114,7 +1114,9 @@ test(
     );
     await search.fill("Travel cash");
     await expect(
-      page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
+      page
+        .locator(".cash-holdings__account-summary")
+        .filter({ hasText: "Travel cash" }),
     ).toBeVisible();
     await expect(page.locator(".cash-holdings__total")).toHaveText(cashTotal);
     await search.fill("no-such-synthetic-holding");
@@ -1159,8 +1161,10 @@ test(
     await expect(page.locator(".exposure-group")).toHaveCount(5);
     await expect(page.locator(".investment-views__total")).toHaveText(total);
     await expect(
-      page.locator(".cash-holdings").getByText("Travel cash", { exact: true }),
-    ).toHaveCount(0);
+      page
+        .locator(".cash-holdings__account-summary")
+        .filter({ hasText: "Travel cash" }),
+    ).toBeVisible();
     expect(errors).toEqual([]);
   },
 );
