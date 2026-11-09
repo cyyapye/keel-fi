@@ -1238,8 +1238,10 @@ calculations. Saving an owner-directed goal requires a separate write grant.
 Private paper, public valuation signals and received cash are distinct. A
 scenario never becomes an accepted plan.
 
-The [v1 API guide](../api/owner-outlook-v1.md) describes the contract and
-protected-preview rollout for the initial read-only slice.
+Review the [owner API design](../api/owner-api-design.md) for the proposed
+resources, paths, verbs and permissions. The
+[v1 API guide](../api/owner-outlook-v1.md) covers the local read-only slice and
+its protected-preview rollout.
 
 **Resource contract before calling the MVP complete (planned):**
 
