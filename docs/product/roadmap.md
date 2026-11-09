@@ -1241,7 +1241,9 @@ scenario never becomes an accepted plan.
 Review the [owner API design](../api/owner-api-design.md) for the proposed
 resources, paths, verbs and permissions. The
 [v1 API guide](../api/owner-outlook-v1.md) covers the local read-only slice and
-its protected-preview rollout.
+its protected-preview rollout. The [owner question evals](../api/owner-evals.md)
+cover portfolio answers and track future questions that need new evidence
+sources.
 
 **Resource contract implemented locally:**
 

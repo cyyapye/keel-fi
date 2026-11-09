@@ -37,7 +37,11 @@
     "test:live:sources": "tsx scripts/live-company-source-smoke.ts",
     "test:e2e": "playwright test",
     "toolchain:check": "node scripts/check-toolchain.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck && tsc --noEmit -p e2e/ui-catalogue/tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm -r --filter './apps/**' --filter './packages/**' run typecheck && tsc --noEmit -p e2e/ui-catalogue/tsconfig.json",
+    "docs:api": "tsx scripts/owner-api-docs.ts",
+    "eval:owner": "vitest run scripts/owner-api-eval.test.ts scripts/owner-api-docs.test.ts scripts/grade-owner-answers.test.ts apps/api/src/agent-api/outlook.test.ts scripts/agent-outlook-d1-cost.test.ts",
+    "eval:owner:packet": "KEEL_WRITE_OWNER_EVAL_PACKET=1 vitest run scripts/owner-api-eval.test.ts",
+    "eval:owner:grade": "tsx scripts/grade-owner-answers.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260722.1",

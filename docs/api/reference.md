@@ -1,0 +1,27 @@
+# Owner API v1 reference
+
+All paths begin with `/api/v1`. The [quickstart](README.md) explains which
+credential to use. The [OpenAPI document](openapi.json) contains the full
+request, response and error schemas.
+
+| Method | Path                         | Purpose                                                                                                       | Inputs                                                                                       |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| GET    | `/goals`                     | List saved goals                                                                                              | `after` (query), `status` (query)                                                            |
+| POST   | `/goals`                     | Save an owner-directed dated goal                                                                             | `Idempotency-Key` (header, required), `NewGoal` (JSON body)                                  |
+| GET    | `/goals/{goalId}`            | Read current goal and revision                                                                                | —                                                                                            |
+| PATCH  | `/goals/{goalId}`            | Revise or archive a goal                                                                                      | `If-Match` (header, required), `Idempotency-Key` (header, required), `GoalPatch` (JSON body) |
+| GET    | `/goals/{goalId}/versions`   | Read goal revisions in order                                                                                  | `after` (query)                                                                              |
+| GET    | `/accounts`                  | List account records and accepted cash balances                                                               | `after` (query), `baselineId` (query)                                                        |
+| GET    | `/accounts/{accountId}`      | Read an account                                                                                               | —                                                                                            |
+| GET    | `/positions`                 | List recorded positions including closed positions                                                            | `after` (query)                                                                              |
+| GET    | `/positions/{positionId}`    | Read holdings terms, exposures and dated valuations                                                           | `afterExposure` (query)                                                                      |
+| GET    | `/liabilities`               | List reviewed obligations                                                                                     | `after` (query)                                                                              |
+| GET    | `/liabilities/{liabilityId}` | Read a reviewed obligation                                                                                    | —                                                                                            |
+| GET    | `/baselines/{baselineId}`    | Read accepted wealth components and supporting records                                                        | —                                                                                            |
+| GET    | `/evidence/{evidenceId}`     | Read source metadata for an outlook citation                                                                  | —                                                                                            |
+| GET    | `/openapi.json`              | Discover the owner API contract                                                                               | —                                                                                            |
+| GET    | `/outlook`                   | Read saved goal gaps, tracked wealth and a 365-day liquidity scenario                                         | `afterGoal` (query)                                                                          |
+| POST   | `/outlook/preview`           | Compare dated net-worth targets and test a reserve through a date without saving                              | `afterGoal` (query), `Preview` (JSON body)                                                   |
+| GET    | `/marks`                     | Inspect values in one accepted baseline, subsequent provider observations, reviewed marks and public evidence | `baselineId` (query, required), `after` (query)                                              |
+
+Generated by `pnpm docs:api` from the same contract served by the Worker.

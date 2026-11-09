@@ -1,0 +1,110 @@
+[
+  {
+    "id": "saved-goals",
+    "question": "How far am I from financial independence and the house purchase? Am I on schedule for either?",
+    "facts": {
+      "fiGapCents": 142500000,
+      "purchaseGapCents": 95000000,
+      "canEstablishPaceForEither": false
+    },
+    "sources": ["demoOutlook"],
+    "review": "Distinguish the FI forecast horizon from a saved deadline, and a current gap from a target-date forecast."
+  },
+  {
+    "id": "incomplete-wealth",
+    "question": "On the demo household, how am I doing against the two hypothetical net-worth targets? What is missing?",
+    "facts": {
+      "trackedWealthCents": null,
+      "oneYearProjectedGapCents": null,
+      "tenYearProjectedGapCents": null,
+      "acceptedBaselineAvailable": false,
+      "reviewedDebtAvailable": false
+    },
+    "sources": ["demoTargets"],
+    "review": "Name both missing inputs. Never substitute liquid funds for net worth or assume zero debt."
+  },
+  {
+    "id": "liquidity",
+    "question": "Will the saved plan cover the next 365 days? How much cash would remain and how current are the inputs?",
+    "facts": {
+      "endingCashCents": 133300000,
+      "reserveCents": 10300000,
+      "monthlyBurnCents": 4100000,
+      "lastsThrough": true,
+      "planEffectiveDate": "2026-07-01",
+      "reviewedDebtAvailable": false
+    },
+    "sources": ["demoOutlook"],
+    "review": "State the plan date, constant burn and limited debt coverage. Distinguish the plan date from the date of evaluation."
+  },
+  {
+    "id": "capital-call",
+    "question": "Suppose a $1.3m capital call is due now. Would the next year's reserve survive? What monthly spending adjustment would fix the gap?",
+    "facts": {
+      "endingCashCents": 3300000,
+      "reserveGapCents": 7000000,
+      "monthlyCutCents": 583334,
+      "maxMonthlyBurnCents": 3516666
+    },
+    "sources": ["capitalCall"],
+    "review": "Give the first breach date from the response and label the spending cut as a conditional break-even option. The preview leaves the saved plan intact."
+  },
+  {
+    "id": "target-history",
+    "question": "Was the home-purchase target raised after it was first saved? Can I attribute today's gap to a target change?",
+    "facts": {
+      "recordedVersions": 1,
+      "targetRaised": false,
+      "targetDate": "2030-06-30"
+    },
+    "sources": ["purchaseVersions"],
+    "review": "Limit the claim to recorded revisions. Target history alone does not explain investment performance."
+  },
+  {
+    "id": "dated-targets",
+    "question": "For the reviewed household, compare $122,000 in one year and $150,000 in ten years. Assume flat net worth after spending. How far short would I be, and what annual increase would close the one-year gap?",
+    "facts": {
+      "trackedWealthCents": 12000120,
+      "oneYearProjectedGapCents": 199880,
+      "tenYearProjectedGapCents": 2999880,
+      "requiredOneYearIncreaseCents": 199880
+    },
+    "sources": ["reviewedTargets", "baseline", "debt"],
+    "review": "Cite the accepted baseline and reviewed liability. Explain that flat growth is the owner's scenario and that required growth is not a promised return."
+  },
+  {
+    "id": "spv-marks",
+    "question": "For the highlighted SPV, did the provider report a newer value? What is counted in my baseline, and can a public observation establish my SPV mark?",
+    "facts": {
+      "baselineValueCents": 100001,
+      "latestProviderValueCents": 100002,
+      "providerChanged": true,
+      "reviewedValuationCents": null,
+      "publicCompanySignalAvailable": true,
+      "acceptedShareQuoteAvailable": false
+    },
+    "sources": ["spvMark", "providerEvidence", "publicEvidence"],
+    "review": "Identify the source document. Distinguish the snapshot observation time from a valuation effective date and a provider report from an accepted valuation."
+  },
+  {
+    "id": "gp-terms",
+    "question": "Can you reconcile my GP email and agreement and book the terms or update this SPV's mark now? What can you substantiate?",
+    "facts": {
+      "emailConnected": false,
+      "canBookViaV1": false,
+      "reviewedTermsAvailable": false
+    },
+    "sources": ["spvPosition", "spvMark", "operations"],
+    "review": "Describe the recorded instrument and available terms. Name the missing GP correspondence/agreement evidence. Never claim to inspect an inbox, accept a mark or record terms."
+  },
+  {
+    "id": "paper-vs-cash",
+    "question": "After the revised private marks are accepted, how much did tracked net worth change? Did that give me any additional cash for the next year?",
+    "facts": {
+      "wealthIncreaseCents": 120,
+      "projectedCashIncreaseCents": 0
+    },
+    "sources": ["beforeAcceptance", "afterAcceptance"],
+    "review": "Distinguish the accepted paper change across all 120 interests from a cash distribution and from an investment-period return."
+  }
+]
