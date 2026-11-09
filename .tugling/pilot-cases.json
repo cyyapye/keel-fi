@@ -1,6 +1,8 @@
 {
   "schema_version": 1,
   "vitest": [
+    "apps/api/src/agent-api/outlook.test.ts :: owner goal outlook > keeps incomplete wealth, unverified debt and missing horizon models explicit",
+    "apps/api/src/agent-api/outlook.test.ts :: owner goal outlook > separates target-date wealth from today's gap and keeps private mark changes out of runway",
     "apps/api/src/angellist-automation.test.ts :: AngelList Cloudflare automation > accepts only HTTPS AngelList magic links",
     "apps/api/src/angellist-automation.test.ts :: AngelList Cloudflare automation > accepts only bounded JSON handoff input payloads",
     "apps/api/src/angellist-automation.test.ts :: AngelList Cloudflare automation > accepts only secure AngelList browser state",
@@ -1116,6 +1118,7 @@
     "packages/ui/src/lib/text-search.test.ts :: collection text search > highlights original graphemes and merges overlapping matches",
     "packages/ui/src/lib/text-search.test.ts :: collection text search > matches all query words across accents, punctuation and spacing",
     "packages/ui/src/lib/text-search.test.ts :: collection text search > treats punctuation-only input as browsing and special characters as text",
+    "scripts/agent-outlook-d1-cost.test.ts :: serves isolated versioned outlooks and evidence pages under fixed D1 budgets",
     "scripts/agreement-capture.test.ts :: Sydecar central agreement backfill resumes after the 24-download run budget",
     "scripts/agreement-capture.test.ts :: backfill reaches later positions before rechecking expired cached agreements",
     "scripts/agreement-capture.test.ts :: extracts the original bytes after a clean scan",
@@ -1241,6 +1244,7 @@
     "scripts/eslint-keel-ui.test.ts :: preserves documented variants, consumer placement and chart dimensions",
     "scripts/eslint-keel-ui.test.ts :: rejects appearance overrides through renamed and namespace UI imports",
     "scripts/eslint-keel-ui.test.ts :: rejects native interactive controls in application consumers",
+    "scripts/grade-owner-answers.test.ts :: rejects invented wealth, omitted citations, and duplicate or missing answers",
     "scripts/holding-history-d1-cost.test.ts :: keeps latest holding reads bounded with 120 older captures for each of 120 positions",
     "scripts/ingestion-dlq-redrive.test.ts :: ingestion DLQ redrive > leaves the dead-letter message intact when publishing fails",
     "scripts/ingestion-dlq-redrive.test.ts :: ingestion DLQ redrive > lists only sanitized metadata",
@@ -1337,6 +1341,8 @@
     "scripts/mac-agent-instance.test.ts :: Mac agent environment identity > matches a legacy plist only to its exact Keel origin",
     "scripts/mac-agent-instance.test.ts :: Mac agent environment identity > treats changing loopback ports as the same local agent slot",
     "scripts/manual-holdings-d1-cost.test.ts :: bounds manual options and current identities with 120 items, tied history and unrelated households",
+    "scripts/owner-api-docs.test.ts :: publishes the same v1 contract for people, agents, and the running API",
+    "scripts/owner-api-eval.test.ts :: answers the owner question bank from synthetic household HTTP responses",
     "scripts/participation-d1-cost.test.ts :: keeps 120 participation projections and closure saves bounded across tied history and unrelated households",
     "scripts/pdf-sandbox-setup.test.ts :: honors an explicit PDF configuration override and reports the recovery command",
     "scripts/pdf-sandbox-setup.test.ts :: leaves a fresh worktree unbound when PDF configuration or runtime readiness fails",
