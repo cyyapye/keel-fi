@@ -79,6 +79,42 @@ describe("preview deployment configuration", () => {
       false,
     );
 
+    const grant = environment("/tmp/unused");
+    grant.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT = "a".repeat(32) + ".access";
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(
+      false,
+    );
+    grant.KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID = "hh_demo";
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(
+      true,
+    );
+    const writer = {
+      ...grant,
+      KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT: "b".repeat(32) + ".access",
+    };
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(writer).success).toBe(
+      false,
+    );
+    const complete = {
+      ...writer,
+      KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID: "hh_demo",
+    };
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(complete).success).toBe(
+      true,
+    );
+    expect(
+      PreviewDeploymentEnvironmentSchema.safeParse({
+        ...complete,
+        KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT:
+          grant.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT,
+      }).success,
+    ).toBe(false);
+    grant.KEEL_PREVIEW_ACCESS_CLIENT_ID =
+      grant.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT;
+    expect(PreviewDeploymentEnvironmentSchema.safeParse(grant).success).toBe(
+      false,
+    );
+
     const partialConnector = environment("/tmp/unused");
     delete partialConnector.KEEL_PREVIEW_PLAID_SECRET;
     expect(

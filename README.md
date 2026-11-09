@@ -90,6 +90,10 @@ The [product delivery roadmap](docs/product/roadmap.md) records shipped evidence
 and the ordered, checkable milestones for the private alpha. Its first unchecked
 milestone is the active product slice.
 
+Use the [owner API quickstart](docs/api/README.md) to ask about goals, liquidity
+and SPV marks. The guide includes the generated API reference, OpenAPI contract
+and repeatable owner question evals.
+
 ## Workspace
 
 ```text

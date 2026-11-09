@@ -362,6 +362,7 @@ function orderGoalsPrimaryFirst(goals: Goal[]) {
 
 function goalProgressPpm(version: ReturnType<typeof latestGoalVersion>) {
   const target = version.targetValueInteger;
+  if (version.currentValueInteger === null) return null;
   if (target === null) return 0;
   if (target === 0) return 1_000_000;
   return Math.min(
@@ -370,7 +371,8 @@ function goalProgressPpm(version: ReturnType<typeof latestGoalVersion>) {
   );
 }
 
-function formatGoalValue(value: number, unit: GoalUnit): string {
+function formatGoalValue(value: number | null, unit: GoalUnit): string {
+  if (value === null) return "Not available";
   if (unit === "minor_units") {
     return formatCompactMoney(value);
   }
@@ -663,18 +665,29 @@ function Dashboard({
   const selectedVersion = latestGoalVersion(selectedGoal);
   const selectedForecast = selectedVersion.forecast;
   const target = selectedVersion.targetValueInteger;
+  const liquidityDate =
+    selectedVersion.metricKey === "liquidity_through_date"
+      ? selectedVersion.targetDate
+      : null;
   const progressPpm = goalProgressPpm(selectedVersion);
   const ringStyle = {
-    "--probability": `${Math.floor(progressPpm / 10_000)}%`,
+    "--probability": `${Math.floor((progressPpm ?? 0) / 10_000)}%`,
   } as CSSProperties;
   const targetMet =
-    target !== null && selectedVersion.currentValueInteger >= target;
+    target !== null &&
+    selectedVersion.currentValueInteger !== null &&
+    selectedVersion.currentValueInteger >= target;
   const targetDifference =
-    target === null ? null : selectedVersion.currentValueInteger - target;
+    target === null || selectedVersion.currentValueInteger === null
+      ? null
+      : selectedVersion.currentValueInteger - target;
   const targetPosition =
     targetDifference === null
       ? {
-          detail: "Add a target to measure progress",
+          detail:
+            selectedVersion.currentValueInteger === null
+              ? "See the owner outlook for this measure"
+              : "Add a target to measure progress",
           label: "Goal gap",
           value: "Not available",
         }
@@ -726,7 +739,9 @@ function Dashboard({
           <div className="goal-signal__body">
             <div className="probability-ring" style={ringStyle}>
               <div>
-                <strong>{formatProbability(progressPpm)}</strong>
+                <strong>
+                  {progressPpm === null ? "—" : formatProbability(progressPpm)}
+                </strong>
                 <span>current progress</span>
               </div>
             </div>
@@ -737,17 +752,21 @@ function Dashboard({
               >
                 <Stat
                   detail={
-                    target === null
-                      ? "Add a target when it becomes useful"
-                      : selectedVersion.targetDate === null
-                        ? "No target date"
-                        : `By ${formatDate(selectedVersion.targetDate)}`
+                    liquidityDate
+                      ? "Maintain the saved cash reserve"
+                      : target === null
+                        ? "Add a target when it becomes useful"
+                        : selectedVersion.targetDate === null
+                          ? "No target date"
+                          : `By ${formatDate(selectedVersion.targetDate)}`
                   }
                   label="Goal target"
                   value={
-                    target === null
-                      ? "Not set"
-                      : formatGoalValue(target, selectedVersion.targetUnit)
+                    liquidityDate
+                      ? formatDate(liquidityDate)
+                      : target === null
+                        ? "Not set"
+                        : formatGoalValue(target, selectedVersion.targetUnit)
                   }
                 />
                 <Stat
@@ -757,11 +776,13 @@ function Dashboard({
                 />
               </StatGroup>
               <p className="panel-note">
-                {target === null
-                  ? "Add a target to measure progress."
-                  : selectedForecast.successProbabilityPpm !== null
-                    ? `Current progress uses the saved baseline. Saved plan v${selectedVersion.version} estimates ${formatProbability(selectedForecast.successProbabilityPpm)} success.`
-                    : "Current progress is saved. Add scenario inputs before treating this goal as a forecast."}
+                {selectedVersion.currentValueInteger === null
+                  ? "The owner outlook evaluates this target using accepted records."
+                  : target === null
+                    ? "Add a target to measure progress."
+                    : selectedForecast.successProbabilityPpm !== null
+                      ? `Current progress uses the saved baseline. Saved plan v${selectedVersion.version} estimates ${formatProbability(selectedForecast.successProbabilityPpm)} success.`
+                      : "Current progress is saved. Add scenario inputs before treating this goal as a forecast."}
               </p>
             </div>
           </div>
@@ -862,16 +883,20 @@ function Dashboard({
             <span className="decision-index">01</span>
             <div>
               <h3>
-                {target === null
-                  ? "This goal needs a target"
-                  : targetMet
-                    ? "The current target is met"
-                    : "The goal is still in progress"}
+                {progressPpm === null
+                  ? "Progress is calculated in the owner outlook"
+                  : target === null
+                    ? "This goal needs a target"
+                    : targetMet
+                      ? "The current target is met"
+                      : "The goal is still in progress"}
               </h3>
               <p>
-                {target === null
-                  ? "Add an amount or threshold when one would make the goal easier to evaluate."
-                  : `${formatProbability(progressPpm)} of the current target is covered by the saved baseline.`}
+                {progressPpm === null
+                  ? "The target is saved."
+                  : target === null
+                    ? "Add an amount or threshold when one would make the goal easier to evaluate."
+                    : `${formatProbability(progressPpm)} of the current target is covered by the saved baseline.`}
               </p>
             </div>
             <Badge tone={targetMet ? "positive" : "warning"}>
@@ -993,7 +1018,7 @@ function goalFormFromGoal(goal: Goal): GoalFormState {
     currentValue:
       version.targetUnit === "minor_units"
         ? moneyInputValue(version.currentValueInteger)
-        : String(version.currentValueInteger),
+        : (version.currentValueInteger?.toString() ?? ""),
     makePrimary: goal.isPrimary,
     changeNote: "Updated goal inputs",
   };
@@ -1041,7 +1066,10 @@ function GoalHeroContent({
           {version.metricLabel}:{" "}
           {formatGoalValue(version.currentValueInteger, version.targetUnit)}
           {target === null
-            ? ". Add a target when it becomes useful."
+            ? version.metricKey === "liquidity_through_date" &&
+              version.targetDate
+              ? ` through ${formatDate(version.targetDate)}.`
+              : ". Add a target when it becomes useful."
             : ` of ${formatGoalValue(target, version.targetUnit)}${
                 version.targetDate === null
                   ? "."
@@ -1060,7 +1088,8 @@ function GoalHeroContent({
       <div className="hero__runway">
         <span>Current measure</span>
         <strong>
-          {version.targetUnit === "months" ? (
+          {version.targetUnit === "months" &&
+          version.currentValueInteger !== null ? (
             <>
               {new Intl.NumberFormat("en-US").format(
                 version.currentValueInteger,
@@ -1075,9 +1104,11 @@ function GoalHeroContent({
           )}
         </strong>
         <small>
-          {target === null
-            ? "No target set"
-            : `${formatProbability(progressPpm)} of target`}
+          {progressPpm === null
+            ? "See owner outlook"
+            : target === null
+              ? "No target set"
+              : `${formatProbability(progressPpm)} of target`}
         </small>
       </div>
     </>

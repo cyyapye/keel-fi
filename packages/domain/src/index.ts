@@ -183,6 +183,8 @@ export const GoalForecastSchema = z.object({
   createdBy: z.string().min(1),
 });
 
+export const OUTLOOK_GOAL_SOURCE = "Calculated by owner outlook";
+
 export const GoalVersionSchema = z.object({
   id: z.string().min(1),
   version: z.number().int().positive(),
@@ -192,7 +194,7 @@ export const GoalVersionSchema = z.object({
   targetValueInteger: z.number().int().safe().nonnegative().nullable(),
   targetUnit: GoalValueUnitSchema,
   targetDate: IsoDateSchema.nullable(),
-  currentValueInteger: z.number().int().safe().nonnegative(),
+  currentValueInteger: z.number().int().safe().nonnegative().nullable(),
   currentValueSource: z.string().min(1),
   changeNote: z.string().min(1),
   createdAt: IsoTimestampSchema,

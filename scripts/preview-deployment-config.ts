@@ -103,6 +103,18 @@ export const PreviewDeploymentEnvironmentSchema = z
     KEEL_PREVIEW_ACCESS_CLIENT_SECRET: z.string().min(32).max(1024),
     KEEL_PREVIEW_ACCESS_TEAM_DOMAIN: HostnameSchema,
     KEEL_PREVIEW_API_WORKER: CloudflareResourceNameSchema,
+    KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT: OptionalEnvironmentValue(
+      z.string().regex(/^[a-f0-9]{32}\.access$/i),
+    ),
+    KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID: OptionalEnvironmentValue(
+      z.string().trim().min(1).max(256),
+    ),
+    KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT: OptionalEnvironmentValue(
+      z.string().regex(/^[a-f0-9]{32}\.access$/i),
+    ),
+    KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID: OptionalEnvironmentValue(
+      z.string().trim().min(1).max(256),
+    ),
     KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN: OptionalEnvironmentValue(
       z.enum(["free", "paid"]),
     ),
@@ -119,7 +131,35 @@ export const PreviewDeploymentEnvironmentSchema = z
     ...OptionalPlaidEnvironmentShape,
     ...OptionalWatchEnvironmentShape,
   })
-  .superRefine(validateCompletePlaidEnvironment);
+  .superRefine(validateCompletePlaidEnvironment)
+  .superRefine((value, ctx) => {
+    const writeId = value.KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT;
+    if (
+      (writeId === undefined) !==
+        (value.KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID === undefined) ||
+      (writeId !== undefined &&
+        [
+          value.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT,
+          value.KEEL_PREVIEW_ACCESS_CLIENT_ID,
+        ].includes(writeId))
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Goal writes require a distinct service identity and a household.",
+      });
+    if (
+      (value.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT === undefined) !==
+        (value.KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID === undefined) ||
+      value.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT ===
+        value.KEEL_PREVIEW_ACCESS_CLIENT_ID
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "A read grant requires a dedicated service identity and household together.",
+      });
+  });
 
 const PreviewApiSecretsEnvironmentSchema = z
   .object({
@@ -190,6 +230,22 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
     vars: {
       ENVIRONMENT: "preview",
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
+      ...(configuration.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT
+        ? {
+            AGENT_READ_SERVICE_SUBJECT:
+              configuration.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT,
+            AGENT_READ_HOUSEHOLD_ID:
+              configuration.KEEL_PREVIEW_AGENT_READ_HOUSEHOLD_ID,
+          }
+        : {}),
+      ...(configuration.KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT
+        ? {
+            AGENT_GOAL_WRITE_SERVICE_SUBJECT:
+              configuration.KEEL_PREVIEW_AGENT_GOAL_WRITE_SERVICE_SUBJECT,
+            AGENT_GOAL_WRITE_HOUSEHOLD_ID:
+              configuration.KEEL_PREVIEW_AGENT_GOAL_WRITE_HOUSEHOLD_ID,
+          }
+        : {}),
       INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
       PLAID_CASH_USAGE_PLAN:
         configuration.KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN ?? "paid",

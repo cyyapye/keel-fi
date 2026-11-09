@@ -1219,7 +1219,80 @@ or external notification was added; approved incremental external spend remains
 - [x] `make verify`, reviewed PR checks, exact-head merge, and exact-SHA
       post-merge deployment evidence pass.
 
-### [ ] M11 — Actual distributions and forecast reconciliation — **Active**
+### [ ] Owner API v1 — goals, portfolio records and outlook — **Active**
+
+Priority change, 2026-11-08: the owner needs an on-demand answer about dated
+wealth targets and usable liquidity. Roll out the read-only outlook first. The
+MVP also needs a resource API: the owner must be able to set the targets and
+inspect the records used to answer those questions without opening the UI. M11
+remains next for actual cash events.
+
+**User outcome:** Compare recorded wealth with near- and long-term dated
+targets, quantify the gap and the change needed to close it, test whether
+liquidity lasts through a date, and inspect the private marks behind the answer.
+Name the scope, evidence dates, assumptions and unavailable inputs.
+
+**Trust boundary:** Read accepted household records from D1. The outlook grant
+identifies one household and permits only documented reads and unsaved
+calculations. Saving an owner-directed goal requires a separate write grant.
+Private paper, public valuation signals and received cash are distinct. A
+scenario never becomes an accepted plan.
+
+Review the [owner API design](../api/owner-api-design.md) for the proposed
+resources, paths, verbs and permissions. The
+[v1 API guide](../api/owner-outlook-v1.md) covers the local read-only slice and
+its protected-preview rollout. The [owner question evals](../api/owner-evals.md)
+cover portfolio answers and track future questions that need new evidence
+sources.
+
+**Resource contract implemented locally:**
+
+- Goals: create, list, get by stable ID, revise and archive. A revision keeps
+  the prior version; archiving removes a goal from active outlooks while its ID
+  and history remain readable. Start with dated net-worth and liquidity targets.
+  Reuse the existing goal model and its primary-goal rules.
+- Accounts, positions (including SPV interests), and liabilities: list and get
+  by stable ID. Link from the outlook to the contributing records and their
+  dated evidence. Keep an SPV interest distinct from its underlying company.
+- Goal writes: bind the actor and grant to one household. Create accepts an
+  idempotency key; revision and archive require an expected version. Return the
+  committed ID and version. Replaying the same operation returns the same
+  receipt; a stale edit cannot overwrite another client's change.
+- Follow-on writes: expose owner-entered positions and liabilities through the
+  existing submission and correction workflows. Imported balances, SPV terms and
+  GP marks go through evidence, proposal and a recorded decision. Correct an
+  accepted record by superseding it. Closing an account or disposing of a
+  position needs its own evidence; archive is not a sale.
+
+**Dependencies and cost:** Reuse versioned goals, accepted portfolio baselines,
+reviewed debt, plans, position snapshots and valuation evidence. Bound payloads
+and D1 work. On-demand reads add no scheduler, model call or provider fetch.
+
+**Exit gates:**
+
+- [ ] Ship a versioned HTTP contract with discovery, evidence references, a
+      working synthetic client and independently revocable read access.
+- [x] Demonstrate 12-month and 10-year target comparisons, a dated reserve test
+      and quantified options. Never substitute the five-year FI forecast for a
+      net-worth forecast, or a partial portfolio for household wealth.
+- [x] Prove review and source scope, unknowns, household isolation, historical
+      growth, zero financial writes on reads/previews and fixed read budgets in
+      synthetic D1.
+- [x] From one external client, create 12-month and 10-year goals, read them in
+      the outlook, change one target, archive it and retrieve its history. Prove
+      duplicate retries, stale edits and foreign-household writes are safe.
+      Follow a contributing asset or debt to its source via a resource read.
+- [ ] Pass exact-revision verification, deploy to protected preview, exercise
+      the read client and the separately authorized goal-write workflow there,
+      and obtain owner acceptance.
+
+**Later:** Ingest authorized GP messages and agreements, reconcile complex SPV
+terms and public signals into evidence-backed proposals, and apply recorded
+policies to routine updates. Test a new GP mark changing supported wealth
+without adding spendable cash. Add CLI/MCP clients to the proven contract.
+Trading, transfers and autonomous planning decisions are outside v1.
+
+### [ ] M11 — Actual distributions and forecast reconciliation
 
 **User outcome:** When a private holding produces cash, Keel records what became
 usable, reconciles it with the prior forecast, and shows the resulting FI and

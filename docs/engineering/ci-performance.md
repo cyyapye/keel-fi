@@ -1201,3 +1201,21 @@ Vitest and Playwright vectors. Pass `--suite python`, `--suite vitest` or
 `--suite playwright` to rank a completed suite when another was interrupted. An
 unavailable historical merge object must be recovered from an existing checkout
 of that revision before the log can be decoded.
+
+## Owner API release fixture work
+
+PR #354 run `42556673393`, attempt 2, passed all 1,682 reviewed Vitest cases but
+reached the complete gate's 900-second deadline during the browser lanes. The
+earlier-start scheduling trial used the public-source review fixture's measured
+265-second duration. In run `42559752387`, its 24-history case exceeded the
+existing 120-second deadline under CPU pressure. The trial was reverted.
+
+The public-source read cases require only the populated `0092` schema. Their
+fixture builder previously also collected, hashed and serialized five unused
+older-schema snapshots. The builder now accepts a selected frontier, retains the
+same history cache and produces that single snapshot through the existing
+fixture construction path. Migration certification still requests every old
+frontier. The direct and previous forms produced identical complete fixtures at
+12 and 24 captures. All 13 affected local D1 cases passed. The full native gate
+remains the release proof. SQL workloads, data scale, actual billing assertions,
+worker counts and all deadlines stay the same.

@@ -1,0 +1,2966 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Keel owner outlook API",
+    "version": "1.0.0",
+    "description": "Uses the last recorded balances as starting values on evaluatedOn. USD integer cents. Constant net wealth change uses actual days / 365. Net change includes all gains, losses, income and spending. Liquidity uses constant household and business burn, reviewed debt payment treatments, no future inflows or private exits. An immediate outflow is a liquidity stress only. A missing measure is null."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "security": [{ "accessClientId": [], "accessClientSecret": [] }],
+  "components": {
+    "securitySchemes": {
+      "accessClientId": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "CF-Access-Client-Id"
+      },
+      "accessClientSecret": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "CF-Access-Client-Secret"
+      }
+    },
+    "schemas": {
+      "Outlook": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": { "type": "string", "const": "1" },
+          "currency": { "type": "string", "const": "USD" },
+          "evaluatedOn": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                  "recordedAt": { "type": "string" },
+                  "sourceObservedAt": { "type": "string" },
+                  "sourceRevision": { "type": "string" },
+                  "liquidMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "privatePaperMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "unknownPositions": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "unknownCashAccounts": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "potentialDuplicates": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "positionCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "recordedAt",
+                  "sourceObservedAt",
+                  "sourceRevision",
+                  "liquidMinor",
+                  "privatePaperMinor",
+                  "unknownPositions",
+                  "unknownCashAccounts",
+                  "potentialDuplicates",
+                  "positionCount"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "cashPlan": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                  "effectiveAt": { "type": "string" },
+                  "liquidMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "floorMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "householdBurnMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "businessBurnMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "effectiveAt",
+                  "liquidMinor",
+                  "floorMinor",
+                  "householdBurnMinor",
+                  "businessBurnMinor"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "wealth": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string",
+                "const": "accepted_portfolio_baseline_less_reviewed_debt"
+              },
+              "trackedNetWorthMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "reviewedDebtMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "no_accepted_baseline",
+                    "ambiguous_baseline_date",
+                    "incomplete_asset_values",
+                    "overlapping_positions",
+                    "no_reviewed_debt",
+                    "unknown_debt_balance",
+                    "debt_history_limit"
+                  ]
+                }
+              },
+              "debtEvidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "decisionId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "liabilityId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "evidenceId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "effectiveDate": {
+                      "type": "string",
+                      "format": "date",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                    }
+                  },
+                  "required": [
+                    "decisionId",
+                    "liabilityId",
+                    "evidenceId",
+                    "effectiveDate"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "assumedNoDebt": { "type": "boolean" }
+            },
+            "required": [
+              "scope",
+              "trackedNetWorthMinor",
+              "reviewedDebtMinor",
+              "reasons",
+              "debtEvidence",
+              "assumedNoDebt"
+            ],
+            "additionalProperties": false
+          },
+          "goals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "goalId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "name": { "type": "string" },
+                "metric": { "type": "string" },
+                "unit": {
+                  "type": "string",
+                  "enum": ["minor_units", "months", "ppm", "count"]
+                },
+                "target": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "targetDate": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "current": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "currentSource": { "type": "string" },
+                "recordedAt": { "type": "string" },
+                "forecastId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 256 },
+                    { "type": "null" }
+                  ]
+                },
+                "forecastDate": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "forecastMiddle": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "isPrimary": { "type": "boolean" },
+                "currentShortfall": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "projectedShortfallAtTarget": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "goalId",
+                "versionId",
+                "name",
+                "metric",
+                "unit",
+                "target",
+                "targetDate",
+                "current",
+                "currentSource",
+                "recordedAt",
+                "forecastId",
+                "forecastDate",
+                "forecastMiddle",
+                "isPrimary",
+                "currentShortfall",
+                "projectedShortfallAtTarget"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfterGoal": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }]
+          },
+          "netWorthTargets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "goalId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 256 },
+                    { "type": "null" }
+                  ]
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                "targetMinor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "currentShortfallMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "projectedNetWorthMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "projectedShortfallMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "requiredAnnualNetIncreaseMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "annualChangeAssumptionMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "goalId",
+                "date",
+                "targetMinor",
+                "currentShortfallMinor",
+                "projectedNetWorthMinor",
+                "projectedShortfallMinor",
+                "requiredAnnualNetIncreaseMinor",
+                "annualChangeAssumptionMinor"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "liquidity": {
+            "type": "object",
+            "properties": {
+              "basis": { "type": "string", "const": "saved_fi_liquid_plan" },
+              "through": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              "days": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "startingLiquidMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "reserveMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "monthlyBurnMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "reservedDebtPaymentMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "immediateCashOutflowMinor": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "projectedEndMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "reserveShortfallMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "lastsThroughDate": {
+                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+              },
+              "maximumMonthlyBurnMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "monthlyBurnReductionNeededMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "obligationCoverage": {
+                "type": "string",
+                "enum": [
+                  "reviewed_payments",
+                  "no_reviewed_debt",
+                  "debt_history_limit"
+                ]
+              },
+              "firstBelowReserveDate": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  { "type": "null" }
+                ]
+              }
+            },
+            "required": [
+              "basis",
+              "through",
+              "days",
+              "startingLiquidMinor",
+              "reserveMinor",
+              "monthlyBurnMinor",
+              "reservedDebtPaymentMinor",
+              "immediateCashOutflowMinor",
+              "projectedEndMinor",
+              "reserveShortfallMinor",
+              "lastsThroughDate",
+              "maximumMonthlyBurnMinor",
+              "monthlyBurnReductionNeededMinor",
+              "obligationCoverage",
+              "firstBelowReserveDate"
+            ],
+            "additionalProperties": false
+          },
+          "liquidityTargets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "goalId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "through": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                "lastsThroughDate": {
+                  "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+                },
+                "reserveShortfallMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "goalId",
+                "through",
+                "lastsThroughDate",
+                "reserveShortfallMinor"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "emailCoverage": {
+            "type": "string",
+            "const": "not_connected_by_this_api"
+          }
+        },
+        "required": [
+          "version",
+          "currency",
+          "evaluatedOn",
+          "baseline",
+          "cashPlan",
+          "wealth",
+          "goals",
+          "nextAfterGoal",
+          "netWorthTargets",
+          "liquidity",
+          "liquidityTargets",
+          "emailCoverage"
+        ],
+        "additionalProperties": false
+      },
+      "Preview": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "through": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "targets": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                "amountMinor": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10000000000000
+                }
+              },
+              "required": ["date", "amountMinor"],
+              "additionalProperties": false
+            }
+          },
+          "annualNetWorthChangeMinor": {
+            "type": "integer",
+            "minimum": -10000000000000,
+            "maximum": 10000000000000
+          },
+          "immediateCashOutflowMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000000000000
+          },
+          "assumeNoDebt": { "type": "boolean" }
+        },
+        "required": ["through"],
+        "additionalProperties": false
+      },
+      "Marks": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": { "type": "string", "const": "1" },
+          "baselineId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "sourceRevision": { "type": "string" },
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "positionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "name": { "type": "string" },
+                "classification": {
+                  "type": "string",
+                  "enum": ["private_paper", "public_market"]
+                },
+                "provider": { "type": "string" },
+                "baselineValueMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "baselineSnapshotId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "baselineObservedAt": { "type": "string" },
+                "latestSnapshotId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 256 },
+                    { "type": "null" }
+                  ]
+                },
+                "latestSourceDocumentId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 256 },
+                    { "type": "null" }
+                  ]
+                },
+                "latestObservedAt": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "latestReportedUnrealizedMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "latestProviderStatus": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "sourceChangedSinceBaseline": { "type": "boolean" },
+                "acceptedQuoteId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 256 },
+                    { "type": "null" }
+                  ]
+                },
+                "acceptedPriceMicros": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "priceDate": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "shareClass": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "reviewedValuation": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "receiptId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "source": { "type": "string" },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["gp", "proxy", "judgment"]
+                        },
+                        "amountMinor": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "effectiveDate": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "carry": {
+                          "type": "string",
+                          "enum": ["before_carry", "after_carry", "unknown"]
+                        },
+                        "evidenceId": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        }
+                      },
+                      "required": [
+                        "receiptId",
+                        "source",
+                        "origin",
+                        "amountMinor",
+                        "effectiveDate",
+                        "carry",
+                        "evidenceId"
+                      ],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "latestPublicSignal": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "observationId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "title": { "type": "string" },
+                        "publishedAt": { "type": "string" },
+                        "sourceUrl": { "type": "string", "format": "uri" }
+                      },
+                      "required": [
+                        "observationId",
+                        "title",
+                        "publishedAt",
+                        "sourceUrl"
+                      ],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "publicSignalScope": {
+                  "type": "string",
+                  "enum": [
+                    "single_mapped_company",
+                    "unmapped_or_multiple_companies"
+                  ]
+                }
+              },
+              "required": [
+                "positionId",
+                "name",
+                "classification",
+                "provider",
+                "baselineValueMinor",
+                "baselineSnapshotId",
+                "baselineObservedAt",
+                "latestSnapshotId",
+                "latestSourceDocumentId",
+                "latestObservedAt",
+                "latestReportedUnrealizedMinor",
+                "latestProviderStatus",
+                "sourceChangedSinceBaseline",
+                "acceptedQuoteId",
+                "acceptedPriceMicros",
+                "priceDate",
+                "shareClass",
+                "reviewedValuation",
+                "latestPublicSignal",
+                "publicSignalScope"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 256 },
+              { "type": "null" }
+            ]
+          },
+          "emailCoverage": {
+            "type": "string",
+            "const": "not_connected_by_this_api"
+          }
+        },
+        "required": [
+          "version",
+          "baselineId",
+          "sourceRevision",
+          "positions",
+          "nextAfter",
+          "emailCoverage"
+        ],
+        "additionalProperties": false
+      },
+      "Goal": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "versionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "name": { "type": "string" },
+          "metric": { "type": "string" },
+          "unit": {
+            "type": "string",
+            "enum": ["minor_units", "months", "count", "ppm"]
+          },
+          "targetValue": {
+            "anyOf": [
+              { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              { "type": "null" }
+            ]
+          },
+          "targetDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "status": { "type": "string", "enum": ["active", "archived"] },
+          "primary": { "type": "integer", "minimum": 0, "maximum": 1 },
+          "recordedAt": { "type": "string" },
+          "actor": { "type": "string" }
+        },
+        "required": [
+          "id",
+          "versionId",
+          "revision",
+          "name",
+          "metric",
+          "unit",
+          "targetValue",
+          "targetDate",
+          "status",
+          "primary",
+          "recordedAt",
+          "actor"
+        ],
+        "additionalProperties": false
+      },
+      "GoalPage": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "revision": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": { "type": "string" },
+                "metric": { "type": "string" },
+                "unit": {
+                  "type": "string",
+                  "enum": ["minor_units", "months", "count", "ppm"]
+                },
+                "targetValue": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "targetDate": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "status": { "type": "string", "enum": ["active", "archived"] },
+                "primary": { "type": "integer", "minimum": 0, "maximum": 1 },
+                "recordedAt": { "type": "string" },
+                "actor": { "type": "string" }
+              },
+              "required": [
+                "id",
+                "versionId",
+                "revision",
+                "name",
+                "metric",
+                "unit",
+                "targetValue",
+                "targetDate",
+                "status",
+                "primary",
+                "recordedAt",
+                "actor"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "GoalVersions": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "revision": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": { "type": "string" },
+                "metric": { "type": "string" },
+                "unit": {
+                  "type": "string",
+                  "enum": ["minor_units", "months", "count", "ppm"]
+                },
+                "targetValue": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "targetDate": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "status": { "type": "string", "enum": ["active", "archived"] },
+                "recordedAt": { "type": "string" },
+                "actor": { "type": "string" },
+                "changeNote": { "type": "string" }
+              },
+              "required": [
+                "id",
+                "versionId",
+                "revision",
+                "name",
+                "metric",
+                "unit",
+                "targetValue",
+                "targetDate",
+                "status",
+                "recordedAt",
+                "actor",
+                "changeNote"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "GoalReceipt": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "goalId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "versionId": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "actor": { "type": "string" }
+        },
+        "required": ["goalId", "versionId", "revision", "actor"],
+        "additionalProperties": false
+      },
+      "NewGoal": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "metric": { "type": "string", "const": "net_worth" },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "amountMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000000000000
+                  },
+                  "currency": { "type": "string", "const": "USD" }
+                },
+                "required": ["amountMinor", "currency"],
+                "additionalProperties": false
+              },
+              "targetDate": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              }
+            },
+            "required": ["name", "metric", "target", "targetDate"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "metric": { "type": "string", "const": "liquidity_through_date" },
+              "targetDate": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              }
+            },
+            "required": ["name", "metric", "targetDate"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "GoalPatch": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "status": { "type": "string", "const": "archived" }
+            },
+            "required": ["status"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "amountMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000000000000
+                  },
+                  "currency": { "type": "string", "const": "USD" }
+                },
+                "required": ["amountMinor", "currency"],
+                "additionalProperties": false
+              },
+              "targetDate": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "PositionPage": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "provider": { "type": "string" },
+                "name": { "type": "string" },
+                "kind": { "type": "string" },
+                "instrument": { "type": "string" },
+                "owner": { "type": "string" },
+                "currency": { "type": "string" },
+                "accountId": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "ownership": {
+                  "type": "string",
+                  "enum": ["closed", "recorded"]
+                },
+                "latestSnapshotId": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "reportedValueMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "observedAt": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "evidenceId": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                }
+              },
+              "required": [
+                "id",
+                "provider",
+                "name",
+                "kind",
+                "instrument",
+                "owner",
+                "currency",
+                "accountId",
+                "ownership",
+                "latestSnapshotId",
+                "reportedValueMinor",
+                "observedAt",
+                "evidenceId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "Position": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "provider": { "type": "string" },
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "instrument": { "type": "string" },
+          "owner": { "type": "string" },
+          "currency": { "type": "string" },
+          "accountId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "ownership": { "type": "string", "enum": ["closed", "recorded"] },
+          "latestSnapshotId": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }]
+          },
+          "reportedValueMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "observedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "evidenceId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "terms": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "importedAmountBasis": {
+                    "type": "string",
+                    "enum": ["gross_cash", "net_capital", "unknown"]
+                  },
+                  "annualManagementFeePpm": {
+                    "anyOf": [
+                      { "type": "integer", "minimum": 0, "maximum": 1000000 },
+                      { "type": "null" }
+                    ]
+                  },
+                  "annualManagementBasis": {
+                    "type": "string",
+                    "enum": ["gross_cash", "net_capital", "unknown"]
+                  },
+                  "carryPpm": {
+                    "anyOf": [
+                      { "type": "integer", "minimum": 0, "maximum": 1000000 },
+                      { "type": "null" }
+                    ]
+                  },
+                  "carryBasis": {
+                    "type": "string",
+                    "enum": ["gross_cash", "net_capital", "unknown"]
+                  },
+                  "reportedValueReview": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "sourceSnapshotId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "valueMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "sourceLabel": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          },
+                          "effectiveDate": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                              },
+                              { "type": "null" }
+                            ]
+                          },
+                          "carryStatus": {
+                            "type": "string",
+                            "enum": ["before_carry", "after_carry", "unknown"]
+                          }
+                        },
+                        "required": [
+                          "sourceSnapshotId",
+                          "valueMinor",
+                          "sourceLabel",
+                          "effectiveDate",
+                          "carryStatus"
+                        ],
+                        "additionalProperties": false
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "note": { "type": "string", "maxLength": 1000 }
+                },
+                "required": [
+                  "importedAmountBasis",
+                  "annualManagementFeePpm",
+                  "annualManagementBasis",
+                  "carryPpm",
+                  "carryBasis",
+                  "reportedValueReview",
+                  "note"
+                ],
+                "additionalProperties": false
+              },
+              { "type": "null" }
+            ]
+          },
+          "exposures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "kind": { "type": "string" },
+                "companyId": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                }
+              },
+              "required": ["id", "name", "kind", "companyId"],
+              "additionalProperties": false
+            }
+          },
+          "nextAfterExposure": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }]
+          },
+          "reviewedValueMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "reviewedValueDate": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }]
+          },
+          "reviewId": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": [
+          "id",
+          "provider",
+          "name",
+          "kind",
+          "instrument",
+          "owner",
+          "currency",
+          "accountId",
+          "ownership",
+          "latestSnapshotId",
+          "reportedValueMinor",
+          "observedAt",
+          "evidenceId",
+          "terms",
+          "exposures",
+          "nextAfterExposure",
+          "reviewedValueMinor",
+          "reviewedValueDate",
+          "reviewId"
+        ],
+        "additionalProperties": false
+      },
+      "AccountPage": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "name": { "type": "string" },
+                "kind": { "type": "string" },
+                "balanceMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "currency": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "observedAt": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "evidenceId": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "basis": {
+                  "type": "string",
+                  "enum": [
+                    "asset_directory",
+                    "ownership_container",
+                    "accepted_cash_baseline"
+                  ]
+                },
+                "baselineId": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind",
+                "balanceMinor",
+                "currency",
+                "observedAt",
+                "evidenceId",
+                "basis",
+                "baselineId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "Account": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "balanceMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "currency": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "observedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "evidenceId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "asset_directory",
+              "ownership_container",
+              "accepted_cash_baseline"
+            ]
+          },
+          "baselineId": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "balanceMinor",
+          "currency",
+          "observedAt",
+          "evidenceId",
+          "basis",
+          "baselineId"
+        ],
+        "additionalProperties": false
+      },
+      "Liability": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "balanceMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "paymentMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "treatment": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "effectiveDate": { "type": "string" },
+          "evidenceId": { "type": "string" }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "balanceMinor",
+          "paymentMinor",
+          "treatment",
+          "effectiveDate",
+          "evidenceId"
+        ],
+        "additionalProperties": false
+      },
+      "LiabilityPage": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "kind": { "type": "string" },
+                "balanceMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "paymentMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "treatment": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }]
+                },
+                "effectiveDate": { "type": "string" },
+                "evidenceId": { "type": "string" }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind",
+                "balanceMinor",
+                "paymentMinor",
+                "treatment",
+                "effectiveDate",
+                "evidenceId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "Baseline": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "sourceRevision": { "type": "string" },
+          "sourceObservedAt": { "type": "string" },
+          "recordedAt": { "type": "string" },
+          "publicMarketMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "privatePaperMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "acceptedCashMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "otherLiquidMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "liquidMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "unknownValues": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "unknownCashAccounts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "marks": { "type": "string" },
+          "cashAccounts": { "type": "string" }
+        },
+        "required": [
+          "id",
+          "sourceRevision",
+          "sourceObservedAt",
+          "recordedAt",
+          "publicMarketMinor",
+          "privatePaperMinor",
+          "acceptedCashMinor",
+          "otherLiquidMinor",
+          "liquidMinor",
+          "unknownValues",
+          "unknownCashAccounts",
+          "marks",
+          "cashAccounts"
+        ],
+        "additionalProperties": false
+      },
+      "Evidence": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "sourceType": { "type": "string" },
+          "label": { "type": "string" },
+          "reference": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "effectiveAt": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }]
+          },
+          "capturedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": [
+          "id",
+          "sourceType",
+          "label",
+          "reference",
+          "effectiveAt",
+          "capturedAt"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "idempotency_conflict",
+              "stale_revision",
+              "archived",
+              "primary_goal",
+              "unsupported_goal",
+              "precondition_required",
+              "unauthenticated",
+              "forbidden",
+              "not_found",
+              "data_unavailable"
+            ]
+          },
+          "error": { "type": "string" },
+          "reason": { "type": "string", "const": "debt_history_limit" }
+        },
+        "required": ["code", "error"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "paths": {
+    "/goals": {
+      "get": {
+        "operationId": "listGoals",
+        "summary": "List saved goals",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter from the previous response, including when a filtered page is empty."
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": { "type": "string", "enum": ["active", "archived"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List saved goals",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GoalPage" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createGoal",
+        "summary": "Save an owner-directed dated goal",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "description": "Reuse the same key and exact request on retry."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NewGoal" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Committed goal revision and actor",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GoalReceipt" }
+              }
+            },
+            "headers": {
+              "ETag": { "schema": { "type": "string" } },
+              "Location": { "schema": { "type": "string" } }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Goal not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "Key reuse, archive, template or primary goal conflict",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "412": {
+            "description": "Revision changed. Reread the goal.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 8 KiB",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "428": {
+            "description": "Missing revision precondition",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/goals/{goalId}": {
+      "get": {
+        "operationId": "getGoal",
+        "summary": "Read current goal and revision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "goalId",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved goal",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Goal" }
+              }
+            },
+            "headers": { "ETag": { "schema": { "type": "string" } } }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown goal",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "reviseGoal",
+        "summary": "Revise or archive a goal",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "goalId",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "ETag from the last read"
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "description": "Reuse the same key and exact request on retry."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/GoalPatch" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Committed goal revision and actor",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GoalReceipt" }
+              }
+            },
+            "headers": {
+              "ETag": { "schema": { "type": "string" } },
+              "Location": { "schema": { "type": "string" } }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Goal not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "Key reuse, archive, template or primary goal conflict",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "412": {
+            "description": "Revision changed. Reread the goal.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 8 KiB",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "428": {
+            "description": "Missing revision precondition",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/goals/{goalId}/versions": {
+      "get": {
+        "operationId": "listGoalVersions",
+        "summary": "Read goal revisions in order",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "goalId",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter from the previous response, including when a filtered page is empty."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read goal revisions in order",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/GoalVersions" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts": {
+      "get": {
+        "operationId": "listAccounts",
+        "summary": "List account records and accepted cash balances",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter from the previous response, including when a filtered page is empty."
+          },
+          {
+            "in": "query",
+            "name": "baselineId",
+            "schema": { "type": "string" },
+            "description": "Restrict to cash items in a pinned baseline."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List account records and accepted cash balances",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AccountPage" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}": {
+      "get": {
+        "operationId": "getAccount",
+        "summary": "Read an account",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "accountId",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read an account",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Account" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/positions": {
+      "get": {
+        "operationId": "listPositions",
+        "summary": "List recorded positions including closed positions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter from the previous response, including when a filtered page is empty."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List recorded positions including closed positions",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PositionPage" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/positions/{positionId}": {
+      "get": {
+        "operationId": "getPosition",
+        "summary": "Read holdings terms, exposures and dated valuations",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "positionId",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "in": "query",
+            "name": "afterExposure",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfterExposure to read the next page of underlying exposures."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read holdings terms, exposures and dated valuations",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Position" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/liabilities": {
+      "get": {
+        "operationId": "listLiabilities",
+        "summary": "List reviewed obligations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter from the previous response, including when a filtered page is empty."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List reviewed obligations",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LiabilityPage" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/liabilities/{liabilityId}": {
+      "get": {
+        "operationId": "getLiability",
+        "summary": "Read a reviewed obligation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "liabilityId",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read a reviewed obligation",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Liability" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/baselines/{baselineId}": {
+      "get": {
+        "operationId": "getBaseline",
+        "summary": "Read accepted wealth components and supporting records",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "baselineId",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read accepted wealth components and supporting records",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Baseline" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/evidence/{evidenceId}": {
+      "get": {
+        "operationId": "getEvidence",
+        "summary": "Read source metadata for an outlook citation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "evidenceId",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read source metadata for an outlook citation",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Evidence" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "describeApi",
+        "summary": "Discover the owner API contract",
+        "responses": {
+          "200": { "description": "OpenAPI contract" },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/outlook": {
+      "get": {
+        "operationId": "getOutlook",
+        "summary": "Read saved goal gaps, tracked wealth and a 365-day liquidity scenario",
+        "description": "Uses the last recorded balances as starting values on evaluatedOn. USD integer cents. Constant net wealth change uses actual days / 365. Net change includes all gains, losses, income and spending. Liquidity uses constant household and business burn, reviewed debt payment treatments, no future inflows or private exits. An immediate outflow is a liquidity stress only. A missing measure is null.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "afterGoal",
+            "required": false,
+            "schema": { "type": "string", "pattern": "^[1-9][0-9]{0,14}$" },
+            "description": "Copy nextAfterGoal to retrieve subsequent saved goals."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current accepted record and unsaved outlook",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Outlook" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/outlook/preview": {
+      "post": {
+        "operationId": "previewOutlook",
+        "summary": "Compare dated net-worth targets and test a reserve through a date without saving",
+        "description": "Uses the last recorded balances as starting values on evaluatedOn. USD integer cents. Constant net wealth change uses actual days / 365. Net change includes all gains, losses, income and spending. Liquidity uses constant household and business burn, reviewed debt payment treatments, no future inflows or private exits. An immediate outflow is a liquidity stress only. A missing measure is null. Supply annualNetWorthChangeMinor to model a dated result. requiredAnnualNetIncreaseMinor is a break-even rate of change, not an expected return. Only set assumeNoDebt if the owner explicitly authorizes that scenario assumption.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "afterGoal",
+            "required": false,
+            "schema": { "type": "string", "pattern": "^[1-9][0-9]{0,14}$" },
+            "description": "Copy nextAfterGoal to retrieve subsequent saved goals."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Preview" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Unsaved scenario",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Outlook" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "413": {
+            "description": "Body exceeds 8 KiB",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/marks": {
+      "get": {
+        "operationId": "listBaselineMarks",
+        "summary": "Inspect values in one accepted baseline, subsequent provider observations, reviewed marks and public evidence",
+        "description": "A source capture date is distinct from a mark date. Public signals are company observations. Membership and baseline values are immutable. Later evidence is current at each page read. Prices use millionths of USD per share. Email coverage is unavailable.",
+        "parameters": [
+          {
+            "name": "baselineId",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Use baseline.id from the outlook."
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter. Each page contains up to 50 positions."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Baseline positions and source evidence",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Marks" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown or inaccessible baseline",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
