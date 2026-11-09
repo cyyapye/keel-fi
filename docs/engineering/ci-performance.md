@@ -1205,18 +1205,17 @@ of that revision before the log can be decoded.
 ## Owner API release fixture work
 
 PR #354 run `42556673393`, attempt 2, passed all 1,682 reviewed Vitest cases but
-reached the complete gate's 900-second deadline during the browser lanes.
-Starting the existing public-source review fixture earlier, using its measured
-265-second duration, increased contention in run `42559752387`; its 24-history
-case exceeded the existing 120-second deadline. That scheduling trial was
-reverted.
+reached the complete gate's 900-second deadline during the browser lanes. The
+earlier-start scheduling trial used the public-source review fixture's measured
+265-second duration. In run `42559752387`, its 24-history case exceeded the
+existing 120-second deadline under CPU pressure. The trial was reverted.
 
 The public-source read cases require only the populated `0092` schema. Their
 fixture builder previously also collected, hashed and serialized five unused
 older-schema snapshots. The builder now accepts a selected frontier, retains the
 same history cache and produces that single snapshot through the existing
 fixture construction path. Migration certification still requests every old
-frontier. Compare both forms at 12 and 24 captures for identical fixture
-content, then run the registered D1 cases and full native gate. SQL workloads,
-data scale, actual billing assertions, worker counts and all deadlines stay the
-same.
+frontier. The direct and previous forms produced identical complete fixtures at
+12 and 24 captures. All 13 affected local D1 cases passed. The full native gate
+remains the release proof. SQL workloads, data scale, actual billing assertions,
+worker counts and all deadlines stay the same.
