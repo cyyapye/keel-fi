@@ -1,30 +1,32 @@
 import path from "node:path";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 
-// Whole-file wall times from OVH run 42805759768. These are scheduling
-// hints only: neither test selection nor within-file execution changes.
-// Start expensive files early so stale timings cannot defer a large fixture
-// behind cheaper files on a clean checkout with no Vitest timing cache.
+// Whole-file wall times from successful OVH run 35690710837, plus the rename
+// fixture's completed 200-second execution in run 37951901830. These are only
+// scheduling hints: neither test selection nor within-file execution changes.
+// Start expensive files first so one large fixture cannot leave the second
+// worker idle at the end of a clean CI checkout with no Vitest timing cache.
 const seconds: Readonly<Record<string, number>> = {
-  "provider-agent-d1-cost.test.ts": 112,
-  "public-source-reviews-d1-cost.test.ts": 215,
-  "portfolio-watch-activity.test.ts": 89,
-  "renamed-investments-d1-cost.test.ts": 32,
-  "portfolio-baseline-d1-cost.test.ts": 21,
-  "automatic-investment-review-d1-cost.test.ts": 71,
-  "participation-d1-cost.test.ts": 16,
-  "purchase-details-d1-cost.test.ts": 51,
-  "keel-session-check.test.ts": 8,
-  "portfolio-watch-d1-cost.test.ts": 11,
-  "company-identity-d1-cost.test.ts": 9,
-  "investment-events-d1-cost.test.ts": 7,
-  "cash-request-d1-cost.test.ts": 13,
-  "private-continuity-d1-cost.test.ts": 7,
-  "d1-read-budgets.test.ts": 10,
-  "holding-history-d1-cost.test.ts": 8,
-  "d1-query-cost.test.ts": 4,
-  "cash-balance-history-cost.test.ts": 11,
-  "lint-typecheck.test.ts": 36,
+  "provider-agent-d1-cost.test.ts": 448,
+  // November inventory/presence history holdout: local complete-file measurement.
+  "public-source-reviews-d1-cost.test.ts": 114,
+  "portfolio-watch-activity.test.ts": 255,
+  "renamed-investments-d1-cost.test.ts": 200,
+  "portfolio-baseline-d1-cost.test.ts": 107,
+  "automatic-investment-review-d1-cost.test.ts": 104,
+  "participation-d1-cost.test.ts": 104,
+  "purchase-details-d1-cost.test.ts": 97,
+  "keel-session-check.test.ts": 80,
+  "portfolio-watch-d1-cost.test.ts": 79,
+  "company-identity-d1-cost.test.ts": 63,
+  "investment-events-d1-cost.test.ts": 56,
+  "cash-request-d1-cost.test.ts": 42,
+  "private-continuity-d1-cost.test.ts": 41,
+  "d1-read-budgets.test.ts": 40,
+  "holding-history-d1-cost.test.ts": 39,
+  "d1-query-cost.test.ts": 24,
+  // Focused Linux replay after moving production setup beside D1: 11.1 seconds.
+  "cash-balance-history-cost.test.ts": 12,
 };
 
 function priority(moduleId: string): number {
