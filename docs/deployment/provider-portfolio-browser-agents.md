@@ -108,6 +108,13 @@ When Tokenfolio or Sydecar needs sign-in or 2FA, Holdings shows **Reconnect
 [provider]**. Keel prepares a provider-scoped browser on the registered worker,
 then opens it through a single-use HTTPS link. The user signs in to the provider
 only; no terminal, SSH or VNC details, or second Keel login are shown.
+Tokenfolio and Sydecar first try their saved Google session: Keel advances the
+Google-entry control and selects only the uniquely matching bound account. The
+user handles any required password, MFA or consent prompt; unknown or ambiguous
+accounts remain manual. Failed or denied sign-in is not repeated. The account
+binding is private browser metadata, learned from a verified provider session or
+an explicit operator-supplied account choice. Only its fingerprint is stored.
+Saved-profile verification still determines success.
 
 The browser and stream expire after 15 minutes and are destroyed on success,
 cancellation, failure, or timeout. The selected provider profile stays on the

@@ -28,6 +28,12 @@ import {
   type ProviderPortfolioAgentProvider,
 } from "../packages/domain/src/index";
 import { waitForKeelSession } from "./keel-session-check";
+import {
+  readProviderGoogleAccount,
+  storeProviderGoogleAccount,
+  verifiedProviderGoogleAccount,
+} from "./provider-google-account";
+import { createProviderGoogleRecovery } from "./provider-google-recovery";
 import { runProviderAgentPolling } from "./provider-agent-polling";
 import {
   MacAgentAccessError,
@@ -537,6 +543,11 @@ async function withProviderBrowser<T>(
   let result: { ok: true; value: T } | { ok: false; error: unknown };
   try {
     context = await runtime.connectContext(provider, keelOrigin);
+    const directory = providerPaths(provider, keelOrigin).appDirectory;
+    googleRecoveryScopes.set(context, {
+      directory,
+      expectedHash: undefined,
+    });
     result = { ok: true, value: await operation(context) };
   } catch (error) {
     result = { ok: false, error };
@@ -557,6 +568,10 @@ async function withProviderBrowser<T>(
     );
     if (result.ok) result = { ok: false, error };
   } finally {
+    if (context !== null) {
+      await googleRecoveryScopes.get(context)?.recovery?.dispose(result.ok);
+      googleRecoveryScopes.delete(context);
+    }
     // CDP close only disconnects this client. Tokenfolio keeps its existing
     // browser lifetime; Sydecar requires the explicit owned-browser shutdown.
     await context
@@ -697,6 +712,32 @@ async function providerPageReady(
   );
 }
 
+async function providerPageReadyNow(
+  page: Page,
+  provider: ProviderPortfolioAgentProvider,
+): Promise<boolean> {
+  if (new URL(page.url()).origin !== PROVIDERS[provider].origin) return false;
+  const control = page.locator(
+    provider === "sydecar"
+      ? '[data-testid="investments-table"]'
+      : 'button#portfolio-tab-active[role="tab"]',
+  );
+  const present =
+    provider === "sydecar"
+      ? (await control.count()) > 0
+      : await control.isVisible();
+  return present && !(await providerSignInVisible(page, provider));
+}
+
+const googleRecoveryScopes = new WeakMap<
+  BrowserContext,
+  {
+    directory: string;
+    expectedHash: string | null | undefined;
+    recovery?: ReturnType<typeof createProviderGoogleRecovery>;
+  }
+>();
+
 async function providerSignInVisible(
   page: Page,
   provider: ProviderPortfolioAgentProvider,
@@ -805,9 +846,48 @@ async function requireProviderPageReady(
   provider: ProviderPortfolioAgentProvider,
   timeout = PAGE_TIMEOUT_MS,
 ): Promise<void> {
-  if (await providerPageReady(page, provider, timeout)) {
-    return;
+  const scope = googleRecoveryScopes.get(page.context());
+  if (scope !== undefined) {
+    const deadline = Date.now() + timeout;
+    if (scope.expectedHash === undefined)
+      scope.expectedHash = await readProviderGoogleAccount(
+        scope.directory,
+        provider,
+      );
+    scope.recovery ??= createProviderGoogleRecovery({
+      provider,
+      context: page.context(),
+      expectedHash: scope.expectedHash,
+      interactive: false,
+      deadline,
+      isReady: (candidate) => providerPageReadyNow(candidate, provider),
+      needsInput: (candidate) => providerSignInVisible(candidate, provider),
+    });
+    while (Date.now() < deadline) {
+      const state = await scope.recovery.check(page);
+      if (state === "ready") {
+        await scope.recovery.dispose(true);
+        if (
+          scope.expectedHash === null &&
+          scope.recovery.accountHash !== null
+        ) {
+          await storeProviderGoogleAccount(
+            scope.directory,
+            provider,
+            scope.recovery.accountHash,
+          );
+          scope.expectedHash = scope.recovery.accountHash;
+        }
+        return;
+      }
+      if (state === "input_required")
+        throw new AgentFailure("provider_sign_in_required");
+      if (state === "unavailable") throw new AgentFailure("unexpected_failure");
+      await sleep(Math.min(250, Math.max(0, deadline - Date.now())));
+    }
+    throw new AgentFailure("unexpected_failure");
   }
+  if (await providerPageReady(page, provider, timeout)) return;
   throw new AgentFailure(
     (await providerSignInVisible(page, provider))
       ? "provider_sign_in_required"
@@ -818,17 +898,31 @@ async function requireProviderPageReady(
 async function verifySavedProviderSession(
   keelOrigin: URL,
   provider: ProviderPortfolioAgentProvider,
+  interactiveHash?: string | null,
 ): Promise<void> {
   // runProviderBrowserSession has gracefully closed the interactive browser.
   // Verify the ordinary background launch path against the saved profile.
   // Sydecar closes again after verification, even if queueing the update fails.
   try {
     await withProviderBrowser(provider, keelOrigin, async (context) => {
+      const scope = googleRecoveryScopes.get(context);
+      if (scope !== undefined && interactiveHash !== undefined)
+        scope.expectedHash = interactiveHash;
       await requireProviderPageReady(
         await portfolioPage(context, provider),
         provider,
       );
+      if (interactiveHash !== undefined && interactiveHash !== null) {
+        await storeProviderGoogleAccount(
+          providerPaths(provider, keelOrigin).appDirectory,
+          provider,
+          interactiveHash,
+        );
+      }
     });
+    console.info(
+      JSON.stringify({ event: "provider_saved_session_verified", provider }),
+    );
   } catch (error) {
     const code =
       error instanceof AgentFailure ? error.code : "page_not_supported";
@@ -2642,6 +2736,13 @@ async function setup(
     await validateSetupSessions(portfolio, keel, keelOrigin, provider);
     const authorization = await authorize(keel, provider);
     storeMacAgentAuthorization(keelOrigin, authorization);
+    const account = await verifiedProviderGoogleAccount(portfolio, provider);
+    if (account !== null)
+      await storeProviderGoogleAccount(
+        providerPaths(provider, keelOrigin).appDirectory,
+        provider,
+        account,
+      );
   });
   // Finish saving and closing the setup browser before starting its worker.
   const linuxUnit = await installBackgroundAgent(keelOrigin, provider);
@@ -2689,32 +2790,61 @@ async function handleManagedReconnect(
   const paths = providerPaths(provider, keelOrigin, "linux");
   const config = PROVIDERS[provider];
   let remoteContext: BrowserContext | null = null;
-  const result = await runProviderBrowserSession({
-    appDirectory: paths.appDirectory,
-    authorization,
-    chromePath: await chromeExecutable({ platform: "linux" }),
-    isProviderReady: async (endpointUrl) => {
-      if (remoteContext?.browser()?.isConnected() !== true) {
-        const browser = await chromium.connectOverCDP(endpointUrl, {
-          noDefaults: true,
-        });
-        remoteContext = browser.contexts()[0] ?? null;
-      }
-      const context = remoteContext;
-      if (context === null) {
-        return false;
-      }
-      const page =
-        pageAtOrigin(context, config.origin) ?? context.pages()[0] ?? null;
-      return page === null ? false : providerPageReady(page, provider);
-    },
-    label: config.label,
-    lease: session,
-    profileDirectory: paths.profileDirectory,
+  const expectedHash = await readProviderGoogleAccount(
+    paths.appDirectory,
     provider,
-    startUrl: config.portfolioUrl,
-    verifySavedSession: () => verifySavedProviderSession(keelOrigin, provider),
-  });
+  );
+  let recovery: ReturnType<typeof createProviderGoogleRecovery> | undefined;
+  let interactiveHash: string | null | undefined;
+  let result: "connected" | "terminated";
+  try {
+    result = await runProviderBrowserSession({
+      appDirectory: paths.appDirectory,
+      authorization,
+      chromePath: await chromeExecutable({ platform: "linux" }),
+      isProviderReady: async (endpointUrl) => {
+        if (remoteContext?.browser()?.isConnected() !== true) {
+          const browser = await chromium.connectOverCDP(endpointUrl, {
+            noDefaults: true,
+          });
+          remoteContext = browser.contexts()[0] ?? null;
+        }
+        const context = remoteContext;
+        if (context === null) {
+          return false;
+        }
+        const page =
+          pageAtOrigin(context, config.origin) ?? context.pages()[0] ?? null;
+        if (page === null) return false;
+        recovery ??= createProviderGoogleRecovery({
+          provider,
+          context,
+          expectedHash,
+          interactive: true,
+          deadline: Date.parse(session.expiresAt),
+          isReady: (candidate) => providerPageReadyNow(candidate, provider),
+          needsInput: (candidate) => providerSignInVisible(candidate, provider),
+        });
+        const state = await recovery.check(page);
+        if (state === "unavailable")
+          throw new ProviderBrowserRuntimeError(
+            "browser_unavailable",
+            "Provider sign-in recovery could not be verified.",
+          );
+        if (state === "ready") interactiveHash = recovery.accountHash;
+        return state === "ready";
+      },
+      label: config.label,
+      lease: session,
+      profileDirectory: paths.profileDirectory,
+      provider,
+      startUrl: config.portfolioUrl,
+      verifySavedSession: () =>
+        verifySavedProviderSession(keelOrigin, provider, interactiveHash),
+    });
+  } finally {
+    await recovery?.dispose();
+  }
   if (result === "connected") {
     let updateAuthorization = authorization;
     try {
@@ -2839,6 +2969,7 @@ export const __providerPortfolioMacAgentTest = {
   parseUsdMinor,
   portfolioPage,
   providerPageReady,
+  providerPageReadyNow,
   providerSignInVisible,
   requireProviderPageReady,
   providerPaths,

@@ -1238,10 +1238,11 @@ test(
       name: "Private investments",
     });
     await expect(
-      privateInvestments.getByRole("heading", { name: "Working" }),
+      privateInvestments.getByRole("heading", { level: 3 }),
     ).toHaveCount(3);
     const angelList = privateInvestments.getByRole("article", {
-      name: "AngelList Working",
+      name: "AngelList",
+      exact: true,
     });
     const intervalSelect = angelList.getByRole("combobox", {
       name: "Automatic updates",
@@ -1283,13 +1284,14 @@ test(
     expect(intervalUpdates).toEqual([{ interval: "daily" }]);
 
     await privateInvestments
-      .getByRole("article", { name: "AngelList Working" })
+      .getByRole("article", { name: "AngelList", exact: true })
       .getByRole("button", { name: "Queue update" })
       .click();
     await expect(
       privateInvestments
-        .getByRole("article", { name: "AngelList Update queued" })
-        .getByRole("heading", { name: "Update queued" }),
+        .getByRole("article", { name: "AngelList", exact: true })
+        .getByText("Update queued", { exact: true })
+        .first(),
     ).toBeVisible();
     await expect(
       page.getByText(
@@ -1415,7 +1417,9 @@ test(
 
     await page.goto("/holdings/sources");
     await page.getByRole("button", { name: "Reconnect AngelList" }).click();
-    await expect(page.getByText("Preparing a private browser…")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Preparing browser…" }),
+    ).toBeVisible();
     await page.clock.runFor(5_100);
     const openLink = page.getByRole("link", { name: "Open AngelList" });
     await expect(openLink).toHaveAttribute(
@@ -1496,3 +1500,186 @@ test(
     ).toBeVisible();
   },
 );
+
+test("recovers a failed Sydecar browser start with one explicit retry", async ({
+  page,
+}) => {
+  await page.clock.install({ time: new Date("2026-08-26T12:00:00.000Z") });
+  await page.addInitScript(() => {
+    window.open = () => null;
+  });
+  let sessionId = "33333333-3333-4333-8333-333333333333";
+  let starts = 0;
+  let cancelled = 0;
+  let sessionStatus = "requested";
+  const session = () => ({
+    version: 1,
+    id: sessionId,
+    provider: "sydecar",
+    status: sessionStatus,
+    requestedAt: "2026-08-26T12:00:00.000Z",
+    expiresAt: "2026-08-26T12:15:00.000Z",
+    openedAt: null,
+    connectedAt: null,
+    errorCode: sessionStatus === "failed" ? "browser_unavailable" : null,
+  });
+  const overview = {
+    version: 1,
+    status: "ready",
+    interval: "daily",
+    runStatus: null,
+    lastSeenAt: "2026-08-26T12:00:00.000Z",
+    lastCompletedAt: "2026-08-25T12:00:00.000Z",
+    nextRunAt: "2026-08-27T12:00:00.000Z",
+    latestImportId: null,
+    errorCode: null,
+  };
+  await page.route("**/api/automation/angellist/status", (route) =>
+    route.fulfill({ json: overview }),
+  );
+  await page.route("**/api/automation/provider-holdings/*/status", (route) => {
+    const provider = new URL(route.request().url()).pathname.split("/").at(-2);
+    return route.fulfill({
+      json: {
+        ...overview,
+        provider,
+        ...(provider === "sydecar"
+          ? {
+              status: "needs_attention",
+              errorCode: "provider_sign_in_required",
+            }
+          : {}),
+      },
+    });
+  });
+  await page.route(
+    "**/api/automation/provider-browser/sydecar/reconnect",
+    async (route) => {
+      expect(route.request().method()).toBe("POST");
+      starts++;
+      sessionId = `33333333-3333-4333-8333-${String(starts).padStart(12, "0")}`;
+      sessionStatus = "requested";
+      await route.fulfill({ status: 202, json: session() });
+    },
+  );
+  await page.route("**/api/automation/provider-browser/sessions/*", (route) => {
+    if (route.request().method() === "DELETE") {
+      cancelled++;
+      sessionStatus = "cancelled";
+    } else {
+      expect(route.request().method()).toBe("GET");
+    }
+    return route.fulfill({ json: session() });
+  });
+  await page.goto("/holdings/sources");
+  const sources = page.getByRole("region", { name: "Private investments" });
+  const sydecar = sources.getByRole("article", {
+    name: "Sydecar",
+    exact: true,
+  });
+  const reconnect = sydecar.getByRole("button", { name: "Reconnect Sydecar" });
+  await expect(reconnect).toBeVisible();
+  await expect(sources.getByText("Working", { exact: true })).toHaveCount(0);
+  await expect(sources.getByText("Last agent check")).toHaveCount(0);
+  await expect(sources.getByRole("heading", { level: 3 })).toHaveText([
+    "AngelList",
+    "Tokenfolio",
+    "Sydecar",
+  ]);
+  await expect(sydecar).toContainText("Updated Aug 25, 2026");
+  await expect(sydecar).not.toContainText("Next Aug 27, 2026");
+  await expectNoHorizontalOverflow(page);
+  // Use the real navigation for keyboard focus before any capture.
+  await page.keyboard.press("Tab");
+  for (
+    let index = 0;
+    index < 30 &&
+    !(await reconnect.evaluate((el) => el === document.activeElement));
+    index++
+  ) {
+    await page.keyboard.press("Tab");
+  }
+  await expect(reconnect).toBeFocused();
+  await expect(reconnect).toBeInViewport();
+  const box = await reconnect.boundingBox();
+  if (test.info().project.name === "mobile-chromium") {
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  const capture = {
+    animations: "disabled" as const,
+    scale: "css" as const,
+    style: ".topbar, .mobile-nav { visibility: hidden !important; }",
+  };
+  await expect(sources).toHaveScreenshot(
+    "private-investment-updates.png",
+    capture,
+  );
+  await page.keyboard.press("Enter");
+  await expect(
+    sydecar.getByRole("button", { name: "Preparing browser…" }),
+  ).toBeDisabled();
+  await expect(sydecar.getByText("Preparing a private browser…")).toHaveCount(
+    0,
+  );
+  await sources.screenshot({
+    path: test.info().outputPath("private-updates-preparing.png"),
+    ...capture,
+  });
+  sessionStatus = "failed";
+  await page.clock.runFor(5_100);
+  const failure = sydecar.getByText(
+    "The secure browser could not start. Try again, or open Troubleshooting if it keeps failing.",
+  );
+  await expect(failure).toBeVisible();
+  const bodySize = await page
+    .locator("body")
+    .evaluate((element) =>
+      getComputedStyle(element).getPropertyValue("--text-body").trim(),
+    );
+  await expect(failure).toHaveCSS("font-size", bodySize);
+  await expect(failure).toHaveCSS("font-weight", "500");
+  await expect(reconnect).toBeEnabled();
+  expect(starts).toBe(1);
+  await sources.screenshot({
+    path: test.info().outputPath("private-updates-failed.png"),
+    ...capture,
+  });
+  // Let the disclosure animation settle in real time before capturing it.
+  await page.clock.resume();
+  await sydecar.getByRole("button", { name: "Troubleshooting" }).click();
+  await sydecar
+    .getByRole("button", { name: "Copy Sydecar repair command" })
+    .scrollIntoViewIfNeeded();
+  await expect(
+    sydecar.getByRole("button", { name: "Copy Sydecar repair command" }),
+  ).toBeInViewport();
+  await expect(sydecar).toContainText(
+    "Update computer last checked Aug 26, 2026.",
+  );
+  await sources.screenshot({
+    path: test.info().outputPath("private-updates-details.png"),
+    ...capture,
+  });
+  await reconnect.click();
+  expect(starts).toBe(2);
+  await expect(
+    sydecar.getByRole("button", { name: "Preparing browser…" }),
+  ).toBeDisabled();
+  sessionStatus = "ready";
+  await page.clock.runFor(5_100);
+  const open = sydecar.getByRole("link", { name: "Open Sydecar" });
+  await expect(open).toBeVisible();
+  await expect(open).toHaveAttribute(
+    "href",
+    `/api/automation/provider-browser/sessions/${sessionId}/open`,
+  );
+  await page.reload();
+  await expect(
+    sydecar.getByRole("link", { name: "Open Sydecar" }),
+  ).toBeVisible();
+  expect(starts).toBe(2);
+  await sydecar.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(reconnect).toBeEnabled();
+  expect(cancelled).toBe(1);
+  await expectNoHorizontalOverflow(page);
+});
