@@ -14,8 +14,10 @@ permissions:
   contents: read
 jobs:
   lifecycle:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - run: python3 scripts/test_linux_test_run.py

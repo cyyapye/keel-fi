@@ -1220,7 +1220,12 @@ with native.cost_seed_directory() as seed:
         flows = {flow["id"]: flow for flow in plan["flows"]}
         self.assertIn("ref: ${{ github.sha }}", workflow)
         self.assertIn('test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"', workflow)
-        self.assertIn("runs-on: [self-hosted, Linux, X64, keel-ci]", workflow)
+        self.assertIn("runs-on: ubuntu-24.04", workflow)
+        for entry in (workflow, probe):
+            self.assertIn("run: python3 -I scripts/ci-disposable-linux.py", entry)
+            self.assertIn("KEEL_SCREENSHOT_MODE: canonical", entry)
+            self.assertIn("keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8", entry)
+        self.assertIn("keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8", action)
         self.assertEqual(workflow.count("make pilot-verify"), 1)
         isolated_browser = probe.split("      - name: Time the complete browser process\n", 1)[1].split("      - name:", 1)[0]
         self.assertIn("timeout-minutes: 5", isolated_browser)

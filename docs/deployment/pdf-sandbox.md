@@ -227,11 +227,14 @@ For a live update, build and verify using a candidate configuration path, not
 the active service configuration. Switch the service to that candidate only
 after verification passes. Keep the last verified configuration for rollback.
 
-CI requires its own rootless daemon and no sudo. The deployment lane does not
-need Docker or Poppler: parsing happens only in the existing provider agents.
-Updating an agent's runtime/configuration is a separate operational step after
-the API/migration has deployed. Roll back to a previously verified sandbox image
-or leave extraction unavailable; never roll back to unrestricted PDF parsing.
+Native CI prepares its own rootless daemon on a disposable GitHub-hosted VM.
+`scripts/ci-disposable-linux.py` uses VM-level privileges only for provisioning.
+The reader and scanner retain the required rootless kernel boundary. The
+deployment job runs on a separate VM and does not prepare the PDF runtime.
+Parsing happens only in the existing provider agents. Updating an agent's
+runtime/configuration is a separate operational step after the API/migration has
+deployed. Roll back to a previously verified sandbox image or leave extraction
+unavailable; never roll back to unrestricted PDF parsing.
 
 ## Malware scanner and daily refresh
 

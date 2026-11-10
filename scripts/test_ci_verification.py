@@ -14,6 +14,63 @@ spec = importlib.util.spec_from_file_location("ci_verification", Path(__file__).
 ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
 
+setup_spec = importlib.util.spec_from_file_location("ci_disposable", Path(__file__).with_name("ci-disposable-linux.py"))
+setup = importlib.util.module_from_spec(setup_spec)
+setup_spec.loader.exec_module(setup)
+
+
+class DisposableSetupTests(unittest.TestCase):
+    def test_requires_hosted_ubuntu_before_any_provisioning(self):
+        environment = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted",
+                       "RUNNER_OS": "Linux", "RUNNER_ARCH": "X64", "ImageOS": "ubuntu24"}
+        release = {"ID": "ubuntu", "VERSION_ID": "24.04"}
+        setup.require_hosted_vm(environment, "Linux", "x86_64", release, 1001)
+        for key in environment:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                setup.require_hosted_vm({**environment, key: "unsupported"}, "Linux", "x86_64", release, 1001)
+        for system, machine, version, uid in [("Darwin", "x86_64", "24.04", 1001),
+                                               ("Linux", "aarch64", "24.04", 1001),
+                                               ("Linux", "x86_64", "22.04", 1001),
+                                               ("Linux", "x86_64", "24.04", 0)]:
+            with self.subTest(system=system, machine=machine, version=version, uid=uid), self.assertRaises(ValueError):
+                setup.require_hosted_vm(environment, system, machine, {**release, "VERSION_ID": version}, uid)
+        with patch.dict(os.environ, {}, clear=True), patch.object(setup, "run") as provision:
+            with self.assertRaises(ValueError):
+                setup.main()
+            provision.assert_not_called()
+
+    def test_preserves_subordinate_ranges_and_allocates_only_unused_ids(self):
+        self.assertEqual(setup.subordinate_options("runner", 1001, "runner:100000:65536\n", "1001:200000:65536\n"), [])
+        self.assertEqual(setup.subordinate_options("runner", 1001, "other:100000:65536\n", "other:165536:65536\n"),
+                         ["--add-subuids", "231072-296607", "--add-subgids", "231072-296607"])
+        self.assertEqual(setup.subordinate_options("runner", 1001, "runner:100000:65536\n", ""),
+                         ["--add-subgids", "165536-231071"])
+
+    def test_rejects_ambiguous_or_unsafe_subordinate_ranges(self):
+        for contents in ["runner:100000:65535\n", "runner:100000:65536\nother:100001:65536\n",
+                         "runner:-1:65536\n", "runner:100000:0\n", "runner:4294967290:65536\n",
+                         "runner:not-a-number:65536\n", "malformed"]:
+            for subuid, subgid in [(contents, ""), ("", contents)]:
+                with self.subTest(contents=contents), self.assertRaises(ValueError):
+                    setup.subordinate_options("runner", 1001, subuid, subgid)
+
+    def test_restart_rejects_a_worker_ancestor_owned_by_the_user_manager(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = Path(directory)
+            for pid, parent, group in [(10, 9, "/system.slice/job"), (9, 1, "/system.slice/runner"), (1, 0, "/")]:
+                process = proc / str(pid)
+                process.mkdir()
+                (process / "cgroup").write_text(f"0::{group}\n")
+                (process / "status").write_text(f"PPid:\t{parent}\n")
+            setup.assert_worker_outside_manager(proc, 10, 1001)
+            (proc / "9/cgroup").write_text("0::/user.slice/user-1001.slice/user@1001.service/app.slice/runner\n")
+            with self.assertRaisesRegex(ValueError, "Refusing to restart"):
+                setup.assert_worker_outside_manager(proc, 10, 1001)
+            (proc / "9/cgroup").write_text("0::/system.slice/runner\n")
+            (proc / "9/status").write_text("PPid:\t10\n")
+            with self.assertRaisesRegex(ValueError, "ancestry"):
+                setup.assert_worker_outside_manager(proc, 10, 1001)
+
 
 class ReceiptTransportTests(unittest.TestCase):
     def test_round_trip_preserves_every_field_and_has_no_output_delimiters(self):

@@ -29,13 +29,15 @@ jobs:
       ${{ inputs.isolated_browser && 'Isolated browser timing diagnostic' ||
       inputs.regression_probe && 'Polling regression rejection probe' ||
       'Complete native pilot gate' }}
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes:
       ${{ (inputs.regression_probe || inputs.isolated_browser) && 30 || 120 }}
     defaults:
       run:
         working-directory: keel
     env:
+      KEEL_SCREENSHOT_MODE: canonical
+      TUGLING_VERIFICATION_ENVIRONMENT: keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
     steps:
@@ -70,6 +72,9 @@ jobs:
           cache-dependency-path: keel/pnpm-lock.yaml
       - name: Prepare locked dependencies and Chromium
         run: make bootstrap-ci
+      - name: Prepare disposable native runtime
+        timeout-minutes: 15
+        run: python3 -I scripts/ci-disposable-linux.py
       - name: Execute complete required gate on this revision
         if: ${{ !inputs.regression_probe && !inputs.isolated_browser }}
         run: |

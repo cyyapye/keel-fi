@@ -9,7 +9,7 @@ permissions:
 jobs:
   check:
     if: github.ref == 'refs/heads/main'
-    runs-on: [self-hosted, Linux, X64, keel-deploy]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
       name: preview

@@ -21,7 +21,7 @@ jobs:
     name:
       ${{ inputs.layout_plan == '' && 'Complete native gate' || 'Layout draft
       native checks' }}
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 65
     outputs:
       receipt: ${{ steps.receipt.outputs.receipt }}
@@ -31,7 +31,7 @@ jobs:
     env:
       KEEL_SCREENSHOT_MODE: canonical
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
-      TUGLING_VERIFICATION_ENVIRONMENT: keel-linux-x64-node22.13.0-pnpm11.9.0-parallel-v8
+      TUGLING_VERIFICATION_ENVIRONMENT: keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8
     steps:
       - uses: actions/checkout@v5
         with:
@@ -76,6 +76,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: keel/pnpm-lock.yaml
       - run: make bootstrap-ci
+      - name: Prepare disposable native runtime
+        timeout-minutes: 15
+        run: python3 -I scripts/ci-disposable-linux.py
       - name: Check dedicated CI browser ports before expensive verification
         run: |
           node --import tsx --input-type=module <<'JS'

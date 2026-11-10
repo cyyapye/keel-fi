@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
@@ -10,9 +10,7 @@ describe("post-merge preview deployment workflow", () => {
     );
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
-    expect(workflow).toContain(
-      "runs-on: [self-hosted, Linux, X64, keel-deploy]",
-    );
+    expect(workflow).toContain("runs-on: ubuntu-24.04");
     expect(workflow).toContain("name: preview");
     expect(workflow).toContain("ref: ${{ github.sha }}");
     expect(workflow).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
@@ -32,7 +30,27 @@ describe("post-merge preview deployment workflow", () => {
     );
   });
 
-  it("routes verification and deployment to isolated Keel runner lanes", async () => {
+  it("routes every concrete workflow job to disposable workers and gates deployment separately", async () => {
+    const workflowNames = (await readdir(".github/workflows")).filter((name) =>
+      /\.ya?ml$/u.test(name),
+    );
+    for (const name of workflowNames) {
+      const source = await readFile(`.github/workflows/${name}`, "utf8");
+      expect(source, name).not.toMatch(/self-hosted|pull_request_target:/u);
+      const jobs = source.split("\njobs:\n")[1];
+      expect(jobs, name).toBeDefined();
+      for (const job of jobs!.split(/(?=^ {2}[\w-]+:\s*$)/mu).filter(Boolean)) {
+        const runners = [...job.matchAll(/^ {4}runs-on: (.+)$/gmu)];
+        if (runners.length === 0) {
+          expect(job, name).toContain("uses: ./.github/workflows/");
+        } else {
+          expect(
+            runners.map((match) => match[1]),
+            name,
+          ).toEqual(["ubuntu-24.04"]);
+        }
+      }
+    }
     const [pullRequestWorkflow, postMergeWorkflow] = await Promise.all([
       readFile(".github/workflows/ci.yml", "utf8"),
       readFile(".github/workflows/post-merge.yml", "utf8"),
@@ -59,12 +77,6 @@ describe("post-merge preview deployment workflow", () => {
       postMergeSecretScanStart,
     );
 
-    expect(pullRequestWorkflow.match(/^ {4}runs-on: .*$/gm)).toEqual(
-      Array<string>(5).fill("    runs-on: [self-hosted, Linux, X64, keel-ci]"),
-    );
-    expect(
-      verification.match(/runs-on: \[self-hosted, Linux, X64, keel-ci\]/g),
-    ).toHaveLength(2);
     expect(verification).toContain(
       "uses: ./.github/workflows/native-verification.yml",
     );
@@ -72,9 +84,7 @@ describe("post-merge preview deployment workflow", () => {
     expect(postMergeNative).toContain(
       "needs:\n      - secret-scan\n      - tugling-contract",
     );
-    expect(deployment).toContain(
-      "runs-on: [self-hosted, Linux, X64, keel-deploy]",
-    );
+    expect(deployment).toContain("runs-on: ubuntu-24.04");
     expect(pullRequestWorkflow).not.toContain("runs-on: ubuntu-latest");
     expect(postMergeWorkflow).not.toContain("runs-on: ubuntu-latest");
     expect(pullRequestWorkflow).not.toContain("playwright install --with-deps");
@@ -147,6 +157,12 @@ describe("post-merge preview deployment workflow", () => {
     }
 
     const backup = deployment.indexOf("wrangler d1 export");
+    const exportCommand = deployment.slice(
+      backup,
+      deployment.indexOf('echo "D1 export completed."'),
+    );
+    expect(exportCommand).toContain("--skip-confirmation >/dev/null 2>&1");
+    expect(exportCommand).toContain("exit 1");
     const backupVerification = deployment.indexOf("cmp --silent");
     const backupUpload = deployment.indexOf(
       "Retain encrypted pre-migration D1 backup",
