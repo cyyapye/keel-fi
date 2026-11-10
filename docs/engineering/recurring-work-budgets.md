@@ -214,6 +214,13 @@ these actions. Credentials, MFA/passkeys, consent, unknown or ambiguous
 identities, and changed returned identities require user input. Technical
 failures never establish that a sign-in expired.
 
+Google's repeated identity attributes on a clickable account row and its nested
+label count as one choice only when all nested identities agree. Separate rows
+with the same identity and conflicting nested labels still require user input.
+This uses the existing bounded DOM check, without additional network requests,
+actions, waits or retries; the day and request-chain budgets below are
+unchanged.
+
 Background recovery retains the existing 45-second readiness deadline and uses
 at most 180 local 250-ms waits; it adds no retry, browser, discovery loop or
 Keel request. Interactive recovery uses the existing five-second status owner

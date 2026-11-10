@@ -306,51 +306,7 @@ export async function verifiedProviderGoogleAccount(
   return Hash.nullable().parse(result);
 }
 
-export async function matchingGoogleAccount(
-  page: Page,
-  hash: string | null,
-): Promise<number | null> {
-  if (hash === null) return null;
-  Hash.parse(hash);
-  const url = new URL(page.url());
-  if (
-    url.origin !== "https://accounts.google.com" ||
-    !/^\/(?:AccountChooser|(?:v[0-9]+\/)?signin\/accountchooser|gsi\/select)\/?$/iu.test(
-      url.pathname,
-    )
-  )
-    return null;
-  const result: unknown = await page
-    .locator("[data-identifier], [data-email]")
-    .filter({ visible: true })
-    .evaluateAll(async (elements, expected) => {
-      if (elements.length > 10) return null;
-      const matches: number[] = [];
-      for (const [index, element] of elements.entries()) {
-        const email = (
-          element.getAttribute("data-identifier") ??
-          element.getAttribute("data-email")
-        )
-          ?.trim()
-          .toLowerCase();
-        if (!email || email.length > 254) continue;
-        const digest = await crypto.subtle.digest(
-          "SHA-256",
-          new TextEncoder().encode(email),
-        );
-        const actual = Array.from(new Uint8Array(digest), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ).join("");
-        if (actual === expected) matches.push(index);
-      }
-      return matches.length === 1 ? matches[0] : null;
-    }, hash);
-  return z.number().int().min(0).max(9).nullable().parse(result);
-}
-
-export async function soleSavedGoogleAccount(
-  page: Page,
-): Promise<string | null> {
+async function googleAccountRows(page: Page) {
   const url = new URL(page.url());
   if (
     url.origin !== "https://accounts.google.com" ||
@@ -363,26 +319,75 @@ export async function soleSavedGoogleAccount(
     .locator("[data-identifier], [data-email]")
     .filter({ visible: true })
     .evaluateAll(async (elements) => {
-      if (elements.length !== 1) return null;
-      const email = (
-        elements[0]!.getAttribute("data-identifier") ??
-        elements[0]!.getAttribute("data-email")
-      )
-        ?.trim()
-        .toLowerCase();
-      if (
-        !email ||
-        email.length > 254 ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)
-      )
-        return null;
-      const digest = await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(email),
-      );
-      return Array.from(new Uint8Array(digest), (byte) =>
-        byte.toString(16).padStart(2, "0"),
-      ).join("");
+      if (elements.length > 10) return null;
+      const emails: string[] = [];
+      for (const element of elements) {
+        const identifier = element
+          .getAttribute("data-identifier")
+          ?.trim()
+          .toLowerCase();
+        const label = element.getAttribute("data-email")?.trim().toLowerCase();
+        const email = identifier ?? label;
+        if (
+          !email ||
+          email.length > 254 ||
+          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email) ||
+          (identifier !== undefined &&
+            label !== undefined &&
+            identifier !== label)
+        )
+          return null;
+        emails.push(email);
+      }
+      const rows: Array<{ index: number; accountHash: string }> = [];
+      for (const [index, element] of elements.entries()) {
+        // Google repeats an account on its clickable row and nested label.
+        // Collapse only that DOM ancestry, with identical identity throughout;
+        // separate matching rows and conflicting nested identities stay unsafe.
+        const ancestors = elements.flatMap((candidate, ancestor) =>
+          candidate !== element && candidate.contains(element)
+            ? [ancestor]
+            : [],
+        );
+        if (ancestors.some((ancestor) => emails[ancestor] !== emails[index]))
+          return null;
+        if (ancestors.length > 0) continue;
+        const digest = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(emails[index]),
+        );
+        const accountHash = Array.from(new Uint8Array(digest), (byte) =>
+          byte.toString(16).padStart(2, "0"),
+        ).join("");
+        rows.push({ index, accountHash });
+      }
+      return rows;
     });
-  return Hash.nullable().parse(result);
+  return z
+    .array(
+      z
+        .object({ index: z.number().int().min(0).max(9), accountHash: Hash })
+        .strict(),
+    )
+    .max(10)
+    .nullable()
+    .parse(result);
+}
+
+export async function matchingGoogleAccount(
+  page: Page,
+  hash: string | null,
+): Promise<number | null> {
+  if (hash === null) return null;
+  Hash.parse(hash);
+  const rows = await googleAccountRows(page);
+  const matches = rows?.filter((row) => row.accountHash === hash);
+  return matches?.length === 1 ? matches[0]!.index : null;
+}
+
+export async function soleSavedGoogleAccount(
+  page: Page,
+): Promise<string | null> {
+  const rows = await googleAccountRows(page);
+  return rows?.length === 1 ? rows[0]!.accountHash : null;
 }
