@@ -96,35 +96,69 @@ class SourceBoundaryTests(unittest.TestCase):
 
 
 class NativeAccountingTests(unittest.TestCase):
-    def test_layout_draft_preserves_the_required_graph_and_budget(self):
-        mapping = json.loads((pilot.ROOT / ".tugling/pilot-verification.json").read_text())
-        names = [flow["id"] for flow in mapping["flows"]]
-        required = [flow["argv"] for flow in mapping["flows"]]
-        pdf_index = names.index("pdf-isolation")
-        contract = Mock()
-        contract.clean_revision.return_value = "1" * 40
-        contract.required_flow_ids.return_value = names
-        contract.validate_project.return_value = {"verification": mapping, "verification_budget_seconds": 900}
-        contract.execute_flow_plan.return_value = [
-            {"id": name, "exit_code": 0, "failure": None, "forced_cleanup": False} for name in names
-        ]
-        contract.performance_summary.return_value = {"within_budget": True}
-        with patch("sys.stdout", new_callable=io.StringIO):
-            pilot.run_layout_draft(contract, Path("/candidate"))
-        contract.execute_flow_plan.assert_called_once_with(pilot.ROOT, mapping, names, active_budget=900)
-        contract.validate_execution_timing.assert_called_once()
-        actual = [flow["argv"] for flow in mapping["flows"]]
-        self.assertEqual(actual[pdf_index], ["node", "--import", "tsx", "scripts/pdf-sandbox-verify.ts", "--layout-draft"])
-        self.assertEqual(actual[:pdf_index] + actual[pdf_index + 1:], required[:pdf_index] + required[pdf_index + 1:])
-        # A changed canonical PDF command needs a new scope review.
-        with self.assertRaisesRegex(ValueError, "review the layout draft command"):
-            pilot.run_layout_draft(contract, Path("/candidate"))
-        for field, bad_value in (("failure", "timeout"), ("exit_code", 1), ("forced_cleanup", True)):
-            mapping["flows"][pdf_index]["argv"] = required[pdf_index]
-            row = contract.execute_flow_plan.return_value[0]
-            with self.subTest(field=field), patch.dict(row, {field: bad_value}), patch("sys.stdout", new_callable=io.StringIO):
-                with self.assertRaisesRegex(ValueError, "verification failed"):
-                    pilot.run_layout_draft(contract, Path("/candidate"))
+    def test_partial_diagnostics_preserve_scope_and_reject_incomplete_or_failed_work(self):
+        for mode in ("layout-draft", "unit-diagnostic"):
+            with self.subTest(mode=mode):
+                mapping = json.loads((pilot.ROOT / ".tugling/pilot-verification.json").read_text())
+                original = json.loads(json.dumps(mapping))
+                names = [flow["id"] for flow in mapping["flows"]]
+                selected = names if mode == "layout-draft" else ["gate-and-artifact-integrity", "native-unit-and-cost"]
+                contract = Mock()
+                contract.clean_revision.return_value = "1" * 40
+                contract.execution_context.return_value = {"github": {"GITHUB_RUN_ID": "321", "GITHUB_RUN_ATTEMPT": "1"}}
+                contract.required_flow_ids.return_value = names
+                contract.validate_project.return_value = {"verification": mapping, "verification_budget_seconds": 900}
+                rows = [{"id": name, "exit_code": 0, "failure": None, "forced_cleanup": False, "duration_seconds": 0} for name in selected]
+                contract.execute_flow_plan.return_value = rows
+                contract.performance_summary.return_value = {"within_budget": True}
+                with patch("sys.stdout", new_callable=io.StringIO) as output:
+                    pilot.run_partial_native(contract, Path("/candidate"), mode)
+                self.assertIn('"required_receipt": false', output.getvalue())
+                contract.execute_flow_plan.assert_called_once_with(pilot.ROOT, mapping, selected, active_budget=900)
+                contract.validate_execution_timing.assert_called_once()
+                if mode == "layout-draft":
+                    pdf = next(flow for flow in original["flows"] if flow["id"] == "pdf-isolation")
+                    pdf["argv"] = ["node", "--import", "tsx", "scripts/pdf-sandbox-verify.ts", "--layout-draft"]
+                    self.assertEqual(mapping, original)
+                    with self.assertRaisesRegex(ValueError, "review the layout draft command"):
+                        pilot.run_partial_native(contract, Path("/candidate"), mode)
+                    pdf = next(flow for flow in mapping["flows"] if flow["id"] == "pdf-isolation")
+                    pdf["argv"] = ["make", "pdf-sandbox-verify"]
+                else:
+                    self.assertEqual(mapping, original)
+                    main = next(flow for flow in mapping["flows"] if flow["id"] == "native-unit-and-cost")
+                    with patch.dict(main, {"depends_on": ["source-quality"]}):
+                        with self.assertRaisesRegex(ValueError, "review the isolated unit commands"):
+                            pilot.run_partial_native(contract, Path("/candidate"), mode)
+                    with patch.dict(contract.validate_project.return_value, {"verification_budget_seconds": 901}):
+                        with self.assertRaisesRegex(ValueError, "unchanged 900-second budget"):
+                            pilot.run_partial_native(contract, Path("/candidate"), mode)
+                for field, bad_value in (("failure", "timeout"), ("exit_code", 1), ("forced_cleanup", True)):
+                    if mode == "layout-draft":
+                        pdf["argv"] = ["make", "pdf-sandbox-verify"]
+                    with self.subTest(field=field), patch.dict(rows[0], {field: bad_value}), patch("sys.stdout", new_callable=io.StringIO):
+                        with self.assertRaisesRegex(ValueError, "verification failed"):
+                            pilot.run_partial_native(contract, Path("/candidate"), mode)
+                for bad_rows in (rows[:-1], [rows[0]] * len(rows)):
+                    if mode == "layout-draft":
+                        pdf["argv"] = ["make", "pdf-sandbox-verify"]
+                    contract.execute_flow_plan.return_value = bad_rows
+                    with patch("sys.stdout", new_callable=io.StringIO), self.assertRaisesRegex(ValueError, "verification failed"):
+                        pilot.run_partial_native(contract, Path("/candidate"), mode)
+                contract.execute_flow_plan.return_value = rows
+                if mode == "layout-draft":
+                    pdf["argv"] = ["make", "pdf-sandbox-verify"]
+                preflight = next(row for row in rows if row["id"] == "gate-and-artifact-integrity")
+                with patch.dict(preflight, {"duration_seconds": 121}), patch("sys.stdout", new_callable=io.StringIO):
+                    with self.assertRaisesRegex(ValueError, "verification failed"):
+                        pilot.run_partial_native(contract, Path("/candidate"), mode)
+                for late, changed in ((True, False), (False, True)):
+                    if mode == "layout-draft":
+                        pdf["argv"] = ["make", "pdf-sandbox-verify"]
+                    contract.performance_summary.return_value = {"within_budget": not late}
+                    contract.clean_revision.side_effect = ["1" * 40, ("2" if changed else "1") * 40]
+                    with patch("sys.stdout", new_callable=io.StringIO), self.assertRaisesRegex(ValueError, "verification failed"):
+                        pilot.run_partial_native(contract, Path("/candidate"), mode)
 
     def test_rejects_selection_and_reporter_environment_overrides(self):
         for name in ("TEST_ARGS", "E2E_ARGS", "MAKEFLAGS", "PNPM", "NODE_OPTIONS", "VITEST_MAX_THREADS", "PW_TEST_GREP", "PLAYWRIGHT_JSON_OUTPUT_FILE", "KEEL_BROWSER_LANE"):
@@ -1230,6 +1264,12 @@ with native.cost_seed_directory() as seed:
         isolated_browser = probe.split("      - name: Time the complete browser process\n", 1)[1].split("      - name:", 1)[0]
         self.assertIn("timeout-minutes: 5", isolated_browser)
         self.assertIn("if elapsed > 300:", isolated_browser)
+        isolated_unit = probe.split("      - name: Diagnose the complete native unit inventory\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: ${{ inputs.isolated_unit }}", isolated_unit)
+        self.assertIn("scripts/tugling-pilot.py unit-diagnostic", isolated_unit)
+        complete_probe = " ".join(probe.split("      - name: Execute complete required gate on this revision\n", 1)[1].split("      - name: Prove", 1)[0].split())
+        self.assertEqual(complete_probe.count("!inputs.regression_probe && !inputs.isolated_browser && !inputs.isolated_unit"), 2)
+        self.assertIn("(inputs.isolated_browser && inputs.regression_probe) || (inputs.isolated_unit && (inputs.isolated_browser || inputs.regression_probe))", " ".join(probe.split()))
         self.assertIn("scripts/ci-verification.py publish", workflow)
         self.assertEqual(ci.count("needs: [secret-scan, native]"), 3)
         self.assertEqual(ci.count("!cancelled() && (needs.secret-scan.result != 'success' ||"), 3)

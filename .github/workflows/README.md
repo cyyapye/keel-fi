@@ -50,6 +50,15 @@ times the complete browser process on a fresh `ubuntu-24.04` VM. Compare its
 elapsed time and case counts with a complete PR run on the same Git tree and
 runner. The ordinary PR workflow supplies the required verification receipt.
 
+For unit timeout diagnosis, dispatch the same manual workflow with
+`isolated_unit` enabled. It runs the existing preflight and complementary main
+unit flows under the pinned scheduler, with one 900-second active clock and
+unchanged case deadlines. The complete unit inventory must still pass. This
+partial diagnostic excludes competing source, build and PDF flows and emits no
+required receipt. It cannot pass named PR checks or authorize deployment. The
+three manual diagnostic modes are mutually exclusive. Confirm fresh included
+compute headroom before dispatch; a push to a ready PR also starts full CI.
+
 A same-repository draft targeting `main` can take a shorter path when its only
 changes are edits to seven reviewed documents, four registered Vitest files,
 three web stylesheets and their reviewed visual checks, or a combination of
