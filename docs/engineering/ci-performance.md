@@ -367,17 +367,29 @@ exceeded its unchanged five-second deadline during browser overlap in run
 `41383958842`. Its authentication, validation, accepted-write, valuation,
 history and fixture work remain inside that same test and deadline. The two D1
 cost files remain in main, which can run alongside source checks and browsers.
-Main unit files retain their measured cost priorities. The cash-balance-history
-cost fixture has a 105-second hint from run `42772244012`, attempt 2. It had
-started at offset 483.12 of main Vitest and finished at 588.04, while every
-other file finished by 535.98. Cost fixtures without a timing hint receive early
-admission for both `-cost.test.ts` and `-d1-cost.test.ts` names. These
-priorities retain every discovered specification, assertion, worker count and
-deadline. The same run started main units at offset 113.423 after the image
-build, despite units having only the completed integrity gate as a prerequisite.
-Admitting units before those independent flows removes that avoidable wait; a
-new full Linux receipt must establish the resulting gate duration. The
-automatic-review day/history case has early main-phase priority after run
+Main unit files retain their measured cost priorities. Run `42772244012`,
+attempt 2, exposed a 104.9-second cash-history fixture: it started at offset
+483.12 of main Vitest and finished at 588.04, while every other file finished by
+535.98. Early admission then exceeded the unchanged 120-second case deadline in
+run `42777326654`. Its setup now executes the same production bank-refresh and
+holding-import operations beside D1, following the existing rename fixture
+pattern. The host still meters every original history read and checks its query
+plans. All 100 bank accounts, 120 brokerage positions, historical growth,
+foreign-household checks, assertions and deadlines remain. A managed Linux
+replay completed the file in 11.1 seconds (case body 5.7 seconds), with exactly
+the original counters: bank reads 3,206/6,406 and brokerage reads 11/20, zero
+writes, and three/two read-model round trips respectively. This focused replay
+supplies a 12-second scheduling hint, not a whole-gate headroom claim.
+
+Cost fixtures without a timing hint receive early admission for both
+`-cost.test.ts` and `-d1-cost.test.ts` names. These priorities retain every
+discovered specification and worker count. The failed complete run also started
+main units at offset 113.423 after the image build, despite units having only
+the completed integrity gate as a prerequisite. Admitting units before those
+independent flows removes that avoidable wait; a new full Linux receipt must
+establish the resulting gate duration.
+
+The automatic-review day/history case has early main-phase priority after run
 `40443347834` exceeded its unchanged 90-second deadline during browser overlap.
 That run's host CPU pressure (`some avg10`) had a 65.6% median. Those admission
 changes retained its 120-item histories, request envelope, D1 assertions, worker

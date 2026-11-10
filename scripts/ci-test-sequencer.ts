@@ -13,8 +13,6 @@ const seconds: Readonly<Record<string, number>> = {
   "portfolio-watch-activity.test.ts": 255,
   "renamed-investments-d1-cost.test.ts": 200,
   "portfolio-baseline-d1-cost.test.ts": 107,
-  // Full Linux run 42772244012: 104.9 seconds, with a 52-second idle tail.
-  "cash-balance-history-cost.test.ts": 105,
   "automatic-investment-review-d1-cost.test.ts": 104,
   "participation-d1-cost.test.ts": 104,
   "purchase-details-d1-cost.test.ts": 97,
@@ -27,6 +25,8 @@ const seconds: Readonly<Record<string, number>> = {
   "d1-read-budgets.test.ts": 40,
   "holding-history-d1-cost.test.ts": 39,
   "d1-query-cost.test.ts": 24,
+  // Focused Linux replay after moving production setup beside D1: 11.1 seconds.
+  "cash-balance-history-cost.test.ts": 12,
 };
 
 function priority(moduleId: string): number {
