@@ -1,8 +1,11 @@
+import errno
 import json
 import os
 from pathlib import Path
 import platform
 import shutil
+import socket
+import stat
 import subprocess
 
 
@@ -81,6 +84,26 @@ def assert_worker_outside_manager(proc_root, pid, uid):
         pid = int(parent[0])
 
 
+def closed_rootful_socket(path, owner_uid):
+    try:
+        metadata = Path(path).lstat()
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_uid != owner_uid:
+        raise ValueError("Unexpected rootful Docker socket type or owner")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(1)
+        try:
+            connection.connect(str(path))
+        except OSError as error:
+            if error.errno == errno.ENOENT:
+                return False
+            if error.errno == errno.ECONNREFUSED:
+                return True
+            raise
+    raise ValueError("Rootful Docker socket is still accepting connections")
+
+
 def main():
     release = platform.freedesktop_os_release() if platform.system() == "Linux" else {}
     uid = os.getuid()
@@ -142,7 +165,9 @@ def main():
             raise ValueError("A rootful container service remains active")
         if run("systemctl", "show", service, "-p", "UnitFileState", "--value", capture=True) != "masked":
             raise ValueError("A rootful container service is not masked")
-    if Path("/run/docker.sock").exists():
+    if closed_rootful_socket("/run/docker.sock", 0):
+        run("sudo", "rm", "--", "/run/docker.sock")
+    if os.path.lexists("/run/docker.sock"):
         raise ValueError("Rootful Docker socket remains available")
     run("dockerd-rootless-setuptool.sh", "check")
     run("dockerd-rootless-setuptool.sh", "install")

@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import runpy
+import socket
 from pathlib import Path
 import subprocess
 import tempfile
@@ -20,6 +21,27 @@ setup_spec.loader.exec_module(setup)
 
 
 class DisposableSetupTests(unittest.TestCase):
+    def test_distinguishes_closed_rootful_socket_from_live_or_unsafe_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "docker.sock"
+            self.assertFalse(setup.closed_rootful_socket(path, os.getuid()))
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                listener.bind(str(path))
+                listener.listen(1)
+                with self.assertRaisesRegex(ValueError, "accepting connections"):
+                    setup.closed_rootful_socket(path, os.getuid())
+            self.assertTrue(setup.closed_rootful_socket(path, os.getuid()))
+            with self.assertRaisesRegex(ValueError, "owner"):
+                setup.closed_rootful_socket(path, os.getuid() + 1)
+            alias = Path(directory) / "alias.sock"
+            alias.symlink_to(path)
+            with self.assertRaisesRegex(ValueError, "type"):
+                setup.closed_rootful_socket(alias, os.getuid())
+            regular = Path(directory) / "regular.sock"
+            regular.write_text("not a socket")
+            with self.assertRaisesRegex(ValueError, "type"):
+                setup.closed_rootful_socket(regular, os.getuid())
+
     def test_requires_hosted_ubuntu_before_any_provisioning(self):
         environment = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted",
                        "RUNNER_OS": "Linux", "RUNNER_ARCH": "X64", "ImageOS": "ubuntu24"}

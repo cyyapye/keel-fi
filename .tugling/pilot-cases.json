@@ -1871,6 +1871,7 @@
     "test_ci_diagnostics.DiagnosticsTests.test_partial_run_and_repeated_packaging_preserve_source_and_foreign_output",
     "test_ci_diagnostics.DiagnosticsTests.test_rejects_symlinks_and_hardlinks_without_touching_target",
     "test_ci_diagnostics.DiagnosticsTests.test_success_keeps_exact_reports_and_excludes_browser_and_foreign_files",
+    "test_ci_verification.DisposableSetupTests.test_distinguishes_closed_rootful_socket_from_live_or_unsafe_paths",
     "test_ci_verification.DisposableSetupTests.test_preserves_subordinate_ranges_and_allocates_only_unused_ids",
     "test_ci_verification.DisposableSetupTests.test_rejects_ambiguous_or_unsafe_subordinate_ranges",
     "test_ci_verification.DisposableSetupTests.test_requires_hosted_ubuntu_before_any_provisioning",
