@@ -1250,12 +1250,22 @@ during the final browser work. Its mobile inventory capture also differed only
 in the existing Hide activity hover underline. Both inventory references now
 establish their intended hover explicitly after the capture mask settles.
 
-The independent browser restart and UI catalogue cases move from the longer
-stateful-a lane into the source lane's available capacity. These cases own their
-synthetic provider pages or API mocks and do not depend on either lane's D1
-fixture. The reviewed cases, renderer, database copies, assertions, worker caps
-and 300/900-second deadlines are unchanged. A complete passing receipt is still
+Independent provider restart, catalogue and API-mocked visual cases are balanced
+among the existing lanes. These cases own their synthetic provider pages or API
+mocks and do not depend on the destination lane's D1 fixture. Mocked contexts
+continue blocking service workers and rejecting unhandled application APIs. The
+reviewed cases, renderer, database copies, assertions, worker caps and
+300/900-second deadlines are unchanged. A complete passing receipt is still
 required to establish the resulting timing.
+
+Each native unit phase uses Node's compilation cache in a separate owned
+temporary directory. The required seed preparation warms it inside the timed
+main phase. It is never placed in the sealed D1 seed, retained across phases or
+uploaded; every test and result check still executes. Existing lifecycle checks
+cover cleanup and cancellation, and the phase holdout requires the cache to be
+outside the D1 seed. A six-process macOS/Node 22.13.0 import probe took 2.283
+seconds without it and 1.640 seconds with it (6.4 MB of temporary bytecode).
+This dependency-import measurement is not a complete native-gate benchmark.
 
 The first balanced run completed those lanes but reached the overall deadline
 with two cases left in the late mocked lane. A lower source-check CPU priority

@@ -825,9 +825,13 @@ class NativeAccountingTests(unittest.TestCase):
             sentinel = root / "unowned"
             sentinel.write_text("synthetic")
             with patch.object(native, "ARTIFACTS", root):
-                with native.cost_seed_directory() as seed:
+                with native.cost_seed_directory() as seed, native.cost_seed_directory(prefix="node-compile-") as cache:
                     self.assertTrue(Path(seed).is_dir())
+                    self.assertTrue(Path(cache).is_dir())
+                    self.assertFalse(Path(cache).is_relative_to(seed))
+                    (Path(cache) / "synthetic-bytecode").write_text("synthetic")
                 self.assertFalse(Path(seed).exists())
+                self.assertFalse(Path(cache).exists())
                 with self.assertRaises(ValueError):
                     with native.cost_seed_directory() as failed:
                         raise ValueError("synthetic failure")
@@ -1090,6 +1094,11 @@ with native.cost_seed_directory() as seed:
                 # Exercise production, claim and publication together without starting more runtimes.
                 for fault in ("none", "strict snapshot", "main timestamp", "main snapshot", "changed proof"):
                     def execute(command, **options):
+                        if "env" in options:
+                            cache = Path(options["env"]["NODE_COMPILE_CACHE"])
+                            seed = Path(options["env"]["KEEL_TEST_SQLITE_SNAPSHOT_ROOT"])
+                            self.assertTrue(cache.is_dir())
+                            self.assertFalse(cache.is_relative_to(seed))
                         if "--reporter=json" in command:
                             path = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("--outputFile=")))
                             first = path.name == "vitest-preflight.json"

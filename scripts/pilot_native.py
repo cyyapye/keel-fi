@@ -713,12 +713,12 @@ class AccountedResult(unittest.TextTestResult):
 
 
 @contextmanager
-def cost_seed_directory():
+def cost_seed_directory(prefix="d1-seed-"):
     def interrupted(signum, _frame):
         raise SystemExit(128 + signum)
     previous = {name: signal.signal(name, interrupted) for name in (signal.SIGINT, signal.SIGTERM)}
     try:
-        with tempfile.TemporaryDirectory(prefix="d1-seed-", dir=ARTIFACTS) as seed:
+        with tempfile.TemporaryDirectory(prefix=prefix, dir=ARTIFACTS) as seed:
             yield seed
     finally:
         for name, handler in previous.items():
@@ -971,8 +971,9 @@ def run_vitest(runner, inventory):
                "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
                "--reporter=./scripts/pilot-vitest-reporter.ts", f"--outputFile={output}"]
     started_at = int(time.time() * 1000)
-    with cost_seed_directory() as seed:
-        env = {**os.environ, "KEEL_TEST_SQLITE_SNAPSHOT_ROOT": seed}
+    with cost_seed_directory() as seed, cost_seed_directory(prefix="node-compile-") as compile_cache:
+        env = {**os.environ, "KEEL_TEST_SQLITE_SNAPSHOT_ROOT": seed,
+               "NODE_COMPILE_CACHE": compile_cache}
         if strict:
             command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
             returncode = subprocess.run(command, cwd=ROOT, check=False, env=env).returncode
@@ -981,7 +982,7 @@ def run_vitest(runner, inventory):
                 command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
             with provider_day_scratch() as provider_scratch:
                 subprocess.run(["node", "--import", "tsx", "scripts/prepare-d1-cost-seed.ts", seed],
-                               cwd=ROOT, check=True)
+                               cwd=ROOT, check=True, env=env)
                 unavailable_pdf = Path(seed) / "pdf-runtime-unavailable.json"
                 if unavailable_pdf.exists() or unavailable_pdf.is_symlink():
                     raise ValueError("Unit PDF boundary must remain unprovisioned")

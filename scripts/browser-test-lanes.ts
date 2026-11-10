@@ -55,11 +55,7 @@ export const BROWSER_TEST_LANES = {
     "holdings-import.visual.spec.ts",
     "investment-review.visual.spec.ts",
   ],
-  "mocked-development": [
-    "cash-holdings.visual.spec.ts",
-    "agreement-security.visual.spec.ts",
-    "investment-holdings.visual.spec.ts",
-  ],
+  "mocked-development": ["investment-holdings.visual.spec.ts"],
   "stateful-development": [
     "app-recovery.visual.spec.ts",
     "navigation.visual.spec.ts",
@@ -75,9 +71,11 @@ export const BROWSER_TEST_LANES = {
     "manual-holdings.visual.spec.ts",
     "observed-cash-flow.visual.spec.ts",
     "plan-actual-monitoring.visual.spec.ts",
+    "provider-browser-lifecycle.spec.ts",
     "provider-legal-documents.spec.ts",
   ],
   "stateful-b": [
+    "cash-holdings.visual.spec.ts",
     "legal-name-resolution.visual.spec.ts",
     "purchase-details.visual.spec.ts",
     "share-basis.spec.ts",
@@ -91,8 +89,8 @@ export const BROWSER_TEST_LANES = {
     "private-alpha.spec.ts",
   ],
   "stateful-source": [
+    "agreement-security.visual.spec.ts",
     "public-source-updates.spec.ts",
-    "provider-browser-lifecycle.spec.ts",
     "provider-session.spec.ts",
     "ui-catalogue.visual.spec.ts",
   ],
