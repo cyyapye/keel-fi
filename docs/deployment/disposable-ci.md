@@ -7,9 +7,10 @@ removing the current execution path.
 ## Verify the candidate
 
 1. Run the workflow contract tests, setup safety tests, and local verification.
-2. Read the account's remaining included compute and confirm the existing $0
-   Actions and Packages hard stops. Keep paid overages, paid caches, and larger
-   runners disabled.
+2. Read the account's remaining included compute and preserve its
+   operator-approved Actions and Packages hard stops. Reserve the complete
+   selected run envelope within included usage. Do not raise a cap or enable
+   paid overages, paid caches, or larger runners.
 3. After approval to push, publish the reviewed candidate branch.
 4. Dispatch `tugling-pilot.yml` on that branch without diagnostic flags.
 5. Match the run's `headSha` to the candidate commit. Require a complete native
