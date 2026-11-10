@@ -5,6 +5,9 @@
       "id": "source-quality",
       "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
       "argv": [
+        "nice",
+        "-n",
+        "10",
         "make",
         "-j2",
         "data-scan",

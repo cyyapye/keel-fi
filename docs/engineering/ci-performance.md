@@ -1257,6 +1257,14 @@ fixture. The reviewed cases, renderer, database copies, assertions, worker caps
 and 300/900-second deadlines are unchanged. A complete passing receipt is still
 required to establish the resulting timing.
 
+The first balanced run completed those lanes but reached the overall deadline
+with two cases left in the late mocked lane. Source checks now retain both Make
+jobs at a lower CPU scheduling priority (`nice -n 10`), allowing the critical
+unit flow to use contested CPU time first. Source checks still start immediately
+after preflight and must finish within their existing 600-second flow limit; all
+complete-gate and browser deadlines remain unchanged. This is a scheduling
+trial, not passing timing evidence.
+
 Run `42805759768` reached the complete 900-second limit without a failed case.
 Its source-review fixture took 214.2 seconds, but stale estimates admitted it
 behind shorter files. Refreshing those estimates in run `42808790553` preserved
