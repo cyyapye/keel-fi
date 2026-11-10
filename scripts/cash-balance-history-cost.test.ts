@@ -1,16 +1,25 @@
+import { build } from "esbuild";
+import { z } from "zod";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
-import {
-  seedCostHoldings,
-  syntheticDigest,
-} from "./test-support/cost-fixtures";
 import { D1CashAccountsRepository } from "../packages/database/src/cash-accounts";
 import { D1BrokerageCashHistoryRepository } from "../packages/database/src/cash-balance-history";
-import { addMinorUnits } from "../packages/domain/src/index";
 
 let fixture: Awaited<ReturnType<typeof createCostDatabase>>;
 beforeAll(async () => {
-  fixture = await createCostDatabase();
+  const bundled = await build({
+    entryPoints: ["scripts/test-support/cash-balance-history-cost-worker.ts"],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    conditions: ["workerd", "worker", "browser"],
+    mainFields: ["browser", "module", "main"],
+    external: ["node:*", "cloudflare:*"],
+    logLevel: "silent",
+  });
+  fixture = await createCostDatabase(bundled.outputFiles[0]!.text);
 }, 30_000);
 afterAll(async () => {
   await fixture?.close();
@@ -18,58 +27,39 @@ afterAll(async () => {
 const subject = "synthetic-access-subject";
 
 async function seedBank(who: string, start: number, end: number) {
-  const repository = new D1CashAccountsRepository(fixture.database, "free");
-  const connection =
-    start === 0
-      ? await repository.upsertConnection(
-          who,
-          "Synthetic history bank",
-          "synthetic-only/cash-history",
-          syntheticDigest(who === subject ? 1000 : 2000),
-        )
-      : (await repository.getState(who, true)).connections[0]!;
-  for (let revision = start; revision < end; revision++) {
-    const observedAt = `2026-08-${String(revision + 1).padStart(2, "0")}T12:00:00.000Z`;
-    const run = await repository.beginRefresh(
-      who,
-      connection.id,
-      revision === 0 ? "initial" : "live",
-    );
-    const staged = await repository.stageProposal(who, run.id, {
-      objectKey: `synthetic-history/${who}/${revision}.json`,
-      sourceSha256: syntheticDigest(revision + 100),
-      normalized: {
-        normalizedFingerprint: syntheticDigest(revision + 200),
-        observedAt,
-        rows: Array.from({ length: 100 }, (_, i) => ({
-          naturalKeySha256: syntheticDigest(i + 1),
-          itemAccountKeySha256: syntheticDigest(i + 1),
-          institutionLabel: "Synthetic history bank",
-          accountLabel: `Synthetic account ${i}`,
-          subtype: "checking" as const,
-          availableMinor: addMinorUnits(10000, revision),
-          currentMinor: addMinorUnits(10000, revision),
-          valueMinor: addMinorUnits(10000, revision),
-          valueState: "reported" as const,
-          balanceSource: "available" as const,
-          observedAt,
-          issues: [],
-        })),
-      },
-    });
-    if (!staged.proposal) throw new Error("Missing synthetic proposal");
-    await repository.completeRefresh(who, run.id, staged.proposal.id, 100);
-    if (revision === 0)
-      await repository.applyProposal(who, staged.proposal.id, {
-        changeNote: "Accepted synthetic history accounts",
-        decisions: staged.proposal.rows.map((row) => ({
-          rowId: row.id,
-          decision: "accepted" as const,
-        })),
-      });
-    else await repository.applyAutomaticUpdates(who);
-  }
-  return (await repository.getState(who, true)).acceptedAccounts[0]!.id;
+  const response = await fixture.dispatchFetch(
+    "https://synthetic-fixture.invalid/cash-history",
+    {
+      method: "POST",
+      body: JSON.stringify({ operation: "bank", subject: who, start, end }),
+    },
+  );
+  expect(response.ok).toBe(true);
+  return z
+    .object({
+      operation: z.literal("bank"),
+      accountId: z.string().min(1).max(256),
+      accounts: z.literal(100),
+    })
+    .strict()
+    .parse(await response.json()).accountId;
+}
+
+async function seedHoldings(revision: number) {
+  const response = await fixture.dispatchFetch(
+    "https://synthetic-fixture.invalid/cash-history",
+    {
+      method: "POST",
+      body: JSON.stringify({ operation: "holdings", revision }),
+    },
+  );
+  expect(response.ok).toBe(true);
+  z.object({
+    operation: z.literal("holdings"),
+    importId: z.string().min(1).max(256),
+  })
+    .strict()
+    .parse(await response.json());
 }
 
 it("keeps cash history reads fixed and linear as accepted history grows, with household isolation and indexed plans", async () => {
@@ -100,9 +90,7 @@ it("keeps cash history reads fixed and linear as accepted history grows, with ho
   meter.reset();
   await banks.balanceHistory(subject, laterId, 5);
   expect(meter.cost.rowsRead).toBe(high.rowsRead);
-  await seedCostHoldings(fixture.database, subject, 1, false, {
-    instrument: "cash",
-  });
+  await seedHoldings(1);
   const position = await fixture.database
     .prepare(
       `SELECT a.position_id,a.snapshot_id FROM holding_import_applications a JOIN holding_position_snapshots s ON s.id=a.snapshot_id WHERE s.instrument_type='cash' LIMIT 1`,
@@ -116,9 +104,7 @@ it("keeps cash history reads fixed and linear as accepted history grows, with ho
   );
   const brokerLow = { ...meter.cost };
   for (let revision = 2; revision <= 4; revision++)
-    await seedCostHoldings(fixture.database, subject, revision, false, {
-      instrument: "cash",
-    });
+    await seedHoldings(revision);
   meter.reset();
   expect((await broker.history(subject, position!.position_id, 5))?.total).toBe(
     4,

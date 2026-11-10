@@ -25,6 +25,8 @@ const seconds: Readonly<Record<string, number>> = {
   "d1-read-budgets.test.ts": 40,
   "holding-history-d1-cost.test.ts": 39,
   "d1-query-cost.test.ts": 24,
+  // Focused Linux replay after moving production setup beside D1: 11.1 seconds.
+  "cash-balance-history-cost.test.ts": 12,
 };
 
 function priority(moduleId: string): number {
@@ -42,7 +44,7 @@ function priority(moduleId: string): number {
   if (name === "provider-agent-usage.test.ts") return 1_001;
   // New D1 scale cases can dominate the tail before an OVH timing exists.
   // Admit unmeasured cost fixtures first; never rely on a complete hint list.
-  return seconds[name] ?? (name.endsWith("-d1-cost.test.ts") ? 1_000 : 0);
+  return seconds[name] ?? (name.endsWith("-cost.test.ts") ? 1_000 : 0);
 }
 
 export function prioritizeCostFiles<T extends { readonly moduleId: string }>(
