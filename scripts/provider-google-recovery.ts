@@ -197,10 +197,21 @@ export function createProviderGoogleRecovery(options: {
         .getByRole("button", { name: names })
         .or(auth.getByRole("link", { name: names }))
         .filter({ visible: true });
-      const wrapper = buttons.filter({
-        has: auth.locator('iframe[title="Sign in with Google Button"]'),
-      });
-      const google = (await wrapper.count()) === 1 ? wrapper : buttons;
+      // Google personalizes the iframe's accessible name for the saved account.
+      // Sydecar's native parent button then has no "Continue with Google" name.
+      // Identify that one provider-owned control by its embedded Google button.
+      const wrapper =
+        options.provider === "sydecar"
+          ? auth
+              .locator('button, [role="button"]')
+              .filter({
+                has: auth.locator('iframe[title="Sign in with Google Button"]'),
+              })
+              .filter({ visible: true })
+          : buttons.filter({
+              has: auth.locator('iframe[title="Sign in with Google Button"]'),
+            });
+      const google = (await wrapper.count()) > 0 ? wrapper : buttons;
       if ((await google.count()) > 0) {
         if (
           (await google.count()) !== 1 ||

@@ -129,6 +129,8 @@
         "scripts/cash-request-d1-cost.test.ts",
         "scripts/cash-balance-history-cost.test.ts",
         "scripts/test-support/cash-balance-history-cost-worker.ts",
+        "scripts/public-source-reviews-d1-cost.test.ts",
+        "scripts/test-support/public-source-capture-cost-worker.ts",
         "scripts/automatic-investment-review-d1-cost.test.ts",
         "scripts/portfolio-watch-d1-cost.test.ts",
         "scripts/portfolio-watch-activity.test.ts",

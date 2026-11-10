@@ -869,7 +869,7 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
         body:
           provider === "tokenfolio"
             ? `<button onclick="location.href='${accountUrl}'">Continue with Google</button>`
-            : `<div role="button" style="position:relative;width:220px;height:44px"><button aria-label="Continue with Google. Opens in new tab">Continue with Google</button><iframe title="Sign in with Google Button" style="position:absolute;inset:0;width:100%;height:100%;border:0" srcdoc="<body style='margin:0'><button style='width:100%;height:44px' onclick='parent.open(&quot;${accountUrl}&quot;)'>Sign in with Google</button>"></iframe></div>`,
+            : `<button type="button" style="position:relative;width:220px;height:44px"><div><iframe title="Sign in with Google Button" style="position:absolute;inset:0;width:100%;height:100%;border:0" srcdoc="<body style='margin:0'><button style='width:100%;height:44px' onclick='parent.open(&quot;${accountUrl}&quot;)'>Continue as Synthetic User</button>"></iframe></div></button>`,
       }),
     );
     for (const mode of ["background", "interactive-mfa", "first-enrollment"]) {

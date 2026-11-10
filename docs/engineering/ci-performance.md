@@ -1245,6 +1245,48 @@ worker counts and all deadlines stay the same.
 
 ## Reconnect release verification follow-up
 
+Run `42821941589`, attempt 3, completed all unit cases but reached 900 seconds
+during the final browser work. Its mobile inventory capture also differed only
+in the existing Hide activity hover underline. Both inventory references now
+establish their intended hover explicitly after the capture mask settles.
+
+Independent provider restart, catalogue and API-mocked visual cases are balanced
+among the existing lanes. These cases own their synthetic provider pages or API
+mocks and do not depend on the destination lane's D1 fixture. Mocked contexts
+continue blocking service workers and rejecting unhandled application APIs. The
+reviewed cases, renderer, database copies, assertions, worker caps and
+300/900-second deadlines are unchanged. A complete passing receipt is still
+required to establish the resulting timing.
+
+Each native unit phase uses Node's compilation cache in a separate owned
+temporary directory. The required seed preparation warms it inside the timed
+main phase. It is never placed in the sealed D1 seed, retained across phases or
+uploaded; every test and result check still executes. Existing lifecycle checks
+cover cleanup and cancellation, and the phase holdout requires the cache to be
+outside the D1 seed. A six-process macOS/Node 22.13.0 import probe took 2.283
+seconds without it and 1.640 seconds with it (6.4 MB of temporary bytecode).
+This dependency-import measurement is not a complete native-gate benchmark.
+
+The first balanced run completed those lanes but reached the overall deadline
+with two cases left in the late mocked lane. A lower source-check CPU priority
+trial in run `42835342170` did not pass either: units took 554.9 seconds versus
+556.3, while source checks grew from 367.5 to 450.5 seconds. That trial was
+reverted. All complete-gate and browser deadlines remain unchanged.
+
+The source scale fixture's two captures now run their unchanged production
+repository operations beside real D1, using the same `measureD1` wrapper to
+export actual billing counters. Their synthetic capture inputs are unchanged.
+The calling test retains its original acceptance, read/write/round-trip
+ceilings, history growth, empty and foreign state, query plans and integrity
+assertions. Only the test-host bridge is removed from these capture operations;
+this does not combine or omit any production database call.
+
+Focused macOS/Node 22.13.0 runs passed all four cases in 49.7 seconds for the
+original fixture and 31.6 seconds for the candidate. All 24 reported D1 counter
+records match exactly. Both capture inputs and the 65 original assertion
+matchers, expected values and ordering match structurally. These are local
+transport measurements; the complete native receipt remains the release proof.
+
 Run `42805759768` reached the complete 900-second limit without a failed case.
 Its source-review fixture took 214.2 seconds, but stale estimates admitted it
 behind shorter files. Refreshing those estimates in run `42808790553` preserved
