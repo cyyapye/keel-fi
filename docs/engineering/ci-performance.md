@@ -1245,6 +1245,18 @@ worker counts and all deadlines stay the same.
 
 ## Reconnect release verification follow-up
 
+Run `42821941589`, attempt 3, completed all unit cases but reached 900 seconds
+during the final browser work. Its mobile inventory capture also differed only
+in the existing Hide activity hover underline. Both inventory references now
+establish their intended hover explicitly after the capture mask settles.
+
+The independent browser restart and UI catalogue cases move from the longer
+stateful-a lane into the source lane's available capacity. These cases own their
+synthetic provider pages or API mocks and do not depend on either lane's D1
+fixture. The reviewed cases, renderer, database copies, assertions, worker caps
+and 300/900-second deadlines are unchanged. A complete passing receipt is still
+required to establish the resulting timing.
+
 Run `42805759768` reached the complete 900-second limit without a failed case.
 Its source-review fixture took 214.2 seconds, but stale estimates admitted it
 behind shorter files. Refreshing those estimates in run `42808790553` preserved

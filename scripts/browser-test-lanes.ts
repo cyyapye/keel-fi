@@ -75,9 +75,6 @@ export const BROWSER_TEST_LANES = {
     "manual-holdings.visual.spec.ts",
     "observed-cash-flow.visual.spec.ts",
     "plan-actual-monitoring.visual.spec.ts",
-    "provider-browser-lifecycle.spec.ts",
-    "provider-session.spec.ts",
-    "ui-catalogue.visual.spec.ts",
     "provider-legal-documents.spec.ts",
   ],
   "stateful-b": [
@@ -93,7 +90,12 @@ export const BROWSER_TEST_LANES = {
     "position-links.visual.spec.ts",
     "private-alpha.spec.ts",
   ],
-  "stateful-source": ["public-source-updates.spec.ts"],
+  "stateful-source": [
+    "public-source-updates.spec.ts",
+    "provider-browser-lifecycle.spec.ts",
+    "provider-session.spec.ts",
+    "ui-catalogue.visual.spec.ts",
+  ],
 } as const satisfies Record<string, readonly string[]>;
 
 const DEVELOPMENT_ONLY_STATEFUL_SPECS = [

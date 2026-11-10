@@ -818,7 +818,7 @@ test("reconciles a complete brokerage inventory automatically and keeps historic
     "public-inventory-empty.png",
     test.info().project.name === "chromium"
       ? source.getByRole("button", { name: "Check now", exact: true })
-      : undefined,
+      : source.getByRole("button", { name: "Hide activity", exact: true }),
   );
   await captureSource(source, "inventory-empty");
   const partialId = await fixture.next("partial");
