@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, request } from "node:http";
 import type { Socket } from "node:net";
+import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -57,26 +59,33 @@ test(
 test(
   "connects and paints the generated viewer through the authenticated gateway",
   { tag: "@mobile-only" },
-  async ({ page }) => {
+  async ({ page }, testInfo) => {
     const sockets = new Set<Socket>();
     const requestedProtocols: Array<string | undefined> = [];
-    const html = __providerBrowserReconnectTest
-      .remoteBrowserHtml(
-        "Tokenfolio",
-        "synthetic-viewer-password",
-        "c".repeat(43),
-        "f".repeat(43),
-      )
-      // Use an ordinary same-origin loopback server for the synthetic transport.
-      .replace('"wss://"', '"ws://"');
-    const stream = createServer((request, response) => {
-      if (request.url === "/core/rfb.js") {
-        response.writeHead(200, { "Content-Type": "text/javascript" });
-        // Keep noVNC's default of requesting no subprotocols. The browser itself
-        // validates the real WebSocket upgrade against the generated options.
-        response.end(`export default class SyntheticRFB extends EventTarget {
+    const requestedModules: string[] = [];
+    const sdk = testInfo.outputPath("synthetic-novnc");
+    await mkdir(path.join(sdk, "core"), { recursive: true });
+    // Match the installed SDK's wide module graph. Its browser transport must
+    // remain one module request within the gateway's existing connection cap.
+    const modules = Array.from({ length: 32 }, (_, index) => index);
+    await Promise.all(
+      modules.map((index) =>
+        writeFile(
+          path.join(sdk, "core", `part-${index}.js`),
+          `export const ready${index} = globalThis.WebSocket !== undefined;`,
+        ),
+      ),
+    );
+    await writeFile(
+      path.join(sdk, "core", "rfb.js"),
+      modules
+        .map((index) => `import { ready${index} } from "./part-${index}.js";`)
+        .join("\n") +
+        `export default class SyntheticRFB extends EventTarget {
         constructor(target, url, options) {
           super();
+          if (![${modules.map((index) => `ready${index}`).join(",")}].every(Boolean))
+            throw new Error("Synthetic viewer dependency did not load");
           const stream = new WebSocket(url, options.wsProtocols || []);
           stream.addEventListener("open", () => {
             target.textContent = "Synthetic authenticated viewer";
@@ -96,7 +105,29 @@ test(
           });
           stream.addEventListener("close", () => this.dispatchEvent(new Event("disconnect")));
         }
-      }`);
+      }`,
+    );
+    const web = await __providerBrowserReconnectTest.prepareWebRoot(
+      testInfo.outputPath(),
+      sdk,
+      "Tokenfolio",
+      "synthetic-viewer-password",
+    );
+    const viewerModule = await readFile(
+      path.join(web.webRoot, "core", "rfb.js"),
+      "utf8",
+    );
+    // Use an ordinary same-origin loopback server for the synthetic transport.
+    const html = (
+      await readFile(path.join(web.webRoot, `${web.accessToken}.html`), "utf8")
+    ).replace('"wss://"', '"ws://"');
+    const stream = createServer((request, response) => {
+      if (request.url?.endsWith(".js")) requestedModules.push(request.url);
+      if (request.url === "/core/rfb.js") {
+        response.writeHead(200, { "Content-Type": "text/javascript" });
+        // Keep noVNC's default of requesting no subprotocols. The browser itself
+        // validates the real WebSocket upgrade against the generated options.
+        response.end(viewerModule);
       } else {
         response.writeHead(200, { "Content-Type": "text/html" });
         response.end(html);
@@ -169,8 +200,8 @@ test(
         probeNonce: "d".repeat(43),
         viewerSubject: "synthetic-viewer",
         expiresAt: new Date(Date.now() + 600000).toISOString(),
-        accessToken: "c".repeat(43),
-        scriptNonce: "f".repeat(43),
+        accessToken: web.accessToken,
+        scriptNonce: web.scriptNonce,
         backendPort: address.port,
         keys: createLocalJWKSet({ keys: [await exportJWK(keys.publicKey)] }),
       });
@@ -204,7 +235,7 @@ test(
         outgoing.once("error", () => response.destroy());
         outgoing.end();
       });
-      await page.goto(`${origin}/${"c".repeat(43)}.html`);
+      await page.goto(`${origin}/${web.accessToken}.html`);
       await expect(page.getByRole("status")).toHaveCount(0);
       await expect(
         page.getByText("Synthetic authenticated viewer"),
@@ -217,6 +248,7 @@ test(
         ),
       ).toEqual([255, 0, 0, 255]);
       expect(requestedProtocols).toEqual(["binary"]);
+      expect(requestedModules).toEqual(["/core/rfb.js"]);
     } finally {
       await gateway?.close();
       for (const socket of sockets) socket.destroy();

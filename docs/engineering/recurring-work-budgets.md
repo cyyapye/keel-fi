@@ -277,6 +277,16 @@ interval (at most 120 probe attempts). A service identity can receive only the
 current lease nonce; viewer requests require the exact requesting user and
 application audience. There is no authorization-result cache.
 
+Before starting the Tunnel, one local esbuild child packages the installed noVNC
+SDK into one browser module, with a five-second deadline and a 2-MiB output cap.
+It exits after packaging; no build service remains while idle. The generated
+viewer loads one module instead of sending the SDK's dependency graph through
+the small admission gateway in parallel. The native viewer case uses a 32-module
+synthetic SDK and requires successful painting with exactly one module request.
+TCP, cryptographic concurrency, total requests and lease limits remain
+unchanged. Packaging failure closes preparation through the existing failure
+owner; it adds no retries, Keel/D1 requests or object operations.
+
 The JWKS client starts only on an admitted lease, times out after three seconds,
 caches public keys for five minutes and imposes a 30-second cooldown on unknown
 keys. Budget at most 31 key downloads per 15-minute lease, including a boundary
