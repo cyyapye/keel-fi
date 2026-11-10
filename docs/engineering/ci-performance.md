@@ -1242,3 +1242,21 @@ frontier. The direct and previous forms produced identical complete fixtures at
 12 and 24 captures. All 13 affected local D1 cases passed. The full native gate
 remains the release proof. SQL workloads, data scale, actual billing assertions,
 worker counts and all deadlines stay the same.
+
+## Reconnect release verification follow-up
+
+Run `42805759768` reached the complete 900-second limit without a failed case.
+The source-review fixture took 214.2 seconds, but stale file estimates deferred
+it until 4 minutes 13 seconds after the populated migration fixture started. The
+provider, Watch activity and rename estimates were 448, 255 and 200 seconds;
+their measured times were 111.1, 88.6 and 31.8 seconds. Refreshing those hints
+admits the source-review fixture before the shorter measured files. The six
+deadline-sensitive priorities and early admission for unmeasured cost files
+remain. A complete native receipt must validate the resulting order, including
+the source cases' unchanged 120-second deadlines; the older failed scheduling
+trial above is not passing evidence for this candidate.
+
+The inventory desktop reference also included a hovered Check now action without
+establishing hover after its capture-only layout mask. Explicit hover
+preparation replayed all ten source cases on the canonical Linux renderer with
+the existing images and thresholds. Case identities and coverage are unchanged.
