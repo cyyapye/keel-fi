@@ -370,6 +370,10 @@ describe("private named reconnect configuration", () => {
     await expect(
       loadReconnectAccess(config.apiOrigin, "sydecar"),
     ).rejects.toThrow("scope");
+    // A matching reconnect hostname does not authorize another API origin.
+    await expect(
+      loadReconnectAccess("https://keel.example.com", config.provider),
+    ).rejects.toThrow("scope");
     await chmod(tokenFile, 0o640);
     await expect(
       loadReconnectAccess(config.apiOrigin, config.provider),

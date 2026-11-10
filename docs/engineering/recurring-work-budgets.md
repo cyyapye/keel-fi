@@ -206,6 +206,60 @@ authenticated virtual-day usage gates continue to enforce the existing ceilings.
 
 ### Authenticated reconnect gateway
 
+Tokenfolio and Sydecar use one Google-recovery owner inside an existing capture,
+renewal or reconnect lease. It can advance one provider Google-entry control and
+select one uniquely matching, previously bound Google account. Only allowlisted
+provider login routes and a provider-owned Google popup or redirect can receive
+these actions. Credentials, MFA/passkeys, consent, unknown or ambiguous
+identities, and changed returned identities require user input. Technical
+failures never establish that a sign-in expired.
+
+Background recovery retains the existing 45-second readiness deadline and uses
+at most 180 local 250-ms waits; it adds no retry, browser, discovery loop or
+Keel request. Interactive recovery uses the existing five-second status owner
+and 15-minute lease. Each action has a one-second deadline; each active check
+performs at most one action. The authenticated Sydecar account read has a
+one-second deadline and 256-KiB response cap. It uses the provider's existing
+browser authorization, rejects redirects, and exports only a SHA-256 account
+fingerprint. Tokenfolio learns the same fingerprint from the current
+server-rendered Auth0/provider identity pair, or a current verified legacy SDK
+identity. Neither raw account information nor provider credentials enter Keel,
+logs, imports or public evidence. Missing or conflicting identity cannot
+authorize account selection. Profile-scoped bindings are provider-owned, mode
+0600, bounded to 256 bytes and replaced atomically; explicit setup may replace a
+binding, while background recovery must match it.
+
+Each authentication recovery admits at most 150 browser request chains,
+including page assets, prefetch and OAuth popups. Chromium's redirect ceiling
+and possible CORS preflights reserve at most 6,300 HTTP hops per preparation
+(150 chains × 21 hops × 2). The guard closes owned OAuth pages before removal;
+it is removed after successful identity verification so it cannot truncate the
+subsequent holdings/document capture. Failed background recovery closes its
+page, preserving the profile. No authentication guard or identity read runs
+while idle.
+
+For one deployment and the existing three-provider envelope, conservatively
+reserve 17 bounded preparations per useful/intermittent/failure day: daily
+Tokenfolio capture, Sydecar capture plus up to nine maintenance attempts, and
+three preparations per explicit reconnect for Tokenfolio and Sydecar
+(interactive, saved-profile verification and immediate capture). This reserves
+107,100 provider HTTP hops and at most 17 small Sydecar account reads, with a
+4.25-MiB aggregate response cap. Actual no-auth captures add only the identity
+read; Tokenfolio's server-rendered identity adds zero requests. Repeated manual
+runs and reconnects multiply their active allowance. Existing browser startup
+and capture/document allowances remain separate. A metadata lookup is memoized
+per recovery owner, including a failed lookup, rather than repeated on every
+check.
+
+Idle and unattended outage days add zero Keel API/proxy calls, D1 reads/writes,
+object operations, polling or heartbeats. The existing virtual-day client/auth/
+repository gates retain their independent idle, failure and useful-work
+ceilings. Native browser regressions cover both providers, exact account
+selection, user-only MFA, unknown/duplicate/changed identities, request
+exhaustion, redirect/size limits and production tsx serialization. Deployment
+must update both long-running provider clients and their private account
+bindings; an API/web release alone does not activate this behavior.
+
 The provider worker owns one named Tunnel and one loopback authentication
 gateway only while an existing reconnect lease is active. D1's unique active
 provider constraint and the provider-specific fixed loopback port exclude
