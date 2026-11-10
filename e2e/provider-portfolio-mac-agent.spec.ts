@@ -845,7 +845,7 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
       }
       return route.fulfill({
         contentType: "text/html",
-        body: `<h1>Choose an account</h1>${firstEnrollment ? "" : '<button data-identifier="other@example.invalid">Other</button>'}<button data-identifier="known@example.invalid" onclick="location.href='/selected'">Known</button>`,
+        body: `<h1>Choose an account</h1>${firstEnrollment ? "" : '<div role="link" data-identifier="other@example.invalid"><div data-email="other@example.invalid">Other</div></div>'}<div role="link" tabindex="0" data-identifier="known@example.invalid" onclick="location.href='/selected'"><div data-email="known@example.invalid">Known</div></div>`,
       });
     });
     const page = await context.newPage();
@@ -964,7 +964,7 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
           }
           return route.fulfill({
             contentType: "text/html",
-            body: `<button data-identifier="known@example.invalid" onclick="location.href='/selected'">Known</button>${scenario === "duplicate" ? '<button data-identifier="known@example.invalid">Duplicate</button>' : scenario === "unknown" ? '<button data-identifier="other@example.invalid">Other</button>' : ""}`,
+            body: `<button data-identifier="known@example.invalid" onclick="location.href='/selected'">Known${scenario === "nested-conflict" ? '<span data-email="other@example.invalid">Other</span>' : ""}</button>${scenario === "duplicate" ? '<button data-identifier="known@example.invalid">Duplicate</button>' : scenario === "unknown" ? '<button data-identifier="other@example.invalid">Other</button>' : ""}`,
           });
         }
         if (url.pathname === "/portfolio")
@@ -983,6 +983,7 @@ for (const provider of ["tokenfolio", "sydecar"] as const) {
       for (const current of [
         "unknown",
         "duplicate",
+        "nested-conflict",
         "changed",
         "provider-mfa",
       ]) {
