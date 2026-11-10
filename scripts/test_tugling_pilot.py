@@ -1264,7 +1264,8 @@ with native.cost_seed_directory() as seed:
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("compose-configuration"), flow_order.index("migration-and-seed"))
-        self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("native-unit-and-cost"))
+        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("pdf-sandbox-build"))
+        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
         self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("provider-document-runtime"), flow_order.index("pdf-isolation"))
@@ -1290,9 +1291,9 @@ with native.cost_seed_directory() as seed:
             'source-quality': (['make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 600),
             'compose-configuration': (['docker', 'compose', 'config', '--quiet'], 30),
             'gate-and-artifact-integrity': (['python3', '-I', 'scripts/pilot_native.py', 'preflight'], 120),
+            'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
             'pdf-sandbox-build': (['make', 'pdf-sandbox-build'], 1200),
             'migration-and-seed': (['python3', '-I', 'scripts/pilot_native.py', 'migration-seed'], 300),
-            'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
             'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
             'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
             'build-and-entry-budget': (['make', 'build'], 300),

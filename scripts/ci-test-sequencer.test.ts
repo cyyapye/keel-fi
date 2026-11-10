@@ -19,6 +19,8 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
     },
     { moduleId: "/synthetic/apps/api/src/position-routes.test.ts" },
     { moduleId: "/synthetic/packages/database/src/position-purchases.test.ts" },
+    { moduleId: "/synthetic/scripts/cash-balance-history-cost.test.ts" },
+    { moduleId: "/synthetic/scripts/new-cost.test.ts" },
   ];
   const original = [...files];
   const ordered = prioritizeCostFiles(files);
@@ -30,8 +32,10 @@ it("starts costly fixtures early without dropping, duplicating or mutating disco
     files[11],
     files[6],
     files[5],
+    files[14],
     files[2],
     files[4],
+    files[13],
     files[1],
     files[0],
     files[3],

@@ -13,6 +13,8 @@ const seconds: Readonly<Record<string, number>> = {
   "portfolio-watch-activity.test.ts": 255,
   "renamed-investments-d1-cost.test.ts": 200,
   "portfolio-baseline-d1-cost.test.ts": 107,
+  // Full Linux run 42772244012: 104.9 seconds, with a 52-second idle tail.
+  "cash-balance-history-cost.test.ts": 105,
   "automatic-investment-review-d1-cost.test.ts": 104,
   "participation-d1-cost.test.ts": 104,
   "purchase-details-d1-cost.test.ts": 97,
@@ -42,7 +44,7 @@ function priority(moduleId: string): number {
   if (name === "provider-agent-usage.test.ts") return 1_001;
   // New D1 scale cases can dominate the tail before an OVH timing exists.
   // Admit unmeasured cost fixtures first; never rely on a complete hint list.
-  return seconds[name] ?? (name.endsWith("-d1-cost.test.ts") ? 1_000 : 0);
+  return seconds[name] ?? (name.endsWith("-cost.test.ts") ? 1_000 : 0);
 }
 
 export function prioritizeCostFiles<T extends { readonly moduleId: string }>(
