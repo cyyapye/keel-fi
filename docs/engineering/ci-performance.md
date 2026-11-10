@@ -1242,3 +1242,27 @@ frontier. The direct and previous forms produced identical complete fixtures at
 12 and 24 captures. All 13 affected local D1 cases passed. The full native gate
 remains the release proof. SQL workloads, data scale, actual billing assertions,
 worker counts and all deadlines stay the same.
+
+## Reconnect release verification follow-up
+
+Run `42805759768` reached the complete 900-second limit without a failed case.
+Its source-review fixture took 214.2 seconds, but stale estimates admitted it
+behind shorter files. Refreshing those estimates in run `42808790553` preserved
+all unit cases and their deadlines, but increased complete unit time from 541.1
+to 561.6 seconds and did not pass the overall gate. That scheduling trial was
+reverted.
+
+The source browser fixtures now run their unchanged production repository
+operations beside the same isolated local D1/R2 bindings. Node sends one bounded
+setup message instead of proxying each fixture statement across processes.
+Fixture operations and synthetic values are byte-identical after the move;
+reconciliation, browser reads, assertions and screenshots continue through the
+ordinary API. The local ten-case browser file passed in 29.8 seconds. The
+managed canonical Linux replay passed all ten cases with unchanged images in 1.1
+minutes, compared with 1.9 minutes for the preceding transport. A complete
+exact-revision receipt remains the release proof.
+
+The inventory desktop reference also included a hovered Check now action without
+establishing hover after its capture-only layout mask. Explicit hover
+preparation replayed all ten source cases on the canonical Linux renderer with
+the existing images and thresholds. Case identities and coverage are unchanged.

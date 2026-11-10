@@ -35,7 +35,12 @@ async function captureSource(
     );
   }
 }
-async function expectSourceSnapshot(page: Page, source: Locator, name: string) {
+async function expectSourceSnapshot(
+  page: Page,
+  source: Locator,
+  name: string,
+  hoveredAction?: Locator,
+) {
   if (test.info().config.metadata.screenshotMode !== "canonical") {
     await expect(source).toHaveScreenshot(name, { animations: "disabled" });
     return;
@@ -47,6 +52,12 @@ async function expectSourceSnapshot(page: Page, source: Locator, name: string) {
   );
   const mask = await page.addStyleTag({ content: SOURCE_CAPTURE_STYLE });
   try {
+    if (hoveredAction) {
+      // Establish the reference's hover after masking has settled the layout.
+      // Otherwise the pointer's previous position can land outside the action.
+      await source.scrollIntoViewIfNeeded();
+      await hoveredAction.hover();
+    }
     await expect(source).toHaveScreenshot(name, { animations: "disabled" });
   } finally {
     await mask.evaluate((element) => {
@@ -801,7 +812,14 @@ test("reconciles a complete brokerage inventory automatically and keeps historic
   await expect(
     source.getByRole("listitem").filter({ hasText: "No longer held" }),
   ).toHaveCount(3);
-  await expectSourceSnapshot(page, source, "public-inventory-empty.png");
+  await expectSourceSnapshot(
+    page,
+    source,
+    "public-inventory-empty.png",
+    test.info().project.name === "chromium"
+      ? source.getByRole("button", { name: "Check now", exact: true })
+      : undefined,
+  );
   await captureSource(source, "inventory-empty");
   const partialId = await fixture.next("partial");
   const partial = await reconcile(partialId);
