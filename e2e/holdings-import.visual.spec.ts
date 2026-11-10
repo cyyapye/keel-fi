@@ -1167,138 +1167,142 @@ test(
   },
 );
 
-test("requests an AngelList update from the phone-safe Holdings flow", async ({
-  page,
-}) => {
-  const intervalUpdates: unknown[] = [];
-  let interval = "weekly";
-  let running = false;
+test(
+  "requests an AngelList update from the phone-safe Holdings flow",
+  { tag: "@mobile-only" },
+  async ({ page }) => {
+    const intervalUpdates: unknown[] = [];
+    let interval = "weekly";
+    let running = false;
 
-  const overview = () => ({
-    version: 1,
-    status: running ? "running" : "ready",
-    interval,
-    runStatus: running ? "queued" : null,
-    lastSeenAt: "2026-08-09T16:00:00.000Z",
-    lastCompletedAt: "2026-08-08T16:00:00.000Z",
-    nextRunAt:
-      interval === "off"
-        ? null
-        : interval === "daily"
-          ? "2026-08-10T16:00:00.000Z"
-          : "2026-08-16T16:00:00.000Z",
-    latestImportId: null,
-    errorCode: null,
-  });
-
-  await page.route("**/api/alpha", async (route) => {
-    await route.fulfill({ json: alphaFixture });
-  });
-  await page.route("**/api/holding-imports", async (route) => {
-    await route.fulfill({ json: [] });
-  });
-  await page.route("**/api/automation/angellist/status", async (route) => {
-    await route.fulfill({ json: overview() });
-  });
-  await page.route(
-    "**/api/automation/angellist/mac-agent/config",
-    async (route) => {
-      const body = route.request().postDataJSON() as { interval: string };
-      intervalUpdates.push(body);
-      interval = body.interval;
-      await route.fulfill({ json: overview() });
-    },
-  );
-  await page.route("**/api/automation/angellist/run", async (route) => {
-    running = true;
-    await route.fulfill({
-      json: {
-        version: 1,
-        runId: "11111111-1111-4111-8111-111111111111",
-        status: "queued",
-      },
-      status: 202,
+    const overview = () => ({
+      version: 1,
+      status: running ? "running" : "ready",
+      interval,
+      runStatus: running ? "queued" : null,
+      lastSeenAt: "2026-08-09T16:00:00.000Z",
+      lastCompletedAt: "2026-08-08T16:00:00.000Z",
+      nextRunAt:
+        interval === "off"
+          ? null
+          : interval === "daily"
+            ? "2026-08-10T16:00:00.000Z"
+            : "2026-08-16T16:00:00.000Z",
+      latestImportId: null,
+      errorCode: null,
     });
-  });
-  await page.route(
-    "**/api/automation/provider-holdings/*/status",
-    async (route) => {
-      const provider = new URL(route.request().url()).pathname
-        .split("/")
-        .at(-2);
+
+    await page.route("**/api/alpha", async (route) => {
+      await route.fulfill({ json: alphaFixture });
+    });
+    await page.route("**/api/holding-imports", async (route) => {
+      await route.fulfill({ json: [] });
+    });
+    await page.route("**/api/automation/angellist/status", async (route) => {
+      await route.fulfill({ json: overview() });
+    });
+    await page.route(
+      "**/api/automation/angellist/mac-agent/config",
+      async (route) => {
+        const body = route.request().postDataJSON() as { interval: string };
+        intervalUpdates.push(body);
+        interval = body.interval;
+        await route.fulfill({ json: overview() });
+      },
+    );
+    await page.route("**/api/automation/angellist/run", async (route) => {
+      running = true;
       await route.fulfill({
-        json: { ...overview(), provider, interval: "daily" },
+        json: {
+          version: 1,
+          runId: "11111111-1111-4111-8111-111111111111",
+          status: "queued",
+        },
+        status: 202,
       });
-    },
-  );
+    });
+    await page.route(
+      "**/api/automation/provider-holdings/*/status",
+      async (route) => {
+        const provider = new URL(route.request().url()).pathname
+          .split("/")
+          .at(-2);
+        await route.fulfill({
+          json: { ...overview(), provider, interval: "daily" },
+        });
+      },
+    );
 
-  await page.goto("/holdings/sources");
-  const privateInvestments = page.getByRole("region", {
-    name: "Private investments",
-  });
-  await expect(
-    privateInvestments.getByRole("heading", { level: 3 }),
-  ).toHaveCount(3);
-  const angelList = privateInvestments.getByRole("article", {
-    name: "AngelList",
-    exact: true,
-  });
-  const intervalSelect = angelList.getByRole("combobox", {
-    name: "Automatic updates",
-  });
-  await expect(intervalSelect).toHaveText("Weekly");
-  await expect(
-    privateInvestments.getByText(
-      "Clear positions update automatically. Only uncertain positions need review.",
-    ),
-  ).toBeVisible();
+    await page.goto("/holdings/sources");
+    const privateInvestments = page.getByRole("region", {
+      name: "Private investments",
+    });
+    await expect(
+      privateInvestments.getByRole("heading", { level: 3 }),
+    ).toHaveCount(3);
+    const angelList = privateInvestments.getByRole("article", {
+      name: "AngelList",
+      exact: true,
+    });
+    const intervalSelect = angelList.getByRole("combobox", {
+      name: "Automatic updates",
+    });
+    await expect(intervalSelect).toHaveText("Weekly");
+    await expect(
+      privateInvestments.getByText(
+        "Clear positions update automatically. Only uncertain positions need review.",
+      ),
+    ).toBeVisible();
 
-  const viewportWidths = await page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(viewportWidths.scroll).toBe(viewportWidths.client);
+    const viewportWidths = await page.evaluate(() => ({
+      client: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+    }));
+    expect(viewportWidths.scroll).toBe(viewportWidths.client);
 
-  await page.addStyleTag({
-    content: `
+    await page.addStyleTag({
+      content: `
       .topbar,
       .mobile-nav {
         visibility: hidden !important;
       }
     `,
-  });
-  await expect(page.locator(".screen-stack")).toHaveScreenshot(
-    "holdings-angellist-mac-agent.png",
-    {
-      animations: "disabled",
-      caret: "hide",
-      maxDiffPixelRatio: 0.025,
-      threshold: 0.25,
-    },
-  );
+    });
+    await expect(page.locator(".screen-stack")).toHaveScreenshot(
+      "holdings-angellist-mac-agent.png",
+      {
+        animations: "disabled",
+        caret: "hide",
+        maxDiffPixelRatio: 0.025,
+        threshold: 0.25,
+      },
+    );
 
-  await intervalSelect.click();
-  await page.getByRole("option", { name: "Daily" }).click();
-  await expect(page.getByText("AngelList will update daily.")).toBeVisible();
-  expect(intervalUpdates).toEqual([{ interval: "daily" }]);
+    await intervalSelect.click();
+    await page.getByRole("option", { name: "Daily" }).click();
+    await expect(page.getByText("AngelList will update daily.")).toBeVisible();
+    expect(intervalUpdates).toEqual([{ interval: "daily" }]);
 
-  await privateInvestments
-    .getByRole("article", { name: "AngelList", exact: true })
-    .getByRole("button", { name: "Queue update" })
-    .click();
-  await expect(
-    privateInvestments
+    await privateInvestments
       .getByRole("article", { name: "AngelList", exact: true })
-      .getByText("Update queued", { exact: true })
-      .first(),
-  ).toBeVisible();
-  await expect(
-    page.getByText("AngelList update queued for the agent’s next daily check."),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Update queued" }),
-  ).toBeDisabled();
-});
+      .getByRole("button", { name: "Queue update" })
+      .click();
+    await expect(
+      privateInvestments
+        .getByRole("article", { name: "AngelList", exact: true })
+        .getByText("Update queued", { exact: true })
+        .first(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "AngelList update queued for the agent’s next daily check.",
+      ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Update queued" }),
+    ).toBeDisabled();
+  },
+);
 
 test(
   "starts a provider-scoped browser reconnect without terminal handoff",

@@ -1718,7 +1718,6 @@
     "e2e/holdings-import.visual.spec.ts :: chromium :: imports provider templates without asking to approve clear positions",
     "e2e/holdings-import.visual.spec.ts :: chromium :: orders sources by liquidity and groups private investment setup",
     "e2e/holdings-import.visual.spec.ts :: chromium :: recovers a failed Sydecar browser start with one explicit retry",
-    "e2e/holdings-import.visual.spec.ts :: chromium :: requests an AngelList update from the phone-safe Holdings flow",
     "e2e/holdings-import.visual.spec.ts :: chromium :: starts a provider-scoped browser reconnect without terminal handoff",
     "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: adds a new security without preselecting an unrelated prior holding",
     "e2e/holdings-import.visual.spec.ts :: mobile-chromium :: connects Robinhood through Investments and isolates exceptions",
