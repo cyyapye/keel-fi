@@ -1258,12 +1258,24 @@ and 300/900-second deadlines are unchanged. A complete passing receipt is still
 required to establish the resulting timing.
 
 The first balanced run completed those lanes but reached the overall deadline
-with two cases left in the late mocked lane. Source checks now retain both Make
-jobs at a lower CPU scheduling priority (`nice -n 10`), allowing the critical
-unit flow to use contested CPU time first. Source checks still start immediately
-after preflight and must finish within their existing 600-second flow limit; all
-complete-gate and browser deadlines remain unchanged. This is a scheduling
-trial, not passing timing evidence.
+with two cases left in the late mocked lane. A lower source-check CPU priority
+trial in run `42835342170` did not pass either: units took 554.9 seconds versus
+556.3, while source checks grew from 367.5 to 450.5 seconds. That trial was
+reverted. All complete-gate and browser deadlines remain unchanged.
+
+The source scale fixture's two captures now run their unchanged production
+repository operations beside real D1, using the same `measureD1` wrapper to
+export actual billing counters. Their synthetic capture inputs are unchanged.
+The calling test retains its original acceptance, read/write/round-trip
+ceilings, history growth, empty and foreign state, query plans and integrity
+assertions. Only the test-host bridge is removed from these capture operations;
+this does not combine or omit any production database call.
+
+Focused macOS/Node 22.13.0 runs passed all four cases in 49.7 seconds for the
+original fixture and 31.6 seconds for the candidate. All 24 reported D1 counter
+records match exactly. Both capture inputs and the 65 original assertion
+matchers, expected values and ordering match structurally. These are local
+transport measurements; the complete native receipt remains the release proof.
 
 Run `42805759768` reached the complete 900-second limit without a failed case.
 Its source-review fixture took 214.2 seconds, but stale estimates admitted it

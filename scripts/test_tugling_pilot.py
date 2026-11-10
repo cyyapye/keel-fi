@@ -1288,7 +1288,7 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flows["gate-and-artifact-integrity"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "preflight"])
         self.assertEqual(flows["native-unit-and-cost"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "vitest-main"])
         expected_commands = {
-            'source-quality': (['nice', '-n', '10', 'make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 600),
+            'source-quality': (['make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 600),
             'compose-configuration': (['docker', 'compose', 'config', '--quiet'], 30),
             'gate-and-artifact-integrity': (['python3', '-I', 'scripts/pilot_native.py', 'preflight'], 120),
             'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
