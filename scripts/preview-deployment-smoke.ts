@@ -165,6 +165,60 @@ export async function runPreviewDeploymentSmoke(
     if (agentRootResponse.status !== 404) {
       throw new Error("Mac agent host exposed an unexpected route.");
     }
+    const metadataResponse = await request(
+      fetchImplementation,
+      new URL("/.well-known/oauth-authorization-server", agentApiOrigin),
+    );
+    const metadata = z
+      .object({
+        issuer: z.string(),
+        authorization_endpoint: z.string(),
+        token_endpoint: z.string(),
+      })
+      .parse(await metadataResponse.json());
+    if (
+      metadataResponse.status !== 200 ||
+      metadata.issuer !== agentApiOrigin.origin ||
+      metadata.authorization_endpoint !==
+        new URL("/oauth/authorize", baseUrl).href ||
+      metadata.token_endpoint !== new URL("/oauth/token", agentApiOrigin).href
+    )
+      throw new Error(
+        "App access discovery points to the wrong preview environment.",
+      );
+    const schemaResponse = await request(
+      fetchImplementation,
+      new URL("/api/v1/openapi.json", agentApiOrigin),
+    );
+    const schema = z
+      .object({ servers: z.array(z.object({ url: z.string() })) })
+      .parse(await schemaResponse.json());
+    if (
+      schemaResponse.status !== 200 ||
+      schema.servers[0]?.url !== new URL("/api/v1", agentApiOrigin).href
+    )
+      throw new Error(
+        "The owner API schema points to the wrong preview environment.",
+      );
+    for (const [path, method] of [
+      ["/api/v1/goals", "GET"],
+      ["/mcp", "POST"],
+    ] as const) {
+      const response = await request(
+        fetchImplementation,
+        new URL(path, agentApiOrigin),
+        { method },
+      );
+      if (
+        response.status !== 401 ||
+        !response.headers
+          .get("WWW-Authenticate")
+          ?.includes(
+            agentApiOrigin.origin + "/.well-known/oauth-protected-resource/mcp",
+          )
+      )
+        throw new Error("App access did not require a scoped credential.");
+    }
     for (const pathname of [
       "/api/automation/angellist/mac-agent/lease",
       "/api/automation/provider-browser/angellist/mac-agent/lease",

@@ -125,7 +125,18 @@ const goalCursor = {
 };
 const scenarios =
   "Uses the last recorded balances as starting values on evaluatedOn. USD integer cents. Constant net wealth change uses actual days / 365. Net change includes all gains, losses, income and spending. Liquidity uses constant household and business burn, reviewed debt payment treatments, no future inflows or private exits. An immediate outflow is a liquidity stress only. A missing measure is null.";
-let document: object | undefined;
+type OpenApiDocument = {
+  openapi: string;
+  info: object;
+  servers: { url: string }[];
+  security: object[];
+  components: {
+    securitySchemes: Record<string, object>;
+    schemas: Record<string, unknown>;
+  };
+  paths: Record<string, Record<string, object>>;
+};
+let document: OpenApiDocument | undefined;
 export function openApi() {
   if (document) return document;
   document = {

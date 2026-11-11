@@ -3,6 +3,9 @@ import type { BrowserWorker } from "@cloudflare/playwright";
 export type Environment = "local" | "preview" | "production";
 
 export interface Env {
+  APP_ACCESS_WEB_ORIGIN?: string;
+  APP_ACCESS_API_ORIGIN?: string;
+  APP_ACCESS_LIMITER?: RateLimit;
   AGENT_GOAL_WRITE_SERVICE_SUBJECT?: string;
   AGENT_GOAL_WRITE_HOUSEHOLD_ID?: string;
   AGENT_READ_SERVICE_SUBJECT?: string;

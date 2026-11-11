@@ -1,3 +1,5 @@
+import { ownerOperationScopes } from "@keel/domain/app-access";
+
 type FetchBinding = {
   fetch(request: Request): Promise<Response>;
 };
@@ -41,6 +43,27 @@ function isMacAgentRequest(method: string, pathname: string): boolean {
     )
   );
 }
+function isAppAccessRequest(method: string, path: string): boolean {
+  if (path === "/mcp") return ["GET", "POST", "OPTIONS"].includes(method);
+  if (
+    [
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-authorization-server",
+      "/api/v1/openapi.json",
+    ].includes(path)
+  )
+    return method === "GET" || method === "OPTIONS";
+  if (path === "/oauth/token" || path === "/oauth/register")
+    return method === "POST" || method === "OPTIONS";
+  return (
+    ownerOperationScopes(method, path) !== null ||
+    (method === "OPTIONS" &&
+      ["GET", "POST", "PATCH"].some(
+        (m) => ownerOperationScopes(m, path) !== null,
+      ))
+  );
+}
 
 export async function handleRequest(
   request: Request,
@@ -52,7 +75,8 @@ export async function handleRequest(
     bindings.MAC_AGENT_API_HOST !== undefined &&
     hostname === bindings.MAC_AGENT_API_HOST
   ) {
-    return isMacAgentRequest(request.method, pathname)
+    return isMacAgentRequest(request.method, pathname) ||
+      isAppAccessRequest(request.method, pathname)
       ? bindings.API.fetch(request)
       : new Response(null, { status: 404 });
   }
@@ -67,7 +91,13 @@ export async function handleRequest(
     return new Response(null, { status: 404 });
   }
 
-  if (pathname === "/webhooks/plaid") {
+  if (
+    pathname === "/webhooks/plaid" ||
+    pathname === "/mcp" ||
+    pathname.startsWith("/.well-known/oauth-") ||
+    pathname === "/oauth/token" ||
+    pathname === "/oauth/register"
+  ) {
     return new Response(null, { status: 404 });
   }
 

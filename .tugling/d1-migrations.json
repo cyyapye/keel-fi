@@ -427,12 +427,29 @@
       "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
+    },
+    {
+      "kind": "upgrade",
+      "id": "app-access-v1",
+      "frontier": "0093_gp_reported_total_refresh.sql",
+      "migrations": [
+        {
+          "name": "0094_app_access.sql",
+          "sha256": "41696c90c48535c4dfda53463b890b38b364e90d3716a47163d27d774983d9e2"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 2000,
+      "maxRowsWritten": 100
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "gp-reported-total-schema-v1",
-    "frontier": "0093_gp_reported_total_refresh.sql",
+    "id": "app-access-schema-v1",
+    "frontier": "0094_app_access.sql",
     "pending": [],
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,

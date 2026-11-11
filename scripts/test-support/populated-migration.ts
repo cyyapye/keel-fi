@@ -33,6 +33,7 @@ const FixtureSchema = z.object({
     "0091",
     "0092",
     "0093",
+    "0094",
   ]),
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
@@ -368,7 +369,9 @@ async function buildFixture(
         valuation: { state: "unknown" },
       });
     }
-    if (["0090", "0090-public", "0091", "0092", "0093"].includes(frontier)) {
+    if (
+      ["0090", "0090-public", "0091", "0092", "0093", "0094"].includes(frontier)
+    ) {
       if (captureOld) captureOld(snapshotFixture("0089"));
       statements.clear();
       db.exec(
@@ -382,14 +385,18 @@ async function buildFixture(
       frontier === "0090-public" ||
       frontier === "0091" ||
       frontier === "0092" ||
-      frontier === "0093"
+      ["0093", "0094"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
       await publicMigrationHistory(db, history);
       if (captureOld) captureOld(snapshotFixture("0090-public"));
     }
-    if (frontier === "0091" || frontier === "0092" || frontier === "0093") {
+    if (
+      frontier === "0091" ||
+      frontier === "0092" ||
+      ["0093", "0094"].includes(frontier)
+    ) {
       statements.clear();
       db.exec(
         readFileSync(
@@ -398,7 +405,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0092" || frontier === "0093") {
+    if (frontier === "0092" || ["0093", "0094"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0091"));
       db.exec(
@@ -408,12 +415,22 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0093") {
+    if (["0093", "0094"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0092"));
       db.exec(
         readFileSync(
           "packages/database/migrations/0093_gp_reported_total_refresh.sql",
+          "utf8",
+        ),
+      );
+    }
+    if (frontier === "0094") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0093"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0094_app_access.sql",
           "utf8",
         ),
       );
@@ -462,6 +479,7 @@ async function buildFixture(
         .all()
         .filter(
           (row) =>
+            child.startsWith("app_access_") ||
             [
               "holding_import_rows",
               "holding_position_snapshots",
@@ -575,6 +593,7 @@ export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
               "0091": z.string(),
               "0092": z.string(),
               "0093": z.string(),
+              "0094": z.string(),
             })
             .strict()
             .parse(JSON.parse(stdout));
@@ -1053,15 +1072,16 @@ if (
       "0091",
       "0092",
       "0093",
+      "0094",
       "both",
     ])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0093", (fixture) => {
+    const terminal = await buildFixture(history, "0094", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0093": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0094": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }
