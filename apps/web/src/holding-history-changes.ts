@@ -367,7 +367,7 @@ function facts(
     put(
       key + "date",
       label + "Valuation date",
-      record.effectiveDate,
+      record.origin === "proxy" ? record.priceDate : record.effectiveDate,
       formatDate,
     );
     put(
@@ -391,6 +391,25 @@ function facts(
     put(key + "carry", label + "Carry", record.carryStatus);
     put(key + "url", label + "Source link", record.sourceUrl);
     put(key + "captured", label + "Source captured", record.sourceCapturedAt);
+    if (record.sourceContinuation) {
+      put(
+        key + "metadataQuote",
+        label + "Reviewed share metadata quote",
+        record.sourceContinuation.quoteId,
+      );
+      put(
+        key + "assumedClass",
+        label + "Assumed source share class",
+        record.shareClass ? null : record.sourceContinuation.shareClass,
+      );
+      put(
+        key + "assumedBasis",
+        label + "Assumed price units per original share",
+        record.shareBasis
+          ? null
+          : record.sourceContinuation.shareBasis.unitsPerOriginal,
+      );
+    }
   }
   if (valuation?.calculation) {
     put(

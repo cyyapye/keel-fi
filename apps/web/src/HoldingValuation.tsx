@@ -3,6 +3,7 @@ import { gpRecord } from "./holding-value";
 import type { Holding } from "@keel/domain";
 import {
   AcceptValuationSchema,
+  continuedPriceMetadata,
   type ValuationRecord,
 } from "@keel/domain/valuation-record";
 import {
@@ -147,14 +148,14 @@ export function HoldingValuationEditor({
   for (const price of evidence?.prices ?? []) {
     if (price.positionId === holding.id || price.markMicros === null) continue;
     const id = `proxy:${price.positionId}`;
+    const previous = saved?.records.find((r) => r.id === id);
     const record: ValuationRecord = {
       id,
       origin: "proxy",
       followSource: true,
       priceSourcePositionId: price.priceSourcePositionId ?? price.positionId,
       shareBasis: price.shareBasis ?? null,
-      crossClassProxy:
-        saved?.records.find((r) => r.id === id)?.crossClassProxy ?? false,
+      crossClassProxy: previous?.crossClassProxy ?? false,
       totalMinor: null,
       priceMicros: price.markMicros,
       effectiveDate: price.markDate ?? price.observedAt.slice(0, 10),
@@ -168,6 +169,7 @@ export function HoldingValuationEditor({
       sourceCapturedAt: price.capturedAt,
       watchEvidenceId: null,
     };
+    record.sourceContinuation = continuedPriceMetadata(previous, record);
     const index = records.findIndex((r) => r.id === id);
     if (index < 0) records.push(record);
     else records[index] = record;
@@ -249,8 +251,8 @@ export function HoldingValuationEditor({
           holding.id),
   );
   const updatedPrice =
-    latestPrice?.markMicros !== null &&
-    latestPrice?.markDate &&
+    latestPrice &&
+    latestPrice.markMicros !== null &&
     (latestPrice.id !== draft.record.sourceEvidenceId ||
       latestPrice.capturedAt !== draft.record.sourceCapturedAt)
       ? latestPrice
@@ -269,13 +271,14 @@ export function HoldingValuationEditor({
       sourcePositionId: updatedPrice.positionId,
       sourceCapturedAt: updatedPrice.capturedAt,
     };
+    next.sourceContinuation = continuedPriceMetadata(draft.record, next);
     setDrafts((old) => ({
       ...old,
       [source]: {
         ...draft,
         record: next,
         price: decimal(next.priceMicros, 6),
-        priceDate: next.priceDate!,
+        priceDate: next.priceDate ?? "",
         shareClass: next.shareClass ?? "",
         basis: next.shareBasis ? String(next.shareBasis.unitsPerOriginal) : "",
       },
@@ -417,7 +420,9 @@ export function HoldingValuationEditor({
         {updatedPrice && record.origin !== "judgment" && (
           <p className="holding-metadata">
             Updated price: {formatSharePrice(updatedPrice.markMicros!)}/share ·{" "}
-            {formatDate(updatedPrice.markDate!)}{" "}
+            {updatedPrice.markDate
+              ? formatDate(updatedPrice.markDate)
+              : "Price date unavailable"}{" "}
             <Button tone="quiet" onClick={adoptUpdatedPrice}>
               Use updated price
             </Button>
@@ -430,7 +435,7 @@ export function HoldingValuationEditor({
               {price !== null && Number.isSafeInteger(price)
                 ? `${formatSharePrice(price)}/share`
                 : "Price unavailable"}{" "}
-              · {draft.shareClass}
+              · {draft.shareClass || "Share class unreported"}
             </p>
             <p className="holding-metadata">
               {draft.priceDate

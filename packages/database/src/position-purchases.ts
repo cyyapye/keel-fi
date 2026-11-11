@@ -466,8 +466,8 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
           'markMicros',q.price_micros,'markDate',q.price_date,'shareClass',q.share_class,
           'shareBasis',json(q.basis_json),'priceSourcePositionId',q.source_position_id) evidence_json
       FROM related priced_position
-      CROSS JOIN holding_price_source_heads head ON head.source_position_id=priced_position.id AND head.household_id=priced_position.household_id
-      CROSS JOIN holding_price_quotes q ON q.id=COALESCE(head.quote_id,head.observation_id)
+      CROSS JOIN holding_price_current_quotes head ON head.source_position_id=priced_position.id AND head.household_id=priced_position.household_id
+      CROSS JOIN holding_price_quotes q ON q.id=head.quote_id
       LEFT JOIN holding_import_share_prices e ON e.import_row_id=q.import_row_id
       WHERE NOT EXISTS(SELECT 1 FROM holding_position_continuities c WHERE c.predecessor_position_id=priced_position.id)
       ORDER BY q.price_date DESC,q.accepted_at DESC,q.id LIMIT 120

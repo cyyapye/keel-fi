@@ -269,6 +269,18 @@ export function SpvHoldingDetail({
           Indicative cross-class proxy · Security rights may differ
         </p>
       )}
+      {provenance &&
+        record?.sourceContinuation &&
+        (!record.shareClass || !record.shareBasis) && (
+          <p className="holding-metadata">
+            {!record.shareClass
+              ? `Source share class unreported · Assumes ${record.sourceContinuation.shareClass} shares. `
+              : ""}
+            {!record.shareBasis
+              ? "Source split basis unreported · Uses the previously reviewed split basis."
+              : ""}
+          </p>
+        )}
       {provenance && holding.purchaseContext?.priceProxyStatus && (
         <p className="holding-metadata">
           {holding.purchaseContext.priceProxyStatus.stale

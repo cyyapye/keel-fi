@@ -684,6 +684,36 @@ search. The catalog uses three queries over current mapping heads. The synthetic
 results, recommendation reuse and acceptance with real D1 read/write counters.
 Grouping preserves each position and its existing valuation method.
 
+### Refreshing GP-reported totals on linked investments
+
+When a reviewed same-investment link supplies the reported value and the
+surviving holding selects a GP-reported total, `accepted-gp-total-v1` follows a
+changed accepted balance from that linked source. The balance must be live,
+reported in USD, created after the valuation receipt, and observed no earlier
+than the reviewed total. Missing, historical, cancelled, older and future-dated
+reports retain the saved value. Custom estimates, selected share calculations
+and independent GP corrections on an unlinked holding keep their existing
+selection rules.
+
+Ingestion appends a purchase receipt recording the prior receipt, accepted
+source application and snapshot, and reviewed link. It preserves investment
+inputs, fees, refunds, distributions, shares and the independently dated GP
+share price. The new balance uses its source observation date; it does not
+advance the share-price date. An unspecified source carry treatment stays
+unknown. Original receipts and price quotes remain immutable. A concurrent
+manual edit or link change wins, and native guards reject stale sources and
+changes to other investment inputs.
+
+Import replay and the existing authenticated
+`POST /api/valuation-proxies/refresh` recover interrupted propagation from D1.
+GETs never refresh records. Each batch handles at most 500 eligible holdings in
+two round trips; unchanged or empty work uses one round trip and writes nothing.
+The real-D1 120-link holdout grows tied source history and unrelated households
+within 7,000 rows read and 1,000 rows written, including integrity triggers and
+index maintenance. Migration `0093` must precede the API release; it also adds
+the followed-price continuation described below. No provider schedule or
+additional polling is introduced.
+
 ### Reusing per-share valuation evidence
 
 Tokenfolio version 4 captures retain the explicitly labelled entry and marked
@@ -759,11 +789,26 @@ metadata remains unknown, including when an email or reviewed correction has a
 known date that the portal does not supply. There is no automatic email reader.
 Accepted imports and reviewed price corrections invoke bounded write-side
 recalculation. Newer dated quotes advance the source; a same-date reviewed
-correction may supersede it. Older or undated observations cannot replace a
-dated quote. A changed price with missing or incompatible inputs retains the
-last valid estimate and exposes a stale source with observation and successful
-sync times. The user can correct source metadata through the existing valuation
-editor; failed source syncs use the existing Sources recovery controls.
+correction may supersede it. Migration `0093` also projects later accepted
+source observations and reviewed GP prices for explicitly followed proxies,
+including a changed same-date or undated per-share price. A provider capture
+accepted before a newer reviewed correction cannot undo that correction, and
+explicitly older or future-dated prices remain ineligible. The original dated
+quote stays immutable.
+
+If the later observation omits its date, class or split basis,
+`accepted-source-continuation-v1` records the proxy's previously accepted quote
+as a metadata anchor. The raw source fields remain unknown; its class and split
+basis are reused only as disclosed assumptions. Capture time bounds the
+applicability of reviewed quantities but never becomes the mark date. A missing
+mark date also remains unavailable to date-dependent carry calculations. Known
+new metadata is used directly, including documented split normalization;
+incompatible bases and unapproved class changes retain the last valid estimate
+and expose a stale source with observation and successful sync times. New source
+selections still require the original complete reviewed inputs; the continuation
+policy cannot establish a new source or invent share metadata. The user can
+correct source metadata through the existing valuation editor; failed source
+syncs use the existing Sources recovery controls.
 
 A failed propagation can be retried by replaying the accepted import or the
 authenticated `POST /api/valuation-proxies/refresh` maintenance operation.

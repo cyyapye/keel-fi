@@ -84,7 +84,7 @@ export const MigrationSafetyBaselineScenarioSchema = z
     ...commonScenario,
     history: z.literal(24),
     tablesPreserved: z.literal(147),
-    schemaObjectsPreserved: z.literal(746),
+    schemaObjectsPreserved: z.literal(749),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -429,15 +429,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "public-inventory-schema-v1" ||
-    registry.baseline.frontier !== "0092_public_holding_inventories.sql" ||
+    registry.baseline.id !== "gp-reported-total-schema-v1" ||
+    registry.baseline.frontier !== "0093_gp_reported_total_refresh.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 3 ||
+    registry.cases.length !== 4 ||
+    registry.cases[3]?.id !== "gp-reported-total-v1" ||
+    registry.cases[3].frontier !== "0092_public_holding_inventories.sql" ||
+    registry.cases[3].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[3].migrations.map((item) => item.name),
+      ["0093_gp_reported_total_refresh.sql"],
+    ) ||
     registry.cases[2]?.id !== "public-inventory-v1" ||
     registry.cases[2].frontier !== "0091_public_source_reviews.sql" ||
     registry.cases[2].fixture !== "public-holding-history-v1" ||

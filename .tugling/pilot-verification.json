@@ -208,7 +208,12 @@
         "scripts/test-support/query-inventory.test.ts",
         "scripts/test-support/lint-typecheck-fixture.mjs",
         "scripts/pdf-sandbox-setup.ts",
-        "scripts/pdf-sandbox-setup.test.ts"
+        "scripts/pdf-sandbox-setup.test.ts",
+        "packages/database/src/gp-reported-totals.ts",
+        "packages/database/src/gp-reported-totals.test.ts",
+        "scripts/gp-reported-totals-d1-cost.test.ts",
+        "scripts/price-proxy-d1-cost.test.ts",
+        "packages/database/migrations/0093_gp_reported_total_refresh.sql"
       ],
       "runtime": {
         "owner": "native-command",
@@ -370,7 +375,8 @@
         "e2e/ui-catalogue/keel-ui-catalogue.tsx",
         "e2e/ui-catalogue/keel-ui-candidates.tsx",
         "e2e/collection-search-module.ts",
-        "apps/web/src/collection-search.ts"
+        "apps/web/src/collection-search.ts",
+        "e2e/share-basis.spec.ts"
       ],
       "runtime": {
         "owner": "native-command",

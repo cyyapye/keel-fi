@@ -390,7 +390,15 @@ export function assessValuationFromShares(
   });
   if (record.priceMicros === null)
     return failure("missing_price", "This source has no accepted share price.");
-  if (!record.priceDate)
+  const continuation = record.followSource
+    ? record.sourceContinuation
+    : undefined;
+  // An accepted source observation can continue an explicitly followed proxy.
+  // Retrieval bounds quantity applicability; it never becomes the mark date.
+  const quantityThrough =
+    record.priceDate ??
+    (continuation ? record.sourceCapturedAt?.slice(0, 10) : null);
+  if (!quantityThrough)
     return failure(
       "missing_price_date",
       "The source price has no date. Save its share-price date in the source holding's valuation.",
@@ -405,7 +413,9 @@ export function assessValuationFromShares(
       "incomplete_coverage",
       "The recorded shares do not cover the whole position. Review share coverage in Investment.",
     );
-  if (!record.shareClass)
+  const shareClass = record.shareClass ?? continuation?.shareClass;
+  const shareBasis = record.shareBasis ?? continuation?.shareBasis;
+  if (!shareClass)
     return failure(
       "missing_share_class",
       "The source price needs its share class.",
@@ -437,8 +447,8 @@ export function assessValuationFromShares(
         "The shares need an effective date in Investment.",
       );
     if (
-      lot.sharesAsOf > record.priceDate ||
-      (lot.purchasedOn && lot.purchasedOn > record.priceDate)
+      lot.sharesAsOf > quantityThrough ||
+      (lot.purchasedOn && lot.purchasedOn > quantityThrough)
     )
       return failure(
         "quantity_date",
@@ -450,8 +460,7 @@ export function assessValuationFromShares(
         "Record the position's share class in Investment.",
       );
     if (
-      lot.shareClass.trim().toLowerCase() !==
-        record.shareClass.trim().toLowerCase() &&
+      lot.shareClass.trim().toLowerCase() !== shareClass.trim().toLowerCase() &&
       (record.origin !== "proxy" ||
         (record.followSource && !record.crossClassProxy))
     )
@@ -461,16 +470,16 @@ export function assessValuationFromShares(
       );
     const basis = lot.quantityDetails?.shareBasis;
     if (
-      (record.followSource && (!basis || !record.shareBasis)) ||
-      Boolean(basis) !== Boolean(record.shareBasis) ||
-      (basis && record.shareBasis && basis.key !== record.shareBasis.key)
+      (record.followSource && (!basis || !shareBasis)) ||
+      Boolean(basis) !== Boolean(shareBasis) ||
+      (basis && shareBasis && basis.key !== shareBasis.key)
     )
       return failure(
         "incompatible_basis",
         "The shares and source price need the same documented split basis. Review their basis in Investment and the source valuation.",
       );
     const units = BigInt(basis?.unitsPerOriginal ?? 1);
-    const quoteUnits = BigInt(record.shareBasis?.unitsPerOriginal ?? 1);
+    const quoteUnits = BigInt(shareBasis?.unitsPerOriginal ?? 1);
     numerator =
       numerator * units +
       BigInt(shares.quantityMicros) * quoteUnits * denominator;
@@ -538,7 +547,7 @@ export function selectedPositionValuation(
     ...record,
     method: selection.method,
     effectiveDate:
-      selection.method === "shares" ? record.priceDate! : record.effectiveDate,
+      selection.method === "shares" ? record.priceDate : record.effectiveDate,
     valueMinor,
     quantityMicros: calculated?.quantityMicros ?? null,
     estimatedShares: calculated?.estimatedShares ?? false,

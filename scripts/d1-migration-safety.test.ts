@@ -28,11 +28,12 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0093_unmeasured.sql";
+const futureMigration = "0094_unmeasured.sql";
 const immutableFrontier = "0089_manual_holdings.sql";
 const distributionFrontier = "0090_distribution_reviews.sql";
 const sourceFrontier = "0091_public_source_reviews.sql";
-const frontier = "0092_public_holding_inventories.sql";
+const inventoryFrontier = "0092_public_holding_inventories.sql";
+const frontier = "0093_gp_reported_total_refresh.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -76,7 +77,7 @@ function receipt(): MigrationSafetyReceipt {
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "public-inventory-schema-v1",
+      id: "gp-reported-total-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -87,7 +88,7 @@ function receipt(): MigrationSafetyReceipt {
           fixtureHash: "d".repeat(64),
           tableRows: tableRows(24),
           tablesPreserved: 147,
-          schemaObjectsPreserved: 746,
+          schemaObjectsPreserved: 749,
           foreignKeyViolations: 0,
           immutableProbes: 3,
           validation: "applied-schema-preservation",
@@ -129,7 +130,8 @@ function receipt(): MigrationSafetyReceipt {
         rowsRead: 10,
         rowsWritten: 4,
         inboundForeignKeyPlans:
-          review.id !== "distribution-reviews-v1"
+          review.id === "public-source-reviews-v1" ||
+          review.id === "public-inventory-v1"
             ? "indexed-current-head-backfill-no-parent-rebuild"
             : "not-applicable-trigger-only-no-table-dml",
       })),
@@ -212,12 +214,17 @@ describe("populated D1 migration evidence", () => {
       {
         id: "public-inventory-v1",
         frontier: sourceFrontier,
+        migrations: [{ name: inventoryFrontier }],
+      },
+      {
+        id: "gp-reported-total-v1",
+        frontier: inventoryFrontier,
         migrations: [{ name: frontier }],
       },
     ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "public-inventory-schema-v1",
+      id: "gp-reported-total-schema-v1",
       frontier,
       pending: [],
     });
@@ -296,7 +303,7 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "public-inventory-schema-v1",
+      caseId: "gp-reported-total-schema-v1",
       migrationCost: null,
       footprint: { households: 2, holding_position_snapshots: 6241 },
     });
@@ -308,7 +315,7 @@ describe("populated D1 migration evidence", () => {
     expect(admitted).not.toHaveProperty("rowsWritten");
   });
 
-  it("admits only the certified source-head backfill suffix and preserves the earlier trigger case", () => {
+  it("admits only the certified GP trigger suffix and preserves earlier cases", () => {
     const evidence = receipt();
     expect(
       validateMigrationSafetyReceipt(evidence, { gitSha, now }).cases[0]
@@ -316,20 +323,25 @@ describe("populated D1 migration evidence", () => {
     ).toMatchObject({ rowsRead: 10, rowsWritten: 4 });
     expect(
       admit(evidence, {
-        frontier: sourceFrontier,
+        frontier: inventoryFrontier,
         pending: [frontier],
         gitSha,
       }),
     ).toMatchObject({
       kind: "upgrade",
-      caseId: "public-inventory-v1",
+      caseId: "gp-reported-total-v1",
       migrationCost: { rowsRead: 10, rowsWritten: 4 },
     });
-    // An older target has two pending migrations; neither individual case claims that complete sequence.
+    // An older target has several pending migrations; no individual case claims that complete sequence.
     expect(() =>
       admit(evidence, {
         frontier: immutableFrontier,
-        pending: [distributionFrontier, sourceFrontier, frontier],
+        pending: [
+          distributionFrontier,
+          sourceFrontier,
+          inventoryFrontier,
+          frontier,
+        ],
         gitSha,
       }),
     ).toThrow("no exact baseline or populated OLD-schema evidence");
@@ -374,6 +386,7 @@ describe("populated D1 migration evidence", () => {
           immutableFrontier,
           distributionFrontier,
           sourceFrontier,
+          inventoryFrontier,
           frontier,
         ],
         gitSha,

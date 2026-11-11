@@ -14,6 +14,7 @@ export async function seedCostHoldings(
   revision = 1,
   legacy = false,
   observations: {
+    positionCount?: number;
     instrument?: string;
     status?: "Live" | "Realized";
     investedMinor?: number;
@@ -47,7 +48,7 @@ export async function seedCostHoldings(
         .bind(crypto.randomUUID(), legacyConnectionId, COST_TIME),
     ]);
   const rows: HoldingImportStageInput["rows"] = Array.from(
-    { length: 120 },
+    { length: observations.positionCount ?? 120 },
     (_, index) => ({
       rowNumber: index + 3,
       ...(observations.sharePrices
