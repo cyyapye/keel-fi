@@ -289,7 +289,8 @@ it("keeps owner keys scoped, isolated, expiring and revocable through the actual
 it("binds OAuth consent, PKCE, audience, single-use codes, refresh and independent revocation", async () => {
   const fixture = await createCostFixtureDatabase({ operation: "holdings" });
   try {
-    const db = fixture.database,
+    const meter = measureD1(fixture.database),
+      db = meter.database,
       web = "https://keel.invalid",
       machine = "https://api.keel.invalid",
       resource = machine + "/mcp";
@@ -487,6 +488,7 @@ it("binds OAuth consent, PKCE, audience, single-use codes, refresh and independe
         )
       ).status,
     ).toBe(403);
+    meter.reset();
     const renewed = await token({
       grant_type: "refresh_token",
       client_id: client.client_id,
@@ -494,10 +496,40 @@ it("binds OAuth consent, PKCE, audience, single-use codes, refresh and independe
       resource,
     });
     expect(renewed.status).toBe(200);
+    expect(meter.cost).toMatchObject({ roundTrips: 2, statements: 4 });
+    const refreshReads = meter.cost.rowsRead;
     const next = z
       .object({ access_token: z.string(), refresh_token: z.string() })
       .parse(await renewed.json());
     expect(next.refresh_token).not.toBe(access.refresh_token);
+    const grantId = await db
+      .prepare("SELECT grant_id FROM app_access_credentials WHERE token_hash=?")
+      .bind(await digest(next.refresh_token))
+      .first<string>("grant_id");
+    await db
+      .prepare(
+        `INSERT INTO app_access_credentials(id,grant_id,kind,token_hash,created_at,expires_at,replaced_by) SELECT 'synthetic-refresh-history-'||value,?,'refresh','synthetic-refresh-hash-'||value,?,?,'synthetic-prior' FROM json_each(?)`,
+      )
+      .bind(
+        grantId,
+        new Date().toISOString(),
+        new Date().toISOString(),
+        JSON.stringify(Array.from({ length: 1200 }, (_, i) => i)),
+      )
+      .run();
+    meter.reset();
+    const grownResponse = await token({
+      grant_type: "refresh_token",
+      client_id: client.client_id,
+      refresh_token: next.refresh_token,
+      resource,
+    });
+    expect(grownResponse.status).toBe(200);
+    expect(meter.cost).toMatchObject({ roundTrips: 2, statements: 4 });
+    expect(meter.cost.rowsRead).toBeLessThanOrEqual(refreshReads + 2);
+    const grown = z
+      .object({ access_token: z.string() })
+      .parse(await grownResponse.json());
     expect(
       (
         await token({
@@ -510,6 +542,9 @@ it("binds OAuth consent, PKCE, audience, single-use codes, refresh and independe
     ).toBe(400);
     expect(
       await new AppAccessStore(db).authenticate(next.access_token),
+    ).toBeNull();
+    expect(
+      await new AppAccessStore(db).authenticate(grown.access_token),
     ).toBeNull();
     expect(
       await new AppAccessStore(db).authenticate(access.access_token),
@@ -529,7 +564,13 @@ it("requires rotation opt-in, attributes goal writes and isolates a foreign hous
     const key = await store.createKey(
       owner,
       "Synthetic goal editor",
-      ["goals:read", "goals:write"],
+      [
+        "goals:read",
+        "goals:write",
+        "holdings:read",
+        "cash:read",
+        "evidence:read",
+      ],
       30,
       false,
     );
@@ -547,6 +588,19 @@ it("requires rotation opt-in, attributes goal writes and isolates a foreign hous
       "Content-Type": "application/json",
       "Idempotency-Key": "synthetic-goal-create",
     };
+    const tools = await app.request(
+      origin + "/mcp",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      },
+      env,
+    );
+    expect(tools.status).toBe(200);
+    expect(
+      new TextEncoder().encode(await tools.text()).byteLength,
+    ).toBeLessThan(32 * 1024);
     const target = {
       name: "Synthetic delegated target",
       metric: "net_worth",

@@ -108,6 +108,15 @@ through the actual import, baseline confirmation and HTTP routes.
 
 ## Enable an agent in protected preview
 
+For self-service setup, use **Settings → App access** and the URLs displayed
+there. Compatible chat apps connect through MCP/OAuth; scripts can use scoped
+API keys with bearer authentication. See [App access](../product/app-access.md).
+The deployment derives its public machine origin from `KEEL_PREVIEW_URL` and
+smoke-checks the published OAuth endpoints and absolute OpenAPI URL.
+
+The service-token bindings below remain available for existing operator-managed
+clients; they are not required for a key created in Keel.
+
 Use the normal Access-protected web origin. Create a dedicated Cloudflare Access
 service token for the owner agent and admit it with a Service Auth policy on
 that application. Keep the credential pair with the client. The Worker verifies

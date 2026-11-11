@@ -352,6 +352,11 @@ export function registerAppAccessPublic(parent: Hono<AppEnvironment>) {
       return c.json({ error: "invalid_request" }, 400);
     const store = new AppAccessStore(c.env.DB),
       v = input.data;
+    const claimHash = await digest(
+      v.grant_type === "authorization_code"
+        ? (v.code ?? "")
+        : (v.refresh_token ?? ""),
+    );
     let grant: GrantRowWithScope | null = null;
     let claim: D1PreparedStatement;
     const pair = crypto.randomUUID(),
@@ -362,7 +367,7 @@ export function registerAppAccessPublic(parent: Hono<AppEnvironment>) {
     if (v.grant_type === "authorization_code") {
       if (!v.code || !v.code_verifier || !v.redirect_uri)
         return c.json({ error: "invalid_request" }, 400);
-      const hash = await digest(v.code),
+      const hash = claimHash,
         challenge = btoa(
           String.fromCharCode(
             ...new Uint8Array(
@@ -398,7 +403,7 @@ export function registerAppAccessPublic(parent: Hono<AppEnvironment>) {
         !/^keel_refresh_[A-Za-z0-9_-]{43}$/.test(v.refresh_token)
       )
         return c.json({ error: "invalid_grant" }, 400);
-      const hash = await digest(v.refresh_token);
+      const hash = claimHash;
       const old = await c.env.DB.prepare(
         `SELECT c.replaced_by,g.id,g.expires_at,g.scopes_json FROM app_access_credentials c JOIN app_access_grants g ON g.id=c.grant_id WHERE c.token_hash=? AND c.kind='refresh' AND g.client_id=? AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>?) AND c.revoked_at IS NULL`,
       )
@@ -434,12 +439,12 @@ export function registerAppAccessPublic(parent: Hono<AppEnvironment>) {
     ) =>
       (v.grant_type === "authorization_code"
         ? c.env.DB.prepare(
-            `INSERT INTO app_access_credentials(id,grant_id,kind,token_hash,created_at,expires_at) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM app_access_codes WHERE grant_id=? AND consumed_pair=?)`,
+            `INSERT INTO app_access_credentials(id,grant_id,kind,token_hash,created_at,expires_at) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM app_access_codes WHERE code_hash=? AND consumed_pair=?)`,
           )
         : c.env.DB.prepare(
-            `INSERT INTO app_access_credentials(id,grant_id,kind,token_hash,created_at,expires_at) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM app_access_credentials WHERE grant_id=? AND replaced_by=?)`,
+            `INSERT INTO app_access_credentials(id,grant_id,kind,token_hash,created_at,expires_at) SELECT ?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM app_access_credentials WHERE token_hash=? AND replaced_by=?)`,
           )
-      ).bind(id, grant.id, kind, hash, store.now, expires, grant.id, pair);
+      ).bind(id, grant.id, kind, hash, store.now, expires, claimHash, pair);
     const results = await c.env.DB.batch([
       claim,
       insert(accessId, "access", await digest(access), accessExpires),

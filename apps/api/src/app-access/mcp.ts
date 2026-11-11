@@ -58,6 +58,36 @@ function schemaRefs(value: unknown): unknown {
     );
   return value;
 }
+function inputDefinitions(input: unknown) {
+  const definitions: Record<string, unknown> = {},
+    pending: string[] = [];
+  const collect = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(collect);
+      return;
+    }
+    if (value && typeof value === "object")
+      for (const [key, child] of Object.entries(value)) {
+        if (
+          key === "$ref" &&
+          typeof child === "string" &&
+          child.startsWith("#/components/schemas/")
+        )
+          pending.push(child.slice("#/components/schemas/".length));
+        else collect(child);
+      }
+  };
+  collect(input);
+  while (pending.length) {
+    const name = pending.pop()!;
+    if (name in definitions) continue;
+    const schema = openApi().components.schemas[name];
+    if (!schema) throw new Error("Missing tool input schema.");
+    definitions[name] = schema;
+    collect(schema);
+  }
+  return Object.keys(definitions).length ? { $defs: definitions } : {};
+}
 function permitted(p: Principal, entry: (typeof entries)[number]) {
   const needed = ownerOperationScopes(
     entry.method,
@@ -90,7 +120,7 @@ function tool(entry: (typeof entries)[number]) {
       properties,
       required,
       additionalProperties: false,
-      $defs: openApi().components.schemas,
+      ...inputDefinitions(properties),
     }),
     annotations: {
       readOnlyHint: readOnly,
