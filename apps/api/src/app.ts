@@ -12,6 +12,7 @@ import {
   ManualHoldingSubmissionSchema,
 } from "@keel/domain/manual-holdings";
 import { D1PriceProxyRepository } from "@keel/database";
+import { D1GpReportedTotalRepository } from "@keel/database";
 import { AcceptPositionLinkSchema } from "@keel/domain/position-links";
 import { D1PositionLinkRepository, PositionLinkError } from "@keel/database";
 import { searchIssuerEvidence } from "./public-company-search";
@@ -3117,10 +3118,17 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.post("/api/valuation-proxies/refresh", async (context) => {
+    const totals = await new D1GpReportedTotalRepository(
+      context.env.DB,
+    ).refresh(context.get("identity").subject);
     const result = await new D1PriceProxyRepository(context.env.DB).refresh(
       context.get("identity").subject,
     );
-    return context.json(result, 200, { "Cache-Control": "private, no-store" });
+    return context.json(
+      { ...result, reportedTotalsRefreshed: totals.refreshed },
+      200,
+      { "Cache-Control": "private, no-store" },
+    );
   });
 
   app.post(

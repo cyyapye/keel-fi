@@ -490,10 +490,19 @@ describe("populated OLD-schema D1 migration safety", () => {
           }
           return;
         }
-        expect(review.id).toBe("distribution-reviews-v1");
-        expect(review.frontier).toBe("0089_manual_holdings.sql");
+        const gpTotal = review.id === "gp-reported-total-v1";
+        expect(review.id).toBe(
+          gpTotal ? "gp-reported-total-v1" : "distribution-reviews-v1",
+        );
+        expect(review.frontier).toBe(
+          gpTotal
+            ? "0092_public_holding_inventories.sql"
+            : "0089_manual_holdings.sql",
+        );
         expect(review.migrations.map((item) => item.name)).toEqual([
-          "0090_distribution_reviews.sql",
+          gpTotal
+            ? "0093_gp_reported_total_refresh.sql"
+            : "0090_distribution_reviews.sql",
         ]);
         const pending = review.migrations.flatMap((item) =>
           unstable_splitSqlQuery(
@@ -503,14 +512,20 @@ describe("populated OLD-schema D1 migration safety", () => {
             ),
           ),
         );
-        expect(pending).toHaveLength(6);
+        expect(pending).toHaveLength(gpTotal ? 5 : 6);
         expect(
           pending.every((sql) =>
-            /^(?:DROP|CREATE) TRIGGER\b/u.test(sql.trim()),
+            /^(?:DROP|CREATE) (?:TRIGGER|VIEW)\b/u.test(sql.trim()),
           ),
         ).toBe(true);
-        const fixture = await populatedMigrationFixture(history, "0089");
-        const terminal = await populatedMigrationFixture(history, "0090");
+        const fixture = await populatedMigrationFixture(
+          history,
+          gpTotal ? "0092" : "0089",
+        );
+        const terminal = await populatedMigrationFixture(
+          history,
+          gpTotal ? "0093" : "0090",
+        );
         const positions = fixture.tables.find(
           (table) => table.name === "holding_positions",
         )!;
@@ -531,12 +546,21 @@ describe("populated OLD-schema D1 migration safety", () => {
           manualSnapshot[snapshots.columns.indexOf("realized_value_minor")],
         ).toBeNull();
         expect(terminal.tables).toEqual(fixture.tables);
-        const changedNames = new Set([
-          "holding_purchase_unified_guard",
-          "holding_purchase_price_evidence_guard",
-          "holding_purchase_reported_value_guard",
-          "holding_purchase_distribution_guard",
-        ]);
+        const changedNames = new Set(
+          gpTotal
+            ? [
+                "holding_gp_total_refresh_guard",
+                "holding_price_current_quotes",
+                "holding_selected_valuation_guard",
+                "holding_price_continuation_guard",
+              ]
+            : [
+                "holding_purchase_unified_guard",
+                "holding_purchase_price_evidence_guard",
+                "holding_purchase_reported_value_guard",
+                "holding_purchase_distribution_guard",
+              ],
+        );
         expect(
           terminal.objects.filter((object) => !changedNames.has(object.name)),
         ).toEqual(
@@ -563,8 +587,8 @@ describe("populated OLD-schema D1 migration safety", () => {
           expect(
             await preserveMigrationFixture(runtime.database, terminal, true),
           ).toEqual({
-            tablesPreserved: 137,
-            schemaObjectsPreserved: 693,
+            tablesPreserved: gpTotal ? 147 : 137,
+            schemaObjectsPreserved: gpTotal ? 749 : 693,
             foreignKeyViolations: 0,
           });
           const immutableProbes = await immutableMigrationProbes(
@@ -596,7 +620,7 @@ describe("populated OLD-schema D1 migration safety", () => {
           ]);
           console.info(
             JSON.stringify({
-              certifiedDistributionTriggerUpgrade: {
+              certifiedTriggerUpgrade: {
                 caseId: review.id,
                 history,
                 ...cost,
@@ -617,14 +641,14 @@ describe("populated OLD-schema D1 migration safety", () => {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "public-holding-history-v1" ||
-        registry.baseline.frontier !== "0092_public_holding_inventories.sql" ||
-        registry.cases.length !== 3 ||
+        registry.baseline.frontier !== "0093_gp_reported_total_refresh.sql" ||
+        registry.cases.length !== 4 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0092");
+      const fixture = await populatedMigrationFixture(history, "0093");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
@@ -696,7 +720,7 @@ describe("populated OLD-schema D1 migration safety", () => {
         );
         expect(preservation).toEqual({
           tablesPreserved: 147,
-          schemaObjectsPreserved: 746,
+          schemaObjectsPreserved: 749,
           foreignKeyViolations: 0,
         });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({

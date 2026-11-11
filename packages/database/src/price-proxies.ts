@@ -3,7 +3,10 @@ import {
   PurchaseReceiptSchema,
   valuationSharesKey,
 } from "@keel/domain/position-purchases";
-import { ShareBasisSchema } from "@keel/domain/valuation-record";
+import {
+  continuedPriceMetadata,
+  ShareBasisSchema,
+} from "@keel/domain/valuation-record";
 
 /** Bounded write-side projection. GETs never refresh prices or accepted facts. */
 export class D1PriceProxyRepository {
@@ -22,7 +25,7 @@ export class D1PriceProxyRepository {
       JOIN holding_purchase_reviews review ON review.id=link.receipt_id
       JOIN holding_import_application_heads application_head ON application_head.position_id=link.position_id
       JOIN holding_positions source ON source.id=link.source_position_id
-      JOIN holding_price_source_heads head ON head.source_position_id=link.source_position_id
+      JOIN holding_price_current_quotes head ON head.source_position_id=link.source_position_id
       JOIN holding_price_quotes q ON q.id=head.quote_id AND q.household_id=link.household_id
       WHERE u.access_subject=?
         AND q.id IS NOT json_extract(review.receipt_json,'$.details.valuation.calculation.quoteId')
@@ -39,8 +42,8 @@ export class D1PriceProxyRepository {
         receipt_json: string;
         quote_id: string;
         price_micros: number;
-        price_date: string;
-        share_class: string;
+        price_date: string | null;
+        share_class: string | null;
         basis_json: string | null;
         source_label: string;
         source_url: string | null;
@@ -59,7 +62,7 @@ export class D1PriceProxyRepository {
         ...old,
         priceMicros: row.price_micros,
         priceDate: row.price_date,
-        effectiveDate: row.price_date,
+        effectiveDate: row.price_date ?? old.effectiveDate,
         shareClass: row.share_class,
         shareBasis: row.basis_json
           ? ShareBasisSchema.parse(JSON.parse(row.basis_json))
@@ -69,9 +72,11 @@ export class D1PriceProxyRepository {
         sourceEvidenceId: row.quote_id,
         sourceCapturedAt: row.observed_at,
       };
+      record.sourceContinuation = continuedPriceMetadata(old, record);
       const result = assessValuationFromShares(prior.details, record);
-      // Missing dates, basis changes or incompatible rights preserve the last
-      // valid estimate. The source-head mismatch is exposed as stale by reads.
+      // Explicitly incompatible bases/rights still preserve the last estimate.
+      // Missing metadata retains the reviewed assumptions in a separate receipt
+      // field, while the source's reported date/class/basis stay unknown.
       if (!result.ok) continue;
       const receipt = PurchaseReceiptSchema.parse({
         ...prior,
@@ -111,7 +116,7 @@ export class D1PriceProxyRepository {
         INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at)
         SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(
           SELECT 1 FROM holding_purchase_heads WHERE position_id=? AND review_id=?)
-          AND EXISTS(SELECT 1 FROM holding_price_source_heads WHERE source_position_id=? AND quote_id=?)
+          AND EXISTS(SELECT 1 FROM holding_price_current_quotes WHERE source_position_id=? AND quote_id=?)
       `,
           )
           .bind(

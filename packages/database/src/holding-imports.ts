@@ -1,4 +1,5 @@
 import { D1PriceProxyRepository } from "./price-proxies";
+import { D1GpReportedTotalRepository } from "./gp-reported-totals";
 import { reviewedRenameScopes } from "./reviewed-rename-scope";
 import {
   isPlaidInvestmentsFiPlanningSecurityType,
@@ -3325,6 +3326,8 @@ export class D1HoldingImportRepository {
       );
       if (importProvider.has_share_prices)
         await new D1PriceProxyRepository(this.db).refresh(accessSubject);
+      if (PrivateHoldingImportProviderSchema.safeParse(provider).success)
+        await new D1GpReportedTotalRepository(this.db).refresh(accessSubject);
       return this.getApplyResult(
         identity.household_id,
         importId,
@@ -3689,6 +3692,8 @@ export class D1HoldingImportRepository {
     );
     if (importProvider.has_share_prices)
       await new D1PriceProxyRepository(this.db).refresh(accessSubject);
+    if (PrivateHoldingImportProviderSchema.safeParse(provider).success)
+      await new D1GpReportedTotalRepository(this.db).refresh(accessSubject);
     return this.getApplyResult(
       identity.household_id,
       importId,

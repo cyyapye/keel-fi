@@ -17,6 +17,15 @@ export const ValuationRecordSchema = z
     priceSourcePositionId: text.nullable().optional(),
     followSource: z.boolean().optional(),
     crossClassProxy: z.boolean().optional(),
+    sourceContinuation: z
+      .object({
+        policy: z.literal("accepted-source-continuation-v1"),
+        quoteId: text,
+        shareClass: text,
+        shareBasis: ShareBasisSchema,
+      })
+      .strict()
+      .optional(),
     id: z.string().min(1).max(200),
     origin: z.enum(["gp", "proxy", "judgment"]),
     totalMinor: money.nullable(),
@@ -40,6 +49,11 @@ export const ValuationRecordSchema = z
   })
   .strict()
   .superRefine((record, ctx) => {
+    if (record.sourceContinuation && !record.followSource)
+      ctx.addIssue({
+        code: "custom",
+        message: "Source metadata assumptions require a followed price source.",
+      });
     if (
       record.followSource &&
       (record.origin !== "proxy" ||
@@ -82,6 +96,17 @@ export const ValuationSelectionSchema = z
   .strict();
 export const ValuationStateSchema = z
   .object({
+    reportedTotalRefresh: z
+      .object({
+        policy: z.literal("accepted-gp-total-v1"),
+        priorReceiptId: text,
+        sourcePositionId: text,
+        sourceSnapshotId: text,
+        sourceApplicationId: text,
+        linkReviewId: text,
+      })
+      .strict()
+      .optional(),
     calculation: z
       .object({
         policy: z.literal("linked-price-proxy-v1"),
@@ -123,5 +148,27 @@ export const AcceptValuationSchema = z
   })
   .strict();
 export type ValuationRecord = z.infer<typeof ValuationRecordSchema>;
+/** Preserve reviewed metadata as assumptions, separately from the raw quote. */
+export function continuedPriceMetadata(
+  prior: ValuationRecord | undefined,
+  quote: Pick<ValuationRecord, "priceDate" | "shareClass" | "shareBasis">,
+) {
+  if (
+    !prior?.followSource ||
+    (quote.priceDate && quote.shareClass && quote.shareBasis)
+  )
+    return undefined;
+  return (
+    prior.sourceContinuation ??
+    (prior.sourceEvidenceId && prior.shareClass && prior.shareBasis
+      ? {
+          policy: "accepted-source-continuation-v1" as const,
+          quoteId: prior.sourceEvidenceId,
+          shareClass: prior.shareClass,
+          shareBasis: prior.shareBasis,
+        }
+      : undefined)
+  );
+}
 export type ValuationState = z.infer<typeof ValuationStateSchema>;
 export type AcceptValuation = z.infer<typeof AcceptValuationSchema>;

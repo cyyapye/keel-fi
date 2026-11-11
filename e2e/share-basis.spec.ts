@@ -1,11 +1,20 @@
+import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { HoldingImportPreviewSchema } from "../packages/domain/src/index";
+import {
+  HoldingImportPreviewSchema,
+  PrivateExposureReviewStateSchema,
+  PrivateExposureResolutionResultSchema,
+} from "../packages/domain/src/index";
 import { HoldingsPageSchema } from "../packages/domain/src/holdings-page";
-import { providerHoldingsTemplateCsv } from "../packages/connectors/src/provider-holdings-template-csv";
+import {
+  providerHoldingsTemplateCsv,
+  providerHoldingsTemplateCsvHeaders,
+} from "../packages/connectors/src/provider-holdings-template-csv";
 import { unknownInvestmentTerms } from "../packages/domain/src/investment-details";
 import {
   PurchaseReceiptSchema,
+  PositionValuationEvidenceSchema,
   InvestmentHistorySchema,
   AcceptPurchasesSchema,
   selectedPositionValuation,
@@ -24,13 +33,14 @@ type PreparedSpv = {
 async function prepareSyntheticSpv(
   page: Page,
   scenario: "quantity" | "price",
+  company?: string,
 ): Promise<PreparedSpv> {
   const suffix = `${scenario}-${test.info().project.name}-${test.info().retry}-${randomUUID()}`;
   const positionName = `Synthetic basis SPV ${suffix}`;
   const csv =
     providerHoldingsTemplateCsv("wefunder") +
     [
-      `Synthetic basis company ${suffix}`,
+      company ?? `Synthetic basis company ${suffix}`,
       positionName,
       "SPV",
       `Synthetic basis trust ${suffix}`,
@@ -370,4 +380,192 @@ test("custom price factors persist through the API and D1 with equivalent valuat
     await expect(price).toHaveValue(change.price);
     await expectStoredReceiptHistory(page, prepared.positionId, receipts);
   }
+});
+
+test("new undated GP prices propagate to followed positions with immutable metadata assumptions", async ({
+  page,
+}, testInfo) => {
+  const suffix = randomUUID();
+  const company = `Synthetic continuation company ${suffix}`;
+  const sourceName = `Synthetic continuation source ${suffix}`;
+  const prices = (markMicros: number, dated: boolean) => ({
+    costMicros: null,
+    markMicros,
+    markDate: dated ? "2026-09-30" : null,
+    shareClass: dated ? "Common" : null,
+    shareBasis: dated ? { key: "issuer-original", unitsPerOriginal: 1 } : null,
+  });
+  const capture = async (markMicros: number, dated: boolean) => {
+    const cells = [
+      company,
+      sourceName,
+      "SPV",
+      `Synthetic continuation trust ${suffix}`,
+      "Live",
+      "2025-06-10",
+      new Date().toISOString().slice(0, 10),
+      "$10000.00",
+      "$10000.00",
+      dated ? "$20000.00" : "$15000.00",
+      "$0.00",
+      "Common",
+      suffix,
+      JSON.stringify(prices(markMicros, dated)),
+    ];
+    const csv = `Keel Tokenfolio holdings template v4\n${providerHoldingsTemplateCsvHeaders("tokenfolio", 4).join(",")}\n${cells.map((c) => `"${c.replaceAll('"', '""')}"`).join(",")}\n`;
+    const response = await page.request.post(
+      "/api/holding-imports/tokenfolio",
+      {
+        multipart: {
+          file: {
+            name: `synthetic-continuation-${suffix}.csv`,
+            mimeType: "text/csv",
+            buffer: Buffer.from(csv),
+          },
+        },
+      },
+    );
+    expect(response.status(), await response.text()).toBe(201);
+    expect(HoldingImportPreviewSchema.parse(await response.json()).status).toBe(
+      "applied",
+    );
+  };
+  await capture(200_000_000, true);
+  const prepared = await prepareSyntheticSpv(page, "quantity", company);
+  // Establish comparability through recorded company decisions, never names.
+  const unresolved = PrivateExposureReviewStateSchema.parse(
+    await (await page.request.get("/api/private-exposure-reviews")).json(),
+  );
+  const sourcePosition = unresolved.positions.find(
+    (p: { legalVehicleName: string }) => p.legalVehicleName === sourceName,
+  );
+  if (!sourcePosition)
+    throw new Error("Synthetic GP source is missing from company review.");
+  const assigned = await page.request.post(
+    `/api/private-exposure-reviews/${sourcePosition.positionId}/assign`,
+    {
+      data: {
+        expectedSnapshotId: sourcePosition.snapshotId,
+        company: { mode: "new", legalName: company, websiteHost: null },
+      },
+    },
+  );
+  expect(assigned.status(), await assigned.text()).toBe(201);
+  const { companyId } = PrivateExposureResolutionResultSchema.parse(
+    await assigned.json(),
+  );
+  const shared = await page.request.post(
+    `/api/private-exposure-reviews/${prepared.positionId}/assign`,
+    {
+      data: {
+        expectedSnapshotId: prepared.snapshotId,
+        company: { mode: "existing", companyId },
+      },
+    },
+  );
+  expect(shared.status(), await shared.text()).toBe(201);
+  await page.reload();
+  const evidence = await page.request.get(
+    `/api/investment-positions/${prepared.positionId}/share-price-evidence`,
+  );
+  const source = PositionValuationEvidenceSchema.parse(
+    await evidence.json(),
+  ).prices.find(
+    (p: { positionLabel: string }) => p.positionLabel === sourceName,
+  );
+  if (!source)
+    throw new Error("The reviewed synthetic GP price is unavailable.");
+  await page
+    .getByRole("button", { name: "Edit valuation", exact: true })
+    .click();
+  await page.getByRole("combobox", { name: "Source", exact: true }).click();
+  await page
+    .getByRole("option", { name: "Tokenfolio · Other SPV", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Different share class", exact: true })
+    .click();
+  await page
+    .getByRole("option", {
+      name: "Use as an indicative cross-class proxy",
+      exact: true,
+    })
+    .click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation", exact: true }),
+  ).toBeVisible();
+  const selected = await readStoredReceipt(page, prepared.positionId);
+  expect(selected.details.valuation!.calculation!.valueMinor).toBe(1_688_000);
+  await capture(150_000_000, false);
+  const propagated = await readStoredReceipt(page, prepared.positionId);
+  expect(propagated.id).not.toBe(selected.id);
+  expect(propagated.details.lots).toEqual(selected.details.lots);
+  const record = propagated.details.valuation!.records.find(
+    (r) => r.followSource,
+  )!;
+  expect(record).toMatchObject({
+    priceMicros: 150_000_000,
+    priceDate: null,
+    shareClass: null,
+    shareBasis: null,
+    sourceContinuation: {
+      policy: "accepted-source-continuation-v1",
+      quoteId: source.id,
+      shareClass: "Common",
+      shareBasis: { key: "issuer-original", unitsPerOriginal: 1 },
+    },
+  });
+  expect(
+    selectedPositionValuation(propagated, propagated.snapshotId),
+  ).toMatchObject({ valueMinor: 1_266_000, effectiveDate: null });
+  await page.reload();
+  const value = page.getByRole("group", {
+    name: "Tokenfolio proxy remaining value · Before carry",
+    exact: true,
+  });
+  await expect(value).toContainText("$12,660.00");
+  await expect(value).toContainText("Value date unknown");
+  await expect(value).toContainText(
+    "Source share class unreported · Assumes Common shares.",
+  );
+  await expect(value).toContainText(
+    "Source split basis unreported · Uses the previously reviewed split basis.",
+  );
+  await expect(value).not.toContainText("Stale source");
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+  await page.locator(".spv-holding").screenshot({
+    path: testInfo.outputPath("continued-price.png"),
+    animations: "disabled",
+    style: readFileSync(
+      new URL("./purchase-details.capture.css", import.meta.url),
+      "utf8",
+    ),
+  });
+  // Reopening and saving the existing source must retain its reviewed anchor.
+  await page
+    .getByRole("button", { name: "Edit valuation", exact: true })
+    .click();
+  await expect(
+    page.getByRole("form", { name: "Edit valuation" }),
+  ).toContainText("$12,660.00");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Edit valuation", exact: true }),
+  ).toBeVisible();
+  const saved = await readStoredReceipt(page, prepared.positionId);
+  expect(
+    saved.details.valuation!.records.find((r) => r.followSource)!
+      .sourceContinuation,
+  ).toEqual(record.sourceContinuation);
+  await expectStoredReceiptHistory(page, prepared.positionId, [
+    prepared.receipt,
+    selected,
+    propagated,
+    saved,
+  ]);
 });

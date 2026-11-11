@@ -27,7 +27,13 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     const seed = (
       subject: string,
       revision: number,
-      prices: typeof sharePrices,
+      prices: {
+        costMicros: number | null;
+        markMicros: number;
+        markDate: string | null;
+        shareClass: string | null;
+        shareBasis: typeof basis | null;
+      },
       interruptPricePropagation = false,
     ) =>
       fixture.setup({
@@ -265,6 +271,60 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     expect(costs.at(-1)!.rowsRead).toBeLessThanOrEqual(
       costs[0]!.rowsRead + 120,
     );
+    // A changed portal price can omit every piece of share metadata. The
+    // followed relationship must still advance, with a native-checked anchor,
+    // within the same fanout budget after all the history above has accumulated.
+    vi.setSystemTime(new Date("2026-10-02T00:00:00.000Z"));
+    await expect(
+      seed(
+        COST_SUBJECT,
+        6,
+        {
+          costMicros: null,
+          markMicros: 150_000_000,
+          markDate: null,
+          shareClass: null,
+          shareBasis: null,
+        },
+        true,
+      ),
+    ).rejects.toThrow("synthetic projection interruption");
+    measured.reset();
+    expect(await propagator.refresh(COST_SUBJECT)).toEqual({
+      recalculated: 120,
+    });
+    expect(measured.cost.roundTrips).toBe(2);
+    expect(measured.cost.rowsRead).toBeLessThanOrEqual(6_000);
+    expect(measured.cost.rowsWritten).toBeLessThanOrEqual(1_000);
+    costs.push({ ...measured.cost });
+    const continued = await db
+      .prepare(
+        `SELECT receipt_json FROM holding_purchase_reviews r JOIN holding_purchase_heads h ON h.review_id=r.id WHERE h.household_id='hh_demo'`,
+      )
+      .all<{ receipt_json: string }>();
+    expect(continued.results).toHaveLength(120);
+    for (const row of continued.results) {
+      const receipt = PurchaseReceiptSchema.parse(JSON.parse(row.receipt_json));
+      expect(receipt.details.valuation!.records[0]).toMatchObject({
+        priceMicros: 150_000_000,
+        priceDate: null,
+        shareClass: null,
+        shareBasis: null,
+        sourceContinuation: {
+          policy: "accepted-source-continuation-v1",
+          shareClass: "Common",
+          shareBasis: basis,
+        },
+      });
+      expect(receipt.details.valuation!.calculation).toMatchObject({
+        valueMinor: 185185,
+        quantityReceiptId: "synthetic-original-quantity",
+      });
+    }
+    measured.reset();
+    expect(await propagator.refresh(COST_SUBJECT)).toEqual({ recalculated: 0 });
+    expect(measured.cost.roundTrips).toBe(1);
+    expect(measured.cost.rowsWritten).toBe(0);
     measured.reset();
     expect(await propagator.refresh("foreign-subject")).toEqual({
       recalculated: 0,
