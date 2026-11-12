@@ -1,10 +1,8 @@
 import { expect, it } from "vitest";
-import { createCostFixtureDatabase } from "./test-support/cost-database";
+import { createProviderReconnectCostDatabase } from "./test-support/provider-reconnect-cost-database";
 
 it("keeps reconnect subject binding indexed across positive, empty, foreign and growing history", async () => {
-  const fixture = await createCostFixtureDatabase({
-    operation: "provider-reconnect",
-  });
+  const fixture = await createProviderReconnectCostDatabase();
   try {
     if (fixture.initialResult?.operation !== "provider-reconnect")
       throw new Error("Expected reconnect cost results");

@@ -181,6 +181,8 @@
         "scripts/prepare-d1-cost-seed.ts",
         "scripts/test-support/d1-cost-seed.ts",
         "scripts/test-support/provider-reconnect-cost.ts",
+        "scripts/test-support/provider-reconnect-cost-worker.ts",
+        "scripts/test-support/provider-reconnect-cost-database.ts",
         ".tugling/test-layering.json",
         "scripts/test-layering.test.ts",
         "scripts/agreement-capture.test.ts",

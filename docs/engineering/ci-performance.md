@@ -1308,3 +1308,43 @@ The inventory desktop reference also included a hovered Check now action without
 establishing hover after its capture-only layout mask. Explicit hover
 preparation replayed all ten source cases on the canonical Linux renderer with
 the existing images and thresholds. Case identities and coverage are unchanged.
+
+## Investment history release follow-up
+
+The investment history merge candidate passed the complete native gate in
+801.004 seconds in run `43273958104`. The identical merged tree in
+`43276772878`, attempt 1, reached 900.899 seconds during browser verification;
+its unit/D1 and source flows took 637.782 and 425.819 seconds. Attempt 2 failed
+with the historical 24-capture migration case's 120-second timeout and the
+reconnect cost case's five-second timeout. Its source flow took 468.782 seconds.
+Deployment was skipped for both attempts.
+
+Attempt 2's resource samples show 98.5% CPU busy, 13.7% I/O wait and 1,962.4 MiB
+of swap in use. Serializing source checks after units in run `43284386960`
+passed all 1,707 unit cases but failed the complete gate at 900.980 seconds. The
+two-worker trial in `43287538480` also passed all unit cases, but reached
+901.426 seconds during browsers. Both scheduling trials are rejected; restore
+the existing three-worker pool and source/unit overlap.
+
+Populated migration setup now inserts parents before children according to the
+fixture's actual foreign-key graph. Cycles retain deferred checks. The empty
+SQLite schema is used only to inspect relationships; the real D1 bootstrap,
+rows, source migrations, constraints, preservation checks and measured upgrade
+remain. A paired Linux setup probe at the 0088 frontier preserved identical
+fixture hashes and all 134 tables/667 schema objects. Setup took 4.687/9.813
+seconds before and 3.701/4.150 seconds after at 12/24 captures. All 15 local
+migration cases passed in 42.41 seconds, with every reported certification
+record, actual D1 counter and integrity result identical to the preceding full
+local verification.
+
+The reconnect cost case uses a dedicated worker bundle instead of loading the
+unrelated portfolio fixture operations. It invokes the same existing
+`providerReconnectCost` function; all repository operations, 120/1,200
+histories, result checks, query plans and billing assertions remain. Its bundle
+falls from 1,670,524 to 786,333 bytes. Five alternating local pairs preserved
+identical results and counters, with median setup times of 0.171 and 0.142
+seconds. A single Linux pair took 0.910 and 1.033 seconds, so it does not
+establish a Linux latency gain. The same five-second case deadline and
+120-second migration deadlines apply. All native membership, worker ceilings and
+complete 300/900-second budgets remain unchanged. A fresh complete
+exact-revision receipt is still required to establish release fit.
