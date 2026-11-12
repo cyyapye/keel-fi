@@ -82,3 +82,22 @@ in the same change as the API. The docs test checks both against the Worker
 contract. The Markdown renders on GitHub and the JSON can be downloaded directly
 from the matching tag. These public files contain schemas and synthetic
 examples. Live portfolio responses stay behind the household grant.
+
+Investment inspection uses `listInvestmentTransactions`, `listTaxLots` and
+`getInvestmentReconciliation` through both the owner API and MCP. Activity needs
+both `holdings:read` and `cash:read`; lots and reconciliation need
+`holdings:read`. Filter transactions by exactly one position or account, posting
+date and type. Lots require a position and support highest-basis or oldest
+order. Follow every page and reuse `readContextId`; restart the related read
+on 409.
+
+History is evidence about activity, separate from the position asset total.
+Responses disclose provider coverage, the latest successful activity sync,
+failed attempts and source capture IDs. Null is unknown. Missing lots do not
+prove zero shares; a transaction absent from a complete report does not confirm
+cancellation. Quantity is in millionths of a unit, per-unit prices are in
+millionths of USD, and total money is USD cents. Posting and order-initiation
+dates do not establish exact execution time. Broker-reported lots are available
+only when supplied and accepted; estimated lots and order management are absent.
+See [the product contract](../product/investment-history.md) for first-release
+capture bounds and unestablished reconciliation cases.

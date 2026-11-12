@@ -26,6 +26,7 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "apps/api/src/plaid-cash-sync.ts | loadCashCredential | storage | env.DOCUMENTS.get | 017d60de41424ae1",
   "apps/api/src/plaid-cash-sync.ts | module | network | fetch | 0694fbc44c8b06bf",
   "apps/api/src/plaid-cash-sync.ts | request | network | this.fetcher | 7f441da2509bdaae",
+  "apps/api/src/plaid-investment-history.ts | capturePlaidInvestmentHistory | storage | input.env.DOCUMENTS.put | 9a4b3216f383ba02",
   "apps/api/src/plaid-investments-schedule.ts | enqueueDueInvestmentSyncs | queue | input.dependencies.queue.sendBatch | 1bcf029c69a9297b",
   "apps/api/src/plaid-investments-sync.ts | connectInvestmentConnection | storage | input.env.DOCUMENTS.delete | 04a801cc4a273186",
   "apps/api/src/plaid-investments-sync.ts | connectInvestmentConnection | storage | input.env.DOCUMENTS.delete | f03e2937f9246139",

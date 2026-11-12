@@ -273,27 +273,47 @@ describe("populated OLD-schema D1 migration safety", () => {
   for (const review of registry.cases) {
     for (const history of review.histories) {
       it(`certifies ${review.id} from populated ${review.frontier} at ${history} captures`, async () => {
-        if (review.id === "app-access-v1") {
-          expect(review.frontier).toBe("0093_gp_reported_total_refresh.sql");
-          expect(review.migrations.map((m) => m.name)).toEqual([
-            "0094_app_access.sql",
-          ]);
-          const fixture = await populatedMigrationFixture(history, "0093");
-          const terminal = await populatedMigrationFixture(history, "0094");
+        if (
+          review.id === "app-access-v1" ||
+          review.id === "investment-history-v1"
+        ) {
+          const investment = review.id === "investment-history-v1";
+          const createdTable = (name: string) =>
+            investment
+              ? /^investment_(?:history_|transaction_|tax_lots$)/u.test(name)
+              : name.startsWith("app_access_");
+          const oldFrontier = investment ? "0094" : "0093";
+          const newFrontier = investment ? "0095" : "0094";
+          const newMigration = investment
+            ? "0095_investment_history.sql"
+            : "0094_app_access.sql";
+          expect(review.frontier).toBe(
+            investment
+              ? "0094_app_access.sql"
+              : "0093_gp_reported_total_refresh.sql",
+          );
+          expect(review.migrations.map((m) => m.name)).toEqual([newMigration]);
+          const fixture = await populatedMigrationFixture(history, oldFrontier);
+          const terminal = await populatedMigrationFixture(
+            history,
+            newFrontier,
+          );
           const pending = unstable_splitSqlQuery(
             readFileSync(
-              "packages/database/migrations/0094_app_access.sql",
+              "packages/database/migrations/" + newMigration,
               "utf8",
             ),
           );
           expect(
             pending.every((sql) =>
-              /^CREATE (?:TABLE|INDEX|TRIGGER)\b/.test(sql.trim()),
+              /^CREATE (?:TABLE|(?:UNIQUE )?INDEX|TRIGGER)\b/.test(
+                sql.replace(/--[^\n]*(?:\n|$)/gu, "").trim(),
+              ),
             ),
           ).toBe(true);
-          expect(
-            terminal.tables.filter((t) => !t.name.startsWith("app_access_")),
-          ).toEqual(fixture.tables);
+          expect(terminal.tables.filter((t) => !createdTable(t.name))).toEqual(
+            fixture.tables,
+          );
           const runtime = await populatedMigrationDatabase(fixture);
           try {
             await preserveMigrationFixture(runtime.database, fixture, true);
@@ -305,10 +325,23 @@ describe("populated OLD-schema D1 migration safety", () => {
               runtime.database,
               fixture,
             );
-            await preserveMigrationFixture(runtime.database, terminal, true);
+            await preserveMigrationFixture(
+              runtime.database,
+              investment
+                ? {
+                    ...terminal,
+                    tables: terminal.tables.map((table) =>
+                      createdTable(table.name)
+                        ? { ...table, rows: [], sha256: migrationDigest("[]") }
+                        : table,
+                    ),
+                  }
+                : terminal,
+              true,
+            );
             const plans = (
               await migrationForeignKeyPlans(runtime.database, terminal)
-            ).filter((p) => p.child.startsWith("app_access_"));
+            ).filter((p) => createdTable(p.child));
             expect(plans.length).toBeGreaterThan(0);
             expect(
               plans.every(
@@ -729,14 +762,14 @@ describe("populated OLD-schema D1 migration safety", () => {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "public-holding-history-v1" ||
-        registry.baseline.frontier !== "0094_app_access.sql" ||
-        registry.cases.length !== 5 ||
+        registry.baseline.frontier !== "0095_investment_history.sql" ||
+        registry.cases.length !== 6 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0094");
+      const fixture = await populatedMigrationFixture(history, "0095");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
@@ -807,8 +840,8 @@ describe("populated OLD-schema D1 migration safety", () => {
           true,
         );
         expect(preservation).toEqual({
-          tablesPreserved: 151,
-          schemaObjectsPreserved: 762,
+          tablesPreserved: 159,
+          schemaObjectsPreserved: 812,
           foreignKeyViolations: 0,
         });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({

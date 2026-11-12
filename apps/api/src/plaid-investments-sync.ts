@@ -4,6 +4,8 @@ import {
   plaidInvestmentSecurityIdentity,
   plaidInvestmentStrongSecurityIdentifier,
   PlaidInvestmentsHoldingsResponseSchema,
+  PlaidInvestmentTransactionsResponseSchema,
+  type PlaidInvestmentTransactionsResponse,
   type PlaidInvestmentsHoldingsResponse,
 } from "@keel/connectors";
 import { refreshAcceptedPortfolioBaseline } from "@keel/database";
@@ -23,6 +25,7 @@ import {
   type InvestmentConnectionsState,
 } from "@keel/domain";
 import { z } from "zod";
+import { capturePlaidInvestmentHistory } from "./plaid-investment-history";
 
 import {
   plaidInvestmentsAccountKey,
@@ -232,6 +235,18 @@ export interface PlaidInvestmentsClient {
   getHoldings(accessToken: string): Promise<{
     bytes: Uint8Array;
     parsed: PlaidInvestmentsHoldingsResponse;
+  }>;
+  getInvestmentTransactions?(
+    accessToken: string,
+    query: {
+      from: string;
+      through: string;
+      offset: number;
+      count: number;
+    },
+  ): Promise<{
+    bytes: Uint8Array;
+    parsed: PlaidInvestmentTransactionsResponse;
   }>;
 }
 
@@ -599,6 +614,39 @@ export class FetchPlaidInvestmentsClient implements PlaidInvestmentsClient {
         "The institution did not establish a current, complete holdings report. Previous holdings are unchanged.",
       );
     }
+  }
+
+  public async getInvestmentTransactions(
+    accessToken: string,
+    query: {
+      from: string;
+      through: string;
+      offset: number;
+      count: number;
+    },
+  ): Promise<{
+    bytes: Uint8Array;
+    parsed: PlaidInvestmentTransactionsResponse;
+  }> {
+    const bytes = await this.request(
+      "/investments/transactions/get",
+      {
+        access_token: z.string().min(1).max(4096).parse(accessToken),
+        start_date: z.iso.date().parse(query.from),
+        end_date: z.iso.date().parse(query.through),
+        options: {
+          offset: z.number().int().min(0).max(250).parse(query.offset),
+          count: z.literal(250).parse(query.count),
+        },
+      },
+      2 * 1024 * 1024,
+    );
+    return {
+      bytes,
+      parsed: PlaidInvestmentTransactionsResponseSchema.parse(
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
+      ),
+    };
   }
 
   public async getHoldings(accessToken: string): Promise<{
@@ -1268,6 +1316,25 @@ async function executeInvestmentConnectionSync(
       repository: input.portfolioBaselines,
       accessSubject: input.accessSubject,
     });
+    await capturePlaidInvestmentHistory({
+      env: input.env,
+      client: input.client,
+      accessSubject: input.accessSubject,
+      connectionId: run.connection.id,
+      runId: run.id,
+      sourceKey: run.connection.providerAccountKey,
+      institutionKey: run.connection.institutionKey,
+      itemId: credential.itemId,
+      accessToken: credential.accessToken,
+      importId: staged.preview.id,
+      holdings: holdings.parsed,
+      capturedAt: retrievedAt,
+      providerUpdatedAt: sourceUpdatedAt,
+    }).catch(() =>
+      console.warn(
+        JSON.stringify({ event: "investment_history_capture_failed" }),
+      ),
+    );
     await input.repository.completeSync(input.accessSubject, run.id, {
       discoveredCount: normalized.rows.length,
       proposedCount: staged.created ? normalized.rows.length : 0,

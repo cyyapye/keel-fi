@@ -17,6 +17,11 @@ import {
   citation,
 } from "./resources";
 import { z } from "zod";
+import {
+  InvestmentTransactionsPageSchema,
+  InvestmentTaxLotsPageSchema,
+  InvestmentReconciliationSchema,
+} from "@keel/domain/investment-history";
 import { errorBody, marksPage, outlook, previewInput } from "./contract";
 
 const ref = (name: string) => ({ $ref: "#/components/schemas/" + name });
@@ -39,6 +44,34 @@ const cursor = {
   description:
     "Copy nextAfter from the previous response, including when a filtered page is empty.",
 };
+const historyParameters = (positionRequired: boolean) => [
+  {
+    in: "query",
+    name: "positionId",
+    required: positionRequired,
+    schema: { type: "string" },
+    description:
+      "Canonical position ID. Transactions require exactly one positionId or accountId.",
+  },
+  ...(!positionRequired
+    ? [
+        {
+          in: "query",
+          name: "accountId",
+          schema: { type: "string" },
+          description:
+            "Use the container: accountId from a position; includes security-less account activity.",
+        },
+      ]
+    : []),
+  {
+    in: "query",
+    name: "readContextId",
+    schema: { type: "string" },
+    description:
+      "Reuse context.readContextId across tools and pages. A changed projection returns 409; restart all related reads.",
+  },
+];
 const idParam = (name: string) => ({
   in: "path",
   name,
@@ -57,6 +90,10 @@ function readOperation(
     parameters,
     responses: {
       "200": response(schema, summary),
+      "409": response(
+        "Error",
+        "History changed; restart with a new readContextId",
+      ),
       "404": response("Error", "Resource missing or outside the household"),
       ...errors,
     },
@@ -181,6 +218,9 @@ export function openApi() {
           Baseline: baselineDetail,
           Evidence: citation,
           Error: errorBody,
+          InvestmentTransactions: InvestmentTransactionsPageSchema,
+          InvestmentTaxLots: InvestmentTaxLotsPageSchema,
+          InvestmentReconciliation: InvestmentReconciliationSchema,
         }).map(([name, schema]) => [
           name,
           z.toJSONSchema(schema, { target: "draft-2020-12" }),
@@ -188,6 +228,59 @@ export function openApi() {
       ),
     },
     paths: {
+      "/investment-transactions": {
+        get: readOperation(
+          "listInvestmentTransactions",
+          "Read broker investment activity and corrections. Requires holdings and cash access. Coverage is provider-reported; posting and order-initiation dates are not execution times.",
+          "InvestmentTransactions",
+          [
+            ...historyParameters(false),
+            cursor,
+            {
+              in: "query",
+              name: "from",
+              schema: { type: "string", format: "date" },
+            },
+            {
+              in: "query",
+              name: "through",
+              schema: { type: "string", format: "date" },
+            },
+            {
+              in: "query",
+              name: "type",
+              schema: {
+                type: "string",
+                enum: ["buy", "sell", "cash", "fee", "transfer", "cancel"],
+              },
+            },
+          ],
+        ),
+      },
+      "/tax-lots": {
+        get: readOperation(
+          "listTaxLots",
+          "Read remaining broker-reported lots. Missing lots are unavailable, not zero. Purchase price differs from adjusted basis; highest-basis sorting covers known comparable lots only.",
+          "InvestmentTaxLots",
+          [
+            ...historyParameters(true),
+            cursor,
+            {
+              in: "query",
+              name: "sort",
+              schema: { type: "string", enum: ["highest_basis", "oldest"] },
+            },
+          ],
+        ),
+      },
+      "/investment-reconciliation": {
+        get: readOperation(
+          "getInvestmentReconciliation",
+          "Read stored trade-inclusion evidence and reconciliation limits. Never infer a purchase from a position change, treat a price or refresh timestamp as quantity-effective time, or add transactions to snapshot asset values.",
+          "InvestmentReconciliation",
+          historyParameters(true),
+        ),
+      },
       "/goals": {
         get: readOperation("listGoals", "List saved goals", "GoalPage", [
           cursor,

@@ -819,3 +819,36 @@ an unrelated household and enforces two round trips, at most 6,000 rows read and
 1,000 rows written, including integrity triggers and index maintenance. A no-op
 uses one round trip and writes nothing. This method does not alter provider
 schedules or acceptance boundaries.
+
+## Investment history and reported lots
+
+`investment-history-v1` is a recorded deterministic evidence-admission policy
+following an already accepted, certified holdings sync. It does not accept a new
+holding, alter quantity/basis/cash, or change the planning baseline. Captures,
+account contexts, lot observations and transaction revisions are append-only;
+current heads are disposable projections. Account/position associations use the
+existing protected identities and accepted import receipt, never ticker
+matching.
+
+The transaction key combines the protected account identity with the provider
+transaction ID. A changed normalized fact creates a predecessor-linked revision;
+an unchanged repeat only advances its last-seen projection. Missing IDs in a
+later complete in-window report get an unconfirmed-presence disclosure on reads,
+not an inferred cancellation. A failed request preserves the prior successful
+coverage and its evidence ID, so failure cannot create false disappearance.
+
+Lots retain nullable acquisition dates, provider IDs, quantity, price and basis.
+A missing provider lot ID has only a capture-local identity. Price and adjusted
+basis are independent; unknown basis is not inferred from price. Quantities use
+integer millionths, with original precision and rounding disclosed. The retained
+private provider evidence preserves additional precision. USD totals use integer
+cents; per-unit prices use integer millionths of USD. Unsupported currencies and
+malformed or changing page/security scopes fail closed for history enrichment
+while already accepted holdings remain intact.
+
+The current Plaid adapter does not receive a comparable quantity-effective date.
+It records unknown inclusion rather than treating refresh, retrieval or price
+dates as execution/settlement evidence. Read endpoints only return stored
+projections. Deep-history and retained-payload backfills need an explicit
+bounded ingestion operation; they never run while a GET or MCP tool is
+answering.

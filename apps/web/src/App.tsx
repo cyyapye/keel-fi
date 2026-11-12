@@ -1,5 +1,6 @@
 import { AppAccess } from "./AppAccess";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
+import { InvestmentHistory } from "./InvestmentHistory";
 import { HoldingLinkButton } from "./HoldingLinkButton";
 import {
   capitalSummaryLabel,
@@ -3044,6 +3045,15 @@ function LegacyHoldingDetailWorkspace({
           </Button>
         )}
       </div>
+      {isPlaidInvestmentsHolding(holding) && (
+        <InvestmentHistory
+          positionId={holding.id}
+          snapshotId={
+            holding.positionValueContext?.snapshotId ??
+            holding.purchaseContext?.snapshotId
+          }
+        />
+      )}
       {holding.purchaseContext ? (
         <PositionPurchasesEditor
           mode="purchase"

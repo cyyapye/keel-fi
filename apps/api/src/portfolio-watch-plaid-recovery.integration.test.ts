@@ -268,7 +268,18 @@ describe("Plaid webhook queue recovery", () => {
                 request_id: "synthetic-status",
               }),
             )
-          : responseBytes;
+          : requestUrl.endsWith("/investments/transactions/get")
+            ? new TextEncoder().encode(
+                JSON.stringify({
+                  accounts: response.accounts,
+                  securities: [],
+                  investment_transactions: [],
+                  total_investment_transactions: 0,
+                  item: response.item,
+                  request_id: "synthetic-history",
+                }),
+              )
+            : responseBytes;
         return Promise.resolve(
           new Response(bytes, {
             status: 200,
@@ -316,7 +327,18 @@ describe("Plaid webhook queue recovery", () => {
       await handlePortfolioWatchQueue(recovery.batch, env);
       expect(recovery.ack).toHaveBeenCalledOnce();
       expect(recovery.retry).not.toHaveBeenCalled();
-      expect(plaidFetch).toHaveBeenCalledTimes(3);
+      expect(
+        plaidFetch.mock.calls.map(
+          ([url]) =>
+            new URL(url instanceof Request ? url.url : url.toString()).pathname,
+        ),
+      ).toEqual([
+        "/item/get",
+        "/investments/holdings/get",
+        "/item/get",
+        "/investments/transactions/get",
+        "/item/get",
+      ]);
       await expect(
         repository.getPlaidWebhookDelivery(claim.deliveryId),
       ).resolves.toMatchObject({ status: "processed" });
@@ -342,7 +364,7 @@ describe("Plaid webhook queue recovery", () => {
       await handlePortfolioWatchQueue(replay.batch, env);
       expect(replay.ack).toHaveBeenCalledOnce();
       expect(replay.retry).not.toHaveBeenCalled();
-      expect(plaidFetch).toHaveBeenCalledTimes(3);
+      expect(plaidFetch).toHaveBeenCalledTimes(5);
     } finally {
       sqlite.close();
     }
