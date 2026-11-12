@@ -45,6 +45,23 @@ export const position = z.object({
   ownership: z.enum(["closed", "recorded"]),
   latestSnapshotId: optionalText,
   reportedValueMinor: money,
+  ticker: optionalText.describe(
+    "Source-reported ticker in the latest accepted snapshot; null when unavailable.",
+  ),
+  quantityMicros: z
+    .int()
+    .nonnegative()
+    .nullable()
+    .describe(
+      "Source-reported quantity in the latest accepted snapshot, in millionths of a security unit (1000000 = one share for equities). Null means unavailable, not zero. Closed positions retain historical quantities; exclude them from current ownership totals.",
+    ),
+  costBasisMinor: z
+    .int()
+    .nonnegative()
+    .nullable()
+    .describe(
+      "Source-reported total cost basis for the snapshot quantity, in minor units of currency (USD cents). Null means unavailable, not zero; invested capital or market value is never substituted. This is not tax-lot or realized-gain information.",
+    ),
   observedAt: optionalText,
   evidenceId: optionalText,
 });
@@ -70,7 +87,7 @@ export const positionPage = z.object({
 const positionSQL = `SELECT p.id,p.provider,COALESCE(iv.legal_vehicle_name,p.legal_vehicle_name) name,COALESCE(iv.position_kind,p.position_kind) kind,p.instrument_type instrument,COALESCE(iv.owner_label,p.owner_label) owner,p.currency,
  'container:'||(SELECT o.container_id FROM holding_position_ownerships o WHERE o.position_id=p.id AND o.household_id=p.household_id ORDER BY o.version DESC LIMIT 1) accountId,
  CASE WHEN k.position_id IS NOT NULL AND a.position_id IS NULL THEN 'closed' ELSE 'recorded' END ownership,
- s.id latestSnapshotId,s.unrealized_value_minor reportedValueMinor,s.observed_at observedAt,s.source_document_id evidenceId FROM holding_positions p
+ s.id latestSnapshotId,s.unrealized_value_minor reportedValueMinor,s.ticker,s.quantity_micros quantityMicros,s.cost_basis_minor costBasisMinor,s.observed_at observedAt,s.source_document_id evidenceId FROM holding_positions p
  LEFT JOIN manual_holding_identity_heads ih ON ih.position_id=p.id AND ih.household_id=p.household_id
  LEFT JOIN manual_holding_identity_versions iv ON iv.id=ih.version_id AND iv.household_id=p.household_id
  LEFT JOIN holding_import_application_heads h ON h.position_id=p.id

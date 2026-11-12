@@ -5,6 +5,14 @@
   "baselineBrowserCases": 396,
   "retiredBrowserCaseCount": 350,
   "addedBrowserCases": [
+    "e2e/app-access.spec.ts :: chromium :: creates, persists, rotates and revokes a scoped key with a retained draft",
+    "e2e/app-access.spec.ts :: chromium :: recovers a failed access list without loading unrelated portfolio data",
+    "e2e/app-access.spec.ts :: chromium :: returns from the last access page while preserving the key draft",
+    "e2e/app-access.spec.ts :: chromium :: shows consent only for a real app request and disconnects its OAuth grant",
+    "e2e/app-access.spec.ts :: mobile-chromium :: creates, persists, rotates and revokes a scoped key with a retained draft",
+    "e2e/app-access.spec.ts :: mobile-chromium :: recovers a failed access list without loading unrelated portfolio data",
+    "e2e/app-access.spec.ts :: mobile-chromium :: returns from the last access page while preserving the key draft",
+    "e2e/app-access.spec.ts :: mobile-chromium :: shows consent only for a real app request and disconnects its OAuth grant",
     "e2e/carry-distributions.spec.ts :: chromium :: an accepted write retries only readback when the holding refresh fails",
     "e2e/carry-distributions.spec.ts :: chromium :: an explicitly undated provider review stays undated in detail and collection",
     "e2e/carry-distributions.spec.ts :: chromium :: cash receipts preserve unknown amounts and keep mixed-inclusion returns unavailable",
@@ -35,8 +43,10 @@
     "e2e/purchase-details.visual.spec.ts :: mobile-chromium :: custom quantity share bases save, reload and preserve equivalent proxy values",
     "e2e/share-basis.spec.ts :: chromium :: custom price factors persist through the API and D1 with equivalent valuations",
     "e2e/share-basis.spec.ts :: chromium :: custom quantity factors persist through the API and D1 with immutable receipts",
+    "e2e/share-basis.spec.ts :: chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions",
     "e2e/share-basis.spec.ts :: mobile-chromium :: custom price factors persist through the API and D1 with equivalent valuations",
-    "e2e/share-basis.spec.ts :: mobile-chromium :: custom quantity factors persist through the API and D1 with immutable receipts"
+    "e2e/share-basis.spec.ts :: mobile-chromium :: custom quantity factors persist through the API and D1 with immutable receipts",
+    "e2e/share-basis.spec.ts :: mobile-chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions"
   ],
   "requiredPdfFlow": "pdf-isolation",
   "migrations": [
@@ -2906,6 +2916,27 @@
         "apps/api/src/app.test.ts :: Keel API > validates and records a new immutable goal version"
       ],
       "assertions": "The mobile overview first exercises multi-goal keyboard/drag selection and opens the selected editor, then loads the same primary goal as the only goal and verifies its static heading, no chooser, carousel, duplicate section or overflow. The saved-goal editor still owns draft/template selection. The exact one-record editor count text and draft-to-sole-record reselection retire; no reference image retires."
+    },
+    {
+      "id": "gp-source-refresh-policy",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/database/src/gp-reported-totals.test.ts :: preserves an explicitly selected gp shares valuation",
+        "packages/database/src/gp-reported-totals.test.ts :: preserves an explicitly selected judgment total valuation",
+        "packages/database/src/gp-reported-totals.test.ts :: recovers an interrupted propagation and lets a racing manual valuation win",
+        "packages/database/src/gp-reported-totals.test.ts :: refreshes a selected GP total on a linked source sync without changing investment inputs, price dates or history",
+        "packages/database/src/gp-reported-totals.test.ts :: refreshes legacy receipts without changing their accepted JSON serialization",
+        "packages/database/src/gp-reported-totals.test.ts :: rejects forged refresh provenance and changes to preserved investment inputs in native SQL",
+        "packages/database/src/gp-reported-totals.test.ts :: retains the GP total for missing source values and reports observed before a newer GP review",
+        "packages/database/src/price-proxies.test.ts :: follows a newer undated GP price using recorded metadata assumptions, rejects older or incompatible prices and isolates household access",
+        "scripts/gp-reported-totals-d1-cost.test.ts :: refreshes 120 linked GP totals in two round trips with bounded real D1 cost through tied and unrelated history",
+        "scripts/price-proxy-d1-cost.test.ts :: bounds 120 linked recalculations including triggers, tied history, failure recovery and empty reads"
+      ],
+      "browserCases": [
+        "e2e/share-basis.spec.ts :: chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions",
+        "e2e/share-basis.spec.ts :: mobile-chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions"
+      ],
+      "assertions": "Accepted provider balances refresh only reviewed same-investment GP totals. Later accepted per-share prices continue explicitly followed proxies using disclosed reviewed metadata assumptions, preserving manual decisions, quantities and immutable receipts. Real API/D1 desktop/mobile flows verify changed imports, visible unknown dates, saved reloads and anchor-preserving edits; real D1 history/empty/race controls retain the existing production budgets."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

@@ -5,6 +5,17 @@ runway and the evidence behind a holding. Start with a local synthetic
 portfolio. The same requests work on a protected deployment with a household
 read credential.
 
+## Connect on a deployed environment
+
+Open **Settings → App access**. Copy the Server URL into a compatible chat app's
+custom MCP connector and choose OAuth. Keel asks which areas to grant when the
+app attempts to connect. Alternatively, open API keys, create a scoped key, and
+copy its API URL into your tool; send the key as
+`Authorization: Bearer YOUR_KEY`. The screen supplies the correct URLs for that
+environment. No per-user Worker variables are required. See
+[App access](../product/app-access.md) for permissions, expiry, rotation and
+revocation.
+
 ## Try it locally
 
 1. From a bootstrapped Keel checkout, run `make dev`.
@@ -36,6 +47,24 @@ integer USD cents. Published share prices use millionths of a dollar per share.
 The read credential permits unsaved previews. A separate goal-write credential
 permits goal creation, revision and archive. Keep credentials with the calling
 client.
+
+## Position quantities and cost basis
+
+`listPositions` / `GET /positions` and `getPosition` /
+`GET /positions/{positionId}` include `ticker`, `quantityMicros` and
+`costBasisMinor` from the latest accepted source snapshot. For equities,
+1,000,000 quantity units equal one share; fractional shares retain six decimal
+places. Cost basis is the source-reported total for that quantity, in the
+position's currency minor units (USD cents). Use `observedAt`,
+`latestSnapshotId` and `evidenceId` to report freshness and provenance. These
+are recorded observations, not live quotes.
+
+Follow every `nextAfter` page and use only `ownership: "recorded"` positions
+when totaling current holdings across accounts. Closed positions retain their
+historical snapshot. A `null` quantity or cost basis is unavailable, not zero;
+do not infer it from invested capital, market value or another account. Zero is
+a known value. Whole-position price scenarios require both quantity and cost
+basis; these fields do not supply tax lots, sale proceeds or realized gains.
 
 ## Reference and evaluation
 

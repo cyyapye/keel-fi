@@ -386,7 +386,7 @@ it.each([5, 10])(
   },
 );
 
-it("rejects older or incomplete source updates without reviving manual estimates and isolates household access", async () => {
+it("follows a newer undated GP price using recorded metadata assumptions, rejects older or incompatible prices and isolates household access", async () => {
   await setUpRepository();
   await reviewQuote();
   await link(0);
@@ -400,10 +400,35 @@ it("rejects older or incomplete source updates without reviving manual estimates
   expect(value(0)).toBe(1_688_000);
   vi.setSystemTime(new Date(Date.now() + 1000));
   await seedCostHoldings(db.asD1(), COST_SUBJECT, 3, false, {
-    sharePrices: prices(300_000_000, null),
+    sharePrices: {
+      ...prices(300_000_000, null),
+      shareClass: null,
+      shareBasis: null,
+    },
   });
   await readPositions();
-  expect(value(0)).toBe(1_688_000);
+  expect(value(0)).toBe(2_532_000);
+  const refreshed = current(0)!;
+  const record = refreshed.details.valuation!.records.find(
+    (r) => r.followSource,
+  )!;
+  expect(record).toMatchObject({
+    priceMicros: 300_000_000,
+    priceDate: null,
+    shareClass: null,
+    shareBasis: null,
+    sourceContinuation: {
+      policy: "accepted-source-continuation-v1",
+      quoteId: initial.details.valuation!.calculation!.quoteId,
+      shareClass: "Common",
+      shareBasis: basis,
+    },
+  });
+  expect(
+    selectedPositionValuation(refreshed, positions[0]!.snapshotId)
+      ?.effectiveDate,
+  ).toBeNull();
+  expect(refreshed.details.lots).toEqual(initial.details.lots);
   const page = await new D1HoldingsPageRepository(db.asD1()).getPage(
     COST_SUBJECT,
     "configuration_required",
@@ -411,7 +436,91 @@ it("rejects older or incomplete source updates without reviving manual estimates
   expect(
     page.holdings.find((p) => p.id === positions[0]!.id)?.purchaseContext
       ?.priceProxyStatus?.stale,
-  ).toBe(true);
+  ).toBe(false);
+  expect(
+    (await repo.valuationEvidence(COST_SUBJECT, positions[0]!.id)).prices.find(
+      (p) => p.positionId === positions[3]!.id,
+    ),
+  ).toMatchObject({
+    markMicros: 300_000_000,
+    markDate: null,
+    shareClass: null,
+    shareBasis: null,
+  });
+  // Native receipt validation rejects invented continuation metadata.
+  const forged = structuredClone(refreshed);
+  forged.id = crypto.randomUUID();
+  forged.details.valuation!.records.find(
+    (r) => r.followSource,
+  )!.sourceContinuation!.shareBasis.unitsPerOriginal = 10;
+  expect(() =>
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,'hh_demo',?,?,?,?,'usr_demo',?)`,
+      )
+      .run(
+        forged.id,
+        forged.positionId,
+        forged.snapshotId,
+        refreshed.id,
+        JSON.stringify(forged),
+        forged.acceptedAt,
+      ),
+  ).toThrow("price continuation provenance mismatch");
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 4, false, {
+    sharePrices: {
+      ...prices(350_000_000, null),
+      shareBasis: { key: "different-security", unitsPerOriginal: 1 },
+    },
+  });
+  expect(current(0)!.id).toBe(refreshed.id);
+  expect(value(0)).toBe(2_532_000);
+  // A later review can refer to evidence captured before the portal snapshot.
+  // Its newer acceptance must win over that previously accepted observation.
+  await readPositions();
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  await repo.acceptValuation(COST_SUBJECT, positions[3]!.id, {
+    expectedSnapshotId: positions[3]!.snapshotId,
+    expectedReceiptId: current(3)!.id,
+    method: "total",
+    record: {
+      ...gp(220_000_000, "2026-09-12"),
+      sourceCapturedAt: "2026-09-01T00:00:00.000Z",
+    },
+  });
+  expect(value(0)).toBe(1_856_800);
+  const corrected = await new D1HoldingsPageRepository(db.asD1()).getPage(
+    COST_SUBJECT,
+    "configuration_required",
+  );
+  expect(
+    corrected.holdings.find((p) => p.id === positions[0]!.id)!.purchaseContext!
+      .priceProxyStatus!.stale,
+  ).toBe(false);
+  expect(
+    current(0)!.details.valuation!.records.find((r) => r.followSource),
+  ).toMatchObject({
+    priceMicros: 220_000_000,
+    priceDate: "2026-09-12",
+    shareClass: "Common",
+    shareBasis: basis,
+  });
+  expect(
+    await new D1PriceProxyRepository(db.asD1()).refresh(COST_SUBJECT),
+  ).toEqual({ recalculated: 0 });
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  await repo.acceptValuation(COST_SUBJECT, positions[3]!.id, {
+    expectedSnapshotId: positions[3]!.snapshotId,
+    expectedReceiptId: current(3)!.id,
+    method: "total",
+    record: { ...gp(350_000_000), priceDate: null },
+  });
+  expect(value(0)).toBe(2_954_000);
+  expect(
+    current(0)!.details.valuation!.records.find((r) => r.followSource)!
+      .priceDate,
+  ).toBeNull();
   expect(
     (await repo.valuationEvidence("foreign", positions[0]!.id)).prices,
   ).toEqual([]);

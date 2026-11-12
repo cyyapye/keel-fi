@@ -16,24 +16,79 @@ import { D1HoldingImportRepository } from "../packages/database/src/holding-impo
 
 import { publicInventoryCostInput } from "./test-support/public-inventory-cost-worker";
 
-const inventoryWorker = build({
-  entryPoints: ["scripts/test-support/public-inventory-cost-worker.ts"],
-  bundle: true,
-  write: false,
-  format: "esm",
-  platform: "neutral",
-  target: "es2022",
-  conditions: ["workerd", "worker", "browser"],
-  mainFields: ["browser", "module", "main"],
-  external: ["node:*", "cloudflare:*"],
-  logLevel: "silent",
-}).then((result) => result.outputFiles[0]!.text);
+const costWorker = (entry: string) =>
+  build({
+    entryPoints: [entry],
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "neutral",
+    target: "es2022",
+    conditions: ["workerd", "worker", "browser"],
+    mainFields: ["browser", "module", "main"],
+    external: ["node:*", "cloudflare:*"],
+    logLevel: "silent",
+  }).then((result) => result.outputFiles[0]!.text);
+
+const inventoryWorker = costWorker(
+  "scripts/test-support/public-inventory-cost-worker.ts",
+);
+const captureWorker = costWorker(
+  "scripts/test-support/public-source-capture-cost-worker.ts",
+);
+const count = z.number().int().nonnegative();
+const captureResult = z
+  .object({
+    importId: z.string().min(1).max(256),
+    accepted: z
+      .object({
+        autoAppliedCount: count,
+        quarantinedCount: count,
+        preservedPositionCount: count,
+      })
+      .strict(),
+    cost: z
+      .object({
+        roundTrips: count,
+        statements: count,
+        rowsRead: count,
+        rowsWritten: count,
+      })
+      .strict(),
+    queries: z
+      .array(
+        z
+          .object({
+            sql: z.string().max(220),
+            calls: count,
+            rowsRead: count,
+            rowsWritten: count,
+          })
+          .strict(),
+      )
+      .max(4),
+  })
+  .strict();
+async function capturePublicSource(
+  runtime: Awaited<ReturnType<typeof populatedMigrationDatabase>>,
+  history: 12 | 24,
+  kind: "public" | "fallback",
+) {
+  const response = await runtime.dispatchFetch(
+    "https://synthetic-public-capture.invalid/replay",
+    { method: "POST", body: JSON.stringify({ history, kind }) },
+  );
+  if (!response.ok) throw new Error("Synthetic public capture failed.");
+  return captureResult.parse(await response.json());
+}
 
 const fixture = populatedMigrationFixtures("0092");
 for (const history of [12, 24] as const) {
   it(`reads 120 public source heads independently of ${history} observations and decisions per position`, async () => {
     const stored = await fixture(history, "0092");
-    const runtime = await populatedMigrationDatabase(stored);
+    const runtime = await populatedMigrationDatabase(stored, {
+      replayWorker: await captureWorker,
+    });
     try {
       const db = runtime.database;
       const anchors = (
@@ -115,143 +170,38 @@ for (const history of [12, 24] as const) {
       const hash = (value: string) =>
         createHash("sha256").update(value).digest("hex");
       const imports = new D1HoldingImportRepository(measured.database);
-      const account = hash("hh_demo:account");
-      const staged = await imports.stagePlaidInvestmentsHoldingImport(
-        "synthetic-access-subject",
-        {
-          objectKey: `synthetic/public-cost/${history}.json`,
-          sha256: hash(`public-cost:${history}`),
-          normalizedFingerprint: hash(`public-cost-normalized:${history}`),
-          byteSize: 24000,
-          effectiveDate: "2026-08-26",
-          retrievedAt: "2026-08-26T12:00:00.000Z",
-          rows: Array.from({ length: 120 }, (_, index) => ({
-            rowNumber: index + 1,
-            naturalKeySha256: hash(`hh_demo:row:${index}`),
-            securityName: `Synthetic Migration Public ${index}`,
-            ticker: `S${index}`,
-            securityType: "equity",
-            accountLabel: "Synthetic Brokerage",
-            quantityMicros: 1_000_000,
-            costBasisMinor: 10000,
-            marketValueMinor: 12500,
-            observedOn: "2026-08-26",
-            currency: "USD",
-            issues: [],
-          })),
-          canonicalScope: {
-            connection: {
-              mode: "existing",
-              connectionId: "synthetic_public_migration_hh_demo",
-            },
-            containers: [
-              {
-                protectedAccountKey: account,
-                displayLabel: "Synthetic Brokerage",
-                containerKind: "brokerage",
-                taxTreatment: "taxable",
-                completeness: "complete",
-              },
-            ],
-            rows: Array.from({ length: 120 }, (_, index) => ({
-              sourceRowNumber: index + 1,
-              protectedAccountKey: account,
-              protectedPositionKey: hash(`hh_demo:position:${index}`),
-              publicExposureIdentityKind: "cusip",
-              protectedExposureKey: hash(`hh_demo:security:${index}`),
-            })),
-          },
-        },
-      );
-      const accepted =
-        await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
-          "synthetic-access-subject",
-          staged.preview.id,
-        );
-      expect(accepted).toMatchObject({
+      const captured = await capturePublicSource(runtime, history, "public");
+      expect(captured.accepted).toMatchObject({
         autoAppliedCount: 120,
         quarantinedCount: 0,
         preservedPositionCount: 0,
       });
-      expect(measured.cost.roundTrips).toBeLessThanOrEqual(40);
-      expect(measured.cost.rowsRead).toBeLessThanOrEqual(60000);
-      expect(measured.cost.rowsWritten).toBeLessThanOrEqual(8000);
-      const captureCost = { ...measured.cost };
+      expect(captured.cost.roundTrips).toBeLessThanOrEqual(40);
+      expect(captured.cost.rowsRead).toBeLessThanOrEqual(60000);
+      expect(captured.cost.rowsWritten).toBeLessThanOrEqual(8000);
+      const captureCost = { ...captured.cost };
       // Provider-only securities use the same accepted import and a bounded
       // completion pass. Twenty source securities span six ownership accounts.
       measured.reset();
-      const fallback = await imports.stagePlaidInvestmentsHoldingImport(
-        "synthetic-access-subject",
-        {
-          objectKey: `synthetic/provider-completion/${history}.json`,
-          sha256: hash(`provider-completion:${history}`),
-          byteSize: 24000,
-          normalizedFingerprint: hash(
-            `provider-completion-normalized:${history}`,
-          ),
-          effectiveDate: "2026-08-27",
-          retrievedAt: "2026-08-27T12:00:00.000Z",
-          rows: Array.from({ length: 120 }, (_, index) => ({
-            rowNumber: index + 1,
-            naturalKeySha256: hash(`completion-row:${index}`),
-            securityName: `Synthetic Completion Security ${index % 20}`,
-            ticker: `R${index % 20}`,
-            securityType: "equity",
-            accountLabel: `Synthetic Completion Account ${Math.floor(index / 20)}`,
-            quantityMicros: 1_000_000,
-            costBasisMinor: 10000,
-            marketValueMinor: 12500,
-            observedOn: "2026-08-27",
-            currency: "USD",
-            issues: [],
-          })),
-          canonicalScope: {
-            connection: {
-              mode: "existing",
-              connectionId: "synthetic_public_migration_hh_demo",
-            },
-            containers: Array.from({ length: 6 }, (_, index) => ({
-              protectedAccountKey: hash(`completion-account:${index}`),
-              displayLabel: `Synthetic Completion Account ${index}`,
-              containerKind: "brokerage",
-              taxTreatment: "taxable",
-              completeness: "complete",
-            })),
-            rows: Array.from({ length: 120 }, (_, index) => ({
-              sourceRowNumber: index + 1,
-              protectedAccountKey: hash(
-                `completion-account:${Math.floor(index / 20)}`,
-              ),
-              protectedPositionKey: hash(`completion-position:${index}`),
-              publicExposureIdentityKind: null,
-              protectedExposureKey: null,
-            })),
-          },
-        },
-      );
-      expect(
-        await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
-          "synthetic-access-subject",
-          fallback.preview.id,
-        ),
-      ).toMatchObject({ autoAppliedCount: 120, quarantinedCount: 0 });
-      const fallbackCaptureCost = { ...measured.cost };
-      const fallbackQueries = [...measured.byQuery]
-        .sort((a, b) => b[1].rowsRead - a[1].rowsRead)
-        .slice(0, 4)
-        .map(([sql, cost]) => ({ sql: sql.slice(0, 220), ...cost }));
+      const fallback = await capturePublicSource(runtime, history, "fallback");
+      expect(fallback.accepted).toMatchObject({
+        autoAppliedCount: 120,
+        quarantinedCount: 0,
+      });
+      const fallbackCaptureCost = { ...fallback.cost };
+      const fallbackQueries = fallback.queries;
       expect(fallbackCaptureCost.roundTrips).toBeLessThanOrEqual(40);
       measured.reset();
       await imports.getHoldingImport(
         "synthetic-access-subject",
-        fallback.preview.id,
+        fallback.importId,
       );
       const completionResponseReads = { ...measured.cost };
       const exposures = new D1ExposureRepository(measured.database);
       measured.reset();
       const documents = await exposures.listRetainedPublicExposureDocuments(
         "synthetic-access-subject",
-        fallback.preview.id,
+        fallback.importId,
       );
       expect(documents).toHaveLength(1);
       expect(documents[0]?.rows).toHaveLength(120);
@@ -284,7 +234,7 @@ for (const history of [12, 24] as const) {
       );
       await exposures.reconcileAcceptedPublicExposureHistory(
         "synthetic-access-subject",
-        fallback.preview.id,
+        fallback.importId,
       );
       const completionCost = { ...measured.cost };
       const completionQueries = [...measured.byQuery]
@@ -297,7 +247,7 @@ for (const history of [12, 24] as const) {
       measured.reset();
       await imports.getHoldingImport(
         "synthetic-access-subject",
-        fallback.preview.id,
+        fallback.importId,
       );
       completionResponseReads.roundTrips += measured.cost.roundTrips;
       completionResponseReads.rowsRead += measured.cost.rowsRead;
@@ -331,7 +281,7 @@ for (const history of [12, 24] as const) {
           (
             await db
               .prepare(`EXPLAIN QUERY PLAN ${query}`)
-              .bind("hh_demo", fallback.preview.id)
+              .bind("hh_demo", fallback.importId)
               .all<{ detail: string }>()
           ).results.map((row) => row.detail),
         ),
@@ -349,12 +299,12 @@ for (const history of [12, 24] as const) {
       expect(
         await exposures.listRetainedPublicExposureDocuments(
           "synthetic-access-subject",
-          fallback.preview.id,
+          fallback.importId,
         ),
       ).toEqual([]);
       await exposures.reconcileAcceptedPublicExposureHistory(
         "synthetic-access-subject",
-        fallback.preview.id,
+        fallback.importId,
       );
       const repeatedCompletionCost = { ...measured.cost };
       expect(repeatedCompletionCost.roundTrips).toBeLessThanOrEqual(4);
@@ -375,7 +325,7 @@ for (const history of [12, 24] as const) {
           .prepare(
             "SELECT COUNT(*) count, COUNT(DISTINCT exposure_id) exposures FROM holding_position_exposure_heads WHERE position_id IN (SELECT application.position_id FROM holding_import_applications application JOIN holding_import_rows row ON row.id=application.import_row_id WHERE row.import_id=?) AND status='active'",
           )
-          .bind(fallback.preview.id)
+          .bind(fallback.importId)
           .first(),
       ).toEqual({ count: 120, exposures: 20 });
       console.info(

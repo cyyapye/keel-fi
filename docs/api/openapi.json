@@ -1237,6 +1237,32 @@
                     { "type": "null" }
                   ]
                 },
+                "ticker": {
+                  "anyOf": [{ "type": "string" }, { "type": "null" }],
+                  "description": "Source-reported ticker in the latest accepted snapshot; null when unavailable."
+                },
+                "quantityMicros": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Source-reported quantity in the latest accepted snapshot, in millionths of a security unit (1000000 = one share for equities). Null means unavailable, not zero. Closed positions retain historical quantities; exclude them from current ownership totals."
+                },
+                "costBasisMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Source-reported total cost basis for the snapshot quantity, in minor units of currency (USD cents). Null means unavailable, not zero; invested capital or market value is never substituted. This is not tax-lot or realized-gain information."
+                },
                 "observedAt": {
                   "anyOf": [{ "type": "string" }, { "type": "null" }]
                 },
@@ -1256,6 +1282,9 @@
                 "ownership",
                 "latestSnapshotId",
                 "reportedValueMinor",
+                "ticker",
+                "quantityMicros",
+                "costBasisMinor",
                 "observedAt",
                 "evidenceId"
               ],
@@ -1292,6 +1321,24 @@
               },
               { "type": "null" }
             ]
+          },
+          "ticker": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "description": "Source-reported ticker in the latest accepted snapshot; null when unavailable."
+          },
+          "quantityMicros": {
+            "anyOf": [
+              { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              { "type": "null" }
+            ],
+            "description": "Source-reported quantity in the latest accepted snapshot, in millionths of a security unit (1000000 = one share for equities). Null means unavailable, not zero. Closed positions retain historical quantities; exclude them from current ownership totals."
+          },
+          "costBasisMinor": {
+            "anyOf": [
+              { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              { "type": "null" }
+            ],
+            "description": "Source-reported total cost basis for the snapshot quantity, in minor units of currency (USD cents). Null means unavailable, not zero; invested capital or market value is never substituted. This is not tax-lot or realized-gain information."
           },
           "observedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
           "evidenceId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
@@ -1432,6 +1479,9 @@
           "ownership",
           "latestSnapshotId",
           "reportedValueMinor",
+          "ticker",
+          "quantityMicros",
+          "costBasisMinor",
           "observedAt",
           "evidenceId",
           "terms",
@@ -2330,7 +2380,7 @@
     "/positions": {
       "get": {
         "operationId": "listPositions",
-        "summary": "List recorded positions including closed positions",
+        "summary": "List recorded positions, quantities and cost bases, including closed positions",
         "parameters": [
           {
             "in": "query",
@@ -2341,7 +2391,7 @@
         ],
         "responses": {
           "200": {
-            "description": "List recorded positions including closed positions",
+            "description": "List recorded positions, quantities and cost bases, including closed positions",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/PositionPage" }
@@ -2394,7 +2444,7 @@
     "/positions/{positionId}": {
       "get": {
         "operationId": "getPosition",
-        "summary": "Read holdings terms, exposures and dated valuations",
+        "summary": "Read position quantity, cost basis, terms, exposures and dated valuations",
         "parameters": [
           {
             "in": "path",
@@ -2411,7 +2461,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Read holdings terms, exposures and dated valuations",
+            "description": "Read position quantity, cost basis, terms, exposures and dated valuations",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Position" }

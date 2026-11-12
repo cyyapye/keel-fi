@@ -1,0 +1,98 @@
+.app-access {
+  max-width: 980px;
+}
+.app-access__section {
+  display: grid;
+  gap: var(--space-6);
+  padding-top: var(--space-8);
+}
+.app-access__form {
+  display: grid;
+  gap: var(--space-6);
+  max-width: 640px;
+}
+.app-access__form > .button {
+  justify-self: start;
+}
+.app-access__form p,
+.app-access__section > p {
+  margin: 0;
+}
+.app-access__permissions {
+  display: grid;
+  gap: var(--space-4);
+}
+.app-access__permissions h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.app-access__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+.app-access__permissions p,
+.app-access__docs {
+  color: var(--muted);
+}
+.app-access__copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+  max-width: 740px;
+}
+.app-access__copy .form-message {
+  grid-column: 1/-1;
+}
+.app-access__copy input {
+  font-family: monospace;
+  font-size: 13px;
+}
+.app-access__saved {
+  margin-top: var(--space-10);
+  border-top: 1px solid var(--line-soft);
+}
+.app-access__details {
+  display: grid;
+  gap: var(--space-3);
+}
+.app-access__details dl {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  max-width: 580px;
+}
+.app-access__details dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.app-access__details dd {
+  margin: 0;
+}
+.app-access__details p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.app-access .record-item {
+  min-width: 0;
+}
+.app-access .record-item h3,
+.app-access .record-item p {
+  overflow-wrap: anywhere;
+}
+.app-access .record-item form {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 480px;
+}
+@media (max-width: 640px) {
+  .app-access__fields,
+  .app-access__copy {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .app-access__copy > .button {
+    justify-self: start;
+  }
+}

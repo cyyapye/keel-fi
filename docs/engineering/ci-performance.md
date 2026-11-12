@@ -130,14 +130,16 @@ overlapping preflight evidence fails verification.
 Source checks, the PDF image build and workspace build now wait for that gate,
 along with the flows that already depended on integrity. After preflight, at
 most three native flows run concurrently. Admission follows the reviewed map's
-first-ready order. Unit work may overlap source checks. Browsers wait for both
-flows to complete, avoiding three competing heavy phases. PDF isolation waits
-for source checks, so its scanner cannot overlap the compiler flow; it may
-overlap browsers after the unit flow completes. Source checks still must pass in
-the same complete receipt. Configured scanner and compiler limits do not
-establish observed memory use or available host capacity. The 900-second active
-budget and per-case deadlines remain. Native main units and standalone execution
-use three workers after the two-worker trial below failed the complete budget.
+first-ready order. The main unit flow has priority over the independent PDF
+image build and migration flow, so neither delays its admission. Unit work may
+overlap source checks. Browsers wait for both flows to complete, avoiding three
+competing heavy phases. PDF isolation waits for source checks, so its scanner
+cannot overlap the compiler flow; it may overlap browsers after the unit flow
+completes. Source checks still must pass in the same complete receipt.
+Configured scanner and compiler limits do not establish observed memory use or
+available host capacity. The 900-second active budget and per-case deadlines
+remain. Native main units and standalone execution use three workers after the
+two-worker trial below failed the complete budget.
 
 Draft PR #340 tried admitting the workspace build before the main unit suite in
 [run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
@@ -365,18 +367,39 @@ exceeded its unchanged five-second deadline during browser overlap in run
 `41383958842`. Its authentication, validation, accepted-write, valuation,
 history and fixture work remain inside that same test and deadline. The two D1
 cost files remain in main, which can run alongside source checks and browsers.
-Main unit files retain their measured cost priorities. The automatic-review
-day/history case has early main-phase priority after run `40443347834` exceeded
-its unchanged 90-second deadline during browser overlap. That run's host CPU
-pressure (`some avg10`) had a 65.6% median. Those admission changes retained its
-120-item histories, request envelope, D1 assertions, worker pool and timeout.
-The two-worker native trial was rejected above. A complete Linux run remains the
-acceptance check. The reviewed-rename cost fixture runs its synthetic import and
-240 company-review operations inside its existing workerd fixture to avoid
-repeated Node-to-D1 bridge calls. It uses the same repository methods, accepted
-decisions and link records. The test still meters every positive, history, empty
-and unrelated-household read against real D1, with the same 120-position scale,
-row budgets and query-plan assertions.
+Main unit files retain their measured cost priorities. Run `42772244012`,
+attempt 2, exposed a 104.9-second cash-history fixture: it started at offset
+483.12 of main Vitest and finished at 588.04, while every other file finished by
+535.98. Early admission then exceeded the unchanged 120-second case deadline in
+run `42777326654`. Its setup now executes the same production bank-refresh and
+holding-import operations beside D1, following the existing rename fixture
+pattern. The host still meters every original history read and checks its query
+plans. All 100 bank accounts, 120 brokerage positions, historical growth,
+foreign-household checks, assertions and deadlines remain. A managed Linux
+replay completed the file in 11.1 seconds (case body 5.7 seconds), with exactly
+the original counters: bank reads 3,206/6,406 and brokerage reads 11/20, zero
+writes, and three/two read-model round trips respectively. This focused replay
+supplies a 12-second scheduling hint, not a whole-gate headroom claim.
+
+Cost fixtures without a timing hint receive early admission for both
+`-cost.test.ts` and `-d1-cost.test.ts` names. These priorities retain every
+discovered specification and worker count. The failed complete run also started
+main units at offset 113.423 after the image build, despite units having only
+the completed integrity gate as a prerequisite. Admitting units before those
+independent flows removes that avoidable wait; a new full Linux receipt must
+establish the resulting gate duration.
+
+The automatic-review day/history case has early main-phase priority after run
+`40443347834` exceeded its unchanged 90-second deadline during browser overlap.
+That run's host CPU pressure (`some avg10`) had a 65.6% median. Those admission
+changes retained its 120-item histories, request envelope, D1 assertions, worker
+pool and timeout. The two-worker native trial was rejected above. A complete
+Linux run remains the acceptance check. The reviewed-rename cost fixture runs
+its synthetic import and 240 company-review operations inside its existing
+workerd fixture to avoid repeated Node-to-D1 bridge calls. It uses the same
+repository methods, accepted decisions and link records. The test still meters
+every positive, history, empty and unrelated-household read against real D1,
+with the same 120-position scale, row budgets and query-plan assertions.
 
 Browser verification produces six reports with at most four active workers.
 Three stateful partitions and one mocked partition start together. The first
@@ -1219,3 +1242,69 @@ frontier. The direct and previous forms produced identical complete fixtures at
 12 and 24 captures. All 13 affected local D1 cases passed. The full native gate
 remains the release proof. SQL workloads, data scale, actual billing assertions,
 worker counts and all deadlines stay the same.
+
+## Reconnect release verification follow-up
+
+Run `42821941589`, attempt 3, completed all unit cases but reached 900 seconds
+during the final browser work. Its mobile inventory capture also differed only
+in the existing Hide activity hover underline. Both inventory references now
+establish their intended hover explicitly after the capture mask settles.
+
+Independent provider restart, catalogue and API-mocked visual cases are balanced
+among the existing lanes. These cases own their synthetic provider pages or API
+mocks and do not depend on the destination lane's D1 fixture. Mocked contexts
+continue blocking service workers and rejecting unhandled application APIs. The
+reviewed cases, renderer, database copies, assertions, worker caps and
+300/900-second deadlines are unchanged. A complete passing receipt is still
+required to establish the resulting timing.
+
+Each native unit phase uses Node's compilation cache in a separate owned
+temporary directory. The required seed preparation warms it inside the timed
+main phase. It is never placed in the sealed D1 seed, retained across phases or
+uploaded; every test and result check still executes. Existing lifecycle checks
+cover cleanup and cancellation, and the phase holdout requires the cache to be
+outside the D1 seed. A six-process macOS/Node 22.13.0 import probe took 2.283
+seconds without it and 1.640 seconds with it (6.4 MB of temporary bytecode).
+This dependency-import measurement is not a complete native-gate benchmark.
+
+The first balanced run completed those lanes but reached the overall deadline
+with two cases left in the late mocked lane. A lower source-check CPU priority
+trial in run `42835342170` did not pass either: units took 554.9 seconds versus
+556.3, while source checks grew from 367.5 to 450.5 seconds. That trial was
+reverted. All complete-gate and browser deadlines remain unchanged.
+
+The source scale fixture's two captures now run their unchanged production
+repository operations beside real D1, using the same `measureD1` wrapper to
+export actual billing counters. Their synthetic capture inputs are unchanged.
+The calling test retains its original acceptance, read/write/round-trip
+ceilings, history growth, empty and foreign state, query plans and integrity
+assertions. Only the test-host bridge is removed from these capture operations;
+this does not combine or omit any production database call.
+
+Focused macOS/Node 22.13.0 runs passed all four cases in 49.7 seconds for the
+original fixture and 31.6 seconds for the candidate. All 24 reported D1 counter
+records match exactly. Both capture inputs and the 65 original assertion
+matchers, expected values and ordering match structurally. These are local
+transport measurements; the complete native receipt remains the release proof.
+
+Run `42805759768` reached the complete 900-second limit without a failed case.
+Its source-review fixture took 214.2 seconds, but stale estimates admitted it
+behind shorter files. Refreshing those estimates in run `42808790553` preserved
+all unit cases and their deadlines, but increased complete unit time from 541.1
+to 561.6 seconds and did not pass the overall gate. That scheduling trial was
+reverted.
+
+The source browser fixtures now run their unchanged production repository
+operations beside the same isolated local D1/R2 bindings. Node sends one bounded
+setup message instead of proxying each fixture statement across processes.
+Fixture operations and synthetic values are byte-identical after the move;
+reconciliation, browser reads, assertions and screenshots continue through the
+ordinary API. The local ten-case browser file passed in 29.8 seconds. The
+managed canonical Linux replay passed all ten cases with unchanged images in 1.1
+minutes, compared with 1.9 minutes for the preceding transport. A complete
+exact-revision receipt remains the release proof.
+
+The inventory desktop reference also included a hovered Check now action without
+establishing hover after its capture-only layout mask. Explicit hover
+preparation replayed all ten source cases on the canonical Linux renderer with
+the existing images and thresholds. Case identities and coverage are unchanged.

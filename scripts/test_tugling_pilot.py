@@ -859,9 +859,13 @@ class NativeAccountingTests(unittest.TestCase):
             sentinel = root / "unowned"
             sentinel.write_text("synthetic")
             with patch.object(native, "ARTIFACTS", root):
-                with native.cost_seed_directory() as seed:
+                with native.cost_seed_directory() as seed, native.cost_seed_directory(prefix="node-compile-") as cache:
                     self.assertTrue(Path(seed).is_dir())
+                    self.assertTrue(Path(cache).is_dir())
+                    self.assertFalse(Path(cache).is_relative_to(seed))
+                    (Path(cache) / "synthetic-bytecode").write_text("synthetic")
                 self.assertFalse(Path(seed).exists())
+                self.assertFalse(Path(cache).exists())
                 with self.assertRaises(ValueError):
                     with native.cost_seed_directory() as failed:
                         raise ValueError("synthetic failure")
@@ -1124,6 +1128,11 @@ with native.cost_seed_directory() as seed:
                 # Exercise production, claim and publication together without starting more runtimes.
                 for fault in ("none", "strict snapshot", "main timestamp", "main snapshot", "changed proof"):
                     def execute(command, **options):
+                        if "env" in options:
+                            cache = Path(options["env"]["NODE_COMPILE_CACHE"])
+                            seed = Path(options["env"]["KEEL_TEST_SQLITE_SNAPSHOT_ROOT"])
+                            self.assertTrue(cache.is_dir())
+                            self.assertFalse(cache.is_relative_to(seed))
                         if "--reporter=json" in command:
                             path = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("--outputFile=")))
                             first = path.name == "vitest-preflight.json"
@@ -1309,7 +1318,8 @@ with native.cost_seed_directory() as seed:
         )
         flow_order = [flow["id"] for flow in plan["flows"]]
         self.assertLess(flow_order.index("compose-configuration"), flow_order.index("migration-and-seed"))
-        self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("native-unit-and-cost"))
+        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("pdf-sandbox-build"))
+        self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("migration-and-seed"))
         self.assertLess(flow_order.index("native-unit-and-cost"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("migration-and-seed"), flow_order.index("provider-document-runtime"))
         self.assertLess(flow_order.index("provider-document-runtime"), flow_order.index("pdf-isolation"))
@@ -1335,9 +1345,9 @@ with native.cost_seed_directory() as seed:
             'source-quality': (['make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 600),
             'compose-configuration': (['docker', 'compose', 'config', '--quiet'], 30),
             'gate-and-artifact-integrity': (['python3', '-I', 'scripts/pilot_native.py', 'preflight'], 120),
+            'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
             'pdf-sandbox-build': (['make', 'pdf-sandbox-build'], 1200),
             'migration-and-seed': (['python3', '-I', 'scripts/pilot_native.py', 'migration-seed'], 300),
-            'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
             'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
             'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
             'build-and-entry-budget': (['make', 'build'], 300),

@@ -1,3 +1,4 @@
+import { AppAccess } from "./AppAccess";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
 import { HoldingLinkButton } from "./HoldingLinkButton";
 import {
@@ -306,9 +307,11 @@ function routeFromLocation(): AppRoute {
       };
     }
   }
-  const screen = navigation.find(
-    (item) => window.location.pathname === `/${item.id}`,
-  )?.id;
+  const screen =
+    window.location.pathname === "/oauth/authorize"
+      ? "settings"
+      : navigation.find((item) => window.location.pathname === `/${item.id}`)
+          ?.id;
   return {
     screen: screen ?? "dashboard",
     holdingImportId: null,
@@ -3403,9 +3406,8 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   if (overview.status === "needs_attention") {
     if (overview.errorCode === "angellist_sign_in_required") {
       return {
-        title: "AngelList needs reconnecting",
-        description:
-          "Finish sign-in and 2FA in a private browser to resume updates.",
+        title: "Sign in again to resume updates",
+        description: "Complete sign-in and 2FA in the secure browser.",
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
@@ -3428,8 +3430,7 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
     };
   }
   return {
-    title:
-      overview.lastCompletedAt === null ? "Ready for first update" : "Working",
+    title: overview.lastCompletedAt === null ? "Ready for first update" : null,
     description: null,
   };
 }
@@ -3640,7 +3641,7 @@ function ProviderReconnectControl({
       : null;
   const status =
     session?.status === "requested" || session?.status === "starting"
-      ? "Preparing a private browser…"
+      ? null
       : session?.status === "ready"
         ? `The ${label} browser is ready for 15 minutes.`
         : session?.status === "opened"
@@ -3654,7 +3655,9 @@ function ProviderReconnectControl({
               : session?.status === "failed"
                 ? session.errorCode === "provider_sign_in_incomplete"
                   ? "The sign-in did not stay available for automatic updates. Keel has not marked it connected."
-                  : "Keel could not complete the reconnect. Your prior holdings are unchanged."
+                  : session.errorCode === "browser_unavailable"
+                    ? "The secure browser could not start. Try again, or open Troubleshooting if it keeps failing."
+                    : "Keel could not complete the reconnect. Try again."
                 : null;
 
   return (
@@ -3699,7 +3702,14 @@ function ProviderReconnectControl({
         </Button>
       )}
       {status !== null && (
-        <FormMessage className="provider-reconnect__status">
+        <FormMessage
+          className={
+            session?.status === "failed"
+              ? "provider-reconnect__error"
+              : "provider-reconnect__status"
+          }
+          tone={session?.status === "failed" ? "error" : "neutral"}
+        >
           {status}
         </FormMessage>
       )}
@@ -3716,11 +3726,13 @@ function AgentTroubleshooting({
   copyCommand,
   error,
   label,
+  lastSeenAt,
   setupCommand,
 }: {
   copyCommand: () => void;
   error: string | null;
   label: string;
+  lastSeenAt: string | null;
   setupCommand: string;
 }) {
   return (
@@ -3731,6 +3743,9 @@ function AgentTroubleshooting({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="provider-agent-troubleshooting__content">
+          {lastSeenAt !== null && (
+            <p>Update computer last checked {formatDate(lastSeenAt)}.</p>
+          )}
           <p>
             If Keel cannot open the private browser, run the repair command on
             the update computer.
@@ -3742,6 +3757,25 @@ function AgentTroubleshooting({
         </div>
       </CollapsibleContent>
     </Collapsible>
+  );
+}
+
+function ProviderUpdateSummary({
+  overview,
+}: {
+  overview: AngelListMacAgentOverview | ProviderPortfolioAgentOverview | null;
+}) {
+  if (overview === null || overview.status === "setup_required") return null;
+  const nextRunAt = overview.status === "ready" ? overview.nextRunAt : null;
+  if (overview.lastCompletedAt === null && nextRunAt === null) return null;
+  return (
+    <p className="provider-agent-row__meta">
+      {overview.lastCompletedAt !== null && (
+        <>Updated {formatDate(overview.lastCompletedAt)}</>
+      )}
+      {overview.lastCompletedAt !== null && nextRunAt !== null && " · "}
+      {nextRunAt !== null && <>Next {formatDate(nextRunAt)}</>}
+    </p>
   );
 }
 
@@ -3862,21 +3896,16 @@ function AngelListMacAgentControl() {
 
   return (
     <article
-      aria-labelledby={
-        message.title === null
-          ? "angellist-agent-label"
-          : "angellist-agent-label angellist-agent-title"
-      }
+      aria-labelledby="angellist-agent-label"
       className="provider-agent-row"
     >
       <div className="provider-agent-row__heading">
-        <p className="eyebrow" id="angellist-agent-label">
-          AngelList
-        </p>
+        <h3 id="angellist-agent-label">AngelList</h3>
         {message.title !== null && (
-          <h3 id="angellist-agent-title">{message.title}</h3>
+          <p className="provider-agent-row__status">{message.title}</p>
         )}
         {message.description !== null && <p>{message.description}</p>}
+        <ProviderUpdateSummary overview={overview} />
       </div>
 
       <div className="provider-agent-row__action" aria-live="polite">
@@ -3908,6 +3937,7 @@ function AngelListMacAgentControl() {
               copyCommand={() => void copySetupCommand()}
               error={error}
               label="AngelList"
+              lastSeenAt={overview?.lastSeenAt ?? null}
               setupCommand={setupCommand}
             />
           </div>
@@ -3953,7 +3983,7 @@ function AngelListMacAgentControl() {
             <Button
               disabled={busyAction !== null || running}
               onClick={() => void runNow()}
-              tone="primary"
+              tone="secondary"
             >
               {busyAction === "run"
                 ? "Requesting…"
@@ -3964,35 +3994,6 @@ function AngelListMacAgentControl() {
                   : "Queue update"}
             </Button>
           </ActionGroup>
-        )}
-
-        {overview !== null && !setupRequired && (
-          <DataList className="provider-agent-row__meta">
-            <DataItem
-              label="Last agent check"
-              value={
-                overview.lastSeenAt === null
-                  ? "Not yet"
-                  : formatDate(overview.lastSeenAt)
-              }
-            />
-            <DataItem
-              label="Last completed"
-              value={
-                overview.lastCompletedAt === null
-                  ? "Not yet"
-                  : formatDate(overview.lastCompletedAt)
-              }
-            />
-            <DataItem
-              label="Next scheduled"
-              value={
-                overview.nextRunAt === null
-                  ? "Off"
-                  : formatDate(overview.nextRunAt)
-              }
-            />
-          </DataList>
         )}
 
         {notice !== null && (
@@ -4057,8 +4058,8 @@ function providerPortfolioAgentMessage(
   if (overview.status === "needs_attention") {
     if (overview.errorCode === "provider_sign_in_required") {
       return {
-        title: `${label} needs reconnecting`,
-        description: `Finish sign-in and 2FA in a private browser to resume updates.`,
+        title: "Sign in again to resume updates",
+        description: "Complete sign-in and 2FA in the secure browser.",
       };
     }
     if (overview.errorCode === "keel_sign_in_required") {
@@ -4100,8 +4101,7 @@ function providerPortfolioAgentMessage(
     };
   }
   return {
-    title:
-      overview.lastCompletedAt === null ? "Ready for first update" : "Working",
+    title: overview.lastCompletedAt === null ? "Ready for first update" : null,
     description: null,
   };
 }
@@ -4246,20 +4246,15 @@ function ProviderPortfolioAgentRow({
   }, [label]);
 
   const labelId = `${provider}-agent-label`;
-  const titleId = `${provider}-agent-title`;
   return (
-    <article
-      aria-labelledby={
-        message.title === null ? labelId : `${labelId} ${titleId}`
-      }
-      className="provider-agent-row"
-    >
+    <article aria-labelledby={labelId} className="provider-agent-row">
       <div className="provider-agent-row__heading">
-        <p className="eyebrow" id={labelId}>
-          {label}
-        </p>
-        {message.title !== null && <h3 id={titleId}>{message.title}</h3>}
+        <h3 id={labelId}>{label}</h3>
+        {message.title !== null && (
+          <p className="provider-agent-row__status">{message.title}</p>
+        )}
         {message.description !== null && <p>{message.description}</p>}
+        <ProviderUpdateSummary overview={overview} />
       </div>
 
       <div className="provider-agent-row__action" aria-live="polite">
@@ -4303,6 +4298,7 @@ function ProviderPortfolioAgentRow({
               copyCommand={() => void copySetupCommand()}
               error={error}
               label={label}
+              lastSeenAt={overview?.lastSeenAt ?? null}
               setupCommand={setupCommand}
             />
           </div>
@@ -4348,7 +4344,7 @@ function ProviderPortfolioAgentRow({
             <Button
               disabled={busyAction !== null || running}
               onClick={() => void runNow()}
-              tone="primary"
+              tone="secondary"
             >
               {busyAction === "run"
                 ? "Requesting…"
@@ -4361,34 +4357,6 @@ function ProviderPortfolioAgentRow({
           </ActionGroup>
         )}
 
-        {overview !== null && !setupRequired && (
-          <DataList className="provider-agent-row__meta">
-            <DataItem
-              label="Last agent check"
-              value={
-                overview.lastSeenAt === null
-                  ? "Not yet"
-                  : formatDate(overview.lastSeenAt)
-              }
-            />
-            <DataItem
-              label="Last completed"
-              value={
-                overview.lastCompletedAt === null
-                  ? "Not yet"
-                  : formatDate(overview.lastCompletedAt)
-              }
-            />
-            <DataItem
-              label="Next scheduled"
-              value={
-                overview.nextRunAt === null
-                  ? "Off"
-                  : formatDate(overview.nextRunAt)
-              }
-            />
-          </DataList>
-        )}
         {notice !== null && (
           <FormMessage className="provider-agent-row__notice" tone="success">
             {notice}
@@ -9106,7 +9074,11 @@ export function App() {
   }, [needsHoldingsData, refreshHoldingsPage]);
 
   useEffect(() => {
-    if (activeScreen !== "holdings" && data === null) {
+    if (
+      activeScreen !== "holdings" &&
+      activeScreen !== "settings" &&
+      data === null
+    ) {
       void refreshAlphaData().catch(() => undefined);
     }
   }, [activeScreen, data, refreshAlphaData]);
@@ -9123,6 +9095,7 @@ export function App() {
   ]);
 
   const content = useMemo(() => {
+    if (activeScreen === "settings") return <AppAccess />;
     if (activeScreen === "holdings") {
       // Entity review owns its data. Do not waterfall through unrelated
       // holdings, valuations, exposure reconciliation or planning requests.
@@ -9371,11 +9344,20 @@ export function App() {
     scenarioContext,
   ]);
 
-  if (activeScreen !== "holdings" && data === null && loadError === null) {
+  if (
+    activeScreen !== "holdings" &&
+    activeScreen !== "settings" &&
+    data === null &&
+    loadError === null
+  ) {
     return <LoadingShell />;
   }
 
-  if (activeScreen !== "holdings" && data === null) {
+  if (
+    activeScreen !== "holdings" &&
+    activeScreen !== "settings" &&
+    data === null
+  ) {
     return (
       <div className="fatal-error">
         <div className="brand">

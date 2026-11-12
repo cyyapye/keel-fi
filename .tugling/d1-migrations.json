@@ -410,12 +410,46 @@
       "histories": [12, 24],
       "maxRowsRead": 15000,
       "maxRowsWritten": 5000
+    },
+    {
+      "kind": "upgrade",
+      "id": "gp-reported-total-v1",
+      "frontier": "0092_public_holding_inventories.sql",
+      "migrations": [
+        {
+          "name": "0093_gp_reported_total_refresh.sql",
+          "sha256": "af7f348f5be694585ea1f8d12bb08fd4a3692815413337902bd640ae9f29b31f"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 2000,
+      "maxRowsWritten": 100
+    },
+    {
+      "kind": "upgrade",
+      "id": "app-access-v1",
+      "frontier": "0093_gp_reported_total_refresh.sql",
+      "migrations": [
+        {
+          "name": "0094_app_access.sql",
+          "sha256": "41696c90c48535c4dfda53463b890b38b364e90d3716a47163d27d774983d9e2"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 2000,
+      "maxRowsWritten": 100
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "public-inventory-schema-v1",
-    "frontier": "0092_public_holding_inventories.sql",
+    "id": "app-access-schema-v1",
+    "frontier": "0094_app_access.sql",
     "pending": [],
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,

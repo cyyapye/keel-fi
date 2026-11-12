@@ -6,7 +6,8 @@ export type Screen =
   | "watch"
   | "evidence"
   | "scenarios"
-  | "history";
+  | "history"
+  | "settings";
 
 type NavigationItem = {
   id: Screen;
@@ -23,6 +24,7 @@ export const navigation = [
   { id: "evidence", label: "Evidence Inbox", index: "06" },
   { id: "scenarios", label: "Scenarios", index: "07" },
   { id: "history", label: "Forecast History", index: "08" },
+  { id: "settings", label: "Settings", index: "09" },
 ] as const satisfies readonly NavigationItem[];
 
 export const holdingsNavigation = [

@@ -1,0 +1,4 @@
+.topbar,
+.mobile-nav {
+  visibility: hidden !important;
+}

@@ -8,6 +8,7 @@ const {
   captureSydecar,
   captureTokenfolio,
   providerPageReady,
+  providerPageReadyNow,
   requireProviderPageReady,
 } = __providerPortfolioMacAgentTest;
 
@@ -749,3 +750,501 @@ test("keeps equal-amount Sydecar rows distinct by row and destination", async ({
     investDateState: "not_reported",
   });
 });
+
+function syntheticGoogleIdentity(email = "known@example.invalid") {
+  return {
+    decodedToken: {
+      user: { email, email_verified: true, sub: "google-oauth2|synthetic" },
+      claims: {
+        sub: "google-oauth2|synthetic",
+        iss: "https://tokenfolio.eu.auth0.com/",
+        aud: "synthetic-client",
+        exp: 4_000_000_000,
+      },
+    },
+  };
+}
+
+for (const provider of ["tokenfolio", "sydecar"] as const) {
+  test(`${provider} resumes the bound Google account and leaves MFA to the user`, async ({
+    context,
+  }) => {
+    const { createHash } = await import("node:crypto");
+    const { createProviderGoogleRecovery } =
+      await import("../scripts/provider-google-recovery");
+    const app =
+      provider === "tokenfolio"
+        ? "https://app.tokenfolio.co"
+        : "https://app.sydecar.io";
+    const login =
+      provider === "tokenfolio"
+        ? "https://tokenfolio.eu.auth0.com/u/login"
+        : `${app}/login`;
+    const portfolio =
+      provider === "tokenfolio" ? `${app}/portfolio` : `${app}/investments`;
+    const expectedHash = createHash("sha256")
+      .update("known@example.invalid")
+      .digest("hex");
+    let authenticated = false,
+      needsMfa = false,
+      selected = 0,
+      mfaSubmitted = 0,
+      metadataReads = 0;
+    let firstEnrollment = false;
+    const accountUrl = "https://accounts.google.com/v3/signin/accountchooser";
+    const finish =
+      provider === "sydecar"
+        ? `opener.location.href=${JSON.stringify(portfolio)};window.close()`
+        : `location.href=${JSON.stringify(portfolio)}`;
+    await context.route("https://api-backend.sydecar.io/user/", (route) => {
+      if (route.request().method() === "OPTIONS")
+        return route.fulfill({
+          headers: {
+            "Access-Control-Allow-Origin": app,
+            "Access-Control-Allow-Headers": "authorization",
+            "Access-Control-Allow-Methods": "GET",
+          },
+          body: "",
+        });
+      metadataReads++;
+      expect(route.request().headers().authorization).toBe(
+        "Bearer synthetic-token",
+      );
+      return route.fulfill({
+        headers: { "Access-Control-Allow-Origin": app },
+        json: { id: "synthetic-user", email: "known@example.invalid" },
+      });
+    });
+    await context.route("https://accounts.google.com/**", (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/selected") {
+        selected++;
+        if (needsMfa)
+          return route.fulfill({
+            contentType: "text/html",
+            body: `<script>location.href='/challenge/totp'</script>`,
+          });
+        authenticated = true;
+        return route.fulfill({
+          contentType: "text/html",
+          body: `<script>${finish}</script>`,
+        });
+      }
+      if (path === "/challenge/totp")
+        return route.fulfill({
+          contentType: "text/html",
+          body: `<h1>Verify your identity</h1><input autocomplete="one-time-code"><button onclick="location.href='/mfa-completed'">Verify</button>`,
+        });
+      if (path === "/mfa-completed") {
+        mfaSubmitted++;
+        authenticated = true;
+        return route.fulfill({
+          contentType: "text/html",
+          body: `<script>${finish}</script>`,
+        });
+      }
+      return route.fulfill({
+        contentType: "text/html",
+        body: `<h1>Choose an account</h1>${firstEnrollment ? "" : '<div role="link" data-identifier="other@example.invalid"><div data-email="other@example.invalid">Other</div></div>'}<div role="link" tabindex="0" data-identifier="known@example.invalid" onclick="location.href='/selected'"><div data-email="known@example.invalid">Known</div></div>`,
+      });
+    });
+    const page = await context.newPage();
+    await context.route(`${app}/**`, (route) => {
+      if (!authenticated)
+        return route.fulfill({
+          contentType: "text/html",
+          body: `<script>location.href=${JSON.stringify(login)}</script>`,
+        });
+      return route.fulfill({
+        contentType: "text/html",
+        body:
+          provider === "tokenfolio"
+            ? `<button id="portfolio-tab-active" role="tab">Active Holdings0</button><script>localStorage.setItem('@@auth0spajs@@::synthetic-client::@@user@@',${JSON.stringify(JSON.stringify(syntheticGoogleIdentity()))})</script>`
+            : `<table data-testid="investments-table"></table><script>localStorage.setItem('auth_token','synthetic-token')</script>`,
+      });
+    });
+    await context.route(login, (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body:
+          provider === "tokenfolio"
+            ? `<button onclick="location.href='${accountUrl}'">Continue with Google</button>`
+            : `<button type="button" style="position:relative;width:220px;height:44px"><div><iframe title="Sign in with Google Button" style="position:absolute;inset:0;width:100%;height:100%;border:0" srcdoc="<body style='margin:0'><button style='width:100%;height:44px' onclick='parent.open(&quot;${accountUrl}&quot;)'>Continue as Synthetic User</button>"></iframe></div></button>`,
+      }),
+    );
+    for (const mode of ["background", "interactive-mfa", "first-enrollment"]) {
+      const interactive = mode !== "background";
+      firstEnrollment = mode === "first-enrollment";
+      authenticated = false;
+      needsMfa = mode === "interactive-mfa";
+      await page.goto(login);
+      const recovery = createProviderGoogleRecovery({
+        provider,
+        context,
+        expectedHash: firstEnrollment ? null : expectedHash,
+        interactive,
+        deadline: Date.now() + 15_000,
+        isReady: (candidate) => providerPageReadyNow(candidate, provider),
+      });
+      try {
+        await expect
+          .poll(() => recovery.check(page))
+          .toBe(needsMfa ? "input_required" : "ready");
+        if (needsMfa) {
+          const auth =
+            provider === "sydecar"
+              ? context
+                  .pages()
+                  .find(
+                    (candidate) =>
+                      candidate !== page &&
+                      candidate.url().includes("/challenge/"),
+                  )!
+              : page;
+          await expect(auth.getByRole("textbox")).toHaveValue("");
+          expect(mfaSubmitted).toBe(0);
+          // Only this explicit test-user action submits MFA.
+          await auth.getByRole("textbox").fill("123456");
+          await auth
+            .getByRole("button", { name: "Verify", exact: true })
+            .click();
+          await expect.poll(() => recovery.check(page)).toBe("ready");
+        }
+        expect(recovery.accountHash).toBe(expectedHash);
+        const before = metadataReads;
+        expect(await recovery.check(page)).toBe("ready");
+        expect(metadataReads).toBe(before);
+        await recovery.dispose(true);
+      } finally {
+        await recovery.dispose();
+      }
+    }
+    expect(selected).toBe(3);
+    expect(mfaSubmitted).toBe(1);
+    expect(metadataReads).toBe(provider === "sydecar" ? 3 : 0);
+  });
+
+  test(
+    `${provider} rejects unknown, duplicate and changed Google identities`,
+    { tag: "@desktop-only" },
+    async ({ context }) => {
+      const { createHash } = await import("node:crypto");
+      const { createProviderGoogleRecovery } =
+        await import("../scripts/provider-google-recovery");
+      const app =
+        provider === "tokenfolio"
+          ? "https://app.tokenfolio.co"
+          : "https://app.sydecar.io";
+      const login =
+        provider === "tokenfolio"
+          ? "https://tokenfolio.eu.auth0.com/u/login"
+          : `${app}/login`;
+      let scenario = "unknown",
+        selected = 0;
+      const expectedHash = createHash("sha256")
+        .update("known@example.invalid")
+        .digest("hex");
+      await context.route("**/*", (route) => {
+        const url = new URL(route.request().url());
+        if (url.origin === "https://api-backend.sydecar.io")
+          return route.fulfill({
+            headers: {
+              "Access-Control-Allow-Origin": app,
+              "Access-Control-Allow-Headers": "authorization",
+            },
+            json: { id: "synthetic", email: "other@example.invalid" },
+          });
+        if (url.origin === "https://accounts.google.com") {
+          if (url.pathname === "/selected") {
+            selected++;
+            return route.fulfill({
+              contentType: "text/html",
+              body: `<script>location.href='${app}/portfolio'</script>`,
+            });
+          }
+          return route.fulfill({
+            contentType: "text/html",
+            body: `<button data-identifier="known@example.invalid" onclick="location.href='/selected'">Known${scenario === "nested-conflict" ? '<span data-email="other@example.invalid">Other</span>' : ""}</button>${scenario === "duplicate" ? '<button data-identifier="known@example.invalid">Duplicate</button>' : scenario === "unknown" ? '<button data-identifier="other@example.invalid">Other</button>' : ""}`,
+          });
+        }
+        if (url.pathname === "/portfolio")
+          return route.fulfill({
+            contentType: "text/html",
+            body:
+              provider === "tokenfolio"
+                ? `<button id="portfolio-tab-active" role="tab">Active Holdings0</button><script>localStorage.setItem('@@auth0spajs@@::synthetic-client::@@user@@',${JSON.stringify(JSON.stringify(syntheticGoogleIdentity("other@example.invalid")))})</script>`
+                : '<table data-testid="investments-table"></table><script>localStorage.setItem("auth_token","synthetic-token")</script>',
+          });
+        return route.fulfill({
+          contentType: "text/html",
+          body: `${scenario === "provider-mfa" ? '<input autocomplete="one-time-code">' : ""}<button onclick="location.href='https://accounts.google.com/v3/signin/accountchooser'">Continue with Google</button>`,
+        });
+      });
+      for (const current of [
+        "unknown",
+        "duplicate",
+        "nested-conflict",
+        "changed",
+        "provider-mfa",
+      ]) {
+        scenario = current;
+        const page = await context.newPage();
+        await page.goto(login);
+        const before = selected;
+        const recovery = createProviderGoogleRecovery({
+          provider,
+          context,
+          expectedHash: scenario === "unknown" ? null : expectedHash,
+          interactive: true,
+          deadline: Date.now() + 10_000,
+          isReady: (candidate) => providerPageReadyNow(candidate, provider),
+        });
+        try {
+          await expect.poll(() => recovery.check(page)).toBe("input_required");
+          expect(selected - before).toBe(scenario === "changed" ? 1 : 0);
+        } finally {
+          await recovery.dispose();
+          await page.close();
+        }
+      }
+    },
+  );
+}
+
+test(
+  "Google recovery cannot act on foreign pages or exceed its authentication request allowance",
+  { tag: "@desktop-only" },
+  async ({ page, context }) => {
+    const { createHash } = await import("node:crypto");
+    const { createProviderGoogleRecovery, PROVIDER_AUTH_REQUEST_CHAIN_LIMIT } =
+      await import("../scripts/provider-google-recovery");
+    let delivered = 0,
+      clicked = 0;
+    await context.route("**/*", (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/clicked") {
+        clicked++;
+        return route.fulfill({ body: "" });
+      }
+      if (url.pathname.startsWith("/flood")) {
+        delivered++;
+        return route.fulfill({ body: "" });
+      }
+      return route.fulfill({
+        contentType: "text/html",
+        body: `<button onclick="fetch('/clicked');for(let i=0;i<200;i++)fetch('/flood'+i).catch(()=>{})">Continue with Google</button>`,
+      });
+    });
+    const expectedHash = createHash("sha256")
+      .update("known@example.invalid")
+      .digest("hex");
+    await page.goto("https://foreign.example/login");
+    const recovery = createProviderGoogleRecovery({
+      provider: "tokenfolio",
+      context,
+      expectedHash,
+      interactive: true,
+      deadline: Date.now() + 10_000,
+      isReady: () => Promise.resolve(false),
+    });
+    expect(await recovery.check(page)).toBe("waiting");
+    expect(clicked).toBe(0);
+    await page.goto("https://tokenfolio.eu.auth0.com/u/login");
+    await expect.poll(() => recovery.check(page)).toBe("unavailable");
+    expect(recovery.requestChains).toBe(PROVIDER_AUTH_REQUEST_CHAIN_LIMIT);
+    expect(delivered).toBeLessThanOrEqual(PROVIDER_AUTH_REQUEST_CHAIN_LIMIT);
+    expect(clicked).toBe(1);
+    await recovery.dispose();
+  },
+);
+
+test(
+  "provider account fingerprints reject expired, foreign, malformed and oversized identity evidence",
+  { tag: "@desktop-only" },
+  async ({ page, context }) => {
+    const { verifiedProviderGoogleAccount } =
+      await import("../scripts/provider-google-account");
+    let account: unknown = syntheticGoogleIdentity();
+    await context.route("https://app.tokenfolio.co/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<button id="portfolio-tab-active" role="tab">Active Holdings0</button><script>localStorage.clear();localStorage.setItem('@@auth0spajs@@::synthetic-client::@@user@@',${JSON.stringify(JSON.stringify(account))})</script>`,
+      }),
+    );
+    const valid = syntheticGoogleIdentity();
+    for (const value of [
+      {
+        decodedToken: {
+          ...valid.decodedToken,
+          user: { ...valid.decodedToken.user, email_verified: false },
+        },
+      },
+      {
+        decodedToken: {
+          ...valid.decodedToken,
+          claims: { ...valid.decodedToken.claims, exp: 1 },
+        },
+      },
+      {
+        decodedToken: {
+          ...valid.decodedToken,
+          claims: {
+            ...valid.decodedToken.claims,
+            iss: "https://foreign.example/",
+          },
+        },
+      },
+      {
+        decodedToken: {
+          ...valid.decodedToken,
+          claims: { ...valid.decodedToken.claims, aud: "foreign-client" },
+        },
+      },
+    ]) {
+      account = value;
+      await page.goto("https://app.tokenfolio.co/portfolio");
+      expect(
+        await verifiedProviderGoogleAccount(page, "tokenfolio"),
+      ).toBeNull();
+    }
+    account = valid;
+    await page.reload();
+    expect(
+      await verifiedProviderGoogleAccount(page, "tokenfolio"),
+    ).not.toBeNull();
+    await page.evaluate(
+      (value) =>
+        localStorage.setItem(
+          "@@auth0spajs@@::synthetic-client::conflicting",
+          JSON.stringify(value),
+        ),
+      syntheticGoogleIdentity("other@example.invalid"),
+    );
+    expect(await verifiedProviderGoogleAccount(page, "tokenfolio")).toBeNull();
+    const flight = (email: string, auth0Email = email) =>
+      `<script>self.__next_f.push(${JSON.stringify([1, '1:["$","AuthBoundary",null,' + JSON.stringify({ authenticatedUser: { email }, auth0UserEmail: auth0Email }) + "]\n"])})</script>`;
+    await page.evaluate(() => localStorage.clear());
+    await context.route("https://app.tokenfolio.co/next-portal", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<button id="portfolio-tab-active" role="tab">Active Holdings0</button><script>self.__next_f=[];</script>${flight("known@example.invalid")}`,
+      }),
+    );
+    await page.goto("https://app.tokenfolio.co/next-portal");
+    expect(
+      await verifiedProviderGoogleAccount(page, "tokenfolio"),
+    ).not.toBeNull();
+    await page.addScriptTag({
+      content: `self.__next_f.push(${JSON.stringify([1, "2:" + JSON.stringify({ authenticatedUser: { email: "other@example.invalid" }, auth0UserEmail: "other@example.invalid" }) + "\n"])})`,
+    });
+    expect(await verifiedProviderGoogleAccount(page, "tokenfolio")).toBeNull();
+    await context.route("https://app.sydecar.io/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: '<table data-testid="investments-table"></table><script>localStorage.setItem("auth_token","synthetic-token")</script>',
+      }),
+    );
+    let response = "unauthorized",
+      escaped = 0;
+    await context.route("https://foreign.example/**", (route) => {
+      escaped++;
+      return route.fulfill({ body: "must never receive a credential" });
+    });
+    await context.route("https://api-backend.sydecar.io/user/", (route) => {
+      const headers = {
+        "Access-Control-Allow-Origin": "https://app.sydecar.io",
+        "Access-Control-Allow-Headers": "authorization",
+      };
+      if (route.request().method() === "OPTIONS")
+        return route.fulfill({ headers, body: "" });
+      if (response === "redirect")
+        return route.fulfill({
+          status: 302,
+          headers: { ...headers, location: "https://foreign.example/user/" },
+          body: "",
+        });
+      if (response === "unauthorized")
+        return route.fulfill({ status: 401, headers, json: {} });
+      return route.fulfill({
+        headers,
+        json:
+          response === "oversized"
+            ? {
+                id: "synthetic",
+                email: "known@example.invalid",
+                large: "x".repeat(262144),
+              }
+            : { email: "known@example.invalid" },
+      });
+    });
+    await page.goto("https://app.sydecar.io/investments");
+    for (const value of [
+      "unauthorized",
+      "malformed",
+      "oversized",
+      "redirect",
+    ]) {
+      response = value;
+      expect(await verifiedProviderGoogleAccount(page, "sydecar")).toBeNull();
+    }
+    expect(escaped).toBe(0);
+  },
+);
+
+test(
+  "Google account browser callbacks work through the production tsx runtime",
+  { tag: "@desktop-only" },
+  async ({ playwright }, testInfo) => {
+    const { readFile } = await import("node:fs/promises");
+    const { promisify } = await import("node:util");
+    const { execFile } = await import("node:child_process");
+    const path = await import("node:path");
+    const { pathToFileURL } = await import("node:url");
+    const profile = testInfo.outputPath("synthetic-google-profile");
+    const context = await playwright.chromium.launchPersistentContext(profile, {
+      headless: true,
+      args: ["--remote-debugging-port=0"],
+    });
+    try {
+      await context.route("**/*", (route) => {
+        const url = new URL(route.request().url());
+        const headers = {
+          "Access-Control-Allow-Origin": "https://app.sydecar.io",
+          "Access-Control-Allow-Headers": "authorization",
+        };
+        if (url.origin === "https://api-backend.sydecar.io")
+          return route.fulfill({
+            headers,
+            json: { id: "synthetic", email: "known@example.invalid" },
+          });
+        if (url.origin === "https://accounts.google.com")
+          return route.fulfill({
+            contentType: "text/html",
+            body: '<button data-identifier="other@example.invalid">Other</button><button data-identifier="known@example.invalid">Known</button>',
+          });
+        return route.fulfill({
+          contentType: "text/html",
+          body: `<button id="portfolio-tab-active" role="tab">Active Holdings0</button><table data-testid="investments-table"></table><script>self.__next_f=[];self.__next_f.push(${JSON.stringify([1, "1:" + JSON.stringify({ authenticatedUser: { email: "known@example.invalid" }, auth0UserEmail: "known@example.invalid" }) + "\n"])});</script><script>localStorage.setItem('auth_token','synthetic-token');localStorage.setItem('@@auth0spajs@@::synthetic-client::@@user@@',${JSON.stringify(JSON.stringify(syntheticGoogleIdentity()))})</script>`,
+        });
+      });
+      const port = (
+        await readFile(path.join(profile, "DevToolsActivePort"), "utf8")
+      ).split("\n")[0];
+      const module = pathToFileURL(
+        path.resolve("scripts/provider-google-account.ts"),
+      ).href;
+      const script = `import {chromium} from '@playwright/test'; import {verifiedProviderGoogleAccount,matchingGoogleAccount} from ${JSON.stringify(module)}; const browser=await chromium.connectOverCDP('http://127.0.0.1:${port}',{noDefaults:true}); try {const page=browser.contexts()[0].pages()[0];await page.goto('https://app.tokenfolio.co/portfolio');const tokenfolio=await verifiedProviderGoogleAccount(page,'tokenfolio');await page.goto('https://app.sydecar.io/investments');const sydecar=await verifiedProviderGoogleAccount(page,'sydecar');await page.goto('https://accounts.google.com/v3/signin/accountchooser');const selected=await matchingGoogleAccount(page,tokenfolio);console.log(JSON.stringify({sameVerifiedIdentity:tokenfolio!==null&&tokenfolio===sydecar,selected}));} finally {await browser.close();}`;
+      const result = await promisify(execFile)(
+        process.execPath,
+        ["--import", "tsx", "--input-type=module", "-e", script],
+        { cwd: process.cwd(), timeout: 20_000, maxBuffer: 16_384 },
+      );
+      expect(JSON.parse(result.stdout)).toEqual({
+        sameVerifiedIdentity: true,
+        selected: 1,
+      });
+    } finally {
+      await context.close();
+    }
+  },
+);

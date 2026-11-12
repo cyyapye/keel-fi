@@ -32,7 +32,8 @@
     "./company-identity": "./src/company-identity.ts",
     "./public-company-links": "./src/public-company-links.ts",
     "./purchase-economics": "./src/purchase-economics.ts",
-    "./manual-holdings": "./src/manual-holdings.ts"
+    "./manual-holdings": "./src/manual-holdings.ts",
+    "./app-access": "./src/app-access.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

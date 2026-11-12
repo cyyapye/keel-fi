@@ -1,4 +1,9 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import {
+  execFile,
+  spawn,
+  spawnSync,
+  type ChildProcess,
+} from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   access,
@@ -7,7 +12,6 @@ import {
   mkdtemp,
   rm,
   stat,
-  symlink,
   unlink,
   writeFile,
 } from "node:fs/promises";
@@ -18,6 +22,7 @@ import {
   type Socket,
 } from "node:net";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { chromium } from "@playwright/test";
 
 import {
@@ -548,10 +553,11 @@ async function prepareWebRoot(
 ): Promise<{ accessToken: string; webRoot: string; scriptNonce: string }> {
   const webRoot = path.join(temporaryDirectory, "web");
   await mkdir(webRoot, { mode: 0o700 });
-  await symlink(path.join(noVncDirectory, "core"), path.join(webRoot, "core"));
-  await symlink(
-    path.join(noVncDirectory, "vendor"),
-    path.join(webRoot, "vendor"),
+  await mkdir(path.join(webRoot, "core"), { mode: 0o700 });
+  await writeFile(
+    path.join(webRoot, "core", "rfb.js"),
+    await bundleRemoteBrowserModule(noVncDirectory),
+    { mode: 0o600 },
   );
   await writeFile(
     path.join(webRoot, "index.html"),
@@ -566,6 +572,32 @@ async function prepareWebRoot(
     { mode: 0o600 },
   );
   return { accessToken, webRoot, scriptNonce };
+}
+
+async function bundleRemoteBrowserModule(directory: string): Promise<string> {
+  // noVNC's module graph otherwise fans out through the Tunnel into more
+  // concurrent connections than the deliberately small admission gateway owns.
+  // Package the installed SDK locally; keep every gateway limit unchanged.
+  return new Promise((resolve, reject) => {
+    execFile(
+      createRequire(import.meta.url).resolve("esbuild/bin/esbuild"),
+      [
+        path.join(directory, "core", "rfb.js"),
+        "--bundle",
+        "--platform=browser",
+        "--format=esm",
+        "--target=es2022",
+        "--legal-comments=inline",
+        "--log-level=silent",
+      ],
+      { encoding: "utf8", timeout: 5_000, maxBuffer: 2_097_152 },
+      (error, output) => {
+        if (error || output.length === 0)
+          reject(new Error("Private browser viewer could not be packaged."));
+        else resolve(output);
+      },
+    );
+  });
 }
 
 async function publicTunnelResponds(
@@ -970,6 +1002,7 @@ export const __providerBrowserReconnectTest = {
   closeChromeGracefully,
   completeBrowserSession,
   publicTunnelResponds,
+  prepareWebRoot,
   remoteBrowserHtml,
   remoteChromeArguments,
   startViewerProxy,

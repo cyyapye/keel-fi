@@ -238,9 +238,13 @@ The deployment derives a second custom domain by adding `-webhooks` to the first
 label of `KEEL_PREVIEW_URL`. That hostname exposes only `POST /webhooks/plaid`;
 preview smoke proves its root is `404` and an unsigned delivery fails closed
 before the protected dashboard checks continue. The deployment also derives a
-`-agents` custom domain. That hostname forwards only exact Mac-agent POST
-routes; the API requires a target-scoped bearer token, and preview smoke proves
-the root is `404` and an unauthenticated lease is rejected.
+`-agents` custom domain. It forwards exact Mac-agent POST routes with their
+target-scoped credentials, plus the owner API, MCP, OAuth token/registration and
+discovery paths used by [App access](../../docs/product/app-access.md). Browser
+management stays behind Access on the browser origin. Preview smoke checks the
+derived OAuth endpoints and absolute OpenAPI URL, a `404` root, and rejected
+unauthenticated provider and owner requests. These public machine routes do not
+grant access to household data without a scoped credential.
 
 Use a custom Cloudflare API token scoped to the private preview account and only
 the Worker, D1, Queue, and route/domain permissions required by these commands.

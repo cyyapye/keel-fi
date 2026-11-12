@@ -31,7 +31,11 @@ automatic captures and session maintenance retain their existing scheduling.
 
 For each of `angellist`, `tokenfolio`, and `sydecar`:
 
-1. Derive the hostname with `providerBrowserOrigin(apiOrigin, provider)` from
+1. Use the exact `apiOrigin` from that provider's stored machine authorization
+   for the reconnect configuration. The web origin can differ from the agent API
+   origin; using it instead fails the deployment-scope check before the browser
+   starts. Keep that check strict. Derive the hostname with
+   `providerBrowserOrigin(apiOrigin, provider)` from
    `packages/domain/src/index.ts`. For the synthetic API origin
    `https://keel-preview-agents.example.com`, the Tokenfolio origin is
    `https://keel-preview-tokenfolio-reconnect.example.com`. Use one subdomain
@@ -88,6 +92,16 @@ credential inputs and the host key outside Git and backups of public source.
 File permissions alone are access controls, not encryption at rest. Browser
 profiles also contain provider credentials and need encrypted host storage and
 protected backups in a public hosted deployment.
+
+When moving machine access to a different API origin, update each provider's
+private reconnect configuration to the same origin before the next reconnect.
+The derived public hostname may remain unchanged (the agent hostname's `-agents`
+suffix is omitted); that alone does not establish a matching scope. Preserve the
+provider, audience, tunnel, file ownership and private modes. Check the existing
+configuration against the stored authorization without printing credentials,
+then verify a live browser reaches its ready state. Configuration is loaded for
+each reconnect, so this correction does not need a service restart or changes to
+polling, credentials or provider profiles.
 
 Synthetic configuration shape (replace privately; never commit the populated
 configuration):

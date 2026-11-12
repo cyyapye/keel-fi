@@ -108,7 +108,9 @@ export function registerResources(app: Hono<AppEnvironment>) {
     const create = c.req.method === "POST";
     const db = c.env.DB,
       hh = household(c),
-      by = actor.kind + ":" + actor.subject;
+      by = c.get("appAccess")
+        ? "app:" + c.get("appAccess")!.grantId
+        : actor.kind + ":" + actor.subject;
     let receipt;
     if (create) {
       const value = newGoal.safeParse(body);

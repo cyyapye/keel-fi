@@ -23,8 +23,10 @@ const setupOperationSchema = z.discriminatedUnion("operation", [
     legacy: z.boolean().optional(),
     fixedTime: z.iso.datetime().optional(),
     interruptPricePropagation: z.boolean().optional(),
+    interruptGpTotalPropagation: z.boolean().optional(),
     observations: z
       .object({
+        positionCount: z.number().int().min(120).max(500).optional(),
         status: z.enum(["Live", "Realized"]).optional(),
         investedMinor: z.number().int().optional(),
         allocationMinor: z.number().int().optional(),
@@ -148,22 +150,30 @@ export default {
     let result: Record<string, unknown>;
     if (operation.operation === "holdings") {
       const observations = operation.observations;
-      const database = operation.interruptPricePropagation
-        ? new Proxy(bindings.DB, {
-            get(target, key) {
-              if (key === "prepare")
-                return (sql: string) => {
-                  if (sql.includes("SELECT link.household_id"))
-                    throw new Error("synthetic projection interruption");
-                  return target.prepare(sql);
-                };
-              const value: unknown = Reflect.get(target, key);
-              return typeof value === "function"
-                ? (value as (...args: unknown[]) => unknown).bind(target)
-                : value;
-            },
-          })
-        : bindings.DB;
+      const database =
+        operation.interruptPricePropagation ||
+        operation.interruptGpTotalPropagation
+          ? new Proxy(bindings.DB, {
+              get(target, key) {
+                if (key === "prepare")
+                  return (sql: string) => {
+                    if (sql.includes("SELECT link.household_id"))
+                      if (operation.interruptPricePropagation)
+                        throw new Error("synthetic projection interruption");
+                    if (
+                      operation.interruptGpTotalPropagation &&
+                      sql.includes("SELECT h.household_id,u.id user_id")
+                    )
+                      throw new Error("synthetic projection interruption");
+                    return target.prepare(sql);
+                  };
+                const value: unknown = Reflect.get(target, key);
+                return typeof value === "function"
+                  ? (value as (...args: unknown[]) => unknown).bind(target)
+                  : value;
+              },
+            })
+          : bindings.DB;
       // Preserve tied application timestamps when fixture setup moves beside
       // D1. This clock is scoped to a sequential synthetic setup request.
       const originalDate = Date;
@@ -191,6 +201,9 @@ export default {
           operation.legacy,
           observations
             ? {
+                ...(observations.positionCount === undefined
+                  ? {}
+                  : { positionCount: observations.positionCount }),
                 ...(observations.status === undefined
                   ? {}
                   : { status: observations.status }),
@@ -220,7 +233,8 @@ export default {
         );
       } catch (error) {
         if (
-          operation.interruptPricePropagation &&
+          (operation.interruptPricePropagation ||
+            operation.interruptGpTotalPropagation) &&
           error instanceof Error &&
           error.message === "synthetic projection interruption"
         )
