@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { build } from "esbuild";
 import { z } from "zod";
 import { createApp } from "../apps/api/src/app";
 import type { Env } from "../apps/api/src/types";
@@ -7,52 +8,36 @@ import {
   positionDetail,
   positionPage,
 } from "../apps/api/src/agent-api/resources";
-import { D1HoldingImportRepository } from "../packages/database/src/holding-imports";
-import { createCostFixtureDatabase } from "./test-support/cost-database";
-import { COST_SUBJECT, syntheticDigest } from "./test-support/cost-fixtures";
-import { measureD1 } from "./test-support/d1-cost";
-import { publicInventoryCostInput } from "./test-support/public-inventory-cost-worker";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
+import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
+
+const worker = build({
+  entryPoints: ["scripts/test-support/owner-position-economics-worker.ts"],
+  bundle: true,
+  write: false,
+  format: "esm",
+  platform: "neutral",
+  target: "es2022",
+  conditions: ["workerd", "worker", "browser"],
+  mainFields: ["browser", "module", "main"],
+  external: ["node:*", "cloudflare:*"],
+  logLevel: "silent",
+}).then((bundled) => bundled.outputFiles[0]!.text);
 
 it("exposes accepted fractional quantities and whole-position cost basis through MCP and HTTP without inferring missing values", async () => {
-  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
+  const fixture = await createCostDatabase(await worker);
   try {
     const db = fixture.database;
-    await db.batch([
-      db.prepare(`INSERT INTO investment_connections(id,household_id,adapter_type,protected_source_key,created_by_user_id,created_at,immutable)
-        VALUES ('synthetic_public_migration_hh_demo','hh_demo','plaid-investments','${"a".repeat(64)}','usr_demo','2026-08-01T12:00:00.000Z',1)`),
-      db.prepare(`INSERT INTO investment_connection_versions(id,household_id,connection_id,version,institution_key,institution_label,lifecycle_state,credential_reference,supersedes_version_id,recorded_by_user_id,recorded_at,immutable)
-        VALUES ('synthetic-public-v1','hh_demo','synthetic_public_migration_hh_demo',1,'synthetic_public','Synthetic Brokerage','active','synthetic-secret-reference',NULL,'usr_demo','2026-08-01T12:00:00.000Z',1)`),
-    ]);
-    const imports = new D1HoldingImportRepository(db);
-    async function accept(round: number) {
-      const input = publicInventoryCostInput(round, false);
-      delete input.inventoryEvidence;
-      input.rows = input.rows.map((row, index) => ({
-        ...row,
-        securityType: "equity",
-        quantityMicros: round === 0 ? 1_000_000 : index === 2 ? 0 : 2_345_678,
-        costBasisMinor:
-          round === 0 ? 10000 : index === 1 ? null : index === 2 ? 0 : 23456,
-        marketValueMinor: index === 2 && round > 0 ? 0 : 34567,
-        issues: index === 1 && round > 0 ? ["Cost basis is unavailable."] : [],
-      }));
-      input.canonicalScope.rows[119] = {
-        ...input.canonicalScope.rows[119]!,
-        publicExposureIdentityKind: "cusip",
-        protectedExposureKey: syntheticDigest(900),
-      };
-      const staged = await imports.stagePlaidInvestmentsHoldingImport(
-        COST_SUBJECT,
-        input,
+    async function accept(round: 0 | 1) {
+      const response = await fixture.dispatchFetch(
+        "https://synthetic-position-setup.invalid",
+        {
+          method: "POST",
+          body: JSON.stringify({ round }),
+        },
       );
-      await imports.applyHoldingImport(COST_SUBJECT, staged.preview.id, {
-        currency: "USD",
-        decisions: staged.preview.rows.map((row) => ({
-          rowId: row.id,
-          decision: "accepted",
-          rationale: "Accept synthetic position economics.",
-        })),
-      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ round, complete: true });
     }
     await accept(0);
     const meter = measureD1(db),
@@ -134,20 +119,8 @@ it("exposes accepted fractional quantities and whole-position cost basis through
       { positionId: target.id },
       positionDetail,
     );
-    // Unrelated accepted portfolios must neither leak nor enlarge this read.
-    await db.batch([
-      db.prepare(
-        "INSERT INTO users(id,access_subject,email,display_name,created_at) VALUES('economics-other-user','synthetic-economics-other','economics-other@synthetic.invalid','Synthetic other owner','2026-08-01')",
-      ),
-      db.prepare(
-        "INSERT INTO households(id,owner_user_id,name,base_currency,created_at) VALUES('economics-other-household','economics-other-user','Synthetic other household','USD','2026-08-01')",
-      ),
-    ]);
-    await fixture.setup({
-      operation: "holdings",
-      subject: "synthetic-economics-other",
-    });
     // The same observation date with a newer accepted application must not return old economics.
+    // Setup also adds 120 unrelated accepted positions, which must remain isolated.
     await accept(1);
     const current = await allPositions();
     expect(current).toHaveLength(first.length);
