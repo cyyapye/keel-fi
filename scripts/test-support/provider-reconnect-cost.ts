@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { D1ProviderBrowserSessionRepository } from "../../packages/database/src/provider-browser-sessions";
+import { D1ProviderPortfolioAgentRepository } from "../../packages/database/src/provider-portfolio-agent";
 import { measureD1 } from "./d1-meter";
 
 const cost = z
@@ -28,6 +29,24 @@ export const reconnectCostResultSchema = z
       .strict(),
   )
   .length(2);
+
+export async function setupProviderReconnectCost(database: D1Database) {
+  const agents = new D1ProviderPortfolioAgentRepository(
+    database,
+    () => new Date("2026-10-01T12:00:00.000Z"),
+  );
+  await agents.register("synthetic-access-subject", "tokenfolio");
+  await database.batch([
+    database.prepare(
+      "INSERT INTO users VALUES ('usr_foreign', 'synthetic-foreign', 'foreign@example.com', 'Synthetic foreign user', '2026-01-01T00:00:00Z')",
+    ),
+    database.prepare(
+      "INSERT INTO households VALUES ('hh_foreign', 'usr_foreign', 'Synthetic foreign household', 'USD', '2026-01-01T00:00:00Z')",
+    ),
+  ]);
+  await agents.register("synthetic-foreign", "tokenfolio");
+  return providerReconnectCost(database);
+}
 
 // Run every original repository operation beside real D1. Only transport changes;
 // the host test still judges every result, billing budget and query plan.

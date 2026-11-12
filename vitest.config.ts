@@ -9,9 +9,9 @@ export default defineConfig({
           setupFiles: ["./scripts/test-support/sqlite-vitest-worker.ts"],
         }
       : {}),
-    // Each real D1 fixture spawns workerd and compiler processes of its own.
-    // Bound their aggregate pressure while source checks run concurrently.
-    maxWorkers: 2,
+    // Start costly fixtures early while leaving capacity for browser lanes.
+    // Real workerd fixtures spawn native processes beyond these three workers.
+    maxWorkers: 3,
     sequence: { sequencer: CiTestSequencer },
     // Private timing experiments can contain copies of tracked test suites.
     exclude: ["e2e/**", ".keel-local/**", "**/node_modules/**", "**/dist/**"],

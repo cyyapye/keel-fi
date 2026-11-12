@@ -138,9 +138,8 @@ cannot overlap the compiler flow; it may overlap browsers after the unit flow
 completes. Source checks still must pass in the same complete receipt.
 Configured scanner and compiler limits do not establish observed memory use or
 available host capacity. The 900-second active budget and per-case deadlines
-remain. Native main units and standalone execution now use two workers in the
-investment-history follow-up below; the earlier two-worker trial failed with a
-different workload and schedule.
+remain. Native main units and standalone execution use three workers after the
+two-worker trial below failed the complete budget.
 
 Draft PR #340 tried admitting the workspace build before the main unit suite in
 [run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
@@ -358,30 +357,29 @@ without moving setup outside the unchanged 120-second deadline. Run
 other 1,645 unit cases and the complete browser inventory passed. A fresh
 complete native receipt must establish this candidate's Linux fit.
 
-Standalone and native main-unit execution used three workers at this point.
-Preflight uses one. Priority alone did not isolate the strict CPU workloads: run
-`41587011543` timed out both the runtime graph and capacity day before browser
-startup while source/migration work was active. The explicit gate supersedes
-priority-only admission for those two files. Cash-account, purchase-route and
-provider-usage files also run in the one-worker preflight. The purchase-route
-case previously exceeded its unchanged five-second deadline during browser
-overlap in run `41383958842`. Its authentication, validation, accepted-write,
-valuation, history and fixture work remain inside that same test and deadline.
-The two D1 cost files remain in main, which can run alongside source checks and
-browsers. Main unit files retain their measured cost priorities. Run
-`42772244012`, attempt 2, exposed a 104.9-second cash-history fixture: it
-started at offset 483.12 of main Vitest and finished at 588.04, while every
-other file finished by 535.98. Early admission then exceeded the unchanged
-120-second case deadline in run `42777326654`. Its setup now executes the same
-production bank-refresh and holding-import operations beside D1, following the
-existing rename fixture pattern. The host still meters every original history
-read and checks its query plans. All 100 bank accounts, 120 brokerage positions,
-historical growth, foreign-household checks, assertions and deadlines remain. A
-managed Linux replay completed the file in 11.1 seconds (case body 5.7 seconds),
-with exactly the original counters: bank reads 3,206/6,406 and brokerage reads
-11/20, zero writes, and three/two read-model round trips respectively. This
-focused replay supplies a 12-second scheduling hint, not a whole-gate headroom
-claim.
+Standalone and native main-unit execution use three workers. Preflight uses one.
+Priority alone did not isolate the strict CPU workloads: run `41587011543` timed
+out both the runtime graph and capacity day before browser startup while
+source/migration work was active. The explicit gate supersedes priority-only
+admission for those two files. Cash-account, purchase-route and provider-usage
+files also run in the one-worker preflight. The purchase-route case previously
+exceeded its unchanged five-second deadline during browser overlap in run
+`41383958842`. Its authentication, validation, accepted-write, valuation,
+history and fixture work remain inside that same test and deadline. The two D1
+cost files remain in main, which can run alongside source checks and browsers.
+Main unit files retain their measured cost priorities. Run `42772244012`,
+attempt 2, exposed a 104.9-second cash-history fixture: it started at offset
+483.12 of main Vitest and finished at 588.04, while every other file finished by
+535.98. Early admission then exceeded the unchanged 120-second case deadline in
+run `42777326654`. Its setup now executes the same production bank-refresh and
+holding-import operations beside D1, following the existing rename fixture
+pattern. The host still meters every original history read and checks its query
+plans. All 100 bank accounts, 120 brokerage positions, historical growth,
+foreign-household checks, assertions and deadlines remain. A managed Linux
+replay completed the file in 11.1 seconds (case body 5.7 seconds), with exactly
+the original counters: bank reads 3,206/6,406 and brokerage reads 11/20, zero
+writes, and three/two read-model round trips respectively. This focused replay
+supplies a 12-second scheduling hint, not a whole-gate headroom claim.
 
 Cost fixtures without a timing hint receive early admission for both
 `-cost.test.ts` and `-d1-cost.test.ts` names. These priorities retain every
@@ -1323,14 +1321,30 @@ Deployment was skipped for both attempts.
 
 Attempt 2's resource samples show 98.5% CPU busy, 13.7% I/O wait and 1,962.4 MiB
 of swap in use. Serializing source checks after units in run `43284386960`
-passed all 1,707 unit cases, including both prior timeouts, but failed the
-complete 900-second gate during browsers. That serial schedule is rejected.
+passed all 1,707 unit cases but failed the complete gate at 900.980 seconds. The
+two-worker trial in `43287538480` also passed all unit cases, but reached
+901.426 seconds during browsers. Both scheduling trials are rejected; restore
+the existing three-worker pool and source/unit overlap.
 
-Restore source/unit overlap and reduce main unit workers from three to two; each
-fixture also starts native workerd and compiler processes. The current passing
-unit report contains 1,058.6 seconds of aggregate file execution across 437.1
-elapsed seconds. The earlier two-worker failures above used different coverage
-and scheduling and do not establish this candidate's fit. The same cases,
-synthetic workloads, assertions, preflight and browser worker limits and all
-deadlines remain. A complete exact-revision receipt must establish the revised
-schedule's timing; resource observations alone are insufficient.
+Populated migration setup now inserts parents before children according to the
+fixture's actual foreign-key graph. Cycles retain deferred checks. The empty
+SQLite schema is used only to inspect relationships; the real D1 bootstrap,
+rows, source migrations, constraints, preservation checks and measured upgrade
+remain. A paired Linux setup probe at the 0088 frontier preserved identical
+fixture hashes and all 134 tables/667 schema objects. Setup took 4.687/9.813
+seconds before and 3.701/4.150 seconds after at 12/24 captures. All 15 local
+migration cases passed in 42.41 seconds, with every reported certification
+record, actual D1 counter and integrity result identical to the preceding full
+local verification.
+
+The reconnect cost case uses a dedicated worker bundle instead of loading the
+unrelated portfolio fixture operations. It invokes the same existing
+`providerReconnectCost` function; all repository operations, 120/1,200
+histories, result checks, query plans and billing assertions remain. Its bundle
+falls from 1,670,524 to 786,333 bytes. Five alternating local pairs preserved
+identical results and counters, with median setup times of 0.171 and 0.142
+seconds. A single Linux pair took 0.910 and 1.033 seconds, so it does not
+establish a Linux latency gain. The same five-second case deadline and
+120-second migration deadlines apply. All native membership, worker ceilings and
+complete 300/900-second budgets remain unchanged. A fresh complete
+exact-revision receipt is still required to establish release fit.
