@@ -147,6 +147,8 @@ describe("preview deployment configuration", () => {
         DEPLOYED_GIT_SHA: "b".repeat(40),
         INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
         MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
+        APP_ACCESS_API_ORIGIN: "https://keel-preview-agents.example.com",
+        APP_ACCESS_WEB_ORIGIN: "https://keel-preview.example.com",
         PLAID_WEBHOOK_URL:
           "https://keel-preview-webhooks.example.com/webhooks/plaid",
         PLAID_CASH_USAGE_PLAN: "paid",

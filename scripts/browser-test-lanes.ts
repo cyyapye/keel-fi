@@ -65,6 +65,7 @@ export const BROWSER_TEST_LANES = {
     "sydecar-session-renewal.spec.ts",
   ],
   "stateful-a": [
+    "app-access.spec.ts",
     "carry-distributions.spec.ts",
     "cash-accounts.visual.spec.ts",
     "goals.visual.spec.ts",

@@ -83,8 +83,8 @@ export const MigrationSafetyBaselineScenarioSchema = z
   .object({
     ...commonScenario,
     history: z.literal(24),
-    tablesPreserved: z.literal(147),
-    schemaObjectsPreserved: z.literal(749),
+    tablesPreserved: z.literal(151),
+    schemaObjectsPreserved: z.literal(762),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -106,6 +106,7 @@ export const MigrationSafetyScenarioSchema = z
       "indexed-positive-and-empty-before-destructive-statements",
       "not-applicable-trigger-only-no-table-dml",
       "indexed-current-head-backfill-no-parent-rebuild",
+      "indexed-new-tables-no-parent-rebuild",
     ]),
     completeSequence: z.literal("preparation-through-cleanup"),
   })
@@ -114,6 +115,8 @@ export const MigrationSafetyScenarioSchema = z
     (scenario) =>
       scenario.inboundForeignKeyPlans ===
         "not-applicable-trigger-only-no-table-dml" ||
+      scenario.inboundForeignKeyPlans ===
+        "indexed-new-tables-no-parent-rebuild" ||
       (scenario.rowsRead > 0 && scenario.rowsWritten > 0),
     "A destructive migration needs positive measured counters",
   );
@@ -176,6 +179,10 @@ export const IMPLEMENTED_BASELINE_TABLES: readonly string[] = [
   "actual_liquidity_events",
   "angellist_mac_agents",
   "angellist_mac_runs",
+  "app_access_clients",
+  "app_access_codes",
+  "app_access_credentials",
+  "app_access_grants",
   "asset_accounts",
   "asset_lot_retirements",
   "asset_lots",
@@ -327,7 +334,7 @@ const digest = (value: string | Uint8Array) =>
 const same = (left: unknown, right: unknown) =>
   JSON.stringify(left) === JSON.stringify(right);
 const baselineTableNamesDigest =
-  "a6cad06c6dc3a215120c1143def92539b8d0be477b8d1f571f44057cd990bf60";
+  "c85ccf5454f78cdb1991b67daf68adb6eb6f61c2359b828503786b822d5d10eb";
 const safetySources = [
   "package.json",
   "pnpm-lock.yaml",
@@ -429,15 +436,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "gp-reported-total-schema-v1" ||
-    registry.baseline.frontier !== "0093_gp_reported_total_refresh.sql" ||
+    registry.baseline.id !== "app-access-schema-v1" ||
+    registry.baseline.frontier !== "0094_app_access.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 4 ||
+    registry.cases.length !== 5 ||
+    registry.cases[4]?.id !== "app-access-v1" ||
+    registry.cases[4].frontier !== "0093_gp_reported_total_refresh.sql" ||
+    registry.cases[4].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[4].migrations.map((item) => item.name),
+      ["0094_app_access.sql"],
+    ) ||
     registry.cases[3]?.id !== "gp-reported-total-v1" ||
     registry.cases[3].frontier !== "0092_public_holding_inventories.sql" ||
     registry.cases[3].fixture !== "public-holding-history-v1" ||
@@ -613,7 +627,9 @@ export function validateMigrationSafetyReceipt(
             (review.id === "public-source-reviews-v1" ||
             review.id === "public-inventory-v1"
               ? "indexed-current-head-backfill-no-parent-rebuild"
-              : "not-applicable-trigger-only-no-table-dml"),
+              : review.id === "app-access-v1"
+                ? "indexed-new-tables-no-parent-rebuild"
+                : "not-applicable-trigger-only-no-table-dml"),
       )
     )
       throw new Error(

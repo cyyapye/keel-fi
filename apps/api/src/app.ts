@@ -278,8 +278,16 @@ import type { AccessIdentity, Env } from "./types";
 import { registerProviderLegalDocumentRoutes } from "./provider-legal-documents";
 
 import { permitsAgentRead, registerAgentRoutes } from "./agent-api/routes";
+import {
+  registerAppAccessPublic,
+  registerAppAccessManagement,
+  ownerBearer,
+} from "./app-access/routes";
+import { registerMcp } from "./app-access/mcp";
+import type { Principal } from "./app-access/store";
 
 type Variables = {
+  appAccess: Principal | undefined;
   agentReadHousehold: string;
   identity: AccessIdentity;
   macAgentTarget: MacAgentTarget | null;
@@ -1150,7 +1158,29 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.use("/api/*", async (context, next) => {
+  registerAppAccessPublic(app);
+  registerMcp(app);
+  app.use("/api/*", async (context: Context<AppEnvironment>, next) => {
+    const appBearer = /^Bearer keel_(?:key|access)_/.test(
+      context.req.header("Authorization") ?? "",
+    );
+    const machineOwner =
+      context.env.APP_ACCESS_API_ORIGIN === new URL(context.req.url).origin &&
+      context.req.path.startsWith("/api/v1/");
+    if (machineOwner) {
+      context.header("Access-Control-Allow-Origin", "*");
+      context.header(
+        "Access-Control-Allow-Headers",
+        "Authorization, Content-Type, If-Match, Idempotency-Key",
+      );
+      context.header(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PATCH, OPTIONS",
+      );
+      context.header("Access-Control-Expose-Headers", "WWW-Authenticate, ETag");
+      if (context.req.method === "OPTIONS") return context.body(null, 204);
+    }
+    if (appBearer || machineOwner) return ownerBearer(context, next);
     if (context.req.path.startsWith("/api/v1/"))
       context.header("Cache-Control", "private, no-store");
     const target = machineRouteTarget(context.req.method, context.req.path);
@@ -1260,6 +1290,7 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  registerAppAccessManagement(app);
   app.post("/api/deployment-smoke", async (context) => {
     if (context.env.ENVIRONMENT !== "preview") {
       return context.json({ error: "Not found." }, 404);

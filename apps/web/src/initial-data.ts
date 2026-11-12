@@ -6,6 +6,8 @@ let holdingsPagePreload: Promise<Response | null> | null = null;
 let legalEntitiesPreload: Promise<Response | null> | null = null;
 
 export function startInitialDataPreload(): void {
+  if (["/settings", "/oauth/authorize"].includes(window.location.pathname))
+    return;
   if (window.location.pathname === "/holdings/entities") {
     legalEntitiesPreload = preload("/api/legal-entities");
     return;

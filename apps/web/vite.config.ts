@@ -20,6 +20,22 @@ export default defineConfig({
     // Application timers still run for every virtual hour.
     ...(browserReadinessEnabled ? { hmr: { timeout: 48 * 60 * 60_000 } } : {}),
     proxy: {
+      "/mcp": {
+        target: process.env.KEEL_API_ORIGIN ?? `http://127.0.0.1:${apiPort}`,
+        changeOrigin: false,
+      },
+      "/.well-known": {
+        target: process.env.KEEL_API_ORIGIN ?? `http://127.0.0.1:${apiPort}`,
+        changeOrigin: false,
+      },
+      "/oauth/token": {
+        target: process.env.KEEL_API_ORIGIN ?? `http://127.0.0.1:${apiPort}`,
+        changeOrigin: false,
+      },
+      "/oauth/register": {
+        target: process.env.KEEL_API_ORIGIN ?? `http://127.0.0.1:${apiPort}`,
+        changeOrigin: false,
+      },
       "/api": {
         target: process.env.KEEL_API_ORIGIN ?? `http://127.0.0.1:${apiPort}`,
         changeOrigin: false,

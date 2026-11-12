@@ -87,7 +87,9 @@ export function registerAgentRoutes(parent: Hono<AppEnvironment>) {
   app.onError(resourceError);
   app.use("/api/v1/*", async (c, next) => {
     c.header("Cache-Control", "private, no-store");
-    const household = await householdFor(c.env, c.get("identity"));
+    const household =
+      c.get("appAccess")?.householdId ??
+      (await householdFor(c.env, c.get("identity")));
     if (!household)
       return c.json(
         { code: "forbidden", error: "No authorized household." },

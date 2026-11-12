@@ -5,6 +5,17 @@ runway and the evidence behind a holding. Start with a local synthetic
 portfolio. The same requests work on a protected deployment with a household
 read credential.
 
+## Connect on a deployed environment
+
+Open **Settings → App access**. Copy the Server URL into a compatible chat app's
+custom MCP connector and choose OAuth. Keel asks which areas to grant when the
+app attempts to connect. Alternatively, open API keys, create a scoped key, and
+copy its API URL into your tool; send the key as
+`Authorization: Bearer YOUR_KEY`. The screen supplies the correct URLs for that
+environment. No per-user Worker variables are required. See
+[App access](../product/app-access.md) for permissions, expiry, rotation and
+revocation.
+
 ## Try it locally
 
 1. From a bootstrapped Keel checkout, run `make dev`.

@@ -250,6 +250,8 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
       PLAID_CASH_USAGE_PLAN:
         configuration.KEEL_PREVIEW_PLAID_CASH_USAGE_PLAN ?? "paid",
       MAC_AGENT_API_ORIGIN: agentApiOrigin.origin,
+      APP_ACCESS_API_ORIGIN: agentApiOrigin.origin,
+      APP_ACCESS_WEB_ORIGIN: configuration.KEEL_PREVIEW_URL.origin,
       PLAID_WEBHOOK_URL: webhookUrl.href,
     },
     secrets: {
@@ -271,6 +273,13 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
             ]),
       ],
     },
+    ratelimits: [
+      {
+        name: "APP_ACCESS_LIMITER",
+        namespace_id: "11094",
+        simple: { limit: 60, period: 60 },
+      },
+    ],
     version_metadata: { binding: "CF_VERSION_METADATA" },
     d1_databases: [
       {

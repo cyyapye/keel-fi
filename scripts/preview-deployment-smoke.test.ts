@@ -45,6 +45,28 @@ function successfulFetch(
       );
     }
     if (url.hostname === "keel-preview-agents.example.com") {
+      if (url.pathname === "/.well-known/oauth-authorization-server")
+        return Promise.resolve(
+          Response.json({
+            issuer: url.origin,
+            authorization_endpoint:
+              "https://keel-preview.example.com/oauth/authorize",
+            token_endpoint: url.origin + "/oauth/token",
+          }),
+        );
+      if (url.pathname === "/api/v1/openapi.json")
+        return Promise.resolve(
+          Response.json({ servers: [{ url: url.origin + "/api/v1" }] }),
+        );
+      if (url.pathname === "/api/v1/goals" || url.pathname === "/mcp")
+        return Promise.resolve(
+          new Response(null, {
+            status: 401,
+            headers: {
+              "WWW-Authenticate": `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource/mcp"`,
+            },
+          }),
+        );
       const agentPathnames = new Set([
         "/api/automation/angellist/mac-agent/lease",
         "/api/automation/provider-browser/angellist/mac-agent/lease",
@@ -128,7 +150,7 @@ describe("preview deployment runtime verification", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(fetchImplementation).toHaveBeenCalledTimes(13);
+    expect(fetchImplementation).toHaveBeenCalledTimes(17);
     expect(fetchImplementation).toHaveBeenCalledWith(
       new URL("/assets/app.js", environment().KEEL_PREVIEW_URL),
       expect.any(Object),

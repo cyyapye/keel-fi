@@ -1,3 +1,4 @@
+import { AppAccess } from "./AppAccess";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
 import { HoldingLinkButton } from "./HoldingLinkButton";
 import {
@@ -306,9 +307,11 @@ function routeFromLocation(): AppRoute {
       };
     }
   }
-  const screen = navigation.find(
-    (item) => window.location.pathname === `/${item.id}`,
-  )?.id;
+  const screen =
+    window.location.pathname === "/oauth/authorize"
+      ? "settings"
+      : navigation.find((item) => window.location.pathname === `/${item.id}`)
+          ?.id;
   return {
     screen: screen ?? "dashboard",
     holdingImportId: null,
@@ -9071,7 +9074,11 @@ export function App() {
   }, [needsHoldingsData, refreshHoldingsPage]);
 
   useEffect(() => {
-    if (activeScreen !== "holdings" && data === null) {
+    if (
+      activeScreen !== "holdings" &&
+      activeScreen !== "settings" &&
+      data === null
+    ) {
       void refreshAlphaData().catch(() => undefined);
     }
   }, [activeScreen, data, refreshAlphaData]);
@@ -9088,6 +9095,7 @@ export function App() {
   ]);
 
   const content = useMemo(() => {
+    if (activeScreen === "settings") return <AppAccess />;
     if (activeScreen === "holdings") {
       // Entity review owns its data. Do not waterfall through unrelated
       // holdings, valuations, exposure reconciliation or planning requests.
@@ -9336,11 +9344,20 @@ export function App() {
     scenarioContext,
   ]);
 
-  if (activeScreen !== "holdings" && data === null && loadError === null) {
+  if (
+    activeScreen !== "holdings" &&
+    activeScreen !== "settings" &&
+    data === null &&
+    loadError === null
+  ) {
     return <LoadingShell />;
   }
 
-  if (activeScreen !== "holdings" && data === null) {
+  if (
+    activeScreen !== "holdings" &&
+    activeScreen !== "settings" &&
+    data === null
+  ) {
     return (
       <div className="fatal-error">
         <div className="brand">
