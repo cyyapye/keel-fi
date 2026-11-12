@@ -3,7 +3,7 @@
   "flows": [
     {
       "id": "source-quality",
-      "description": "Reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
+      "description": "After unit/D1 runtimes release their resources, reject non-synthetic repository inputs, formatting errors, lint violations and invalid types.",
       "argv": [
         "make",
         "-j2",
@@ -35,7 +35,7 @@
         "scripts/pdf-sandbox-setup.ts"
       ],
       "runtime": null,
-      "depends_on": ["gate-and-artifact-integrity"]
+      "depends_on": ["gate-and-artifact-integrity", "native-unit-and-cost"]
     },
     {
       "id": "compose-configuration",

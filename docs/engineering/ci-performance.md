@@ -1308,3 +1308,23 @@ The inventory desktop reference also included a hovered Check now action without
 establishing hover after its capture-only layout mask. Explicit hover
 preparation replayed all ten source cases on the canonical Linux renderer with
 the existing images and thresholds. Case identities and coverage are unchanged.
+
+## Investment history release follow-up
+
+The investment history merge candidate passed the complete native gate in
+801.004 seconds in run `43273958104`. The identical merged tree in
+`43276772878`, attempt 1, reached 900.899 seconds during browser verification;
+its unit/D1 and source flows took 637.782 and 425.819 seconds. Attempt 2 failed
+with the historical 24-capture migration case's 120-second timeout and the
+reconnect cost case's five-second timeout. Its source flow took 468.782 seconds.
+Deployment was skipped for both attempts.
+
+Attempt 2's resource samples show 98.5% CPU busy, 13.7% I/O wait and 1,962.4 MiB
+of swap in use. Source checks now wait for unit/D1 verification to dispose its
+runtimes, which also prevents the later PDF isolation flow from competing with
+those fixtures. Builds and synthetic migration preparation retain their
+independent scheduling. This changes admission order only: the same tests,
+synthetic workloads, assertions, three unit workers and all deadlines remain.
+The native dependency validator rejects a plan that reintroduces this overlap.
+The complete exact-revision receipt remains the release proof; the resource
+observations alone do not establish a timing improvement.
