@@ -250,7 +250,7 @@ export function openApi() {
       "/positions": {
         get: readOperation(
           "listPositions",
-          "List recorded positions including closed positions",
+          "List recorded positions, quantities and cost bases, including closed positions",
           "PositionPage",
           [cursor],
         ),
@@ -258,7 +258,7 @@ export function openApi() {
       "/positions/{positionId}": {
         get: readOperation(
           "getPosition",
-          "Read holdings terms, exposures and dated valuations",
+          "Read position quantity, cost basis, terms, exposures and dated valuations",
           "Position",
           [
             idParam("positionId"),
