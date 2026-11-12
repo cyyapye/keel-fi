@@ -444,12 +444,29 @@
       "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
+    },
+    {
+      "kind": "upgrade",
+      "id": "investment-history-v1",
+      "frontier": "0094_app_access.sql",
+      "migrations": [
+        {
+          "name": "0095_investment_history.sql",
+          "sha256": "719b44ff6942c8960afa77fcc0037128238c74ab75c7b070dd7ebd2bba63966c"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 2000,
+      "maxRowsWritten": 150
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "app-access-schema-v1",
-    "frontier": "0094_app_access.sql",
+    "id": "investment-history-schema-v1",
+    "frontier": "0095_investment_history.sql",
     "pending": [],
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,

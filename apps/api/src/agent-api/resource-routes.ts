@@ -2,6 +2,7 @@ import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import type { AppEnvironment } from "../app";
+import { registerInvestmentHistoryRoutes } from "./investment-history";
 import {
   GoalConflict,
   ETAG,
@@ -59,6 +60,7 @@ function detail(c: ApiContext, record: object | null) {
 }
 const empty = z.strictObject({});
 export function registerResources(app: Hono<AppEnvironment>) {
+  registerInvestmentHistoryRoutes(app);
   const household = (c: ApiContext) => c.get("agentReadHousehold");
   app.get(prefix + "goals", async (c) => {
     const query = parameters(c, goalPageArgs);

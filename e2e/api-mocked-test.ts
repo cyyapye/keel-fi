@@ -40,6 +40,45 @@ export const test = base.extend({
             },
           }),
     );
+    await context.route("**/api/v1/investment-reconciliation?*", (route) => {
+      const positionId = new URL(route.request().url()).searchParams.get(
+        "positionId",
+      );
+      return route.fulfill({
+        json: {
+          context: {
+            readContextId: null,
+            accountId: "container:synthetic-browser-account",
+            positionId,
+            capturedAt: null,
+            providerUpdatedAt: null,
+            quantityEffectiveOn: null,
+            priceAsOf: null,
+            holdingsSnapshotId: null,
+            coverage: {
+              status: "not_synced",
+              requestedFrom: null,
+              requestedThrough: null,
+              lastSuccessfulSyncAt: null,
+              missingPeriods: [],
+              scope: "provider_reported_window",
+            },
+            lastAttemptStatus: "not_synced",
+          },
+          status: "not_synced",
+          reason: "Investment history has not been captured for this account.",
+          openingSnapshotId: null,
+          closingSnapshotId: null,
+          openingQuantityMicros: null,
+          activityQuantityMicros: null,
+          expectedQuantityMicros: null,
+          reportedQuantityMicros: null,
+          unexplainedQuantityMicros: null,
+          cashStatus: "not_established",
+          basisStatus: "broker_reported_not_reconstructed",
+        },
+      });
+    });
     await context.route("**/api/automation/angellist/status", (route) =>
       route.request().method() !== "GET"
         ? route.fallback()

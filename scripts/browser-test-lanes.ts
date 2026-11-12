@@ -53,6 +53,7 @@ export const BROWSER_TEST_LANES = {
     "company-names.visual.spec.ts",
     "holdings-detail.visual.spec.ts",
     "holdings-import.visual.spec.ts",
+    "investment-history.visual.spec.ts",
     "investment-review.visual.spec.ts",
   ],
   "mocked-development": ["investment-holdings.visual.spec.ts"],

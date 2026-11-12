@@ -83,8 +83,8 @@ export const MigrationSafetyBaselineScenarioSchema = z
   .object({
     ...commonScenario,
     history: z.literal(24),
-    tablesPreserved: z.literal(151),
-    schemaObjectsPreserved: z.literal(762),
+    tablesPreserved: z.literal(159),
+    schemaObjectsPreserved: z.literal(812),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -262,6 +262,14 @@ export const IMPLEMENTED_BASELINE_TABLES: readonly string[] = [
   "investment_connections",
   "investment_document_assignments",
   "investment_event_revisions",
+  "investment_history_account_heads",
+  "investment_history_accounts",
+  "investment_history_admissions",
+  "investment_history_captures",
+  "investment_history_positions",
+  "investment_tax_lots",
+  "investment_transaction_heads",
+  "investment_transaction_observations",
   "legal_entities",
   "legal_entity_name_heads",
   "legal_entity_source_decisions",
@@ -334,7 +342,7 @@ const digest = (value: string | Uint8Array) =>
 const same = (left: unknown, right: unknown) =>
   JSON.stringify(left) === JSON.stringify(right);
 const baselineTableNamesDigest =
-  "c85ccf5454f78cdb1991b67daf68adb6eb6f61c2359b828503786b822d5d10eb";
+  "8815a4c0a847c57c4c9ec0188cb8f2c48cfc541e982a21eca2e5c94fad99a753";
 const safetySources = [
   "package.json",
   "pnpm-lock.yaml",
@@ -436,15 +444,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "app-access-schema-v1" ||
-    registry.baseline.frontier !== "0094_app_access.sql" ||
+    registry.baseline.id !== "investment-history-schema-v1" ||
+    registry.baseline.frontier !== "0095_investment_history.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 5 ||
+    registry.cases.length !== 6 ||
+    registry.cases[5]?.id !== "investment-history-v1" ||
+    registry.cases[5].frontier !== "0094_app_access.sql" ||
+    registry.cases[5].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[5].migrations.map((item) => item.name),
+      ["0095_investment_history.sql"],
+    ) ||
     registry.cases[4]?.id !== "app-access-v1" ||
     registry.cases[4].frontier !== "0093_gp_reported_total_refresh.sql" ||
     registry.cases[4].fixture !== "public-holding-history-v1" ||
@@ -627,7 +642,8 @@ export function validateMigrationSafetyReceipt(
             (review.id === "public-source-reviews-v1" ||
             review.id === "public-inventory-v1"
               ? "indexed-current-head-backfill-no-parent-rebuild"
-              : review.id === "app-access-v1"
+              : review.id === "app-access-v1" ||
+                  review.id === "investment-history-v1"
                 ? "indexed-new-tables-no-parent-rebuild"
                 : "not-applicable-trigger-only-no-table-dml"),
       )

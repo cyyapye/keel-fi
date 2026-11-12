@@ -54,7 +54,7 @@ export function permitsAgentRead(
   if (method === "GET")
     return (
       Object.values(paths).some((p) => p === path && p !== paths.preview) ||
-      /^\/api\/v1\/(?:goals(?:\/[^/]+(?:\/versions)?)?|(?:accounts|positions|liabilities)(?:\/[^/]+)?|(?:baselines|evidence)\/[^/]+)$/.test(
+      /^\/api\/v1\/(?:investment-transactions|tax-lots|investment-reconciliation|goals(?:\/[^/]+(?:\/versions)?)?|(?:accounts|positions|liabilities)(?:\/[^/]+)?|(?:baselines|evidence)\/[^/]+)$/.test(
         path,
       )
     );

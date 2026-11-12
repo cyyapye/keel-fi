@@ -1,3 +1,4 @@
+import { investmentMigrationHistory } from "./investment-migration-history";
 import { publicMigrationHistory } from "./public-migration-history";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -34,6 +35,7 @@ const FixtureSchema = z.object({
     "0092",
     "0093",
     "0094",
+    "0095",
   ]),
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
@@ -370,7 +372,9 @@ async function buildFixture(
       });
     }
     if (
-      ["0090", "0090-public", "0091", "0092", "0093", "0094"].includes(frontier)
+      ["0090", "0090-public", "0091", "0092", "0093", "0094", "0095"].includes(
+        frontier,
+      )
     ) {
       if (captureOld) captureOld(snapshotFixture("0089"));
       statements.clear();
@@ -385,7 +389,7 @@ async function buildFixture(
       frontier === "0090-public" ||
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094"].includes(frontier)
+      ["0093", "0094", "0095"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
@@ -395,7 +399,7 @@ async function buildFixture(
     if (
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094"].includes(frontier)
+      ["0093", "0094", "0095"].includes(frontier)
     ) {
       statements.clear();
       db.exec(
@@ -405,7 +409,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0092" || ["0093", "0094"].includes(frontier)) {
+    if (frontier === "0092" || ["0093", "0094", "0095"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0091"));
       db.exec(
@@ -415,7 +419,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0093", "0094"].includes(frontier)) {
+    if (["0093", "0094", "0095"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0092"));
       db.exec(
@@ -425,7 +429,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0094") {
+    if (["0094", "0095"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0093"));
       db.exec(
@@ -434,6 +438,17 @@ async function buildFixture(
           "utf8",
         ),
       );
+    }
+    if (frontier === "0095") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0094"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0095_investment_history.sql",
+          "utf8",
+        ),
+      );
+      investmentMigrationHistory(db);
     }
     return snapshotFixture(frontier);
   } finally {
@@ -480,6 +495,9 @@ async function buildFixture(
         .filter(
           (row) =>
             child.startsWith("app_access_") ||
+            child.startsWith("investment_history_") ||
+            child.startsWith("investment_transaction_") ||
+            child === "investment_tax_lots" ||
             [
               "holding_import_rows",
               "holding_position_snapshots",
@@ -594,6 +612,7 @@ export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
               "0092": z.string(),
               "0093": z.string(),
               "0094": z.string(),
+              "0095": z.string(),
             })
             .strict()
             .parse(JSON.parse(stdout));
@@ -1073,15 +1092,16 @@ if (
       "0092",
       "0093",
       "0094",
+      "0095",
       "both",
     ])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0094", (fixture) => {
+    const terminal = await buildFixture(history, "0095", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0094": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0095": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

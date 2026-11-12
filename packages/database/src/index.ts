@@ -71,6 +71,7 @@ export * from "./portfolio-watch-inbox";
 export * from "./watch-website";
 export * from "./cash-accounts";
 export * from "./cash-balance-history";
+export * from "./investment-history";
 export * from "./cash-flow";
 export * from "./liabilities";
 export * from "./mac-agent-credentials";

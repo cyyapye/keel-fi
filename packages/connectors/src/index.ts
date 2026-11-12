@@ -6,6 +6,7 @@ export * from "./financing-announcement";
 export * from "./angellist-investments-csv";
 export * from "./provider-holdings-template-csv";
 export * from "./plaid-investments-holdings";
+export * from "./plaid-investment-history";
 export * from "./plaid-investments-schedule";
 export * from "./plaid-cash-accounts";
 export * from "./plaid-cash-flow";

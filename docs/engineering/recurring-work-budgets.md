@@ -1051,3 +1051,56 @@ readback. Reuse the existing ownership index and retain unchanged immutable
 identity proofs instead of increasing that reserve. These synthetic holdouts do
 not authorize arbitrary target history, households or capture volume, and do not
 activate draft account quota admission.
+
+## Investment history enrichment
+
+The existing certified holdings sync owns this enrichment; no scheduler,
+polling, retry, credential, webhook or cooldown changes. Before the extra
+provider call, D1 atomically admits at most three enrichment attempts per UTC
+day and reserves from a **4,000 index-inclusive additional-write** daily
+envelope. A capture settles its reservation in the same atomic batch as its
+immutable evidence and projections. An absent completion retains the full
+reservation; duplicate run IDs cannot reclaim capacity. Rejected admission makes
+no provider or object call. This scoped producer bound does not activate the
+draft common account quota owner or establish capacity for an unknown deployment
+footprint.
+
+A capture makes at most two transaction requests (250 rows each) and one final
+Item-status fence, one conditional private evidence-object write, and no retry.
+Raw pages have a 5 MiB combined bound; individual responses have a 2 MiB bound.
+Normalization retains at most 250 transactions, the first 120 holding reports
+and 120 lots in total, with at most 100 accounts. The admitted transaction limit
+can be smaller. Truncation explicitly sets partial coverage; no missing rows are
+invented. Existing holdings ingestion has its own unchanged bounds.
+
+Reservation weights include replacement index work: 14 fixed writes, six per
+account context/head, four per position report, three per lot, and twenty per
+transaction (including a correction's observation and all current-head indexes).
+The source counts bound the fixed reservation before fetching history. Every
+successful capture records the conservative bound for its actual retained rows;
+uncertain attempts retain the larger initial reservation. Admission guards
+enforce both count and cumulative reservations under contention.
+
+The real-D1 sync holdout uses 120 securities plus cash and exercises useful,
+outage and correction captures. Additional history statements measured 1,184 /
+854 / 1,089 writes and 8,370 / 8,171 / 8,472 reads respectively. The
+500-transaction provider holdout takes both pages, marks its retained history
+partial, and measures 2,581 writes / 9,261 reads under its 4,000-write
+reservation. Tests assert actual counters are below the reservation, including
+index rewrites, and race twelve admissions against the fixed daily limit. Values
+describe the synthetic fixture, not a target database measurement.
+
+The declared combined useful-work envelope above becomes at most 80,000 writes
+(76,000 plus this 4,000) before the retained 20,000-write allowance for other
+work and operations. New provider requests are at most nine and object writes at
+most three per day. History-only idle work is zero. An outage is bounded by the
+same admission and makes no retry. Larger operating populations, capture volume
+or a different footprint need a new combined review; do not raise limits to
+activate them.
+
+HTTP/MCP collection pages remain projection-only, at most fifty rows, two
+repository round trips and zero writes. The 120-item holdout with a separate
+household and repeated full-date ties reads 495 D1 rows at both 12 and 24
+captures per item. Each read is revision-bound; stale pagination or related
+reads return 409. Filters and paging are user initiated and no frontend polling
+is added.

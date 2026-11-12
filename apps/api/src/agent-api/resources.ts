@@ -378,6 +378,11 @@ export async function evidence(db: D1Database, hh: string, id: string) {
   const queries = [
     db
       .prepare(
+        "SELECT 'investment_history' sourceType,'Broker-reported investment activity and lots' label,i.source_document_id reference,NULL effectiveAt,c.captured_at capturedAt FROM investment_history_captures c JOIN holding_imports i ON i.id=c.import_id AND i.household_id=c.household_id WHERE c.id=? AND c.household_id=?",
+      )
+      .bind(id, hh),
+    db
+      .prepare(
         "SELECT 'document' sourceType,source_label label,file_name reference,effective_date effectiveAt,retrieved_at capturedAt FROM source_documents WHERE id=? AND household_id=?",
       )
       .bind(id, hh),
