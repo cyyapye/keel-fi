@@ -796,8 +796,6 @@ def validate_preflight_dependencies(mapping):
     for name in ("native-unit-and-cost", "browser-workflows", "pdf-isolation", "source-quality"):
         if name not in by_id:
             raise ValueError(f"Missing required native flow {name}")
-    if "native-unit-and-cost" not in ancestors["source-quality"]:
-        raise ValueError("Source-quality must follow native-unit-and-cost")
     if "source-quality" not in ancestors["pdf-isolation"]:
         raise ValueError("PDF isolation must follow source-quality")
     for parent in ("source-quality", "native-unit-and-cost"):

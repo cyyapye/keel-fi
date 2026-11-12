@@ -1293,8 +1293,7 @@ with native.cost_seed_directory() as seed:
         # The sole Chromium PDF integration finishes before UI workers start;
         # remaining PDF kernel/scanner probes cannot add a fifth browser worker.
         self.assertNotIn("pdf-isolation", flows["browser-workflows"]["depends_on"])
-        self.assertEqual(flows["source-quality"]["depends_on"],
-                         ["gate-and-artifact-integrity", "native-unit-and-cost"])
+        self.assertEqual(flows["source-quality"]["depends_on"], ["gate-and-artifact-integrity"])
         self.assertEqual(flows["gate-and-artifact-integrity"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "preflight"])
         self.assertEqual(flows["native-unit-and-cost"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "vitest-main"])
         expected_commands = {
@@ -1313,10 +1312,6 @@ with native.cost_seed_directory() as seed:
         self.assertEqual(flow_order, list(expected_commands))
         self.assertEqual({name: (flow["argv"], flow["timeout_seconds"]) for name, flow in flows.items()}, expected_commands)
         native.validate_preflight_dependencies(plan)
-        invalid = json.loads(json.dumps(plan))
-        next(flow for flow in invalid["flows"] if flow["id"] == "source-quality")["depends_on"].remove("native-unit-and-cost")
-        with self.assertRaisesRegex(ValueError, "native-unit-and-cost"):
-            native.validate_preflight_dependencies(invalid)
         for name in ("source-quality", "pdf-sandbox-build", "build-and-entry-budget"):
             invalid = json.loads(json.dumps(plan))
             next(flow for flow in invalid["flows"] if flow["id"] == name)["depends_on"] = []
@@ -1329,9 +1324,6 @@ with native.cost_seed_directory() as seed:
         for parent in ("source-quality", "native-unit-and-cost"):
             invalid = json.loads(json.dumps(plan))
             next(flow for flow in invalid["flows"] if flow["id"] == "browser-workflows")["depends_on"].remove(parent)
-            if parent == "native-unit-and-cost":
-                # Source checks now also carry this prerequisite transitively.
-                next(flow for flow in invalid["flows"] if flow["id"] == "source-quality")["depends_on"].remove(parent)
             with self.subTest(browser_overlap=parent), self.assertRaisesRegex(ValueError, parent):
                 native.validate_preflight_dependencies(invalid)
         transitive = json.loads(json.dumps(plan))
