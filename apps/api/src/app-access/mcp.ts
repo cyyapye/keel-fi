@@ -194,8 +194,16 @@ export function registerMcp(app: Hono<AppEnvironment>) {
         );
       const v = input.data,
         id = v.id ?? null;
-      const failure = (code: number, message: string) =>
-        c.json({ jsonrpc: "2.0", id, error: { code, message } });
+      const failure = (code: number, message: string, data?: unknown) =>
+        c.json({
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code,
+            message,
+            ...(data === undefined ? {} : { data }),
+          },
+        });
       if (v.method === "notifications/initialized" && v.id === undefined)
         return c.body(null, 202);
       if (v.id === undefined)
@@ -234,10 +242,19 @@ export function registerMcp(app: Hono<AppEnvironment>) {
         .strictObject({
           name: z.string(),
           arguments: z.record(z.string(), z.unknown()).default({}),
+          _meta: z
+            .looseObject({
+              progressToken: z.union([z.string(), z.number().int()]).optional(),
+            })
+            .optional(),
         })
         .safeParse(v.params);
       if (!args.success)
-        return failure(-32602, "Supply a tool name and arguments.");
+        return failure(-32602, "Invalid tool-call parameters.", {
+          // Field paths and issue codes are enough to diagnose the envelope;
+          // never echo tool arguments, metadata values or credentials.
+          issues: args.error.issues.map(({ code, path }) => ({ code, path })),
+        });
       const entry = entries.find(
         (e) => e.operation.operationId === args.data.name,
       );

@@ -15,6 +15,134 @@ import { createCostFixtureDatabase } from "./test-support/cost-database";
 import { COST_SUBJECT } from "./test-support/cost-fixtures";
 import { measureD1 } from "./test-support/d1-cost";
 import { goalReceipt } from "../apps/api/src/agent-api/goals";
+import {
+  positionDetail,
+  positionPage,
+} from "../apps/api/src/agent-api/resources";
+
+it("accepts MCP request metadata without widening tool arguments or connection scopes", async () => {
+  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
+  try {
+    const meter = measureD1(fixture.database),
+      store = new AppAccessStore(meter.database),
+      owner = await store.owner(COST_SUBJECT),
+      key = await store.createKey(
+        owner,
+        "Synthetic MCP reader",
+        ["holdings:read"],
+        30,
+        false,
+      );
+    const app = createApp(),
+      origin = "https://api.keel.invalid",
+      env = {
+        ENVIRONMENT: "preview",
+        DB: meter.database,
+        APP_ACCESS_API_ORIGIN: origin,
+        APP_ACCESS_WEB_ORIGIN: "https://keel.invalid",
+      } as unknown as Env;
+    const call = async (params: unknown) => {
+      const response = await app.request(
+        origin + "/mcp",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + key.key,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params,
+          }),
+        },
+        env,
+      );
+      expect(response.status).toBe(200);
+      return z
+        .object({
+          result: z
+            .object({
+              isError: z.boolean(),
+              content: z.array(
+                z.object({ type: z.literal("text"), text: z.string() }),
+              ),
+            })
+            .optional(),
+          error: z
+            .object({
+              code: z.number(),
+              message: z.string(),
+              data: z.unknown().optional(),
+            })
+            .optional(),
+        })
+        .parse(await response.json());
+    };
+    const meta = {
+      progressToken: "synthetic-progress",
+      "synthetic.example/request": { correlationId: "synthetic-correlation" },
+      householdId: "synthetic-ungranted-household",
+      scopes: ["goals:read", "goals:write", "cash:read"],
+    };
+    meter.reset();
+    // Optional arguments and protocol metadata must reach the same real read path.
+    const listing = await call({ name: "listPositions", _meta: meta });
+    expect(listing.error).toBeUndefined();
+    expect(listing.result?.isError).toBe(false);
+    const page = z
+      .object({ status: z.literal(200), data: positionPage })
+      .parse(JSON.parse(listing.result!.content[0]!.text));
+    expect(page.data.items.length).toBeGreaterThan(0);
+    const id = page.data.items[0]!.id;
+    const detail = await call({
+      name: "getPosition",
+      arguments: { positionId: id },
+      _meta: { ...meta, progressToken: 7 },
+    });
+    expect(detail.error).toBeUndefined();
+    expect(detail.result?.isError).toBe(false);
+    expect(
+      z
+        .object({ status: z.literal(200), data: positionDetail })
+        .parse(JSON.parse(detail.result!.content[0]!.text)).data.id,
+    ).toBe(id);
+    expect(
+      (await call({ name: "createGoal", arguments: {}, _meta: meta })).error,
+    ).toMatchObject({
+      code: -32602,
+      message: "Tool is unavailable for this connection.",
+    });
+    expect(
+      (
+        await call({
+          name: "listPositions",
+          arguments: { householdId: "synthetic-ungranted-household" },
+          _meta: meta,
+        })
+      ).error,
+    ).toMatchObject({ code: -32602, message: "Unsupported tool argument." });
+    for (const params of [
+      { name: "listPositions", _meta: "synthetic-do-not-echo" },
+      { name: "listPositions", _meta: { progressToken: {} } },
+      { name: "listPositions", arguments: "synthetic-do-not-echo" },
+      { name: "listPositions", task: { ttl: 60_000 } },
+    ]) {
+      const malformed = await call(params);
+      expect(malformed.error).toMatchObject({
+        code: -32602,
+        data: { issues: expect.any(Array) },
+      });
+      expect(JSON.stringify(malformed.error)).not.toContain(
+        "synthetic-do-not-echo",
+      );
+    }
+    expect(meter.cost.rowsWritten).toBe(0);
+  } finally {
+    await fixture.close();
+  }
+});
 
 it("keeps owner keys scoped, isolated, expiring and revocable through the actual middleware and D1", async () => {
   const fixture = await createCostFixtureDatabase({ operation: "holdings" });
