@@ -647,6 +647,7 @@ test("reconciles a complete brokerage inventory automatically and keeps historic
   const reconcile = async (importId: string) => {
     const response = await page.request.post(
       `/api/holding-imports/${importId}/reconcile`,
+      { headers: { Origin: new URL(test.info().project.use.baseURL!).origin } },
     );
     expect(response.ok(), await response.text()).toBe(true);
     const report = HoldingImportPreviewSchema.parse(

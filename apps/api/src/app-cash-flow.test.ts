@@ -131,7 +131,10 @@ describe("observed cash-flow API", () => {
       "/api/cash-flow-proposals/cash_flow_proposal/review",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       env(),
@@ -168,7 +171,10 @@ describe("observed cash-flow API", () => {
       "/api/cash-flow/connections/cash_connection/sync",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           policyVersion: "observed-cash-flow-v1",
           pricingConfirmed: true,

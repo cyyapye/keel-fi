@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "@playwright/test";
 import { providerHoldingsTemplateCsv } from "../packages/connectors/src/provider-holdings-template-csv";
 import {
   HoldingImportPreviewSchema,
@@ -54,6 +54,7 @@ export async function prepareCarryPosition(
     ].join(",") +
     "\n";
   const imported = await request.post("/api/holding-imports/wefunder", {
+    headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
     multipart: {
       file: {
         name: `synthetic-carry-${suffix}.csv`,
@@ -186,7 +187,10 @@ export async function prepareCarryPosition(
   });
   const accepted = await request.post(
     `/api/investment-positions/${encodeURIComponent(positionId)}/purchases`,
-    { data: purchases },
+    {
+      headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
+      data: purchases,
+    },
   );
   expect(accepted.status(), await accepted.text()).toBe(201);
   const purchaseReceipt = PurchaseReceiptSchema.parse(await accepted.json());
@@ -224,7 +228,10 @@ export async function prepareCarryPosition(
     });
     const valued = await request.post(
       `/api/investment-positions/${encodeURIComponent(positionId)}/valuation`,
-      { data: valuation },
+      {
+        headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
+        data: valuation,
+      },
     );
     expect(valued.status(), await valued.text()).toBe(201);
     receipt = PurchaseReceiptSchema.parse(await valued.json());

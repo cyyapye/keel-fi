@@ -179,7 +179,10 @@ describe("investment-connections API", () => {
       "/webhooks/plaid",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           webhook_type: "HOLDINGS",
           webhook_code: "DEFAULT_UPDATE",
@@ -218,7 +221,7 @@ describe("investment-connections API", () => {
 
     const linkResponse = await app.request(
       "/api/investment-connections/link-token",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env(),
     );
     expect(linkResponse.status).toBe(200);
@@ -249,7 +252,7 @@ describe("investment-connections API", () => {
 
     const response = await app.request(
       "/api/investment-connections/auto-sync",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env(),
     );
 
@@ -374,7 +377,10 @@ describe("investment-connections API", () => {
       "/api/investment-positions/position-synthetic/value-adjustments",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           expectedSnapshotId: "snapshot-synthetic",
           expectedAdjustmentId: null,
@@ -414,7 +420,10 @@ describe("investment-connections API", () => {
       "/api/investment-positions/position-synthetic/value-adjustments",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           expectedSnapshotId: "snapshot-synthetic",
           expectedAdjustmentId: null,
@@ -459,7 +468,10 @@ describe("investment-connections API", () => {
       "/api/investment-positions/position-synthetic-spv/economics",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           expectedSnapshotId: "snapshot-synthetic-spv",
           expectedTermsId: null,
@@ -502,7 +514,10 @@ describe("investment-connections API", () => {
       "/api/investment-positions/position-synthetic-spv/economics",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           expectedSnapshotId: "snapshot-synthetic-spv",
           expectedTermsId: null,
@@ -553,7 +568,10 @@ describe("investment-connections API", () => {
       "/api/private-exposure-reviews/position_synthetic_spv/assign",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       env(),
@@ -575,7 +593,10 @@ describe("investment-connections API", () => {
       "/api/private-exposure-reviews/exact-batch",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ expectedRevision: "a".repeat(64) }),
       },
       env(),
@@ -613,7 +634,10 @@ describe("investment-connections API", () => {
       "/api/private-exposure-reviews/position_synthetic_spv/assign",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           expectedSnapshotId: "snapshot_synthetic_spv",
           company: { legalName: "Synthetic Harbor Health" },
@@ -628,7 +652,10 @@ describe("investment-connections API", () => {
       "/api/private-exposure-reviews/position_synthetic_spv/assign",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           expectedSnapshotId: "snapshot_synthetic_spv",
           company: {
@@ -655,7 +682,7 @@ describe("investment-connections API", () => {
 
     const response = await app.request(
       "/api/investment-connections/link-token",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env(),
     );
 
@@ -677,7 +704,10 @@ describe("investment-connections API", () => {
       "/api/investment-connections/exchange",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ publicToken: "public-synthetic" }),
       },
       env(),
@@ -700,7 +730,10 @@ describe("investment-connections API", () => {
       "/api/investment-connections/exchange",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ publicToken: "" }),
       },
       env(),
@@ -726,7 +759,7 @@ describe("investment-connections API", () => {
 
     const response = await app.request(
       `/api/investment-connections/${connectionId}`,
-      { method: "DELETE" },
+      { method: "DELETE", headers: { Origin: "http://localhost" } },
       env(),
     );
 
@@ -761,7 +794,10 @@ describe("investment-connections API", () => {
       `/api/investment-connections/${connectionId}/lifecycle`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ action: "stop" }),
       },
       env(),
@@ -772,7 +808,10 @@ describe("investment-connections API", () => {
       `/api/investment-connections/${connectionId}/lifecycle`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ action: "pause" }),
       },
       env(),
@@ -793,22 +832,22 @@ describe("investment-connections API", () => {
       app.request("/api/public-holdings/robinhood/status", undefined, env()),
       app.request(
         "/api/public-holdings/robinhood/link-token",
-        { method: "POST" },
+        { method: "POST", headers: { Origin: "http://localhost" } },
         env(),
       ),
       app.request(
         "/api/public-holdings/robinhood/exchange",
-        { method: "POST" },
+        { method: "POST", headers: { Origin: "http://localhost" } },
         env(),
       ),
       app.request(
         "/api/public-holdings/robinhood/sync",
-        { method: "POST" },
+        { method: "POST", headers: { Origin: "http://localhost" } },
         env(),
       ),
       app.request(
         "/api/public-holdings/robinhood",
-        { method: "DELETE" },
+        { method: "DELETE", headers: { Origin: "http://localhost" } },
         env(),
       ),
     ]);

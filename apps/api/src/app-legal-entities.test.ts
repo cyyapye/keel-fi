@@ -128,7 +128,10 @@ describe("legal entity API", () => {
       "/api/legal-entities/resolve",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ afterPositionId: null }),
       },
       env(),
@@ -141,7 +144,10 @@ describe("legal entity API", () => {
       "/api/legal-entities/resolve",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ afterPositionId: "", householdId: "other" }),
       },
       env(),
@@ -152,7 +158,10 @@ describe("legal entity API", () => {
       "/api/legal-entities/resolve",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: "{}",
       },
       { ...env(), ENVIRONMENT: "preview" },
@@ -207,6 +216,7 @@ describe("legal entity API", () => {
       {
         method: "POST",
         headers: {
+          Origin: "http://localhost",
           Accept: "application/json",
           "Content-Type": "application/json",
         },
@@ -252,7 +262,10 @@ describe("legal entity API", () => {
           ? {}
           : {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                Origin: "http://localhost",
+                "Content-Type": "application/json",
+              },
               body: "{}",
             },
         { ...env(), ENVIRONMENT: "production" },
@@ -287,7 +300,10 @@ describe("legal entity API", () => {
         "/api/legal-entities",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(create),
         },
         env(),
@@ -308,7 +324,10 @@ describe("legal entity API", () => {
         "/api/legal-entity-sources/review",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(review),
         },
         env(),
@@ -323,7 +342,10 @@ describe("legal entity API", () => {
         "/api/legal-entities",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
             ...create,
             source: {
@@ -370,7 +392,10 @@ describe("legal entity API", () => {
       "/api/legal-entities",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(body),
       },
       env(),
@@ -389,7 +414,10 @@ describe("legal entity API", () => {
       "/api/legal-entities",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ profile: { legalName: "" }, source: null }),
       },
       env(),
@@ -410,7 +438,10 @@ describe("legal entity API", () => {
       "/api/legal-entities/entity-synthetic",
       {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           expectedVersionId: "entity-version-synthetic",
           profile,
@@ -441,7 +472,10 @@ describe("legal entity API", () => {
       "/api/legal-entity-sources/review",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(reviewInput),
       },
       env(),
@@ -458,7 +492,10 @@ describe("legal entity API", () => {
       "/api/legal-entity-sources/exact-batch",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(exactBatchInput),
       },
       env(),
@@ -477,7 +514,10 @@ describe("legal entity API", () => {
       "/api/legal-entity-export",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           fields: ["legal_name", "jurisdiction"],
           includeNeedsReview: true,

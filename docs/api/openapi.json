@@ -341,9 +341,7 @@
               "additionalProperties": false
             }
           },
-          "nextAfterGoal": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }]
-          },
+          "nextAfterGoal": { "type": ["string", "null"] },
           "netWorthTargets": {
             "type": "array",
             "items": {
@@ -508,9 +506,7 @@
                   { "type": "null" }
                 ]
               },
-              "lastsThroughDate": {
-                "anyOf": [{ "type": "boolean" }, { "type": "null" }]
-              },
+              "lastsThroughDate": { "type": ["boolean", "null"] },
               "maximumMonthlyBurnMinor": {
                 "anyOf": [
                   {
@@ -584,9 +580,7 @@
                   "format": "date",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
                 },
-                "lastsThroughDate": {
-                  "anyOf": [{ "type": "boolean" }, { "type": "null" }]
-                },
+                "lastsThroughDate": { "type": ["boolean", "null"] },
                 "reserveShortfallMinor": {
                   "anyOf": [
                     {
@@ -724,9 +718,7 @@
                     { "type": "null" }
                   ]
                 },
-                "latestObservedAt": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
+                "latestObservedAt": { "type": ["string", "null"] },
                 "latestReportedUnrealizedMinor": {
                   "anyOf": [
                     {
@@ -737,9 +729,7 @@
                     { "type": "null" }
                   ]
                 },
-                "latestProviderStatus": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
+                "latestProviderStatus": { "type": ["string", "null"] },
                 "sourceChangedSinceBaseline": { "type": "boolean" },
                 "acceptedQuoteId": {
                   "anyOf": [
@@ -767,9 +757,7 @@
                     { "type": "null" }
                   ]
                 },
-                "shareClass": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
+                "shareClass": { "type": ["string", "null"] },
                 "reviewedValuation": {
                   "anyOf": [
                     {
@@ -804,9 +792,7 @@
                           "type": "string",
                           "enum": ["before_carry", "after_carry", "unknown"]
                         },
-                        "evidenceId": {
-                          "anyOf": [{ "type": "string" }, { "type": "null" }]
-                        }
+                        "evidenceId": { "type": ["string", "null"] }
                       },
                       "required": [
                         "receiptId",
@@ -1023,7 +1009,7 @@
               "additionalProperties": false
             }
           },
-          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "nextAfter": { "type": ["string", "null"] }
         },
         "required": ["items", "nextAfter"],
         "additionalProperties": false
@@ -1096,7 +1082,7 @@
               "additionalProperties": false
             }
           },
-          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "nextAfter": { "type": ["string", "null"] }
         },
         "required": ["items", "nextAfter"],
         "additionalProperties": false
@@ -1217,16 +1203,12 @@
                 "instrument": { "type": "string" },
                 "owner": { "type": "string" },
                 "currency": { "type": "string" },
-                "accountId": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
+                "accountId": { "type": ["string", "null"] },
                 "ownership": {
                   "type": "string",
                   "enum": ["closed", "recorded"]
                 },
-                "latestSnapshotId": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
+                "latestSnapshotId": { "type": ["string", "null"] },
                 "reportedValueMinor": {
                   "anyOf": [
                     {
@@ -1238,8 +1220,8 @@
                   ]
                 },
                 "ticker": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }],
-                  "description": "Source-reported ticker in the latest accepted snapshot; null when unavailable."
+                  "description": "Source-reported ticker in the latest accepted snapshot; null when unavailable.",
+                  "type": ["string", "null"]
                 },
                 "quantityMicros": {
                   "anyOf": [
@@ -1263,12 +1245,8 @@
                   ],
                   "description": "Source-reported total cost basis for the snapshot quantity, in minor units of currency (USD cents). Null means unavailable, not zero; invested capital or market value is never substituted. This is not tax-lot or realized-gain information."
                 },
-                "observedAt": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
-                "evidenceId": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                }
+                "observedAt": { "type": ["string", "null"] },
+                "evidenceId": { "type": ["string", "null"] }
               },
               "required": [
                 "id",
@@ -1291,7 +1269,7 @@
               "additionalProperties": false
             }
           },
-          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "nextAfter": { "type": ["string", "null"] }
         },
         "required": ["items", "nextAfter"],
         "additionalProperties": false
@@ -1307,11 +1285,9 @@
           "instrument": { "type": "string" },
           "owner": { "type": "string" },
           "currency": { "type": "string" },
-          "accountId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "accountId": { "type": ["string", "null"] },
           "ownership": { "type": "string", "enum": ["closed", "recorded"] },
-          "latestSnapshotId": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }]
-          },
+          "latestSnapshotId": { "type": ["string", "null"] },
           "reportedValueMinor": {
             "anyOf": [
               {
@@ -1323,8 +1299,8 @@
             ]
           },
           "ticker": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }],
-            "description": "Source-reported ticker in the latest accepted snapshot; null when unavailable."
+            "description": "Source-reported ticker in the latest accepted snapshot; null when unavailable.",
+            "type": ["string", "null"]
           },
           "quantityMicros": {
             "anyOf": [
@@ -1340,8 +1316,8 @@
             ],
             "description": "Source-reported total cost basis for the snapshot quantity, in minor units of currency (USD cents). Null means unavailable, not zero; invested capital or market value is never substituted. This is not tax-lot or realized-gain information."
           },
-          "observedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "evidenceId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "observedAt": { "type": ["string", "null"] },
+          "evidenceId": { "type": ["string", "null"] },
           "terms": {
             "anyOf": [
               {
@@ -1441,17 +1417,13 @@
                 "id": { "type": "string" },
                 "name": { "type": "string" },
                 "kind": { "type": "string" },
-                "companyId": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                }
+                "companyId": { "type": ["string", "null"] }
               },
               "required": ["id", "name", "kind", "companyId"],
               "additionalProperties": false
             }
           },
-          "nextAfterExposure": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }]
-          },
+          "nextAfterExposure": { "type": ["string", "null"] },
           "reviewedValueMinor": {
             "anyOf": [
               {
@@ -1462,10 +1434,8 @@
               { "type": "null" }
             ]
           },
-          "reviewedValueDate": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }]
-          },
-          "reviewId": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "reviewedValueDate": { "type": ["string", "null"] },
+          "reviewId": { "type": ["string", "null"] }
         },
         "required": [
           "id",
@@ -1515,15 +1485,9 @@
                     { "type": "null" }
                   ]
                 },
-                "currency": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
-                "observedAt": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
-                "evidenceId": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
+                "currency": { "type": ["string", "null"] },
+                "observedAt": { "type": ["string", "null"] },
+                "evidenceId": { "type": ["string", "null"] },
                 "basis": {
                   "type": "string",
                   "enum": [
@@ -1532,9 +1496,7 @@
                     "accepted_cash_baseline"
                   ]
                 },
-                "baselineId": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                }
+                "baselineId": { "type": ["string", "null"] }
               },
               "required": [
                 "id",
@@ -1550,7 +1512,7 @@
               "additionalProperties": false
             }
           },
-          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "nextAfter": { "type": ["string", "null"] }
         },
         "required": ["items", "nextAfter"],
         "additionalProperties": false
@@ -1572,9 +1534,9 @@
               { "type": "null" }
             ]
           },
-          "currency": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "observedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "evidenceId": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "currency": { "type": ["string", "null"] },
+          "observedAt": { "type": ["string", "null"] },
+          "evidenceId": { "type": ["string", "null"] },
           "basis": {
             "type": "string",
             "enum": [
@@ -1583,7 +1545,7 @@
               "accepted_cash_baseline"
             ]
           },
-          "baselineId": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "baselineId": { "type": ["string", "null"] }
         },
         "required": [
           "id",
@@ -1625,7 +1587,7 @@
               { "type": "null" }
             ]
           },
-          "treatment": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "treatment": { "type": ["string", "null"] },
           "effectiveDate": { "type": "string" },
           "evidenceId": { "type": "string" }
         },
@@ -1673,9 +1635,7 @@
                     { "type": "null" }
                   ]
                 },
-                "treatment": {
-                  "anyOf": [{ "type": "string" }, { "type": "null" }]
-                },
+                "treatment": { "type": ["string", "null"] },
                 "effectiveDate": { "type": "string" },
                 "evidenceId": { "type": "string" }
               },
@@ -1692,7 +1652,7 @@
               "additionalProperties": false
             }
           },
-          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "nextAfter": { "type": ["string", "null"] }
         },
         "required": ["items", "nextAfter"],
         "additionalProperties": false
@@ -1767,11 +1727,9 @@
           "id": { "type": "string" },
           "sourceType": { "type": "string" },
           "label": { "type": "string" },
-          "reference": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "effectiveAt": {
-            "anyOf": [{ "type": "string" }, { "type": "null" }]
-          },
-          "capturedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "reference": { "type": ["string", "null"] },
+          "effectiveAt": { "type": ["string", "null"] },
+          "capturedAt": { "type": ["string", "null"] }
         },
         "required": [
           "id",

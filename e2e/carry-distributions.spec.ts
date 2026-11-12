@@ -880,7 +880,10 @@ test("pending writes lock controls and real receipt conflicts retain drafts with
   });
   const concurrentResponse = await page.request.post(
     endpoint(prepared.positionId),
-    { data: concurrentInput },
+    {
+      headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
+      data: concurrentInput,
+    },
   );
   expect(concurrentResponse.status(), await concurrentResponse.text()).toBe(
     201,

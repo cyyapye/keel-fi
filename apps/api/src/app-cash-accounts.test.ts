@@ -100,7 +100,7 @@ describe("cash account API", () => {
 
     const tokenResponse = await app.request(
       "/api/cash-accounts/link-token",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env(),
     );
     expect(tokenResponse.status).toBe(200);
@@ -133,7 +133,10 @@ describe("cash account API", () => {
       "/api/cash-account-proposals/synthetic-cash-proposal/apply",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       env(),
@@ -165,7 +168,10 @@ describe("cash account API", () => {
       "/api/cash-account-identities/review",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       env(),
@@ -197,7 +203,7 @@ describe("cash account API", () => {
       cashPlaidClient,
     }).request(
       "/api/cash-accounts/connections/synthetic-cash-connection/refresh",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env(),
     );
 
@@ -214,7 +220,11 @@ describe("cash account API", () => {
     const response = await createApp({
       cashAccountsRepository: repository({ beginAutomaticRefresh }),
       cashPlaidClient: client({ getAccounts }),
-    }).request("/api/cash-accounts/auto-refresh", { method: "POST" }, env());
+    }).request(
+      "/api/cash-accounts/auto-refresh",
+      { method: "POST", headers: { Origin: "http://localhost" } },
+      env(),
+    );
 
     expect(response.status).toBe(200);
     expect(beginAutomaticRefresh).toHaveBeenCalledWith(
@@ -242,7 +252,7 @@ describe("cash account API", () => {
       cashPlaidClient: client({ getAccounts }),
     }).request(
       "/api/cash-accounts/connections/synthetic-cash-connection/refresh",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env(),
     );
 
@@ -270,7 +280,7 @@ describe("cash account API", () => {
       cashPlaidClient: client({ removeItem }),
     }).request(
       "/api/cash-accounts/connections/synthetic-cash-connection",
-      { method: "DELETE" },
+      { method: "DELETE", headers: { Origin: "http://localhost" } },
       env(),
     );
 

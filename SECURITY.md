@@ -10,9 +10,13 @@ updates.
 
 ## Report a vulnerability
 
-Use GitHub's **Report a vulnerability** flow to open a private Security Advisory
-for this repository. Do not include exploit details, financial information,
-tokens, document URLs, or deployment identifiers in a public issue.
+While the repository is private, authorized collaborators should contact the
+maintainer through an existing private channel. Before making the repository
+public, the maintainer must enable and verify GitHub's **Report a
+vulnerability** flow. Once enabled, use that flow to open a private Security
+Advisory. If it is unavailable, contact the maintainer privately. Do not include
+exploit details, financial information, tokens, document URLs, or deployment
+identifiers in a public issue.
 
 Include:
 
@@ -27,9 +31,13 @@ users have a reasonable upgrade window.
 
 ## Security invariants
 
-- Production API requests require a validated Cloudflare Access JWT.
+- Production browser API requests require a validated Cloudflare Access JWT.
+  Browser writes also require same-origin request evidence. Dedicated agent and
+  MCP routes require explicit scoped credentials. Public webhook and OAuth
+  routes enforce their own signature or credential-exchange boundaries.
 - D1 queries are scoped to the authenticated household.
-- R2 source documents are private and exposed only through short-lived URLs.
+- R2 source documents are private. Downloads require household authorization, a
+  clean scan and successful private audit recording before bytes are released.
 - Financial records, documents, credentials, and raw request bodies are never
   logged.
 - Accepted review decisions and forecast snapshots are immutable.

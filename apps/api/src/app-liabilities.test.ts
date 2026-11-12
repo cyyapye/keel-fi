@@ -134,7 +134,7 @@ describe("liabilities API", () => {
 
     const token = await app.request(
       "/api/liabilities/link-token",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env(),
     );
     expect(token.status).toBe(200);
@@ -171,7 +171,10 @@ describe("liabilities API", () => {
       "/api/liability-proposals/manual",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(manualInput),
       },
       env(),
@@ -196,7 +199,10 @@ describe("liabilities API", () => {
       "/api/liability-proposals/manual-1/apply",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(reviewInput),
       },
       env(),
@@ -227,7 +233,7 @@ describe("liabilities API", () => {
       });
       const response = await app.request(
         "/api/liabilities/connections/synthetic-liability-connection/refresh",
-        { method: "POST" },
+        { method: "POST", headers: { Origin: "http://localhost" } },
         env(),
       );
       expect(response.status).toBe(status);

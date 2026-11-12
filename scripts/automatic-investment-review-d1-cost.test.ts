@@ -189,6 +189,7 @@ it("bounds automatic review, unchanged page visits, history and an outage throug
           ...init,
           headers: {
             ...init?.headers,
+            Origin: "https://keel.example",
             "Cf-Access-Jwt-Assertion": "synthetic-test-assertion",
           },
         }),

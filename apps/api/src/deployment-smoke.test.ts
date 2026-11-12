@@ -198,7 +198,7 @@ describe("preview deployment smoke", () => {
     bindings.env.ENVIRONMENT = "local";
     const outsidePreview = await app.request(
       "/api/deployment-smoke",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       bindings.env,
     );
     expect(outsidePreview.status).toBe(404);

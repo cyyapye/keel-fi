@@ -55,6 +55,7 @@ async function prepareSyntheticSpv(
     ].join(",") +
     "\n";
   const imported = await page.request.post("/api/holding-imports/wefunder", {
+    headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
     multipart: {
       file: {
         name: `synthetic-${suffix}.csv`,
@@ -139,7 +140,10 @@ async function prepareSyntheticSpv(
   });
   const accepted = await page.request.post(
     `/api/investment-positions/${encodeURIComponent(positionId)}/purchases`,
-    { data: purchases },
+    {
+      headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
+      data: purchases,
+    },
   );
   expect(accepted.status()).toBe(201);
   let receipt = PurchaseReceiptSchema.parse(await accepted.json());
@@ -169,7 +173,10 @@ async function prepareSyntheticSpv(
     });
     const valued = await page.request.post(
       `/api/investment-positions/${encodeURIComponent(positionId)}/valuation`,
-      { data: valuation },
+      {
+        headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
+        data: valuation,
+      },
     );
     expect(valued.status()).toBe(201);
     receipt = PurchaseReceiptSchema.parse(await valued.json());
@@ -416,6 +423,7 @@ test("new undated GP prices propagate to followed positions with immutable metad
     const response = await page.request.post(
       "/api/holding-imports/tokenfolio",
       {
+        headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
         multipart: {
           file: {
             name: `synthetic-continuation-${suffix}.csv`,
@@ -444,6 +452,7 @@ test("new undated GP prices propagate to followed positions with immutable metad
   const assigned = await page.request.post(
     `/api/private-exposure-reviews/${sourcePosition.positionId}/assign`,
     {
+      headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
       data: {
         expectedSnapshotId: sourcePosition.snapshotId,
         company: { mode: "new", legalName: company, websiteHost: null },
@@ -457,6 +466,7 @@ test("new undated GP prices propagate to followed positions with immutable metad
   const shared = await page.request.post(
     `/api/private-exposure-reviews/${prepared.positionId}/assign`,
     {
+      headers: { Origin: new URL(test.info().project.use.baseURL!).origin },
       data: {
         expectedSnapshotId: prepared.snapshotId,
         company: { mode: "existing", companyId },
