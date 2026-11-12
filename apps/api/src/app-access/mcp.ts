@@ -223,7 +223,7 @@ export function registerMcp(app: Hono<AppEnvironment>) {
             capabilities: { tools: {} },
             serverInfo: { name: "Keel", version: "1.0.0" },
             instructions:
-              "Use only granted areas. Report coverage and freshness limits. Goal writes require an explicit user instruction, a stable idempotencyKey and the latest ifMatch revision. Outlook previews are unsaved.",
+              "Use only granted areas. Report coverage and freshness limits. Position quantityMicros is in millionths of a security unit (1000000 = one equity share); costBasisMinor is total source-reported cost in the position currency's minor units. Null is unknown. Follow every position page and exclude closed positions from current ownership totals. Goal writes require an explicit user instruction, a stable idempotencyKey and the latest ifMatch revision. Outlook previews are unsaved.",
           },
         });
       if (v.method === "ping")

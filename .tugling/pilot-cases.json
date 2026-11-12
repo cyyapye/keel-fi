@@ -1359,6 +1359,7 @@
     "scripts/manual-holdings-d1-cost.test.ts :: bounds manual options and current identities with 120 items, tied history and unrelated households",
     "scripts/owner-api-docs.test.ts :: publishes the same v1 contract for people, agents, and the running API",
     "scripts/owner-api-eval.test.ts :: answers the owner question bank from synthetic household HTTP responses",
+    "scripts/owner-position-economics.test.ts :: exposes accepted fractional quantities and whole-position cost basis through MCP and HTTP without inferring missing values",
     "scripts/participation-d1-cost.test.ts :: keeps 120 participation projections and closure saves bounded across tied history and unrelated households",
     "scripts/pdf-sandbox-setup.test.ts :: honors an explicit PDF configuration override and reports the recovery command",
     "scripts/pdf-sandbox-setup.test.ts :: leaves a fresh worktree unbound when PDF configuration or runtime readiness fails",
