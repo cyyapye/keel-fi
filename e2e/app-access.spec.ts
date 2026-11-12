@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { fileURLToPath } from "node:url";
 import {
   KeyReceiptSchema,
   AppAccessStateSchema,
@@ -113,7 +114,14 @@ test("creates, persists, rotates and revokes a scoped key with a retained draft"
   await image(page, info, "key-form");
   await expect(page.locator(".app-access__form")).toHaveScreenshot(
     "app-access-key.png",
-    { animations: "disabled", scale: "css" },
+    {
+      animations: "disabled",
+      scale: "css",
+      // The cropped form scrolls beneath the fixed mobile chrome.
+      stylePath: fileURLToPath(
+        new URL("./app-access-screenshot.css", import.meta.url),
+      ),
+    },
   );
   await page.getByLabel("Key name", { exact: true }).fill("");
   await page.getByLabel("Key name", { exact: true }).press("Tab");
