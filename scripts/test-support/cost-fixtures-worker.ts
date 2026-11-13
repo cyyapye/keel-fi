@@ -15,7 +15,6 @@ import {
 } from "./cost-fixtures";
 
 const setupOperationSchema = z.discriminatedUnion("operation", [
-  z.object({ operation: z.literal("mcp-metadata-holding") }).strict(),
   z.object({
     operation: z.literal("holdings"),
     subject: z.string().optional(),
@@ -148,14 +147,7 @@ export default {
     }
     const operation = parsed.data;
     let result: Record<string, unknown>;
-    if (operation.operation === "mcp-metadata-holding") {
-      result = {
-        operation: operation.operation,
-        importId: await seedCostHoldings(bindings.DB, COST_SUBJECT, 1, false, {
-          positionCount: 1,
-        }),
-      };
-    } else if (operation.operation === "holdings") {
+    if (operation.operation === "holdings") {
       const observations = operation.observations;
       const database =
         operation.interruptPricePropagation ||
