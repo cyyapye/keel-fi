@@ -28,14 +28,15 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0096_unmeasured.sql";
+const futureMigration = "0097_unmeasured.sql";
 const immutableFrontier = "0089_manual_holdings.sql";
 const distributionFrontier = "0090_distribution_reviews.sql";
 const sourceFrontier = "0091_public_source_reviews.sql";
 const inventoryFrontier = "0092_public_holding_inventories.sql";
 const gpFrontier = "0093_gp_reported_total_refresh.sql";
 const appFrontier = "0094_app_access.sql";
-const frontier = "0095_investment_history.sql";
+const investmentFrontier = "0095_investment_history.sql";
+const frontier = "0096_economics_snapshot_lookup.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -81,7 +82,7 @@ function receipt(): MigrationSafetyReceipt {
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "investment-history-schema-v1",
+      id: "economics-snapshot-lookup-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -119,36 +120,42 @@ function receipt(): MigrationSafetyReceipt {
         ...upgradeScenario(),
         history,
         fixtureHash: (history === 12 ? "c" : "d").repeat(64),
-        tableRows: Object.fromEntries(
-          Object.entries(
-            tableRows(
-              history as 12 | 24,
-              review.id === "app-access-v1" ||
-                review.id === "investment-history-v1",
-              review.id !== "distribution-reviews-v1",
-            ),
-          ).filter(
-            ([name]) =>
-              !name.startsWith("app_access_") &&
-              !name.startsWith("investment_history_") &&
-              !name.startsWith("investment_transaction_") &&
-              name !== "investment_tax_lots",
-          ),
-        ),
-        tablesPreserved: Object.keys(
-          tableRows(
-            history as 12 | 24,
-            review.id === "app-access-v1" ||
-              review.id === "investment-history-v1",
-            review.id !== "distribution-reviews-v1",
-          ),
-        ).filter(
-          (name) =>
-            !name.startsWith("app_access_") &&
-            !name.startsWith("investment_history_") &&
-            !name.startsWith("investment_transaction_") &&
-            name !== "investment_tax_lots",
-        ).length,
+        tableRows:
+          review.id === "economics-snapshot-lookup-v1"
+            ? tableRows(history as 12 | 24)
+            : Object.fromEntries(
+                Object.entries(
+                  tableRows(
+                    history as 12 | 24,
+                    review.id === "app-access-v1" ||
+                      review.id === "investment-history-v1",
+                    review.id !== "distribution-reviews-v1",
+                  ),
+                ).filter(
+                  ([name]) =>
+                    !name.startsWith("app_access_") &&
+                    !name.startsWith("investment_history_") &&
+                    !name.startsWith("investment_transaction_") &&
+                    name !== "investment_tax_lots",
+                ),
+              ),
+        tablesPreserved:
+          review.id === "economics-snapshot-lookup-v1"
+            ? 159
+            : Object.keys(
+                tableRows(
+                  history as 12 | 24,
+                  review.id === "app-access-v1" ||
+                    review.id === "investment-history-v1",
+                  review.id !== "distribution-reviews-v1",
+                ),
+              ).filter(
+                (name) =>
+                  !name.startsWith("app_access_") &&
+                  !name.startsWith("investment_history_") &&
+                  !name.startsWith("investment_transaction_") &&
+                  name !== "investment_tax_lots",
+              ).length,
         rowsRead: 10,
         rowsWritten: 4,
         inboundForeignKeyPlans:
@@ -254,12 +261,17 @@ describe("populated D1 migration evidence", () => {
       {
         id: "investment-history-v1",
         frontier: appFrontier,
+        migrations: [{ name: investmentFrontier }],
+      },
+      {
+        id: "economics-snapshot-lookup-v1",
+        frontier: investmentFrontier,
         migrations: [{ name: frontier }],
       },
     ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "investment-history-schema-v1",
+      id: "economics-snapshot-lookup-schema-v1",
       frontier,
       pending: [],
     });
@@ -338,7 +350,7 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "investment-history-schema-v1",
+      caseId: "economics-snapshot-lookup-schema-v1",
       migrationCost: null,
       footprint: { households: 2, holding_position_snapshots: 6241 },
     });
@@ -350,7 +362,7 @@ describe("populated D1 migration evidence", () => {
     expect(admitted).not.toHaveProperty("rowsWritten");
   });
 
-  it("admits only the certified investment-history suffix and preserves earlier cases", () => {
+  it("admits only the certified terminal suffix and preserves earlier cases", () => {
     const evidence = receipt();
     expect(
       validateMigrationSafetyReceipt(evidence, { gitSha, now }).cases[0]
@@ -358,13 +370,13 @@ describe("populated D1 migration evidence", () => {
     ).toMatchObject({ rowsRead: 10, rowsWritten: 4 });
     expect(
       admit(evidence, {
-        frontier: appFrontier,
+        frontier: investmentFrontier,
         pending: [frontier],
         gitSha,
       }),
     ).toMatchObject({
       kind: "upgrade",
-      caseId: "investment-history-v1",
+      caseId: "economics-snapshot-lookup-v1",
       migrationCost: { rowsRead: 10, rowsWritten: 4 },
     });
     // An older target has several pending migrations; no individual case claims that complete sequence.
@@ -377,6 +389,7 @@ describe("populated D1 migration evidence", () => {
           inventoryFrontier,
           gpFrontier,
           appFrontier,
+          investmentFrontier,
           frontier,
         ],
         gitSha,
@@ -426,6 +439,7 @@ describe("populated D1 migration evidence", () => {
           inventoryFrontier,
           gpFrontier,
           appFrontier,
+          investmentFrontier,
           frontier,
         ],
         gitSha,

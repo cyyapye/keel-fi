@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { Miniflare, Log, LogLevel } from "miniflare";
+import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from "miniflare";
 import { unstable_splitSqlQuery } from "wrangler";
 import { z } from "zod";
 import { D1HoldingImportRepository } from "../../packages/database/src/holding-imports";
@@ -36,6 +36,7 @@ const FixtureSchema = z.object({
     "0093",
     "0094",
     "0095",
+    "0096",
   ]),
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
@@ -372,9 +373,16 @@ async function buildFixture(
       });
     }
     if (
-      ["0090", "0090-public", "0091", "0092", "0093", "0094", "0095"].includes(
-        frontier,
-      )
+      [
+        "0090",
+        "0090-public",
+        "0091",
+        "0092",
+        "0093",
+        "0094",
+        "0095",
+        "0096",
+      ].includes(frontier)
     ) {
       if (captureOld) captureOld(snapshotFixture("0089"));
       statements.clear();
@@ -389,7 +397,7 @@ async function buildFixture(
       frontier === "0090-public" ||
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095"].includes(frontier)
+      ["0093", "0094", "0095", "0096"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
@@ -399,7 +407,7 @@ async function buildFixture(
     if (
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095"].includes(frontier)
+      ["0093", "0094", "0095", "0096"].includes(frontier)
     ) {
       statements.clear();
       db.exec(
@@ -409,7 +417,10 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0092" || ["0093", "0094", "0095"].includes(frontier)) {
+    if (
+      frontier === "0092" ||
+      ["0093", "0094", "0095", "0096"].includes(frontier)
+    ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0091"));
       db.exec(
@@ -419,7 +430,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0093", "0094", "0095"].includes(frontier)) {
+    if (["0093", "0094", "0095", "0096"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0092"));
       db.exec(
@@ -429,7 +440,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0094", "0095"].includes(frontier)) {
+    if (["0094", "0095", "0096"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0093"));
       db.exec(
@@ -439,7 +450,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0095") {
+    if (frontier === "0095" || frontier === "0096") {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0094"));
       db.exec(
@@ -449,6 +460,16 @@ async function buildFixture(
         ),
       );
       investmentMigrationHistory(db);
+    }
+    if (frontier === "0096") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0095"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0096_economics_snapshot_lookup.sql",
+          "utf8",
+        ),
+      );
     }
     return snapshotFixture(frontier);
   } finally {
@@ -613,6 +634,7 @@ export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
               "0093": z.string(),
               "0094": z.string(),
               "0095": z.string(),
+              "0096": z.string(),
             })
             .strict()
             .parse(JSON.parse(stdout));
@@ -771,7 +793,7 @@ export async function preparePopulatedMigrationSeed(
   const directory = mkdtempSync(join(tmpdir(), "keel-migration-seed-"));
   try {
     const source = await populatedMigrationDatabase(fixture, {
-      persist: join(directory, "d1"),
+      resourcePersistencePath: directory,
     });
     let platformSchemaObjects: z.infer<typeof SchemaObject>[];
     try {
@@ -799,7 +821,7 @@ export async function preparePopulatedMigrationSeed(
 export async function populatedMigrationDatabase(
   fixture: PopulatedMigrationFixture,
   options: {
-    persist?: string;
+    resourcePersistencePath?: string;
     seed?: PopulatedMigrationSeed;
     replayWorker?: string;
   } = {},
@@ -814,9 +836,11 @@ export async function populatedMigrationDatabase(
     }
   };
   try {
-    if (options.seed && options.persist)
+    if (options.seed && options.resourcePersistencePath)
       throw new Error("A migration seed must use a fresh owned destination");
-    const persist = options.persist ?? join(directory, "d1");
+    const resourcePersistencePath =
+      options.resourcePersistencePath ?? directory;
+    const persist = join(resourcePersistencePath, "d1");
     const carriedPlatformObjects = options.seed
       ? z.array(SchemaObject).parse(options.seed.platformSchemaObjects)
       : undefined;
@@ -827,36 +851,38 @@ export async function populatedMigrationDatabase(
         populatedMigrationSeedInput(fixture, carriedPlatformObjects!),
       );
     const { script, modules, ...bindings } = runtimeOptions;
-    runtime = new Miniflare({
-      ...bindings,
-      ...(options.replayWorker
-        ? {
-            modules: [
-              {
-                type: "ESModule" as const,
-                path: "populated-main.js",
-                contents: `import bootstrap from './populated-bootstrap.js';
+    runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        ...bindings,
+        ...(options.replayWorker
+          ? {
+              modules: [
+                {
+                  type: "ESModule" as const,
+                  path: "populated-main.js",
+                  contents: `import bootstrap from './populated-bootstrap.js';
 import replay from './populated-replay.js';
 export default { fetch(request, env, context) {
   return (new URL(request.url).pathname === '/replay' ? replay : bootstrap).fetch(request, env, context);
 } };`,
-              },
-              {
-                type: "ESModule" as const,
-                path: "populated-bootstrap.js",
-                contents: script,
-              },
-              {
-                type: "ESModule" as const,
-                path: "populated-replay.js",
-                contents: options.replayWorker,
-              },
-            ],
-          }
-        : { script, modules }),
-      log: new Log(LogLevel.NONE),
-      d1Persist: persist,
-    });
+                },
+                {
+                  type: "ESModule" as const,
+                  path: "populated-bootstrap.js",
+                  contents: script,
+                },
+                {
+                  type: "ESModule" as const,
+                  path: "populated-replay.js",
+                  contents: options.replayWorker,
+                },
+              ],
+            }
+          : { script, modules }),
+        log: new Log(LogLevel.NONE),
+        resourcePersistencePath,
+      }),
+    );
     const database = await runtime.getD1Database("DB");
     // Miniflare adds bookmark schema after evaluating the first query's SQL.
     await database.prepare("SELECT 1").first();
@@ -1128,15 +1154,16 @@ if (
       "0093",
       "0094",
       "0095",
+      "0096",
       "both",
     ])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0095", (fixture) => {
+    const terminal = await buildFixture(history, "0096", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0095": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0096": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

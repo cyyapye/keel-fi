@@ -705,12 +705,14 @@
       "unitCases": [
         "packages/database/src/automatic-investment-review.test.ts :: exception-based investment review > retains a recorded exact-company policy without a new agreement citation or invented fees",
         "packages/database/src/automatic-investment-review.test.ts :: exception-based investment review > resolves a bounded 120-position batch with fixed queries and no writes on an unchanged retry",
-        "scripts/automatic-investment-review-d1-cost.test.ts :: bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1"
+        "scripts/automatic-investment-review-d1-cost.test.ts :: bounds automatic review, unchanged page visits, history and an outage through the real client, proxy, auth and D1",
+        "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies economics-snapshot-lookup-v1 from populated 0095_investment_history.sql at 12 captures",
+        "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies economics-snapshot-lookup-v1 from populated 0095_investment_history.sql at 24 captures"
       ],
       "browserCases": [
         "e2e/automatic-investment-review.visual.spec.ts :: chromium :: automatically resolves 120 legal records without making missing fees a review task"
       ],
-      "assertions": "Desktop renders the 120 resolved records, opens the saved position, confirms missing fees do not create a legal or economics task, and checks one resolver call and no term writes. The repository and real client/D1 tests enforce 120 rows, fixed query/read budgets, zero unchanged writes and exact-company policy provenance."
+      "assertions": "Desktop renders the 120 resolved records, opens the saved position, confirms missing fees do not create a legal or economics task, and checks one resolver call and no term writes. The repository and real client/D1 tests enforce 120 rows, fixed query/read budgets, zero unchanged writes and exact-company policy provenance. Populated OLD-schema D1 proof preserves rows, schema, foreign keys and append-only state while the existing-index trigger keeps provenance, stale-snapshot and chain guards within unchanged migration budgets."
     },
     {
       "id": "automatic-retry-mobile",
@@ -2950,7 +2952,7 @@
         "packages/connectors/src/plaid-investment-history.test.ts :: broker investment evidence > preserves posting and initiation meaning and counts all-in cash and fees once",
         "packages/domain/src/investment-history.test.ts :: establishes inclusion only from a covered comparable quantity interval",
         "packages/domain/src/investment-history.test.ts :: requires an unambiguous account or position scope and ordered dates",
-        "scripts/d1-migration-safety.test.ts :: populated D1 migration evidence > admits only the certified investment-history suffix and preserves earlier cases",
+        "scripts/d1-migration-safety.test.ts :: populated D1 migration evidence > admits only the certified terminal suffix and preserves earlier cases",
         "scripts/investment-history-sync.test.ts :: bounds history discovery in the real sync path, retains lots and last successful activity through an outage, and admits a fixed virtual-day capacity atomically",
         "scripts/investment-history.test.ts :: keeps corrected investment activity and reported lots scoped, paginated, read-only and independent of growing history through HTTP and MCP",
         "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies investment-history-v1 from populated 0094_app_access.sql at 12 captures",

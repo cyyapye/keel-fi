@@ -35,6 +35,51 @@ const syntheticHistoricalFkPreparation = unstable_splitSqlQuery(
   ),
 );
 const registry = readMigrationSafetyRegistry();
+const triggerUpgrades = [
+  {
+    id: "distribution-reviews-v1",
+    frontier: "0089_manual_holdings.sql",
+    oldFixture: "0089",
+    newFixture: "0090",
+    migration: "0090_distribution_reviews.sql",
+    statements: 6,
+    changedNames: [
+      "holding_purchase_unified_guard",
+      "holding_purchase_price_evidence_guard",
+      "holding_purchase_reported_value_guard",
+      "holding_purchase_distribution_guard",
+    ],
+    tables: 137,
+    schemaObjects: 693,
+  },
+  {
+    id: "gp-reported-total-v1",
+    frontier: "0092_public_holding_inventories.sql",
+    oldFixture: "0092",
+    newFixture: "0093",
+    migration: "0093_gp_reported_total_refresh.sql",
+    statements: 5,
+    changedNames: [
+      "holding_gp_total_refresh_guard",
+      "holding_price_current_quotes",
+      "holding_selected_valuation_guard",
+      "holding_price_continuation_guard",
+    ],
+    tables: 147,
+    schemaObjects: 749,
+  },
+  {
+    id: "economics-snapshot-lookup-v1",
+    frontier: "0095_investment_history.sql",
+    oldFixture: "0095",
+    newFixture: "0096",
+    migration: "0096_economics_snapshot_lookup.sql",
+    statements: 2,
+    changedNames: ["holding_position_economics_proposals_integrity_insert"],
+    tables: 159,
+    schemaObjects: 812,
+  },
+] as const;
 const completedRegressions = new Set<number>();
 const baselineScenarios: MigrationSafetyBaselineScenario[] = [];
 const scenarios = new Map<string, MigrationSafetyScenario[]>();
@@ -611,19 +656,12 @@ describe("populated OLD-schema D1 migration safety", () => {
           }
           return;
         }
-        const gpTotal = review.id === "gp-reported-total-v1";
-        expect(review.id).toBe(
-          gpTotal ? "gp-reported-total-v1" : "distribution-reviews-v1",
-        );
-        expect(review.frontier).toBe(
-          gpTotal
-            ? "0092_public_holding_inventories.sql"
-            : "0089_manual_holdings.sql",
-        );
+        const upgrade = triggerUpgrades.find(({ id }) => id === review.id);
+        if (!upgrade)
+          throw new Error("Unimplemented trigger-only migration case");
+        expect(review.frontier).toBe(upgrade.frontier);
         expect(review.migrations.map((item) => item.name)).toEqual([
-          gpTotal
-            ? "0093_gp_reported_total_refresh.sql"
-            : "0090_distribution_reviews.sql",
+          upgrade.migration,
         ]);
         const pending = review.migrations.flatMap((item) =>
           unstable_splitSqlQuery(
@@ -633,19 +671,21 @@ describe("populated OLD-schema D1 migration safety", () => {
             ),
           ),
         );
-        expect(pending).toHaveLength(gpTotal ? 5 : 6);
+        expect(pending).toHaveLength(upgrade.statements);
         expect(
           pending.every((sql) =>
-            /^(?:DROP|CREATE) (?:TRIGGER|VIEW)\b/u.test(sql.trim()),
+            /^(?:--[^\r\n]*(?:\r?\n|$)\s*)*(?:DROP|CREATE) (?:TRIGGER|VIEW)\b/u.test(
+              sql.trim(),
+            ),
           ),
         ).toBe(true);
         const fixture = await populatedMigrationFixture(
           history,
-          gpTotal ? "0092" : "0089",
+          upgrade.oldFixture,
         );
         const terminal = await populatedMigrationFixture(
           history,
-          gpTotal ? "0093" : "0090",
+          upgrade.newFixture,
         );
         const positions = fixture.tables.find(
           (table) => table.name === "holding_positions",
@@ -667,21 +707,24 @@ describe("populated OLD-schema D1 migration safety", () => {
           manualSnapshot[snapshots.columns.indexOf("realized_value_minor")],
         ).toBeNull();
         expect(terminal.tables).toEqual(fixture.tables);
-        const changedNames = new Set(
-          gpTotal
-            ? [
-                "holding_gp_total_refresh_guard",
-                "holding_price_current_quotes",
-                "holding_selected_valuation_guard",
-                "holding_price_continuation_guard",
-              ]
-            : [
-                "holding_purchase_unified_guard",
-                "holding_purchase_price_evidence_guard",
-                "holding_purchase_reported_value_guard",
-                "holding_purchase_distribution_guard",
-              ],
-        );
+        const changedNames = new Set<string>(upgrade.changedNames);
+        if (review.id === "economics-snapshot-lookup-v1") {
+          const name = "holding_position_economics_proposals_integrity_insert";
+          const prior = fixture.triggers.find(
+            (trigger) => trigger.name === name,
+          )!;
+          const next = terminal.triggers.find(
+            (trigger) => trigger.name === name,
+          )!;
+          const lookup = "FROM holding_import_applications candidate\n";
+          expect(prior.sql.split(lookup)).toHaveLength(2);
+          expect(next.sql).toBe(
+            prior.sql.replace(
+              lookup,
+              "FROM holding_import_applications candidate INDEXED BY holding_import_applications_position_applied_idx\n",
+            ),
+          );
+        }
         expect(
           terminal.objects.filter((object) => !changedNames.has(object.name)),
         ).toEqual(
@@ -689,7 +732,7 @@ describe("populated OLD-schema D1 migration safety", () => {
         );
         expect(
           terminal.objects.filter((object) => changedNames.has(object.name)),
-        ).toHaveLength(4);
+        ).toHaveLength(upgrade.changedNames.length);
         const runtime = await populatedMigrationDatabase(fixture);
         try {
           await preserveMigrationFixture(runtime.database, fixture, true);
@@ -708,14 +751,118 @@ describe("populated OLD-schema D1 migration safety", () => {
           expect(
             await preserveMigrationFixture(runtime.database, terminal, true),
           ).toEqual({
-            tablesPreserved: gpTotal ? 147 : 137,
-            schemaObjectsPreserved: gpTotal ? 749 : 693,
+            tablesPreserved: upgrade.tables,
+            schemaObjectsPreserved: upgrade.schemaObjects,
             foreignKeyViolations: 0,
           });
           const immutableProbes = await immutableMigrationProbes(
             runtime.database,
             fixture,
           );
+          if (review.id === "economics-snapshot-lookup-v1") {
+            const target = await runtime.database
+              .prepare(
+                `
+              SELECT p.id position_id, p.household_id, h.owner_user_id,
+                current.snapshot_id, prior.snapshot_id stale_snapshot_id
+              FROM holding_positions p JOIN households h ON h.id=p.household_id
+              JOIN holding_import_application_heads current ON current.position_id=p.id
+              JOIN holding_import_applications prior INDEXED BY holding_import_applications_position_applied_idx ON prior.position_id=p.id
+              WHERE p.provider='wefunder'
+                AND prior.snapshot_id<>current.snapshot_id
+                AND NOT EXISTS (SELECT 1 FROM holding_purchase_heads head
+                  JOIN holding_purchase_reviews receipt ON receipt.id=head.review_id
+                  WHERE head.position_id=p.id AND json_type(receipt.receipt_json,'$.details.investmentTerms') IS NOT NULL)
+              ORDER BY p.id,prior.id LIMIT 1`,
+              )
+              .first<{
+                position_id: string;
+                household_id: string;
+                owner_user_id: string;
+                snapshot_id: string;
+                stale_snapshot_id: string;
+              }>();
+            if (target === null)
+              throw new Error("Missing unreviewed synthetic economics history");
+            const insert = (
+              id: string,
+              snapshot: string,
+              owner: string,
+              prior: string | null = null,
+            ) =>
+              runtime.database
+                .prepare(
+                  `
+              INSERT INTO holding_position_economics_proposals
+                (id,household_id,position_id,snapshot_id,supersedes_proposal_id,commitment_minor,funded_minor,
+                 annual_admin_fee_ppm,admin_fee_years,carry_ppm,note,created_by,created_at,immutable)
+              SELECT ?,p.household_id,p.id,s.id,?,
+                COALESCE((SELECT json_extract(review.state_json,'$.amountCorrection.amountMinor')
+                  FROM holding_investment_reviews review WHERE review.household_id=p.household_id
+                    AND review.position_id=p.id ORDER BY review.version DESC LIMIT 1),
+                  CASE p.provider WHEN 'angellist' THEN s.invested_minor ELSE s.allocation_minor END),
+                s.invested_minor,0,1,0,'Synthetic migration guard probe',?,'2026-08-20T00:00:00.000Z',1
+              FROM holding_positions p JOIN holding_position_snapshots s ON s.position_id=p.id
+              WHERE p.id=? AND s.id=?`,
+                )
+                .bind(id, prior, owner, target.position_id, snapshot);
+            await expect(
+              insert(
+                "synthetic-stale-economics",
+                target.stale_snapshot_id,
+                target.owner_user_id,
+              ).run(),
+            ).rejects.toThrow(/position economics proposal snapshot is stale/);
+            await expect(
+              insert(
+                "synthetic-foreign-economics",
+                target.snapshot_id,
+                "synthetic-missing-owner",
+              ).run(),
+            ).rejects.toThrow(
+              /position economics proposal provenance mismatch/,
+            );
+            await expect(
+              insert(
+                "synthetic-chain-economics",
+                target.snapshot_id,
+                target.owner_user_id,
+                "synthetic-missing-proposal",
+              ).run(),
+            ).rejects.toThrow(/position economics proposal chain mismatch/);
+            expect(
+              (
+                await insert(
+                  "synthetic-current-economics",
+                  target.snapshot_id,
+                  target.owner_user_id,
+                ).run()
+              ).meta.changes,
+            ).toBe(1);
+            const plan = await runtime.database
+              .prepare(
+                `EXPLAIN QUERY PLAN
+              SELECT candidate.snapshot_id FROM holding_import_applications candidate INDEXED BY holding_import_applications_position_applied_idx
+              JOIN holding_position_snapshots candidate_snapshot ON candidate_snapshot.id=candidate.snapshot_id
+              WHERE candidate.position_id=? AND candidate.household_id=?
+              ORDER BY candidate.applied_at DESC,candidate_snapshot.observed_at DESC,candidate.id DESC LIMIT 1`,
+              )
+              .bind(target.position_id, target.household_id)
+              .all<{ detail: string }>();
+            expect(
+              plan.results.some(
+                ({ detail }) =>
+                  detail.includes(
+                    "holding_import_applications_position_applied_idx",
+                  ) && /SEARCH/.test(detail),
+              ),
+            ).toBe(true);
+            expect(
+              plan.results.some(({ detail }) =>
+                /SCAN candidate\b/.test(detail),
+              ),
+            ).toBe(false);
+          }
           const scenario = MigrationSafetyScenarioSchema.parse({
             history,
             mainPositions: 120,
@@ -762,14 +909,14 @@ describe("populated OLD-schema D1 migration safety", () => {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "public-holding-history-v1" ||
-        registry.baseline.frontier !== "0095_investment_history.sql" ||
-        registry.cases.length !== 6 ||
+        registry.baseline.frontier !== "0096_economics_snapshot_lookup.sql" ||
+        registry.cases.length !== 7 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0095");
+      const fixture = await populatedMigrationFixture(history, "0096");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {

@@ -5,6 +5,7 @@ import {
   type Request as RuntimeRequest,
   Log,
   LogLevel,
+  convertV4MiniflareOptions,
 } from "miniflare";
 import { expect, it } from "vitest";
 
@@ -35,34 +36,36 @@ it("runs issuer lookup in Workers and rejects redirects before following them", 
   });
   let redirect = false;
   const requests: string[] = [];
-  const runtime = new Miniflare({
-    modules: true,
-    script: bundled.outputFiles[0]!.text,
-    compatibilityDate: "2026-07-28",
-    compatibilityFlags: ["global_fetch_strictly_public", "nodejs_compat"],
-    log: new Log(LogLevel.NONE),
-    outboundService(request: RuntimeRequest) {
-      requests.push(request.url);
-      return redirect
-        ? new RuntimeResponse(null, {
-            status: 302,
-            headers: { Location: "https://unexpected.example/" },
-          })
-        : RuntimeResponse.json({
-            success: 1,
-            search: [
-              {
-                id: "Q123456789",
-                label: "Demo Orbit",
-                match: {
-                  type: "alias",
-                  text: "Demo Orbital Technologies Corp.",
+  const runtime = new Miniflare(
+    convertV4MiniflareOptions({
+      modules: true,
+      script: bundled.outputFiles[0]!.text,
+      compatibilityDate: "2026-07-28",
+      compatibilityFlags: ["global_fetch_strictly_public", "nodejs_compat"],
+      log: new Log(LogLevel.NONE),
+      outboundService(request: RuntimeRequest) {
+        requests.push(request.url);
+        return redirect
+          ? new RuntimeResponse(null, {
+              status: 302,
+              headers: { Location: "https://unexpected.example/" },
+            })
+          : RuntimeResponse.json({
+              success: 1,
+              search: [
+                {
+                  id: "Q123456789",
+                  label: "Demo Orbit",
+                  match: {
+                    type: "alias",
+                    text: "Demo Orbital Technologies Corp.",
+                  },
                 },
-              },
-            ],
-          });
-    },
-  });
+              ],
+            });
+      },
+    }),
+  );
   try {
     const result = await runtime.dispatchFetch(
       "https://synthetic-runtime.invalid/",

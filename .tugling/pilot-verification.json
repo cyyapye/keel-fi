@@ -224,7 +224,8 @@
         "scripts/test-support/investment-migration-history.ts",
         "packages/domain/src/investment-history.test.ts",
         "packages/connectors/src/plaid-investment-history.test.ts",
-        "packages/database/migrations/0095_investment_history.sql"
+        "packages/database/migrations/0095_investment_history.sql",
+        "packages/database/migrations/0096_economics_snapshot_lookup.sql"
       ],
       "runtime": {
         "owner": "native-command",

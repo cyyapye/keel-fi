@@ -29,9 +29,7 @@ function environment(): NodeJS.ProcessEnv {
   };
 }
 
-function successfulFetch(
-  dashboardHtml = applicationHtml,
-): ReturnType<typeof vi.fn> {
+function successfulFetch(dashboardHtml = applicationHtml) {
   return vi.fn((input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(
       input instanceof Request ? input.url : input.toString(),

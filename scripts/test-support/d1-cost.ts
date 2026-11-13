@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { Miniflare, Log, LogLevel } from "miniflare";
+import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from "miniflare";
 import { z } from "zod";
 import { copyCostSeed, costSeedInput, sealCostSeed } from "./d1-cost-seed";
 
@@ -136,16 +136,19 @@ export async function createCostDatabase(
   script?: string,
   options: {
     seed?: string | null;
-    persist?: string;
+    resourcePersistencePath?: string;
     sharedMemoryParent?: string | undefined;
     checkProviderDayHeadroom?: boolean;
   } = {},
 ) {
   const { directory, storage } = allocateCostDirectory(
-    options.persist === undefined ? options.sharedMemoryParent : undefined,
+    options.resourcePersistencePath === undefined
+      ? options.sharedMemoryParent
+      : undefined,
     options.checkProviderDayHeadroom,
   );
-  const persist = options.persist ?? join(directory, "d1");
+  const resourcePersistencePath = options.resourcePersistencePath ?? directory;
+  const persist = join(resourcePersistencePath, "d1");
   const seed =
     options.seed === undefined ? process.env.KEEL_TEST_D1_SEED : options.seed;
   let runtime: Miniflare | undefined;
@@ -159,25 +162,27 @@ export async function createCostDatabase(
   try {
     const inputs = costDatabaseSources();
     if (seed) copyCostSeed(seed, persist, inputs.fingerprint);
-    runtime = new Miniflare({
-      modules: [
-        {
-          type: "ESModule",
-          path: "bootstrap-worker.js",
-          contents: bootstrapWorker,
-        },
-        {
-          type: "ESModule",
-          path: "user-worker.js",
-          contents: script ?? defaultWorker,
-        },
-      ],
-      log: new Log(LogLevel.NONE),
-      compatibilityFlags: ["nodejs_compat"],
-      d1Databases: ["DB"],
-      d1Persist: persist,
-      compatibilityDate: "2026-07-28",
-    });
+    runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        modules: [
+          {
+            type: "ESModule",
+            path: "bootstrap-worker.js",
+            contents: bootstrapWorker,
+          },
+          {
+            type: "ESModule",
+            path: "user-worker.js",
+            contents: script ?? defaultWorker,
+          },
+        ],
+        log: new Log(LogLevel.NONE),
+        compatibilityFlags: ["nodejs_compat"],
+        d1Databases: ["DB"],
+        resourcePersistencePath,
+        compatibilityDate: "2026-07-28",
+      }),
+    );
     const database = await runtime.getD1Database("DB");
     const execute = async (sql: string) => {
       const { unstable_splitSqlQuery } = await import("wrangler");
@@ -233,7 +238,7 @@ export async function prepareCostDatabaseSeed(root: string) {
     throw new Error("D1 seed directory must be empty");
   const fixture = await createCostDatabase(undefined, {
     seed: null,
-    persist: join(root, "d1"),
+    resourcePersistencePath: root,
   });
   await fixture.close();
   sealCostSeed(root, fixture.seedInput);
