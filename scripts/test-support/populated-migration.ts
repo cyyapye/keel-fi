@@ -18,6 +18,13 @@ import { D1ManualHoldingRepository } from "../../packages/database/src/manual-ho
 import { LegalDocumentTestD1 } from "./legal-documents";
 import { syntheticWefunderImport } from "./wefunder-holdings";
 import { copyCostSeed, costSeedInput, sealCostSeed } from "./d1-cost-seed";
+import {
+  EncodedMigrationFixturesSchema,
+  POPULATED_FIXTURE_BYTE_LIMIT,
+  PopulatedFixtureFrontierSchema,
+  prepareExpectedFixtureStore,
+  readExpectedFixtureStore,
+} from "./populated-migration-fixture-store";
 
 const cell = z.union([z.string(), z.number().finite(), z.null()]);
 const SchemaObject = z.object({
@@ -26,18 +33,7 @@ const SchemaObject = z.object({
   sql: z.string().nullable(),
 });
 const FixtureSchema = z.object({
-  frontier: z.enum([
-    "0088",
-    "0089",
-    "0090",
-    "0090-public",
-    "0091",
-    "0092",
-    "0093",
-    "0094",
-    "0095",
-    "0096",
-  ]),
+  frontier: PopulatedFixtureFrontierSchema,
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
   unrelatedPositions: z.literal(120),
@@ -581,7 +577,7 @@ export function migrationFiles(frontier: string): string[] {
     .map((file) => `packages/database/migrations/${file}`);
 }
 
-const fixtureByteLimit = 32 * 1024 * 1024;
+const fixtureByteLimit = POPULATED_FIXTURE_BYTE_LIMIT;
 
 async function fixtureOutput(history: 12 | 24, frontier: Frontier | "both") {
   const { stdout } = await promisify(execFile)(
@@ -606,6 +602,12 @@ function packFixture(fixture: PopulatedMigrationFixture) {
   return gzipSync(json, { level: 1 }).toString("base64");
 }
 
+export async function preparePopulatedMigrationFixtureStore(root: string) {
+  await prepareExpectedFixtureStore(root, (history) =>
+    fixtureOutput(history, "both"),
+  );
+}
+
 export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
   const fixtures = new Map<
     12 | 24,
@@ -617,29 +619,24 @@ export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
       throw new Error("Requested a boundary outside the selected fixture");
     let result = fixtures.get(history);
     if (!result) {
-      result = fixtureOutput(history, selectedFrontier ?? "both").then(
-        (stdout) => {
-          if (selectedFrontier !== undefined) {
-            const selected = FixtureSchema.parse(JSON.parse(stdout));
-            return { [selectedFrontier]: packFixture(selected) };
-          }
-          return z
-            .object({
-              "0088": z.string(),
-              "0089": z.string(),
-              "0090": z.string(),
-              "0090-public": z.string(),
-              "0091": z.string(),
-              "0092": z.string(),
-              "0093": z.string(),
-              "0094": z.string(),
-              "0095": z.string(),
-              "0096": z.string(),
+      const store = process.env.KEEL_TEST_POPULATED_MIGRATION_FIXTURES;
+      result =
+        store !== undefined
+          ? Promise.resolve().then(() => {
+              const packed = readExpectedFixtureStore(store, history);
+              return selectedFrontier === undefined
+                ? packed
+                : { [selectedFrontier]: packed[selectedFrontier] };
             })
-            .strict()
-            .parse(JSON.parse(stdout));
-        },
-      );
+          : fixtureOutput(history, selectedFrontier ?? "both").then(
+              (stdout) => {
+                if (selectedFrontier !== undefined) {
+                  const selected = FixtureSchema.parse(JSON.parse(stdout));
+                  return { [selectedFrontier]: packFixture(selected) };
+                }
+                return EncodedMigrationFixturesSchema.parse(JSON.parse(stdout));
+              },
+            );
       fixtures.set(history, result);
     }
     const packed = (await result)[frontier];

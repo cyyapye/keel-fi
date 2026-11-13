@@ -971,13 +971,17 @@ def run_vitest(runner, inventory):
                "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
                "--reporter=./scripts/pilot-vitest-reporter.ts", f"--outputFile={output}"]
     started_at = int(time.time() * 1000)
-    with cost_seed_directory() as seed, cost_seed_directory(prefix="node-compile-") as compile_cache:
+    with (cost_seed_directory() as seed,
+          cost_seed_directory(prefix="node-compile-") as compile_cache,
+          cost_seed_directory(prefix="migration-fixtures-") as migration_fixtures):
         env = {**os.environ, "KEEL_TEST_SQLITE_SNAPSHOT_ROOT": seed,
                "NODE_COMPILE_CACHE": compile_cache}
+        env.pop("KEEL_TEST_POPULATED_MIGRATION_FIXTURES", None)
         if strict:
             command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
             returncode = subprocess.run(command, cwd=ROOT, check=False, env=env).returncode
         else:
+            env["KEEL_TEST_POPULATED_MIGRATION_FIXTURES"] = migration_fixtures
             if partitioned:
                 command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
             with provider_day_scratch() as provider_scratch:

@@ -929,10 +929,16 @@ with native.cost_seed_directory() as seed:
             for provisioned in (False, True):
                 seen = []
                 seeds = []
+                fixture_stores = []
                 def execute(command, **options):
                     if "scripts/prepare-d1-cost-seed.ts" in command:
                         seed = Path(command[-1])
                         seeds.append(seed)
+                        store = Path(options["env"]["KEEL_TEST_POPULATED_MIGRATION_FIXTURES"])
+                        fixture_stores.append(store)
+                        self.assertTrue(store.is_relative_to(root))
+                        self.assertTrue(store.is_dir())
+                        self.assertFalse(store.is_relative_to(seed))
                         if provisioned:
                             (seed / "pdf-runtime-unavailable.json").write_text("synthetic")
                     else:
@@ -948,7 +954,8 @@ with native.cost_seed_directory() as seed:
                     return subprocess.CompletedProcess(command, 0)
                 with (patch.object(native, "ROOT", root), patch.object(native, "ARTIFACTS", root),
                       patch.object(native, "INVENTORY", inventory), patch.object(native.subprocess, "run", side_effect=execute),
-                      patch.dict(os.environ, {"KEEL_PDF_SANDBOX_CONFIG": "/synthetic-ambient-config.json"})):
+                      patch.dict(os.environ, {"KEEL_PDF_SANDBOX_CONFIG": "/synthetic-ambient-config.json",
+                                              "KEEL_TEST_POPULATED_MIGRATION_FIXTURES": "/synthetic-ambient-store"})):
                     if provisioned:
                         with self.assertRaisesRegex(ValueError, "must remain unprovisioned"):
                             native.run_suite("vitest")
@@ -957,6 +964,8 @@ with native.cost_seed_directory() as seed:
                 self.assertEqual(len(seen), 0 if provisioned else 1)
                 self.assertTrue(seeds)
                 self.assertTrue(all(not seed.exists() for seed in seeds))
+                self.assertTrue(fixture_stores)
+                self.assertTrue(all(not store.exists() for store in fixture_stores))
 
     def test_native_vitest_removed_skipped_and_filtered_cases_fail_accounting(self):
         # Real native execution proves a green filtered/omitted run cannot pass
@@ -1133,6 +1142,11 @@ with native.cost_seed_directory() as seed:
                             seed = Path(options["env"]["KEEL_TEST_SQLITE_SNAPSHOT_ROOT"])
                             self.assertTrue(cache.is_dir())
                             self.assertFalse(cache.is_relative_to(seed))
+                            fixture_store = options["env"].get("KEEL_TEST_POPULATED_MIGRATION_FIXTURES")
+                            if fixture_store is not None:
+                                fixture_root = Path(fixture_store)
+                                self.assertTrue(fixture_root.is_dir())
+                                self.assertFalse(fixture_root.is_relative_to(seed))
                         if "--reporter=json" in command:
                             path = Path(next(arg.split("=", 1)[1] for arg in command if arg.startswith("--outputFile=")))
                             first = path.name == "vitest-preflight.json"

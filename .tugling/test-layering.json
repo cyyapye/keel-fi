@@ -2956,7 +2956,8 @@
         "scripts/investment-history-sync.test.ts :: bounds history discovery in the real sync path, retains lots and last successful activity through an outage, and admits a fixed virtual-day capacity atomically",
         "scripts/investment-history.test.ts :: keeps corrected investment activity and reported lots scoped, paginated, read-only and independent of growing history through HTTP and MCP",
         "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies investment-history-v1 from populated 0094_app_access.sql at 12 captures",
-        "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies investment-history-v1 from populated 0094_app_access.sql at 24 captures"
+        "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies investment-history-v1 from populated 0094_app_access.sql at 24 captures",
+        "scripts/test-support/populated-migration-fixture-store.test.ts :: rejects stale, changed, unowned and incomplete expected migration inputs before D1 proof"
       ],
       "browserCases": [
         "e2e/investment-history.visual.spec.ts :: chromium :: inspects source-backed activity, remaining lots and account-only events without changing holdings",
@@ -2964,7 +2965,7 @@
         "e2e/investment-history.visual.spec.ts :: mobile-chromium :: inspects source-backed activity, remaining lots and account-only events without changing holdings",
         "e2e/investment-history.visual.spec.ts :: mobile-chromium :: shows incomplete lot coverage and recovers an expired read without retry loops"
       ],
-      "assertions": "Source units, dates, unknowns and exact coverage; real accepted ingestion, atomic cumulative capacity and failure retention; 120-item HTTP/MCP isolation, immutable corrections, tied growing history, indexed fixed-cost zero-write reads; native desktop/mobile activity, lot ordering, account scope, source disclosures and explicit conflict recovery."
+      "assertions": "Source units, dates, unknowns and exact coverage; real accepted ingestion, atomic cumulative capacity and failure retention; 120-item HTTP/MCP isolation, immutable corrections, tied growing history, indexed fixed-cost zero-write reads; native desktop/mobile activity, lot ordering, account scope, source disclosures and explicit conflict recovery. Fresh shared expected-fixture inputs reject stale source/runtime, altered bytes, missing frontiers/history, unsafe ownership and oversized inflation before real D1 certification."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

@@ -1668,6 +1668,7 @@
     "scripts/test-layering.test.ts :: every migrated policy keeps executable replacements and real browser/PDF boundaries",
     "scripts/test-support/d1-cost.test.ts :: creates isolated complete D1 fixtures and fails closed between bootstrap batches",
     "scripts/test-support/d1-cost.test.ts :: reuses a closed sealed D1 seed with fresh state and rejects altered inputs or files",
+    "scripts/test-support/populated-migration-fixture-store.test.ts :: rejects stale, changed, unowned and incomplete expected migration inputs before D1 proof",
     "scripts/test-support/query-inventory.test.ts :: SQL factory discovery > accounts for unchanged instrumentation forwarding while retaining every caller SQL",
     "scripts/test-support/query-inventory.test.ts :: SQL factory discovery > rejects the original unbounded dynamic SQL factory",
     "scripts/test-support/query-inventory.test.ts :: SQL factory discovery > rejects transformed SQL and unresolved caller SQL rather than treating factories as adapters",

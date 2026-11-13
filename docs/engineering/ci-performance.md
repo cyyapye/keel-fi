@@ -1358,6 +1358,44 @@ migration cases passed in 42.41 seconds, with every reported certification
 record, actual D1 counter and integrity result identical to the preceding full
 local verification.
 
+## Shared expected migration fixtures
+
+The first two hosted runs at `3b06f899` completed source checks in 505.974 and
+526.374 seconds, inside their 600-second deadline. Both failed the existing
+120-second historical migration case at 24 captures. One also failed the
+90-second automatic-review case. Late counter output does not turn a timed-out
+case into a pass.
+
+The migration and public-source test files independently generated the same
+expected Node SQLite fixtures at 12 and 24 captures. The main unit phase now
+generates both complete history bundles once and shares them through a fresh
+owned input store. Preparation and cleanup remain inside the complete unit and
+native clocks. Expected fixture generation moves to this shared owner; each case
+retains its actual OLD-schema D1 bootstrap, pending SQL, billing counters, row
+and schema preservation, foreign-key checks and append-only probes.
+
+The store contains two fixed files and a strict manifest. It binds the current
+fixture dependencies, raw migration sources, package lock, preparation and
+launcher code, runtime and workflow attempt. Preparation rejects source drift
+before publication. Readers verify current inputs, ownership, permissions, file
+hashes and bounds through the acquired descriptors. A declared invalid store
+fails without regeneration. Each encoded history retains its 32 MiB limit;
+aggregate payload is bounded at 64 MiB. Selected fixtures retain their 32 MiB
+inflation limit and complete schema validation. The public-source owner keeps
+only its requested frontier after reading. The owned unit context removes the
+store on completion, failure and handled cancellation. Stores never come from a
+prior workflow artifact.
+
+Five alternating macOS pairs executed the complete 17 migration and four
+public-source cases, including fresh preparation and cleanup. Every case and
+comparable D1 receipt matched. Median process-tree CPU fell from 63.52 to 58.01
+seconds, with ranges 62.13–64.51 and 57.15–58.50 seconds. Whole-phase elapsed
+times overlapped, so this establishes less local CPU work without an elapsed or
+hosted speedup claim. All source statements, populations, histories, assertions,
+three unit workers, source/unit overlap, screenshots and deadlines remain. A new
+integrity case rejects stale, modified, missing, unsafe and oversized expected
+inputs. The complete exact-revision hosted gate remains required before release.
+
 The reconnect cost case uses a dedicated worker bundle instead of loading the
 unrelated portfolio fixture operations. It invokes the same existing
 `providerReconnectCost` function; all repository operations, 120/1,200
