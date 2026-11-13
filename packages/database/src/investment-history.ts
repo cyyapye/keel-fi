@@ -215,6 +215,7 @@ export class D1InvestmentHistoryRepository {
     connectionId: string,
     importId: string,
     keys: { accountKey: string; positionKey: string }[],
+    reportedAccountKeys: string[],
   ): Promise<InvestmentHistoryScope> {
     const identity = await this.db
       .prepare(
@@ -229,12 +230,13 @@ export class D1InvestmentHistoryRepository {
     const results = await this.db.batch([
       this.db
         .prepare(
-          `SELECT a.id,a.protected_account_key key,prior.context_json context FROM ownership_containers a
+          `SELECT a.id,a.protected_account_key key,prior.context_json context FROM json_each(?) requested
+        CROSS JOIN ownership_containers a
         LEFT JOIN investment_history_account_heads h ON h.container_id=a.id
         LEFT JOIN investment_history_accounts prior ON prior.capture_id=h.capture_id AND prior.container_id=a.id
-        WHERE a.household_id=? AND a.connection_id=?`,
+        WHERE a.connection_id=? AND a.protected_account_key=requested.value AND a.household_id=?`,
         )
-        .bind(householdId, connectionId),
+        .bind(JSON.stringify(reportedAccountKeys), connectionId, householdId),
       this.db
         .prepare(
           `SELECT p.id,o.container_id containerId,o.protected_position_key key,s.id snapshotId,

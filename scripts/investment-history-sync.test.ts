@@ -33,6 +33,15 @@ const result = z.object({
   rawPagesPreserved: z.boolean(),
   historyCost: z.object({ rowsRead: z.number(), rowsWritten: z.number() }),
   reservation: z.object({ reserved: z.number(), bound: z.number() }),
+  recordedAccountCount: z.number().int().nonnegative(),
+  retiredAccountHistoryCount: z.number().int().nonnegative(),
+  emptyAccountHistoryCaptured: z.boolean(),
+  accountLookupCost: z.object({
+    calls: z.number().int().nonnegative(),
+    rowsRead: z.number().int().nonnegative(),
+    rowsWritten: z.number().int().nonnegative(),
+  }),
+  accountLookupPlan: z.array(z.string()),
   activity: InvestmentTransactionsPageSchema,
   targets: z.array(InvestmentTransactionSchema),
   lots: InvestmentTaxLotsPageSchema,
@@ -100,29 +109,50 @@ it("bounds history discovery in the real sync path, retains lots and last succes
         failed.historyCost.rowsWritten +
         corrected.historyCost.rowsWritten,
     ).toBeLessThanOrEqual(4000);
-    const bounded = await createCostDatabase(await bundle);
-    try {
-      const response = await bounded.dispatchFetch(
-        "https://synthetic-history-sync.invalid",
-        { method: "POST", body: JSON.stringify({ mode: "bounded" }) },
-      );
-      const maximum = result.parse(await response.json());
-      expect(maximum.transactionRequests).toBe(2);
-      expect(maximum.rawPagesPreserved).toBe(true);
-      expect(maximum.activity.context.coverage.status).toBe("partial");
-      expect(maximum.historyCost.rowsWritten).toBeLessThanOrEqual(
-        maximum.reservation.bound,
-      );
-      expect(maximum.reservation.reserved).toBeLessThanOrEqual(4000);
-      console.info(
-        JSON.stringify({
-          investmentHistoryMaximumBudget: maximum.historyCost,
-          reservation: maximum.reservation,
-        }),
-      );
-    } finally {
-      await bounded.close();
+    const accountLookupReads: number[] = [];
+    for (const retiredAccounts of [12, 120]) {
+      const bounded = await createCostDatabase(await bundle);
+      try {
+        const response = await bounded.dispatchFetch(
+          "https://synthetic-history-sync.invalid",
+          {
+            method: "POST",
+            body: JSON.stringify({ mode: "bounded", retiredAccounts }),
+          },
+        );
+        expect(response.status, await response.clone().text()).toBe(200);
+        const maximum = result.parse(await response.json());
+        expect(maximum.transactionRequests).toBe(2);
+        expect(maximum.rawPagesPreserved).toBe(true);
+        expect(maximum.recordedAccountCount).toBe(2);
+        expect(maximum.retiredAccountHistoryCount).toBe(0);
+        expect(maximum.emptyAccountHistoryCaptured).toBe(true);
+        expect(maximum.accountLookupCost.calls).toBe(1);
+        expect(maximum.accountLookupCost.rowsRead).toBeLessThanOrEqual(24);
+        expect(maximum.accountLookupCost.rowsWritten).toBe(0);
+        expect(maximum.accountLookupPlan.join("\n")).not.toMatch(/\bSCAN a\b/u);
+        accountLookupReads.push(maximum.accountLookupCost.rowsRead);
+        expect(maximum.activity.context.coverage.status).toBe("partial");
+        expect(maximum.historyCost.rowsWritten).toBeLessThanOrEqual(
+          maximum.reservation.bound,
+        );
+        expect(maximum.reservation.reserved).toBeLessThanOrEqual(4000);
+        console.info(
+          JSON.stringify({
+            investmentHistoryMaximumBudget: maximum.historyCost,
+            reservation: maximum.reservation,
+            retiredAccounts,
+            accountLookupCost: maximum.accountLookupCost,
+            accountLookupPlan: maximum.accountLookupPlan,
+          }),
+        );
+      } finally {
+        await bounded.close();
+      }
     }
+    expect(accountLookupReads[1]!).toBeLessThanOrEqual(
+      accountLookupReads[0]! + 2,
+    );
     const repo = new D1InvestmentHistoryRepository(fixture.database);
     const account = await fixture.database
       .prepare(
