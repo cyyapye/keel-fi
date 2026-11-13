@@ -1,7 +1,10 @@
 import { it, expect } from "vitest";
+import { z } from "zod";
 import {
   reconcileInvestmentQuantity,
   InvestmentHistoryQuerySchema,
+  InvestmentHistoryContextSchema,
+  InvestmentHistoryTimestampSchema,
   type InvestmentHistoryContext,
 } from "./investment-history";
 const context: InvestmentHistoryContext = {
@@ -44,6 +47,50 @@ const input = {
     },
   ],
 };
+it("preserves source timestamp precision through history readbacks and documents minute precision accurately", () => {
+  for (const value of [
+    "2026-11-12T09:30Z",
+    "2026-11-12T09:30+05:30",
+    "2026-11-12T09:30:00Z",
+    "2026-11-12T09:30:00.123-07:00",
+  ]) {
+    expect(
+      InvestmentHistoryContextSchema.parse({ ...context, capturedAt: value })
+        .capturedAt,
+    ).toBe(value);
+  }
+  for (const value of [
+    "2026-11-12",
+    "2026-11-12T09:30",
+    "2026-02-30T09:30Z",
+    "2026-11-12T24:00Z",
+    "2026-11-12T09:60Z",
+    "2026-11-12T09:30:00+24:00",
+    "not-a-timestamp",
+  ]) {
+    expect(InvestmentHistoryTimestampSchema.safeParse(value).success).toBe(
+      false,
+    );
+  }
+  const schema = z.toJSONSchema(InvestmentHistoryTimestampSchema);
+  expect(
+    schema.anyOf?.some(
+      (branch) =>
+        branch.format === "date-time" &&
+        typeof branch.pattern === "string" &&
+        new RegExp(branch.pattern).test("2026-11-12T09:30:00Z"),
+    ),
+  ).toBe(true);
+  expect(
+    schema.anyOf?.some(
+      (branch) =>
+        branch.format === undefined &&
+        typeof branch.pattern === "string" &&
+        new RegExp(branch.pattern).test("2026-11-12T09:30Z"),
+    ),
+  ).toBe(true);
+});
+
 it("establishes inclusion only from a covered comparable quantity interval", () => {
   expect(reconcileInvestmentQuantity(input)).toMatchObject({
     status: "reconciled",

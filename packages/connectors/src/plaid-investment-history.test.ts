@@ -20,6 +20,49 @@ const purchase = {
   unofficial_currency_code: null,
 };
 describe("broker investment evidence", () => {
+  it("retains minute and fractional timestamp precision in transaction and lot evidence", () => {
+    const lot = {
+      institution_lot_id: null,
+      original_purchase_datetime: null,
+      quantity: "40",
+      purchase_price: "150",
+      cost_basis: "6010",
+      current_value: null,
+      position_type: "LONG",
+    };
+    for (const value of [
+      "2026-11-06T09:30Z",
+      "2026-11-06T09:30+05:30",
+      "2026-11-06T09:30:00.123-07:00",
+    ]) {
+      expect(
+        normalizePlaidInvestmentTransaction({
+          ...purchase,
+          transaction_datetime: value,
+        }),
+      ).toMatchObject({
+        initiatedAt: value,
+        initiationPrecision: "provider_supplied_unknown",
+      });
+      expect(
+        normalizePlaidTaxLot({ ...lot, original_purchase_datetime: value }),
+      ).toMatchObject({
+        acquiredAt: value,
+        acquisitionPrecision: "provider_supplied_unknown",
+      });
+    }
+    const invalid = "2026-02-30T09:30Z";
+    expect(() =>
+      normalizePlaidInvestmentTransaction({
+        ...purchase,
+        transaction_datetime: invalid,
+      }),
+    ).toThrow();
+    expect(() =>
+      normalizePlaidTaxLot({ ...lot, original_purchase_datetime: invalid }),
+    ).toThrow();
+  });
+
   it("preserves posting and initiation meaning and counts all-in cash and fees once", () => {
     expect(normalizePlaidInvestmentTransaction(purchase)).toMatchObject({
       postedOn: "2026-11-09",
