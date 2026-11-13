@@ -1279,14 +1279,38 @@ reviewed cases, renderer, database copies, assertions, worker caps and
 300/900-second deadlines are unchanged. A complete passing receipt is still
 required to establish the resulting timing.
 
-Each native unit phase uses Node's compilation cache in a separate owned
-temporary directory. The required seed preparation warms it inside the timed
-main phase. It is never placed in the sealed D1 seed, retained across phases or
-uploaded; every test and result check still executes. Existing lifecycle checks
-cover cleanup and cancellation, and the phase holdout requires the cache to be
-outside the D1 seed. A six-process macOS/Node 22.13.0 import probe took 2.283
-seconds without it and 1.640 seconds with it (6.4 MB of temporary bytecode).
-This dependency-import measurement is not a complete native-gate benchmark.
+Successful disposable-hosted setup creates an exclusive `node-compile` scratch
+root and publishes its exact path for the unit runner. Each unit phase gets a
+different directory. Required seed preparation warms only that phase's cache,
+inside its clock. Every test and result check still executes. The cache stays
+outside the sealed D1 seed and migration fixtures and never enters diagnostic
+uploads or Actions caches.
+
+The job VM owns final cache disposal. Phase teardown does not remove bytecode
+while a cancelled descendant may still flush it. Synthetic seed and fixture
+cleanup remains unchanged. Without the setup capability, including local and
+managed Linux runs, Node caching is explicitly disabled for direct and forked
+children. An invalid supplied capability fails. Workflow ordering and observed
+hosted-platform checks establish this setup boundary; it is not cryptographic
+attestation against arbitrary code running as the same user.
+
+At most two exclusive phase slots, 8,192 entries and 64 MiB of both logical and
+allocated storage are admitted before allocation and before accepting success.
+These scans bound accepted results, not concurrent or cancelled writers. Failed
+jobs retain their cache until VM disposal and cannot publish a passing receipt.
+No directory is reused across phases or jobs.
+
+Source checking and validated hosted unit Node children use one V8 background
+pool thread while retaining their existing heaps, Vitest workers, overlap and
+deadlines. Local unit children keep the ordinary V8 pool. Five alternating
+complete source-command pairs reduced local median CPU from 64.278 to 57.367
+seconds, with respective ranges 60.778–70.361 and 54.822–60.724 seconds.
+Isolated elapsed time increased from 35.186 to 37.489 seconds. A separate full
+source/unit comparison with caching disabled did not establish an overall
+improvement, so that policy was rejected for hosted jobs. These local results do
+not establish complete hosted timing. Complete local source/unit comparisons
+also did not establish an overall elapsed improvement. The exact-revision full
+native receipt remains required.
 
 The first balanced run completed those lanes but reached the overall deadline
 with two cases left in the late mocked lane. A lower source-check CPU priority

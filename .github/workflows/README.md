@@ -44,6 +44,13 @@ Browser execution waits for source checks and unit/D1 verification to finish so
 these heavy phases do not compete for the runner's memory and CPU. All remain
 required within the complete gate's 900-second active budget.
 
+Successful hosted setup also owns an exclusive compilation-cache root for the
+job VM. Unit phases use separate directories and never upload this bytecode or
+reuse it across phases or jobs. The VM disposes it after the job, including
+cancellation. Local runs disable compilation caching. Aggregate storage
+admission and the distinction from synthetic fixture teardown are documented in
+[CI performance](../../docs/engineering/ci-performance.md).
+
 For browser timing, dispatch the Tugling candidate workflow with
 `isolated_browser` enabled. It prepares the same build and synthetic seed and
 times the complete browser process on a fresh `ubuntu-24.04` VM. Compare its

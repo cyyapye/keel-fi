@@ -21,6 +21,78 @@ setup_spec.loader.exec_module(setup)
 
 
 class DisposableSetupTests(unittest.TestCase):
+    def test_hosted_cache_owns_distinct_bounded_phases_without_local_opt_in(self):
+        environment = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted",
+                       "RUNNER_OS": "Linux", "RUNNER_ARCH": "X64", "ImageOS": "ubuntu24"}
+        with tempfile.TemporaryDirectory() as directory:
+            artifacts = Path(directory).resolve() / ".tugling/local/pilot"
+            root = setup.prepare_unit_compile_cache(artifacts)
+            self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+            with self.assertRaises(FileExistsError):
+                setup.prepare_unit_compile_cache(artifacts)
+            environment[setup.NODE_CACHE_VARIABLE] = str(root)
+            with self.assertRaises(ValueError):
+                setup.start_unit_compile_cache(artifacts, "preflight", {})
+            with (patch.object(setup.platform, "system", return_value="Linux"),
+                  patch.object(setup.platform, "machine", return_value="x86_64"),
+                  patch.object(setup.platform, "freedesktop_os_release", return_value={"ID": "ubuntu", "VERSION_ID": "24.04"})):
+                with self.assertRaises(ValueError):
+                    setup.start_unit_compile_cache(artifacts, "vitest-main", environment)
+                with self.assertRaises(ValueError):
+                    setup.start_unit_compile_cache(artifacts, "preflight", {**environment, setup.NODE_CACHE_VARIABLE: str(root / "foreign")})
+                poisoned = root / "preflight"
+                poisoned.write_text("synthetic file in a directory slot")
+                with self.assertRaisesRegex(ValueError, "phase must be a directory"):
+                    setup.admit_unit_compile_cache(root)
+                poisoned.unlink()
+                strict = setup.start_unit_compile_cache(artifacts, "preflight", environment)
+                for phase in ("preflight", "vitest"):
+                    with self.assertRaises(ValueError):
+                        setup.start_unit_compile_cache(artifacts, phase, environment)
+                main = setup.start_unit_compile_cache(artifacts, "vitest-main", environment)
+                self.assertNotEqual(strict, main)
+                cache_env = {key: value for key, value in os.environ.items()
+                             if key not in ("NODE_DISABLE_COMPILE_CACHE", "NODE_COMPILE_CACHE")}
+                cache_env["NODE_COMPILE_CACHE"] = str(main)
+                probe = """
+import { enableCompileCache, getCompileCacheDir, constants } from 'node:module';
+import { spawnSync } from 'node:child_process';
+const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+  `import { getCompileCacheDir } from 'node:module';
+   console.log(getCompileCacheDir());`], { encoding: 'utf8' });
+if (child.status !== 0 || child.stderr) process.exit(1);
+console.log(JSON.stringify({ enabled: enableCompileCache().status === constants.compileCacheStatus.ALREADY_ENABLED,
+  direct: getCompileCacheDir(), child: child.stdout.trim() }));
+"""
+                result = subprocess.run(["node", "--input-type=module", "-e", probe], env=cache_env,
+                                        text=True, capture_output=True, check=True, timeout=5)
+                observed = json.loads(result.stdout)
+                self.assertTrue(observed["enabled"])
+                self.assertEqual(observed["direct"], observed["child"])
+                self.assertTrue(Path(observed["direct"]).is_relative_to(main))
+                setup.admit_unit_compile_cache(root)
+                sentinel = artifacts / "unowned"
+                sentinel.write_text("synthetic")
+                alias = main / "foreign"
+                alias.symlink_to(sentinel)
+                with self.assertRaises(ValueError):
+                    setup.admit_unit_compile_cache(root)
+                alias.unlink()
+                alias.write_text("synthetic")
+                alias.chmod(0o666)
+                with self.assertRaises(ValueError):
+                    setup.admit_unit_compile_cache(root)
+                alias.chmod(0o600)
+                with alias.open("r+b") as oversized:
+                    oversized.truncate(64 * 1024**2 + 1)
+                with self.assertRaises(ValueError):
+                    setup.admit_unit_compile_cache(root)
+                alias.unlink()
+                (root / "unexpected").mkdir()
+                with self.assertRaises(ValueError):
+                    setup.admit_unit_compile_cache(root)
+                self.assertEqual(sentinel.read_text(), "synthetic")
+
     def test_distinguishes_closed_rootful_socket_from_live_or_unsafe_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "docker.sock"

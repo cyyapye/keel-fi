@@ -9,6 +9,87 @@ import stat
 import subprocess
 
 
+NODE_CACHE_VARIABLE = "KEEL_CI_NODE_CACHE_ROOT"
+NODE_CACHE_PHASES = {"preflight", "vitest-main", "vitest"}
+
+
+def owned_cache_root(artifacts):
+    root = artifacts / "node-compile"
+    if root.resolve() != root:
+        raise ValueError("Node cache must use its canonical owned path")
+    for path in (root, artifacts, *artifacts.parents):
+        info = path.lstat()
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (os.getuid(), 0)
+                or info.st_mode & 0o022):
+            raise ValueError("Node cache ancestors must be owned directories")
+        if path == root and (info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700):
+            raise ValueError("Node cache root must be exclusively owned")
+        if path == artifacts.parent.parent.parent:
+            break
+    return root
+
+
+def prepare_unit_compile_cache(artifacts):
+    artifacts.mkdir(parents=True, exist_ok=True, mode=0o700)
+    root = artifacts / "node-compile"
+    if artifacts.resolve() != artifacts:
+        raise ValueError("Node cache artifacts must not follow symlinks")
+    root.mkdir(mode=0o700)
+    return owned_cache_root(artifacts)
+
+
+def admit_unit_compile_cache(root):
+    owned_cache_root(root.parent)
+    phases = []
+    with os.scandir(root) as children:
+        for child in children:
+            phases.append(Path(child.path))
+            if len(phases) > 2:
+                raise ValueError("Unexpected Node cache phase layout")
+    names = {path.name for path in phases}
+    if (len(phases) > 2 or not names.issubset(NODE_CACHE_PHASES)
+            or ("vitest" in names and len(names) != 1)):
+        raise ValueError("Unexpected Node cache phase layout")
+    pending = [(path, 0) for path in phases]
+    entries = logical_bytes = allocated_bytes = 0
+    while pending:
+        path, depth = pending.pop()
+        info = path.lstat()
+        if depth == 0 and not stat.S_ISDIR(info.st_mode):
+            raise ValueError("Node cache phase must be a directory")
+        entries += 1
+        logical_bytes += info.st_size if stat.S_ISREG(info.st_mode) else 0
+        allocated_bytes += info.st_blocks * 512
+        if (entries > 8192 or logical_bytes > 64 * 1024**2 or allocated_bytes > 64 * 1024**2
+                or depth > 2 or info.st_uid != os.getuid() or info.st_mode & 0o022):
+            raise ValueError("Node cache exceeds owned storage admission")
+        if stat.S_ISDIR(info.st_mode):
+            with os.scandir(path) as children:
+                for child in children:
+                    if len(pending) + entries >= 8192:
+                        raise ValueError("Node cache exceeds entry admission")
+                    pending.append((Path(child.path), depth + 1))
+        elif not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ValueError("Node cache contains an unsafe entry")
+
+
+def start_unit_compile_cache(artifacts, runner, environment):
+    release = platform.freedesktop_os_release() if platform.system() == "Linux" else {}
+    require_hosted_vm(environment, platform.system(), platform.machine(), release, os.getuid())
+    root = artifacts / "node-compile"
+    if environment[NODE_CACHE_VARIABLE] != str(root):
+        raise ValueError("Node cache capability differs from the current artifacts")
+    admit_unit_compile_cache(root)
+    existing = {path.name for path in root.iterdir()}
+    if (runner not in NODE_CACHE_PHASES or runner in existing
+            or (runner == "vitest-main" and existing != {"preflight"})
+            or (runner != "vitest-main" and existing)):
+        raise ValueError("Node cache phase cannot be repeated or mixed")
+    phase = root / runner
+    phase.mkdir(mode=0o700)
+    return phase
+
+
 def require_hosted_vm(environment, system, machine, release, uid):
     expected = {
         "GITHUB_ACTIONS": "true",
@@ -183,8 +264,10 @@ def main():
         'assertSandboxEngine(JSON.parse(execFileSync("docker", '
         '["info", "--format", "{{json .}}"], {encoding:"utf8"})));')
     run("pnpm", "exec", "playwright", "install-deps", "chromium")
+    os.environ[NODE_CACHE_VARIABLE] = str(prepare_unit_compile_cache(
+        Path(__file__).resolve().parent.parent / ".tugling/local/pilot"))
     with environment_file.open("a") as handle:
-        for key in ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "KEEL_PDF_SANDBOX_SOCKET", "DOCKER_HOST"):
+        for key in ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "KEEL_PDF_SANDBOX_SOCKET", "DOCKER_HOST", NODE_CACHE_VARIABLE):
             handle.write(f"{key}={os.environ[key]}\n")
     print(json.dumps({"runtime": "github-hosted-ubuntu24-x64", "docker": "rootless",
                       "controllers": sorted(controllers), "cpus": os.cpu_count(),

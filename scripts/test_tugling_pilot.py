@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import select
 import signal
 import socket
 import subprocess
@@ -921,6 +922,73 @@ with native.cost_seed_directory() as seed:
                 process.communicate(timeout=5)
             self.assertEqual(sentinel.read_text(), "synthetic")
 
+    def test_hosted_cache_preserves_late_writes_after_failure_or_cancellation(self):
+        owner = load("cache_owner", "ci-disposable-linux.py")
+        for outcome in ("failure", "cancellation"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as directory:
+                root = Path(directory).resolve()
+                artifacts = root / ".tugling/local/pilot"
+                cache_root = owner.prepare_unit_compile_cache(artifacts)
+                sentinel = root / "unowned"
+                sentinel.write_text("synthetic")
+                stores = set()
+                writer = None
+                phase = None
+                inventory = {"vitest": ["fixture.test.ts :: required"], "exclusions": []}
+                code = """
+import { readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { join } from 'node:path';
+writeSync(1, 'ready\\n');
+readFileSync(0);
+writeFileSync(join(process.env.NODE_COMPILE_CACHE, 'late'), 'synthetic');
+"""
+                def execute(command, **options):
+                    nonlocal writer, phase
+                    env = options["env"]
+                    stores.update(Path(env[key]) for key in (
+                        "KEEL_TEST_SQLITE_SNAPSHOT_ROOT", "KEEL_TEST_POPULATED_MIGRATION_FIXTURES"))
+                    if "--reporter=json" not in command:
+                        return subprocess.CompletedProcess(command, 0)
+                    phase = Path(env["NODE_COMPILE_CACHE"])
+                    writer = subprocess.Popen(["node", "--input-type=module", "-e", code], env=env,
+                                              stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                              stderr=subprocess.PIPE, text=True)
+                    self.assertTrue(select.select([writer.stdout], [], [], 5)[0])
+                    self.assertEqual(writer.stdout.readline(), "ready\n")
+                    if outcome == "cancellation":
+                        raise SystemExit(143)
+                    (artifacts / "vitest.json").write_text(json.dumps({"success": False, "testResults": [{
+                        "name": str(root / "fixture.test.ts"), "assertionResults": [{
+                            "ancestorTitles": [], "title": "required", "status": "passed", "failureMessages": []
+                        }]
+                    }]}))
+                    return subprocess.CompletedProcess(command, 7)
+                try:
+                    with (patch.object(native, "ROOT", root), patch.object(native, "ARTIFACTS", artifacts),
+                          patch.object(native, "load_module", return_value=owner),
+                          patch.object(owner, "require_hosted_vm"),
+                          patch.dict(os.environ, {owner.NODE_CACHE_VARIABLE: str(cache_root)}),
+                          patch.object(native.subprocess, "run", side_effect=execute)):
+                        if outcome == "cancellation":
+                            with self.assertRaises(SystemExit) as cancelled:
+                                native.run_vitest("vitest", inventory)
+                            self.assertEqual(cancelled.exception.code, 143)
+                        else:
+                            with self.assertRaisesRegex(ValueError, "vitest reported errors \\(exit 7\\)"):
+                                native.run_vitest("vitest", inventory)
+                    self.assertTrue(stores)
+                    self.assertTrue(all(not path.exists() for path in stores))
+                    self.assertFalse((artifacts / "vitest-preflight-proof.json").exists())
+                    _, error = writer.communicate(input="flush\n", timeout=5)
+                    self.assertEqual(writer.returncode, 0, error)
+                    self.assertEqual((phase / "late").read_text(), "synthetic")
+                    self.assertEqual(sentinel.read_text(), "synthetic")
+                finally:
+                    if writer is not None:
+                        if writer.poll() is None:
+                            writer.kill()
+                        writer.communicate(timeout=5)
+
     def test_unit_pdf_boundary_is_absent_owned_and_independent_of_ambient_images(self):
         with tempfile.TemporaryDirectory(dir=pilot.ROOT / ".tugling/local") as temporary:
             root = Path(temporary)
@@ -954,8 +1022,10 @@ with native.cost_seed_directory() as seed:
                     return subprocess.CompletedProcess(command, 0)
                 with (patch.object(native, "ROOT", root), patch.object(native, "ARTIFACTS", root),
                       patch.object(native, "INVENTORY", inventory), patch.object(native.subprocess, "run", side_effect=execute),
-                      patch.dict(os.environ, {"KEEL_PDF_SANDBOX_CONFIG": "/synthetic-ambient-config.json",
-                                              "KEEL_TEST_POPULATED_MIGRATION_FIXTURES": "/synthetic-ambient-store"})):
+                      patch.dict(os.environ, {**{key: value for key, value in os.environ.items()
+                                                 if key != "KEEL_CI_NODE_CACHE_ROOT"},
+                                              "KEEL_PDF_SANDBOX_CONFIG": "/synthetic-ambient-config.json",
+                                              "KEEL_TEST_POPULATED_MIGRATION_FIXTURES": "/synthetic-ambient-store"}, clear=True)):
                     if provisioned:
                         with self.assertRaisesRegex(ValueError, "must remain unprovisioned"):
                             native.run_suite("vitest")
@@ -1134,14 +1204,41 @@ with native.cost_seed_directory() as seed:
                     native.strict_vitest_report(inventory, context)
                 self.assertEqual(used.read_bytes(), b"already claimed")
 
-                # Exercise production, claim and publication together without starting more runtimes.
+                node_cache_results = []
+                execute_node = subprocess.run
+                cache_probe = """
+import { enableCompileCache, getCompileCacheDir, constants } from 'node:module';
+import { spawnSync } from 'node:child_process';
+const observe = () => ({
+  disabled: enableCompileCache().status === constants.compileCacheStatus.DISABLED,
+  directory: getCompileCacheDir() ?? null,
+});
+const direct = observe();
+const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+  `import { enableCompileCache, getCompileCacheDir, constants } from 'node:module';
+   console.log(JSON.stringify({
+     disabled: enableCompileCache().status === constants.compileCacheStatus.DISABLED,
+     directory: getCompileCacheDir() ?? null,
+   }));`], { encoding: 'utf8' });
+if (child.status !== 0 || child.stderr) process.exit(1);
+console.log(JSON.stringify({ direct, child: JSON.parse(child.stdout) }));
+"""
                 for fault in ("none", "strict snapshot", "main timestamp", "main snapshot", "changed proof"):
                     def execute(command, **options):
                         if "env" in options:
-                            cache = Path(options["env"]["NODE_COMPILE_CACHE"])
                             seed = Path(options["env"]["KEEL_TEST_SQLITE_SNAPSHOT_ROOT"])
-                            self.assertTrue(cache.is_dir())
-                            self.assertFalse(cache.is_relative_to(seed))
+                            self.assertTrue(seed.is_dir())
+                            if not node_cache_results:
+                                probe = execute_node(["node", "--input-type=module", "-e", cache_probe],
+                                                     env=options["env"], text=True, capture_output=True, timeout=5)
+                                self.assertEqual(probe.returncode, 0, probe.stderr)
+                                observed = json.loads(probe.stdout)
+                                self.assertEqual(observed, {
+                                    "direct": {"disabled": True, "directory": None},
+                                    "child": {"disabled": True, "directory": None},
+                                })
+                                node_cache_results.append(observed)
+                            self.assertNotIn("NODE_COMPILE_CACHE", options["env"])
                             fixture_store = options["env"].get("KEEL_TEST_POPULATED_MIGRATION_FIXTURES")
                             if fixture_store is not None:
                                 fixture_root = Path(fixture_store)
@@ -1159,7 +1256,11 @@ with native.cost_seed_directory() as seed:
                                 used.write_bytes(used.read_bytes() + b" ")
                             path.write_text(json.dumps(value))
                         return subprocess.CompletedProcess(command, 0)
-                    with self.subTest(fault=fault), patch.object(native.subprocess, "run", side_effect=execute):
+                    with (self.subTest(fault=fault),
+                          patch.dict(os.environ, {**{key: value for key, value in os.environ.items()
+                                                     if key != "KEEL_CI_NODE_CACHE_ROOT"},
+                                                  "NODE_COMPILE_CACHE": str(root / "unowned-cache")}, clear=True),
+                          patch.object(native.subprocess, "run", side_effect=execute)):
                         if fault == "strict snapshot":
                             with self.assertRaises(ValueError):
                                 native.run_vitest("preflight", inventory)
@@ -1174,6 +1275,8 @@ with native.cost_seed_directory() as seed:
                             with self.assertRaises(ValueError):
                                 native.run_vitest("vitest-main", inventory)
                         self.assertEqual((root / "vitest.json").read_bytes(), b"")
+                self.assertEqual(len(node_cache_results), 1)
+                self.assertFalse((root / "unowned-cache").exists())
                 merged = native.merge_vitest_reports(strict, main)
                 native.compare_cases("vitest", native.vitest_cases(merged), inventory)
                 self.assertEqual(merged["numPassedTests"], len(inventory["vitest"]))
@@ -1280,6 +1383,9 @@ with native.cost_seed_directory() as seed:
         self.assertIn("runs-on: ubuntu-24.04", workflow)
         for entry in (workflow, probe):
             self.assertIn("run: python3 -I scripts/ci-disposable-linux.py", entry)
+            self.assertLess(entry.index("run: python3 -I scripts/ci-disposable-linux.py"), entry.index("make pilot-verify"))
+            self.assertNotIn("secrets.", entry)
+            self.assertIn("persist-credentials: false", entry)
             self.assertIn("KEEL_SCREENSHOT_MODE: canonical", entry)
             self.assertIn("keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8", entry)
         self.assertIn("keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8", action)

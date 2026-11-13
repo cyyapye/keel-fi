@@ -23,6 +23,17 @@ Neither a successful setup command nor a public capacity specification proves
 that this private run passes. If it fails, diagnose the failure while keeping
 the repository private. Preserve assertions, budgets, and baselines.
 
+Only successful hosted runtime setup enables the unit compilation cache. It
+creates an exclusive root in the current checkout's ignored artifacts and
+exports that exact path. Each phase uses a distinct slot. Cache files remain
+until GitHub disposes the job VM, so late writes cannot mask cancellation with a
+recursive-deletion error. Local and managed Linux runs disable this cache. No
+cache is uploaded, shared between phases or restored in another job. Admission
+checks reject unsafe entries, more than two slots or 8,192 entries, and logical
+or allocated storage above 64 MiB. This is an accepted-result limit, not a hard
+concurrent disk quota. Synthetic fixture, process and managed local checkout
+cleanup keep their existing ownership requirements.
+
 The manual pilot has a 120-minute job ceiling. Reserve that complete included
 compute envelope before dispatch. A full ready PR has a conservative
 95-runner-minute ceiling across native, scan, contract, and receipt jobs. Setup
