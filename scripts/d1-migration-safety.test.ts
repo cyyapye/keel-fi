@@ -28,13 +28,14 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0095_unmeasured.sql";
+const futureMigration = "0096_unmeasured.sql";
 const immutableFrontier = "0089_manual_holdings.sql";
 const distributionFrontier = "0090_distribution_reviews.sql";
 const sourceFrontier = "0091_public_source_reviews.sql";
 const inventoryFrontier = "0092_public_holding_inventories.sql";
 const gpFrontier = "0093_gp_reported_total_refresh.sql";
-const frontier = "0094_app_access.sql";
+const appFrontier = "0094_app_access.sql";
+const frontier = "0095_investment_history.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -57,7 +58,7 @@ function tableRows(history: 12 | 24, terminal = true, publicHistory = true) {
       IMPLEMENTED_BASELINE_TABLES.filter(
         (table) =>
           terminal ||
-          !/^(app_access_|public_holding_|portfolio_baseline_public_source_versions$)/u.test(
+          !/^(investment_history_|investment_transaction_|investment_tax_lots$|app_access_|public_holding_|portfolio_baseline_public_source_versions$)/u.test(
             table,
           ),
       )
@@ -80,7 +81,7 @@ function receipt(): MigrationSafetyReceipt {
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "app-access-schema-v1",
+      id: "investment-history-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -90,8 +91,8 @@ function receipt(): MigrationSafetyReceipt {
           unrelatedPositions: 120,
           fixtureHash: "d".repeat(64),
           tableRows: tableRows(24),
-          tablesPreserved: 151,
-          schemaObjectsPreserved: 762,
+          tablesPreserved: 159,
+          schemaObjectsPreserved: 812,
           foreignKeyViolations: 0,
           immutableProbes: 3,
           validation: "applied-schema-preservation",
@@ -122,25 +123,40 @@ function receipt(): MigrationSafetyReceipt {
           Object.entries(
             tableRows(
               history as 12 | 24,
-              review.id === "app-access-v1",
+              review.id === "app-access-v1" ||
+                review.id === "investment-history-v1",
               review.id !== "distribution-reviews-v1",
             ),
-          ).filter(([name]) => !name.startsWith("app_access_")),
+          ).filter(
+            ([name]) =>
+              !name.startsWith("app_access_") &&
+              !name.startsWith("investment_history_") &&
+              !name.startsWith("investment_transaction_") &&
+              name !== "investment_tax_lots",
+          ),
         ),
         tablesPreserved: Object.keys(
           tableRows(
             history as 12 | 24,
-            review.id === "app-access-v1",
+            review.id === "app-access-v1" ||
+              review.id === "investment-history-v1",
             review.id !== "distribution-reviews-v1",
           ),
-        ).filter((name) => !name.startsWith("app_access_")).length,
+        ).filter(
+          (name) =>
+            !name.startsWith("app_access_") &&
+            !name.startsWith("investment_history_") &&
+            !name.startsWith("investment_transaction_") &&
+            name !== "investment_tax_lots",
+        ).length,
         rowsRead: 10,
         rowsWritten: 4,
         inboundForeignKeyPlans:
           review.id === "public-source-reviews-v1" ||
           review.id === "public-inventory-v1"
             ? "indexed-current-head-backfill-no-parent-rebuild"
-            : review.id === "app-access-v1"
+            : review.id === "app-access-v1" ||
+                review.id === "investment-history-v1"
               ? "indexed-new-tables-no-parent-rebuild"
               : "not-applicable-trigger-only-no-table-dml",
       })),
@@ -233,16 +249,21 @@ describe("populated D1 migration evidence", () => {
       {
         id: "app-access-v1",
         frontier: gpFrontier,
+        migrations: [{ name: appFrontier }],
+      },
+      {
+        id: "investment-history-v1",
+        frontier: appFrontier,
         migrations: [{ name: frontier }],
       },
     ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "app-access-schema-v1",
+      id: "investment-history-schema-v1",
       frontier,
       pending: [],
     });
-    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(151);
+    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(159);
   });
 
   it("refuses a registry that attempts to approve rewritten applied history", () => {
@@ -317,7 +338,7 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "app-access-schema-v1",
+      caseId: "investment-history-schema-v1",
       migrationCost: null,
       footprint: { households: 2, holding_position_snapshots: 6241 },
     });
@@ -329,7 +350,7 @@ describe("populated D1 migration evidence", () => {
     expect(admitted).not.toHaveProperty("rowsWritten");
   });
 
-  it("admits only the certified app-access suffix and preserves earlier cases", () => {
+  it("admits only the certified investment-history suffix and preserves earlier cases", () => {
     const evidence = receipt();
     expect(
       validateMigrationSafetyReceipt(evidence, { gitSha, now }).cases[0]
@@ -337,13 +358,13 @@ describe("populated D1 migration evidence", () => {
     ).toMatchObject({ rowsRead: 10, rowsWritten: 4 });
     expect(
       admit(evidence, {
-        frontier: gpFrontier,
+        frontier: appFrontier,
         pending: [frontier],
         gitSha,
       }),
     ).toMatchObject({
       kind: "upgrade",
-      caseId: "app-access-v1",
+      caseId: "investment-history-v1",
       migrationCost: { rowsRead: 10, rowsWritten: 4 },
     });
     // An older target has several pending migrations; no individual case claims that complete sequence.
@@ -355,6 +376,7 @@ describe("populated D1 migration evidence", () => {
           sourceFrontier,
           inventoryFrontier,
           gpFrontier,
+          appFrontier,
           frontier,
         ],
         gitSha,
@@ -403,6 +425,7 @@ describe("populated D1 migration evidence", () => {
           sourceFrontier,
           inventoryFrontier,
           gpFrontier,
+          appFrontier,
           frontier,
         ],
         gitSha,

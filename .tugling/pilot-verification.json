@@ -182,6 +182,8 @@
         "scripts/prepare-d1-cost-seed.ts",
         "scripts/test-support/d1-cost-seed.ts",
         "scripts/test-support/provider-reconnect-cost.ts",
+        "scripts/test-support/provider-reconnect-cost-worker.ts",
+        "scripts/test-support/provider-reconnect-cost-database.ts",
         ".tugling/test-layering.json",
         "scripts/test-layering.test.ts",
         "scripts/agreement-capture.test.ts",
@@ -214,7 +216,15 @@
         "packages/database/src/gp-reported-totals.test.ts",
         "scripts/gp-reported-totals-d1-cost.test.ts",
         "scripts/price-proxy-d1-cost.test.ts",
-        "packages/database/migrations/0093_gp_reported_total_refresh.sql"
+        "packages/database/migrations/0093_gp_reported_total_refresh.sql",
+        "scripts/investment-history.test.ts",
+        "scripts/investment-history-sync.test.ts",
+        "scripts/test-support/investment-history-worker.ts",
+        "scripts/test-support/investment-history-sync-worker.ts",
+        "scripts/test-support/investment-migration-history.ts",
+        "packages/domain/src/investment-history.test.ts",
+        "packages/connectors/src/plaid-investment-history.test.ts",
+        "packages/database/migrations/0095_investment_history.sql"
       ],
       "runtime": {
         "owner": "native-command",
@@ -377,7 +387,9 @@
         "e2e/ui-catalogue/keel-ui-candidates.tsx",
         "e2e/collection-search-module.ts",
         "apps/web/src/collection-search.ts",
-        "e2e/share-basis.spec.ts"
+        "e2e/share-basis.spec.ts",
+        "e2e/investment-history.visual.spec.ts",
+        "e2e/investment-history-fixtures.ts"
       ],
       "runtime": {
         "owner": "native-command",

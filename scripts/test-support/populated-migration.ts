@@ -1,3 +1,4 @@
+import { investmentMigrationHistory } from "./investment-migration-history";
 import { publicMigrationHistory } from "./public-migration-history";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -34,6 +35,7 @@ const FixtureSchema = z.object({
     "0092",
     "0093",
     "0094",
+    "0095",
   ]),
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
@@ -370,7 +372,9 @@ async function buildFixture(
       });
     }
     if (
-      ["0090", "0090-public", "0091", "0092", "0093", "0094"].includes(frontier)
+      ["0090", "0090-public", "0091", "0092", "0093", "0094", "0095"].includes(
+        frontier,
+      )
     ) {
       if (captureOld) captureOld(snapshotFixture("0089"));
       statements.clear();
@@ -385,7 +389,7 @@ async function buildFixture(
       frontier === "0090-public" ||
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094"].includes(frontier)
+      ["0093", "0094", "0095"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
@@ -395,7 +399,7 @@ async function buildFixture(
     if (
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094"].includes(frontier)
+      ["0093", "0094", "0095"].includes(frontier)
     ) {
       statements.clear();
       db.exec(
@@ -405,7 +409,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0092" || ["0093", "0094"].includes(frontier)) {
+    if (frontier === "0092" || ["0093", "0094", "0095"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0091"));
       db.exec(
@@ -415,7 +419,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0093", "0094"].includes(frontier)) {
+    if (["0093", "0094", "0095"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0092"));
       db.exec(
@@ -425,7 +429,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0094") {
+    if (["0094", "0095"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0093"));
       db.exec(
@@ -434,6 +438,17 @@ async function buildFixture(
           "utf8",
         ),
       );
+    }
+    if (frontier === "0095") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0094"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0095_investment_history.sql",
+          "utf8",
+        ),
+      );
+      investmentMigrationHistory(db);
     }
     return snapshotFixture(frontier);
   } finally {
@@ -480,6 +495,9 @@ async function buildFixture(
         .filter(
           (row) =>
             child.startsWith("app_access_") ||
+            child.startsWith("investment_history_") ||
+            child.startsWith("investment_transaction_") ||
+            child === "investment_tax_lots" ||
             [
               "holding_import_rows",
               "holding_position_snapshots",
@@ -594,6 +612,7 @@ export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
               "0092": z.string(),
               "0093": z.string(),
               "0094": z.string(),
+              "0095": z.string(),
             })
             .strict()
             .parse(JSON.parse(stdout));
@@ -620,8 +639,43 @@ const quote = (value: z.infer<typeof cell>) =>
     : typeof value === "number"
       ? String(value)
       : `'${value.replaceAll("'", "''")}'`;
+
+function fixtureInsertionOrder(fixture: PopulatedMigrationFixture) {
+  // Alphabetical insertion creates unresolved child references, then makes
+  // every later parent insertion probe those children. Historical schemas
+  // deliberately lack some child-key indexes. Order setup by the actual FK
+  // graph instead; keep deferred checks for cycles and retain every row.
+  const schema = new DatabaseSync(":memory:");
+  try {
+    for (const object of fixture.objects)
+      if (object.type === "table" && object.sql) schema.exec(object.sql);
+    const tables = new Map(fixture.tables.map((table) => [table.name, table]));
+    const visited = new Set<string>();
+    const visiting = new Set<string>();
+    const ordered: PopulatedMigrationFixture["tables"] = [];
+    const visit = (name: string) => {
+      if (visited.has(name) || visiting.has(name)) return;
+      const table = tables.get(name);
+      if (!table) throw new Error(`Missing fixture parent table ${name}`);
+      visiting.add(name);
+      const parents = schema
+        .prepare(`PRAGMA foreign_key_list(${identifier(name)})`)
+        .all()
+        .map((row) => String(row.table));
+      for (const parent of [...new Set(parents)].sort()) visit(parent);
+      visiting.delete(name);
+      visited.add(name);
+      ordered.push(table);
+    };
+    for (const table of fixture.tables) visit(table.name);
+    return ordered;
+  } finally {
+    schema.close();
+  }
+}
+
 function fixtureInserts(fixture: PopulatedMigrationFixture): string[] {
-  return fixture.tables.flatMap((table) => {
+  return fixtureInsertionOrder(fixture).flatMap((table) => {
     const prefix = `INSERT INTO ${identifier(table.name)} (${table.columns.map(identifier).join(",")}) VALUES `;
     const statements: string[] = [];
     let values: string[] = [];
@@ -1073,15 +1127,16 @@ if (
       "0092",
       "0093",
       "0094",
+      "0095",
       "both",
     ])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0094", (fixture) => {
+    const terminal = await buildFixture(history, "0095", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0094": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0095": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

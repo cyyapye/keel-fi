@@ -29,6 +29,10 @@
     "e2e/carry-distributions.spec.ts :: mobile-chromium :: pending writes lock controls and real receipt conflicts retain drafts without another effect",
     "e2e/carry-distributions.spec.ts :: mobile-chromium :: source links tolerate unfinished typing and persist only valid URLs",
     "e2e/carry-distributions.spec.ts :: mobile-chromium :: stock distribution recalculates carry and persists correction, other edits and removal",
+    "e2e/investment-history.visual.spec.ts :: chromium :: inspects source-backed activity, remaining lots and account-only events without changing holdings",
+    "e2e/investment-history.visual.spec.ts :: chromium :: shows incomplete lot coverage and recovers an expired read without retry loops",
+    "e2e/investment-history.visual.spec.ts :: mobile-chromium :: inspects source-backed activity, remaining lots and account-only events without changing holdings",
+    "e2e/investment-history.visual.spec.ts :: mobile-chromium :: shows incomplete lot coverage and recovers an expired read without retry loops",
     "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage",
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage",
     "e2e/manual-holdings.spec.ts :: chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
@@ -2937,6 +2941,28 @@
         "e2e/share-basis.spec.ts :: mobile-chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions"
       ],
       "assertions": "Accepted provider balances refresh only reviewed same-investment GP totals. Later accepted per-share prices continue explicitly followed proxies using disclosed reviewed metadata assumptions, preserving manual decisions, quantities and immutable receipts. Real API/D1 desktop/mobile flows verify changed imports, visible unknown dates, saved reloads and anchor-preserving edits; real D1 history/empty/race controls retain the existing production budgets."
+    },
+    {
+      "id": "investment-history-and-lots",
+      "retiredBrowserCases": [],
+      "unitCases": [
+        "packages/connectors/src/plaid-investment-history.test.ts :: broker investment evidence > keeps adjusted basis separate from acquisition price and missing fields unknown",
+        "packages/connectors/src/plaid-investment-history.test.ts :: broker investment evidence > preserves posting and initiation meaning and counts all-in cash and fees once",
+        "packages/domain/src/investment-history.test.ts :: establishes inclusion only from a covered comparable quantity interval",
+        "packages/domain/src/investment-history.test.ts :: requires an unambiguous account or position scope and ordered dates",
+        "scripts/d1-migration-safety.test.ts :: populated D1 migration evidence > admits only the certified investment-history suffix and preserves earlier cases",
+        "scripts/investment-history-sync.test.ts :: bounds history discovery in the real sync path, retains lots and last successful activity through an outage, and admits a fixed virtual-day capacity atomically",
+        "scripts/investment-history.test.ts :: keeps corrected investment activity and reported lots scoped, paginated, read-only and independent of growing history through HTTP and MCP",
+        "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies investment-history-v1 from populated 0094_app_access.sql at 12 captures",
+        "scripts/populated-migration-d1-cost.test.ts :: populated OLD-schema D1 migration safety > certifies investment-history-v1 from populated 0094_app_access.sql at 24 captures"
+      ],
+      "browserCases": [
+        "e2e/investment-history.visual.spec.ts :: chromium :: inspects source-backed activity, remaining lots and account-only events without changing holdings",
+        "e2e/investment-history.visual.spec.ts :: chromium :: shows incomplete lot coverage and recovers an expired read without retry loops",
+        "e2e/investment-history.visual.spec.ts :: mobile-chromium :: inspects source-backed activity, remaining lots and account-only events without changing holdings",
+        "e2e/investment-history.visual.spec.ts :: mobile-chromium :: shows incomplete lot coverage and recovers an expired read without retry loops"
+      ],
+      "assertions": "Source units, dates, unknowns and exact coverage; real accepted ingestion, atomic cumulative capacity and failure retention; 120-item HTTP/MCP isolation, immutable corrections, tied growing history, indexed fixed-cost zero-write reads; native desktop/mobile activity, lot ordering, account scope, source disclosures and explicit conflict recovery."
     }
   ],
   "requiredProviderDocumentFlow": "provider-document-runtime"

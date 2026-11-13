@@ -144,6 +144,13 @@ export function ownerOperationScopes(
   }
   if (method === "GET" && /^\/api\/v1\/positions(?:\/[^/]+)?$/.test(path))
     return ["holdings:read"];
+  if (method === "GET" && path === "/api/v1/investment-transactions")
+    return ["holdings:read", "cash:read"];
+  if (
+    method === "GET" &&
+    ["/api/v1/tax-lots", "/api/v1/investment-reconciliation"].includes(path)
+  )
+    return ["holdings:read"];
   if (
     method === "GET" &&
     /^\/api\/v1\/(?:accounts|liabilities)(?:\/[^/]+)?$/.test(path)

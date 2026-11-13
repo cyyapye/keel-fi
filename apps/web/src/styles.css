@@ -10199,3 +10199,43 @@ h1,
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.investment-history__answer {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+.investment-history__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin: var(--space-6) 0 var(--space-4);
+}
+.investment-history__heading > [data-slot="select-trigger"] {
+  width: auto;
+  max-width: 100%;
+}
+.investment-history__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.investment-history__filters label {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+}
+.investment-history__source {
+  display: grid;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.investment-history__lot-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+}

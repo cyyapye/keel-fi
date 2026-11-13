@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./investment-history": "./src/investment-history.ts",
     ".": "./src/index.ts",
     "./cash-balance-history": "./src/cash-balance-history.ts",
     "./agreement-economics": "./src/agreement-economics.ts",

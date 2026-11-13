@@ -1766,10 +1766,1320 @@
         },
         "required": ["code", "error"],
         "additionalProperties": false
+      },
+      "InvestmentTransactions": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "object",
+            "properties": {
+              "readContextId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "accountId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "positionId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "capturedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "providerUpdatedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "quantityEffectiveOn": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "priceAsOf": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "holdingsSnapshotId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "coverage": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "unavailable",
+                      "failed",
+                      "not_synced"
+                    ]
+                  },
+                  "requestedFrom": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "requestedThrough": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "lastSuccessfulSyncAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "evidenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "missingPeriods": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                        },
+                        "through": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                        }
+                      },
+                      "required": ["from", "through"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "scope": {
+                    "type": "string",
+                    "const": "provider_reported_window"
+                  }
+                },
+                "required": [
+                  "status",
+                  "requestedFrom",
+                  "requestedThrough",
+                  "lastSuccessfulSyncAt",
+                  "missingPeriods",
+                  "scope"
+                ],
+                "additionalProperties": false
+              },
+              "lastAttemptStatus": {
+                "type": "string",
+                "enum": ["succeeded", "failed", "not_synced"]
+              }
+            },
+            "required": [
+              "readContextId",
+              "accountId",
+              "positionId",
+              "capturedAt",
+              "providerUpdatedAt",
+              "quantityEffectiveOn",
+              "priceAsOf",
+              "holdingsSnapshotId",
+              "coverage",
+              "lastAttemptStatus"
+            ],
+            "additionalProperties": false
+          },
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+                "providerTransactionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "presence": {
+                  "type": "string",
+                  "enum": [
+                    "reported",
+                    "not_in_latest_complete_report",
+                    "not_checked"
+                  ]
+                },
+                "lastSeenEvidenceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "positionId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 512 },
+                    { "type": "null" }
+                  ]
+                },
+                "securityId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 512 },
+                    { "type": "null" }
+                  ]
+                },
+                "securityName": {
+                  "anyOf": [
+                    { "type": "string", "maxLength": 1000 },
+                    { "type": "null" }
+                  ]
+                },
+                "ticker": {
+                  "anyOf": [
+                    { "type": "string", "maxLength": 32 },
+                    { "type": "null" }
+                  ]
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["buy", "sell", "cash", "fee", "transfer", "cancel"]
+                },
+                "subtype": { "type": "string", "maxLength": 256 },
+                "postedOn": {
+                  "type": "string",
+                  "format": "date",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                },
+                "initiatedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "initiationPrecision": {
+                  "type": "string",
+                  "const": "provider_supplied_unknown"
+                },
+                "quantityMicros": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "sourceQuantityDecimal": {
+                  "anyOf": [
+                    { "type": "string", "maxLength": 128 },
+                    { "type": "null" }
+                  ]
+                },
+                "quantityPrecision": {
+                  "type": "string",
+                  "enum": [
+                    "exact_millionths",
+                    "rounded_to_millionths",
+                    "unknown"
+                  ]
+                },
+                "unitPriceMicros": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "feesMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "cashDeltaMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "currency": { "type": "string", "const": "USD" },
+                "evidenceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "receivedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "revision": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "previous": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "evidenceId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 512
+                        },
+                        "quantityMicros": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "cashDeltaMinor": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            { "type": "null" }
+                          ]
+                        },
+                        "postedOn": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                        }
+                      },
+                      "required": [
+                        "evidenceId",
+                        "quantityMicros",
+                        "cashDeltaMinor",
+                        "postedOn"
+                      ],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "providerTransactionId",
+                "accountId",
+                "positionId",
+                "securityId",
+                "securityName",
+                "ticker",
+                "type",
+                "subtype",
+                "postedOn",
+                "initiatedAt",
+                "initiationPrecision",
+                "quantityMicros",
+                "unitPriceMicros",
+                "feesMinor",
+                "cashDeltaMinor",
+                "currency",
+                "evidenceId",
+                "receivedAt",
+                "revision",
+                "previous"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["context", "items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "InvestmentTaxLots": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "object",
+            "properties": {
+              "readContextId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "accountId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "positionId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "capturedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "providerUpdatedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "quantityEffectiveOn": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "priceAsOf": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "holdingsSnapshotId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "coverage": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "unavailable",
+                      "failed",
+                      "not_synced"
+                    ]
+                  },
+                  "requestedFrom": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "requestedThrough": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "lastSuccessfulSyncAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "evidenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "missingPeriods": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                        },
+                        "through": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                        }
+                      },
+                      "required": ["from", "through"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "scope": {
+                    "type": "string",
+                    "const": "provider_reported_window"
+                  }
+                },
+                "required": [
+                  "status",
+                  "requestedFrom",
+                  "requestedThrough",
+                  "lastSuccessfulSyncAt",
+                  "missingPeriods",
+                  "scope"
+                ],
+                "additionalProperties": false
+              },
+              "lastAttemptStatus": {
+                "type": "string",
+                "enum": ["succeeded", "failed", "not_synced"]
+              }
+            },
+            "required": [
+              "readContextId",
+              "accountId",
+              "positionId",
+              "capturedAt",
+              "providerUpdatedAt",
+              "quantityEffectiveOn",
+              "priceAsOf",
+              "holdingsSnapshotId",
+              "coverage",
+              "lastAttemptStatus"
+            ],
+            "additionalProperties": false
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["complete", "partial", "unavailable", "not_synced"]
+              },
+              "reportedQuantityMicros": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "coveredQuantityMicros": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "knownBasisMinor": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "allBasisKnown": { "type": "boolean" },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "not_provided",
+                  "invalid_evidence",
+                  "capture_limit",
+                  "quantity_mismatch",
+                  "unknown_basis",
+                  "unsupported_lot_type"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "reportedQuantityMicros",
+              "coveredQuantityMicros",
+              "knownBasisMinor",
+              "allBasisKnown"
+            ],
+            "additionalProperties": false
+          },
+          "items": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+                "providerLotId": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1, "maxLength": 512 },
+                    { "type": "null" }
+                  ]
+                },
+                "positionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "accountId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "origin": { "type": "string", "const": "broker_reported" },
+                "acquiredAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "acquisitionPrecision": {
+                  "type": "string",
+                  "const": "provider_supplied_unknown"
+                },
+                "quantityMicros": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "sourceQuantityDecimal": {
+                  "anyOf": [
+                    { "type": "string", "maxLength": 128 },
+                    { "type": "null" }
+                  ]
+                },
+                "quantityPrecision": {
+                  "type": "string",
+                  "enum": [
+                    "exact_millionths",
+                    "rounded_to_millionths",
+                    "unknown"
+                  ]
+                },
+                "purchasePriceMicros": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "costBasisMinor": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "basisPerUnitMicros": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "positionType": {
+                  "anyOf": [
+                    { "type": "string", "enum": ["LONG", "SHORT"] },
+                    { "type": "null" }
+                  ]
+                },
+                "currency": { "type": "string", "const": "USD" },
+                "evidenceId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                }
+              },
+              "required": [
+                "id",
+                "providerLotId",
+                "positionId",
+                "accountId",
+                "origin",
+                "acquiredAt",
+                "acquisitionPrecision",
+                "quantityMicros",
+                "purchasePriceMicros",
+                "costBasisMinor",
+                "basisPerUnitMicros",
+                "positionType",
+                "currency",
+                "evidenceId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["context", "coverage", "items", "nextAfter"],
+        "additionalProperties": false
+      },
+      "InvestmentReconciliation": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "object",
+            "properties": {
+              "readContextId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "accountId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "positionId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "capturedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "providerUpdatedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "quantityEffectiveOn": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "priceAsOf": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  },
+                  { "type": "null" }
+                ]
+              },
+              "holdingsSnapshotId": {
+                "anyOf": [
+                  { "type": "string", "minLength": 1, "maxLength": 512 },
+                  { "type": "null" }
+                ]
+              },
+              "coverage": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "complete",
+                      "partial",
+                      "unavailable",
+                      "failed",
+                      "not_synced"
+                    ]
+                  },
+                  "requestedFrom": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "requestedThrough": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "lastSuccessfulSyncAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      { "type": "null" }
+                    ]
+                  },
+                  "evidenceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "missingPeriods": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                        },
+                        "through": {
+                          "type": "string",
+                          "format": "date",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                        }
+                      },
+                      "required": ["from", "through"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "scope": {
+                    "type": "string",
+                    "const": "provider_reported_window"
+                  }
+                },
+                "required": [
+                  "status",
+                  "requestedFrom",
+                  "requestedThrough",
+                  "lastSuccessfulSyncAt",
+                  "missingPeriods",
+                  "scope"
+                ],
+                "additionalProperties": false
+              },
+              "lastAttemptStatus": {
+                "type": "string",
+                "enum": ["succeeded", "failed", "not_synced"]
+              }
+            },
+            "required": [
+              "readContextId",
+              "accountId",
+              "positionId",
+              "capturedAt",
+              "providerUpdatedAt",
+              "quantityEffectiveOn",
+              "priceAsOf",
+              "holdingsSnapshotId",
+              "coverage",
+              "lastAttemptStatus"
+            ],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_synced",
+              "insufficient_coverage",
+              "insufficient_timing",
+              "pending_snapshot",
+              "unexplained_difference",
+              "reconciled"
+            ]
+          },
+          "reason": { "type": "string", "maxLength": 1000 },
+          "openingSnapshotId": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 512 },
+              { "type": "null" }
+            ]
+          },
+          "closingSnapshotId": {
+            "anyOf": [
+              { "type": "string", "minLength": 1, "maxLength": 512 },
+              { "type": "null" }
+            ]
+          },
+          "openingQuantityMicros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "activityQuantityMicros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "expectedQuantityMicros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "reportedQuantityMicros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "unexplainedQuantityMicros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              { "type": "null" }
+            ]
+          },
+          "cashStatus": { "type": "string", "const": "not_established" },
+          "basisStatus": {
+            "type": "string",
+            "const": "broker_reported_not_reconstructed"
+          }
+        },
+        "required": [
+          "context",
+          "status",
+          "reason",
+          "openingSnapshotId",
+          "closingSnapshotId",
+          "openingQuantityMicros",
+          "activityQuantityMicros",
+          "expectedQuantityMicros",
+          "reportedQuantityMicros",
+          "unexplainedQuantityMicros",
+          "cashStatus",
+          "basisStatus"
+        ],
+        "additionalProperties": false
       }
     }
   },
   "paths": {
+    "/investment-transactions": {
+      "get": {
+        "operationId": "listInvestmentTransactions",
+        "summary": "Read broker investment activity and corrections. Requires holdings and cash access. Coverage is provider-reported; posting and order-initiation dates are not execution times.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "positionId",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Canonical position ID. Transactions require exactly one positionId or accountId."
+          },
+          {
+            "in": "query",
+            "name": "accountId",
+            "schema": { "type": "string" },
+            "description": "Use the container: accountId from a position; includes security-less account activity."
+          },
+          {
+            "in": "query",
+            "name": "readContextId",
+            "schema": { "type": "string" },
+            "description": "Reuse context.readContextId across tools and pages. A changed projection returns 409; restart all related reads."
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter from the previous response, including when a filtered page is empty."
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "in": "query",
+            "name": "through",
+            "schema": { "type": "string", "format": "date" }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string",
+              "enum": ["buy", "sell", "cash", "fee", "transfer", "cancel"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read broker investment activity and corrections. Requires holdings and cash access. Coverage is provider-reported; posting and order-initiation dates are not execution times.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestmentTransactions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tax-lots": {
+      "get": {
+        "operationId": "listTaxLots",
+        "summary": "Read remaining broker-reported lots. Missing lots are unavailable, not zero. Purchase price differs from adjusted basis; highest-basis sorting covers known comparable lots only.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "positionId",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Canonical position ID. Transactions require exactly one positionId or accountId."
+          },
+          {
+            "in": "query",
+            "name": "readContextId",
+            "schema": { "type": "string" },
+            "description": "Reuse context.readContextId across tools and pages. A changed projection returns 409; restart all related reads."
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "schema": { "type": "string" },
+            "description": "Copy nextAfter from the previous response, including when a filtered page is empty."
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "schema": { "type": "string", "enum": ["highest_basis", "oldest"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read remaining broker-reported lots. Missing lots are unavailable, not zero. Purchase price differs from adjusted basis; highest-basis sorting covers known comparable lots only.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InvestmentTaxLots" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/investment-reconciliation": {
+      "get": {
+        "operationId": "getInvestmentReconciliation",
+        "summary": "Read stored trade-inclusion evidence and reconciliation limits. Never infer a purchase from a position change, treat a price or refresh timestamp as quantity-effective time, or add transactions to snapshot asset values.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "positionId",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Canonical position ID. Transactions require exactly one positionId or accountId."
+          },
+          {
+            "in": "query",
+            "name": "readContextId",
+            "schema": { "type": "string" },
+            "description": "Reuse context.readContextId across tools and pages. A changed projection returns 409; restart all related reads."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read stored trade-inclusion evidence and reconciliation limits. Never infer a purchase from a position change, treat a price or refresh timestamp as quantity-effective time, or add transactions to snapshot asset values.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestmentReconciliation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid arguments",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid authentication at the Worker",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "403": {
+            "description": "No matching household grant",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "503": {
+            "description": "Financial data could not be read",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/goals": {
       "get": {
         "operationId": "listGoals",
@@ -1822,6 +3132,14 @@
           },
           "404": {
             "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Error" }
@@ -2190,6 +3508,14 @@
               }
             }
           },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
           "503": {
             "description": "Financial data could not be read",
             "content": {
@@ -2260,6 +3586,14 @@
               }
             }
           },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
           "503": {
             "description": "Financial data could not be read",
             "content": {
@@ -2324,6 +3658,14 @@
               }
             }
           },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
           "503": {
             "description": "Financial data could not be read",
             "content": {
@@ -2382,6 +3724,14 @@
           },
           "404": {
             "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Error" }
@@ -2458,6 +3808,14 @@
               }
             }
           },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
           "503": {
             "description": "Financial data could not be read",
             "content": {
@@ -2516,6 +3874,14 @@
           },
           "404": {
             "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Error" }
@@ -2586,6 +3952,14 @@
               }
             }
           },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
           "503": {
             "description": "Financial data could not be read",
             "content": {
@@ -2650,6 +4024,14 @@
               }
             }
           },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
           "503": {
             "description": "Financial data could not be read",
             "content": {
@@ -2708,6 +4090,14 @@
           },
           "404": {
             "description": "Resource missing or outside the household",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "409": {
+            "description": "History changed; restart with a new readContextId",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Error" }
