@@ -974,17 +974,35 @@ export default { fetch(request, env, context) {
   }
 }
 
-export async function preserveMigrationFixture(
+type MigrationPreservationCheck = {
+  fixture: PopulatedMigrationFixture;
+  exactObjects: boolean;
+};
+const preservationProjection = (
+  table: PopulatedMigrationFixture["tables"][number],
+) => JSON.stringify([table.name, table.columns]);
+
+export async function preserveMigrationFixtures(
   database: D1Database,
-  fixture: PopulatedMigrationFixture,
-  exactObjects = false,
+  checks: readonly [
+    MigrationPreservationCheck,
+    ...MigrationPreservationCheck[],
+  ],
 ) {
+  const projections = new Map<
+    string,
+    PopulatedMigrationFixture["tables"][number]
+  >();
+  for (const { fixture } of checks)
+    for (const table of fixture.tables)
+      projections.set(preservationProjection(table), table);
+  const tables = [...projections.values()];
   const readDigests = runtimeTableDigests.get(database);
   const digests = readDigests
-    ? await readDigests(fixture.tables)
+    ? await readDigests(tables)
     : (
         await database.batch<Record<string, unknown>>(
-          fixture.tables.map((table) =>
+          tables.map((table) =>
             database.prepare(
               `SELECT ${table.columns.map(identifier).join(",")} FROM ${identifier(table.name)}`,
             ),
@@ -995,20 +1013,19 @@ export async function preserveMigrationFixture(
         sha256: migrationDigest(
           canonicalRows(
             result.results.map((row) =>
-              fixture.tables[index]!.columns.map((column) => row[column]),
+              tables[index]!.columns.map((column) => row[column]),
             ),
           ),
         ),
       }));
-  if (digests.length !== fixture.tables.length)
+  if (digests.length !== tables.length)
     throw new Error("Missing preservation table digests");
-  for (const [index, table] of fixture.tables.entries()) {
-    if (
-      digests[index]!.rows !== table.rows.length ||
-      digests[index]!.sha256 !== table.sha256
-    )
-      throw new Error(`Old rows changed in ${table.name}`);
-  }
+  const byProjection = new Map(
+    tables.map((table, index) => [
+      preservationProjection(table),
+      digests[index]!,
+    ]),
+  );
   const check = await database.prepare("PRAGMA foreign_key_check").all();
   if (check.results.length)
     throw new Error("Migration introduced foreign-key violations");
@@ -1019,39 +1036,58 @@ export async function preserveMigrationFixture(
       )
       .all()
   ).results;
-  const expectedObjects = [
-    ...fixture.objects,
-    ...(runtimePlatformObjects.get(database) ?? []),
-  ];
-  const changed = expectedObjects.find(
-    (old) =>
-      !objects.some(
-        (row) =>
-          row.type === old.type &&
-          row.name === old.name &&
-          (!exactObjects || normalizedSql(row.sql) === normalizedSql(old.sql)),
-      ),
-  );
-  if (changed)
-    throw new Error(
-      `Migration lost or changed old schema object ${changed.type} ${changed.name}`,
-    );
-  if (exactObjects && objects.length !== expectedObjects.length) {
-    const extra = objects.filter(
-      (row) =>
-        !expectedObjects.some(
-          (old) => row.type === old.type && row.name === old.name,
+  const verify = ({ fixture, exactObjects }: MigrationPreservationCheck) => {
+    for (const table of fixture.tables) {
+      const actual = byProjection.get(preservationProjection(table))!;
+      if (actual.rows !== table.rows.length || actual.sha256 !== table.sha256)
+        throw new Error(`Old rows changed in ${table.name}`);
+    }
+    const expectedObjects = [
+      ...fixture.objects,
+      ...(runtimePlatformObjects.get(database) ?? []),
+    ];
+    const changed = expectedObjects.find(
+      (old) =>
+        !objects.some(
+          (row) =>
+            row.type === old.type &&
+            row.name === old.name &&
+            (!exactObjects ||
+              normalizedSql(row.sql) === normalizedSql(old.sql)),
         ),
     );
-    throw new Error(
-      `Migration changed complete schema object set: ${extra.map((row) => `${String(row.type)} ${String(row.name)} ${normalizedSql(row.sql)}`).join(", ")}`,
-    );
-  }
-  return {
-    tablesPreserved: fixture.tables.length,
-    schemaObjectsPreserved: fixture.objects.length,
-    foreignKeyViolations: 0 as const,
+    if (changed)
+      throw new Error(
+        `Migration lost or changed old schema object ${changed.type} ${changed.name}`,
+      );
+    if (exactObjects && objects.length !== expectedObjects.length) {
+      const extra = objects.filter(
+        (row) =>
+          !expectedObjects.some(
+            (old) => row.type === old.type && row.name === old.name,
+          ),
+      );
+      throw new Error(
+        `Migration changed complete schema object set: ${extra.map((row) => `${String(row.type)} ${String(row.name)} ${normalizedSql(row.sql)}`).join(", ")}`,
+      );
+    }
+    return {
+      tablesPreserved: fixture.tables.length,
+      schemaObjectsPreserved: fixture.objects.length,
+      foreignKeyViolations: 0 as const,
+    };
   };
+  return [verify(checks[0]), ...checks.slice(1).map(verify)] as const;
+}
+
+export async function preserveMigrationFixture(
+  database: D1Database,
+  fixture: PopulatedMigrationFixture,
+  exactObjects = false,
+) {
+  return (
+    await preserveMigrationFixtures(database, [{ fixture, exactObjects }])
+  )[0];
 }
 
 export async function immutableMigrationProbes(

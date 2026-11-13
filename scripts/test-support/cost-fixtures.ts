@@ -110,13 +110,16 @@ export async function seedCostHoldings(
         lifecycleState: "pending",
         credentialReference: null,
       },
-      containers: Array.from({ length: 100 }, (_, index) => ({
-        protectedAccountKey: syntheticDigest(index + 1_000),
-        displayLabel: `Synthetic cost owner ${index}`,
-        containerKind: "entity",
-        taxTreatment: "unknown",
-        completeness: "complete",
-      })),
+      containers: Array.from(
+        { length: Math.min(100, rows.length) },
+        (_, index) => ({
+          protectedAccountKey: syntheticDigest(index + 1_000),
+          displayLabel: `Synthetic cost owner ${index}`,
+          containerKind: "entity",
+          taxTreatment: "unknown",
+          completeness: "complete",
+        }),
+      ),
       rows: rows.map((row, index) => ({
         sourceRowNumber: row.rowNumber,
         protectedAccountKey: syntheticDigest((index % 100) + 1_000),

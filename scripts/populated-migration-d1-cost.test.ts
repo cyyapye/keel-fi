@@ -23,6 +23,7 @@ import {
   populatedMigrationFixtures,
   preparePopulatedMigrationSeed,
   preserveMigrationFixture,
+  preserveMigrationFixtures,
 } from "./test-support/populated-migration";
 
 const rebuild = unstable_splitSqlQuery(
@@ -366,23 +367,28 @@ describe("populated OLD-schema D1 migration safety", () => {
             expect(cost.records).toHaveLength(pending.length);
             expect(cost.rowsRead).toBeLessThanOrEqual(review.maxRowsRead);
             expect(cost.rowsWritten).toBeLessThanOrEqual(review.maxRowsWritten);
-            const preservation = await preserveMigrationFixture(
+            const [preservation] = await preserveMigrationFixtures(
               runtime.database,
-              fixture,
-            );
-            await preserveMigrationFixture(
-              runtime.database,
-              investment
-                ? {
-                    ...terminal,
-                    tables: terminal.tables.map((table) =>
-                      createdTable(table.name)
-                        ? { ...table, rows: [], sha256: migrationDigest("[]") }
-                        : table,
-                    ),
-                  }
-                : terminal,
-              true,
+              [
+                { fixture, exactObjects: false },
+                {
+                  fixture: investment
+                    ? {
+                        ...terminal,
+                        tables: terminal.tables.map((table) =>
+                          createdTable(table.name)
+                            ? {
+                                ...table,
+                                rows: [],
+                                sha256: migrationDigest("[]"),
+                              }
+                            : table,
+                        ),
+                      }
+                    : terminal,
+                  exactObjects: true,
+                },
+              ],
             );
             const plans = (
               await migrationForeignKeyPlans(runtime.database, terminal)
@@ -496,11 +502,13 @@ describe("populated OLD-schema D1 migration safety", () => {
             expect(cost.rowsWritten).toBeGreaterThan(0);
             expect(cost.rowsRead).toBeLessThanOrEqual(review.maxRowsRead);
             expect(cost.rowsWritten).toBeLessThanOrEqual(review.maxRowsWritten);
-            const preservation = await preserveMigrationFixture(
+            const [preservation] = await preserveMigrationFixtures(
               runtime.database,
-              fixture,
+              [
+                { fixture, exactObjects: false },
+                { fixture: terminal, exactObjects: true },
+              ],
             );
-            await preserveMigrationFixture(runtime.database, terminal, true);
             const plans = (
               await migrationForeignKeyPlans(runtime.database, terminal)
             ).filter(
@@ -744,13 +752,12 @@ describe("populated OLD-schema D1 migration safety", () => {
           expect(cost.records).toHaveLength(pending.length);
           expect(cost.rowsRead).toBeLessThanOrEqual(review.maxRowsRead);
           expect(cost.rowsWritten).toBeLessThanOrEqual(review.maxRowsWritten);
-          const preservation = await preserveMigrationFixture(
-            runtime.database,
-            fixture,
-          );
-          expect(
-            await preserveMigrationFixture(runtime.database, terminal, true),
-          ).toEqual({
+          const [preservation, terminalPreservation] =
+            await preserveMigrationFixtures(runtime.database, [
+              { fixture, exactObjects: false },
+              { fixture: terminal, exactObjects: true },
+            ]);
+          expect(terminalPreservation).toEqual({
             tablesPreserved: upgrade.tables,
             schemaObjectsPreserved: upgrade.schemaObjects,
             foreignKeyViolations: 0,
@@ -981,10 +988,51 @@ describe("populated OLD-schema D1 migration safety", () => {
             .bind(name, id)
             .run();
         }
-        const preservation = await preserveMigrationFixture(
+        await expect(
+          preserveMigrationFixtures(runtime.database, [
+            { fixture: { ...fixture, tables: [] }, exactObjects: true },
+            {
+              fixture: {
+                ...fixture,
+                tables: [
+                  {
+                    ...households,
+                    sha256: migrationDigest("Synthetic mismatched expectation"),
+                  },
+                ],
+              },
+              exactObjects: true,
+            },
+          ]),
+        ).rejects.toThrow("Old rows changed in households");
+        const reversedRows = households.rows.map((values) =>
+          [...values].reverse(),
+        );
+        const [preservation] = await preserveMigrationFixtures(
           runtime.database,
-          fixture,
-          true,
+          [
+            { fixture, exactObjects: true },
+            {
+              fixture: {
+                ...fixture,
+                tables: [
+                  {
+                    ...households,
+                    columns: [...households.columns].reverse(),
+                    rows: reversedRows,
+                    sha256: migrationDigest(
+                      JSON.stringify(
+                        reversedRows
+                          .map((values) => JSON.stringify(values))
+                          .sort(),
+                      ),
+                    ),
+                  },
+                ],
+              },
+              exactObjects: true,
+            },
+          ],
         );
         expect(preservation).toEqual({
           tablesPreserved: 159,

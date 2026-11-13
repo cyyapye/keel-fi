@@ -1407,3 +1407,45 @@ establish a Linux latency gain. The same five-second case deadline and
 120-second migration deadlines apply. All native membership, worker ceilings and
 complete 300/900-second budgets remain unchanged. A fresh complete
 exact-revision receipt is still required to establish release fit.
+
+## App access boundary fixtures
+
+Each App access protocol and credential case keeps its own fresh real D1
+instance. The MCP metadata case stages and accepts one position in one ownership
+container. The other three cases need only the synthetic owner and create their
+own grants, credentials, goals and foreign household. They no longer construct
+120 unrelated holdings or load the complete portfolio fixture worker. The
+holdings cost operation still requires at least 120 positions; its default 120
+positions and 100 containers remain unchanged. Separate MCP/read-cost scale
+owners retain their complete populations and billing assertions.
+
+Five alternating macOS pairs ran the complete four-case file with the same
+sealed base seed, runtime and worker settings. All 40 case executions passed.
+Median complete-process elapsed time fell from 2.527 to 2.202 seconds, with
+ranges 2.470–2.551 and 2.185–2.207 seconds. This is local evidence of less
+fixture work, not a whole-native or hosted timing result. All case identities,
+assertions, five-second protocol deadline, explicit credential-case deadlines,
+three unit workers, native overlap and browser references remain unchanged.
+Complete exact-revision hosted receipts remain required before release.
+
+## Grouped migration preservation observations
+
+Fourteen upgrade cases validate OLD and terminal fixtures on the same untouched
+post-migration database. Their grouped preservation call now reads each distinct
+table and ordered-column projection once. Every expected row count and hash is
+still checked independently, as are each fixture's schema requirements. The
+foreign-key and schema observations are fresh for that call. Nothing is cached
+across calls, writes or databases. The single-fixture wrapper remains fresh;
+baseline corruption probes also reject a mismatched second expectation and
+verify a different column ordering. Historical original/corrected databases
+remain separate.
+
+Five alternating macOS pairs ran all 17 migration and four public-source cases,
+including fresh input preparation and cleanup. All 210 case executions passed
+with identical comparable migration, counter and integrity receipts. Median
+process-tree CPU fell from 59.38 to 57.60 seconds, with ranges 59.03–60.15 and
+56.93–58.21 seconds. Complete elapsed medians were 42.513 and 40.493 seconds,
+with nonoverlapping ranges. These are local results; they do not establish
+whole-native or hosted release fit. Source SQL, complete populations and
+histories, per-statement D1 counters, schema/row/FK/append-only assertions, case
+identities and all verification limits remain unchanged.
