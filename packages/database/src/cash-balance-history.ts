@@ -43,7 +43,7 @@ export class D1BrokerageCashHistoryRepository {
       WHERE head.household_id=? AND head.decision='same'
     ) SELECT a.id, s.id AS snapshotId, a.applied_at AS acceptedAt, s.observed_at AS observedAt,
         CASE WHEN s.unrealized_value_state='reported' THEN s.unrealized_value_minor ELSE NULL END AS valueMinor
-      FROM family f CROSS JOIN holding_import_applications a ON a.position_id=f.id
+      FROM family f CROSS JOIN holding_import_applications a INDEXED BY holding_import_applications_position_applied_idx ON a.position_id=f.id
       CROSS JOIN holding_position_snapshots s ON s.id=a.snapshot_id
       WHERE a.household_id=? AND lower(trim(s.instrument_type))='cash' AND s.currency=?
       ORDER BY a.applied_at, s.observed_at, a.id`,

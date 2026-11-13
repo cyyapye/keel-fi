@@ -17,7 +17,7 @@ jobs:
     if:
       github.ref == 'refs/heads/main' &&
       vars.KEEL_PRIVATE_DOCUMENT_BACKUPS_ENABLED == 'true'
-    runs-on: [self-hosted, Linux, X64, keel-deploy]
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     environment: private-backup
     steps:

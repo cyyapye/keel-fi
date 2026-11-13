@@ -22,11 +22,13 @@ concurrency:
 jobs:
   pinned-contract:
     name: Pinned project contract
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out Keel
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Check out accepted Tugling revision
         uses: actions/checkout@v5
         with:
@@ -45,11 +47,13 @@ jobs:
     if:
       github.event_name == 'schedule' || github.event_name ==
       'workflow_dispatch'
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out Keel
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Check out Tugling stable
         uses: actions/checkout@v5
         with:

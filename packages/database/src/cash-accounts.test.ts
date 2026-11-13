@@ -476,6 +476,10 @@ describe("reviewed cash accounts", () => {
             new URL(url, "https://synthetic-cash.keel.example.com"),
             init,
           );
+          request.headers.set(
+            "Origin",
+            "https://synthetic-cash.keel.example.com",
+          );
           request.headers.set("Cf-Access-Jwt-Assertion", token);
           return handleRequest(request, {
             API: {

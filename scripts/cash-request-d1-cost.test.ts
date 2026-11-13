@@ -93,7 +93,10 @@ it("bounds a day of real cash GET/POST requests with 100 accepted accounts, exce
       return handleRequest(
         new Request(new URL(path, "https://keel.example"), {
           ...init,
-          headers: { "Cf-Access-Jwt-Assertion": "synthetic-test-assertion" },
+          headers: {
+            Origin: "https://keel.example",
+            "Cf-Access-Jwt-Assertion": "synthetic-test-assertion",
+          },
         }),
         {
           API: { fetch: async (request) => app.fetch(request, env) },

@@ -2,7 +2,10 @@ import { z } from "zod";
 
 const id = z.string().min(1).max(512);
 const integer = z.number().int().safe();
-const timestamp = z.iso.datetime({ offset: true });
+export const InvestmentHistoryTimestampSchema = z.union([
+  z.iso.datetime({ offset: true }),
+  z.iso.datetime({ offset: true, precision: -1 }).meta({ format: undefined }),
+]);
 export const InvestmentTransactionTypeSchema = z.enum([
   "buy",
   "sell",
@@ -42,7 +45,7 @@ export const InvestmentHistoryCoverageSchema = z.object({
   ]),
   requestedFrom: z.iso.date().nullable(),
   requestedThrough: z.iso.date().nullable(),
-  lastSuccessfulSyncAt: timestamp.nullable(),
+  lastSuccessfulSyncAt: InvestmentHistoryTimestampSchema.nullable(),
   evidenceId: id.optional(),
   missingPeriods: z.array(
     z.object({ from: z.iso.date(), through: z.iso.date() }),
@@ -53,8 +56,8 @@ export const InvestmentHistoryContextSchema = z.object({
   readContextId: id.nullable(),
   accountId: id,
   positionId: id.nullable(),
-  capturedAt: timestamp.nullable(),
-  providerUpdatedAt: timestamp.nullable(),
+  capturedAt: InvestmentHistoryTimestampSchema.nullable(),
+  providerUpdatedAt: InvestmentHistoryTimestampSchema.nullable(),
   quantityEffectiveOn: z.iso.date().nullable(),
   priceAsOf: z.iso.date().nullable(),
   holdingsSnapshotId: id.nullable(),
@@ -80,7 +83,7 @@ export const InvestmentTransactionSchema = z.object({
   type: InvestmentTransactionTypeSchema,
   subtype: z.string().max(256),
   postedOn: z.iso.date(),
-  initiatedAt: timestamp.nullable(),
+  initiatedAt: InvestmentHistoryTimestampSchema.nullable(),
   initiationPrecision: z.literal("provider_supplied_unknown"),
   quantityMicros: integer.nullable(),
   sourceQuantityDecimal: z.string().max(128).nullable().optional(),
@@ -92,7 +95,7 @@ export const InvestmentTransactionSchema = z.object({
   cashDeltaMinor: integer.nullable(),
   currency: z.literal("USD"),
   evidenceId: id,
-  receivedAt: timestamp,
+  receivedAt: InvestmentHistoryTimestampSchema,
   revision: integer.positive(),
   previous: z
     .object({
@@ -116,7 +119,7 @@ export const InvestmentTaxLotSchema = z.object({
   positionId: id,
   accountId: id,
   origin: z.literal("broker_reported"),
-  acquiredAt: timestamp.nullable(),
+  acquiredAt: InvestmentHistoryTimestampSchema.nullable(),
   acquisitionPrecision: z.literal("provider_supplied_unknown"),
   quantityMicros: integer.nonnegative().nullable(),
   sourceQuantityDecimal: z.string().max(128).nullable().optional(),

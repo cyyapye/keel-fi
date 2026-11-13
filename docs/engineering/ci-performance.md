@@ -88,10 +88,11 @@ run.
 
 ## Capacity and further reductions
 
-One `keel-ci` runner currently serializes verification. Adding YAML jobs alone
-does not add capacity. The host also serves other workloads; measure peak CPU,
-memory, I/O and queue pressure before adding runners or increasing worker
-counts. Keep the credential-bearing deployment account separate.
+The historical baseline used one `keel-ci` runner to serialize verification.
+Adding YAML jobs alone did not add capacity. That host also served other
+workloads; measure peak CPU, memory, I/O and queue pressure before adding
+runners or increasing worker counts. Keep the credential-bearing deployment
+account separate.
 
 Run the small release gates before admitting expensive native verification on
 this single runner. PR native verification waits for its secret scan; post-merge
@@ -162,6 +163,26 @@ and supported source types. Missing contexts and unsupported compiler modes fail
 rather than silently reducing coverage. Alternative parsers and processors are
 refused because transformed input can hide diagnostics from the original source.
 It creates no persistent cache or receipt.
+
+Compiler contexts now define disjoint directory partitions. Each keeps the
+repository's ESLint configuration and root working directory. Ancestors exclude
+only literal descendant context directories, so root JavaScript, new files and
+workspace files retain an owner. Duplicate or foreign paths fail. Empty or
+ignored partitions still fail the complete-context check. Every program keeps
+the existing full-root, compiler-option, parser and processor validations.
+
+After each partition, compiler diagnostics are formatted and lint results are
+materialized before parser caches are released. ESLint's result getters and
+formatter can retain its instance and last typed Program; retaining those
+objects defeated the first private lifetime prototype. The formatter is created
+after the partitions, and no Program is stored in the aggregate result.
+
+Five alternating private macOS pairs preserved the exact nine-context, 613-file
+result with zero diagnostics or lint findings. Median child CPU fell from 70.6
+seconds to 60.9 seconds, with ranges 67.7–73.7 and 59.3–64.4 seconds. These
+unprofiled prototype measurements justify a Linux trial; they do not establish
+hosted deadline compliance. The 600-second source, 900-second native and
+300-second browser gates remain unchanged.
 
 Its regression fixtures reuse loaded modules in an owned child while each
 operation clears parser caches and creates fresh context maps. The strict CLI is
@@ -1258,14 +1279,38 @@ reviewed cases, renderer, database copies, assertions, worker caps and
 300/900-second deadlines are unchanged. A complete passing receipt is still
 required to establish the resulting timing.
 
-Each native unit phase uses Node's compilation cache in a separate owned
-temporary directory. The required seed preparation warms it inside the timed
-main phase. It is never placed in the sealed D1 seed, retained across phases or
-uploaded; every test and result check still executes. Existing lifecycle checks
-cover cleanup and cancellation, and the phase holdout requires the cache to be
-outside the D1 seed. A six-process macOS/Node 22.13.0 import probe took 2.283
-seconds without it and 1.640 seconds with it (6.4 MB of temporary bytecode).
-This dependency-import measurement is not a complete native-gate benchmark.
+Successful disposable-hosted setup creates an exclusive `node-compile` scratch
+root and publishes its exact path for the unit runner. Each unit phase gets a
+different directory. Required seed preparation warms only that phase's cache,
+inside its clock. Every test and result check still executes. The cache stays
+outside the sealed D1 seed and migration fixtures and never enters diagnostic
+uploads or Actions caches.
+
+The job VM owns final cache disposal. Phase teardown does not remove bytecode
+while a cancelled descendant may still flush it. Synthetic seed and fixture
+cleanup remains unchanged. Without the setup capability, including local and
+managed Linux runs, Node caching is explicitly disabled for direct and forked
+children. An invalid supplied capability fails. Workflow ordering and observed
+hosted-platform checks establish this setup boundary; it is not cryptographic
+attestation against arbitrary code running as the same user.
+
+At most two exclusive phase slots, 8,192 entries and 64 MiB of both logical and
+allocated storage are admitted before allocation and before accepting success.
+These scans bound accepted results, not concurrent or cancelled writers. Failed
+jobs retain their cache until VM disposal and cannot publish a passing receipt.
+No directory is reused across phases or jobs.
+
+Source checking and validated hosted unit Node children use one V8 background
+pool thread while retaining their existing heaps, Vitest workers, overlap and
+deadlines. Local unit children keep the ordinary V8 pool. Five alternating
+complete source-command pairs reduced local median CPU from 64.278 to 57.367
+seconds, with respective ranges 60.778–70.361 and 54.822–60.724 seconds.
+Isolated elapsed time increased from 35.186 to 37.489 seconds. A separate full
+source/unit comparison with caching disabled did not establish an overall
+improvement, so that policy was rejected for hosted jobs. These local results do
+not establish complete hosted timing. Complete local source/unit comparisons
+also did not establish an overall elapsed improvement. The exact-revision full
+native receipt remains required.
 
 The first balanced run completed those lanes but reached the overall deadline
 with two cases left in the late mocked lane. A lower source-check CPU priority
@@ -1337,6 +1382,44 @@ migration cases passed in 42.41 seconds, with every reported certification
 record, actual D1 counter and integrity result identical to the preceding full
 local verification.
 
+## Shared expected migration fixtures
+
+The first two hosted runs at `3b06f899` completed source checks in 505.974 and
+526.374 seconds, inside their 600-second deadline. Both failed the existing
+120-second historical migration case at 24 captures. One also failed the
+90-second automatic-review case. Late counter output does not turn a timed-out
+case into a pass.
+
+The migration and public-source test files independently generated the same
+expected Node SQLite fixtures at 12 and 24 captures. The main unit phase now
+generates both complete history bundles once and shares them through a fresh
+owned input store. Preparation and cleanup remain inside the complete unit and
+native clocks. Expected fixture generation moves to this shared owner; each case
+retains its actual OLD-schema D1 bootstrap, pending SQL, billing counters, row
+and schema preservation, foreign-key checks and append-only probes.
+
+The store contains two fixed files and a strict manifest. It binds the current
+fixture dependencies, raw migration sources, package lock, preparation and
+launcher code, runtime and workflow attempt. Preparation rejects source drift
+before publication. Readers verify current inputs, ownership, permissions, file
+hashes and bounds through the acquired descriptors. A declared invalid store
+fails without regeneration. Each encoded history retains its 32 MiB limit;
+aggregate payload is bounded at 64 MiB. Selected fixtures retain their 32 MiB
+inflation limit and complete schema validation. The public-source owner keeps
+only its requested frontier after reading. The owned unit context removes the
+store on completion, failure and handled cancellation. Stores never come from a
+prior workflow artifact.
+
+Five alternating macOS pairs executed the complete 17 migration and four
+public-source cases, including fresh preparation and cleanup. Every case and
+comparable D1 receipt matched. Median process-tree CPU fell from 63.52 to 58.01
+seconds, with ranges 62.13–64.51 and 57.15–58.50 seconds. Whole-phase elapsed
+times overlapped, so this establishes less local CPU work without an elapsed or
+hosted speedup claim. All source statements, populations, histories, assertions,
+three unit workers, source/unit overlap, screenshots and deadlines remain. A new
+integrity case rejects stale, modified, missing, unsafe and oversized expected
+inputs. The complete exact-revision hosted gate remains required before release.
+
 The reconnect cost case uses a dedicated worker bundle instead of loading the
 unrelated portfolio fixture operations. It invokes the same existing
 `providerReconnectCost` function; all repository operations, 120/1,200
@@ -1348,3 +1431,45 @@ establish a Linux latency gain. The same five-second case deadline and
 120-second migration deadlines apply. All native membership, worker ceilings and
 complete 300/900-second budgets remain unchanged. A fresh complete
 exact-revision receipt is still required to establish release fit.
+
+## App access boundary fixtures
+
+Each App access protocol and credential case keeps its own fresh real D1
+instance. The MCP metadata case stages and accepts one position in one ownership
+container. The other three cases need only the synthetic owner and create their
+own grants, credentials, goals and foreign household. They no longer construct
+120 unrelated holdings or load the complete portfolio fixture worker. The
+holdings cost operation still requires at least 120 positions; its default 120
+positions and 100 containers remain unchanged. Separate MCP/read-cost scale
+owners retain their complete populations and billing assertions.
+
+Five alternating macOS pairs ran the complete four-case file with the same
+sealed base seed, runtime and worker settings. All 40 case executions passed.
+Median complete-process elapsed time fell from 2.527 to 2.202 seconds, with
+ranges 2.470–2.551 and 2.185–2.207 seconds. This is local evidence of less
+fixture work, not a whole-native or hosted timing result. All case identities,
+assertions, five-second protocol deadline, explicit credential-case deadlines,
+three unit workers, native overlap and browser references remain unchanged.
+Complete exact-revision hosted receipts remain required before release.
+
+## Grouped migration preservation observations
+
+Fourteen upgrade cases validate OLD and terminal fixtures on the same untouched
+post-migration database. Their grouped preservation call now reads each distinct
+table and ordered-column projection once. Every expected row count and hash is
+still checked independently, as are each fixture's schema requirements. The
+foreign-key and schema observations are fresh for that call. Nothing is cached
+across calls, writes or databases. The single-fixture wrapper remains fresh;
+baseline corruption probes also reject a mismatched second expectation and
+verify a different column ordering. Historical original/corrected databases
+remain separate.
+
+Five alternating macOS pairs ran all 17 migration and four public-source cases,
+including fresh input preparation and cleanup. All 210 case executions passed
+with identical comparable migration, counter and integrity receipts. Median
+process-tree CPU fell from 59.38 to 57.60 seconds, with ranges 59.03–60.15 and
+56.93–58.21 seconds. Complete elapsed medians were 42.513 and 40.493 seconds,
+with nonoverlapping ranges. These are local results; they do not establish
+whole-native or hosted release fit. Source SQL, complete populations and
+histories, per-statement D1 counters, schema/row/FK/append-only assertions, case
+identities and all verification limits remain unchanged.

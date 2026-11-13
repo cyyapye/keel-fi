@@ -57,7 +57,10 @@ describe("manual holdings API", () => {
       "/api/manual-holdings",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(draft),
       },
       env(),
@@ -68,7 +71,11 @@ describe("manual holdings API", () => {
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     const invalid = await app.request(
       "/api/manual-holdings",
-      { method: "POST", body: JSON.stringify({ ...draft, cashPaidMinor: -1 }) },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: JSON.stringify({ ...draft, cashPaidMinor: -1 }),
+      },
       env(),
     );
     expect(invalid.status).toBe(400);
@@ -77,6 +84,7 @@ describe("manual holdings API", () => {
       "/api/manual-holdings",
       {
         method: "POST",
+        headers: { Origin: "http://localhost" },
         body: JSON.stringify({ ...draft, householdId: "other-household" }),
       },
       env(),
@@ -131,7 +139,11 @@ describe("manual holdings API", () => {
     );
     const conflict = await app.request(
       "/api/manual-holdings",
-      { method: "POST", body: JSON.stringify(draft) },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: JSON.stringify(draft),
+      },
       env(),
     );
     expect(conflict.status).toBe(409);
@@ -139,7 +151,11 @@ describe("manual holdings API", () => {
     repo.create.mockRejectedValueOnce(new Error("Synthetic storage outage"));
     const uncertain = await app.request(
       "/api/manual-holdings",
-      { method: "POST", body: JSON.stringify(draft) },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: JSON.stringify(draft),
+      },
       env(),
     );
     expect(uncertain.status).toBe(503);
@@ -166,7 +182,11 @@ describe("manual holdings API", () => {
     };
     const saved = await app.request(
       "/api/manual-holdings/manual_synthetic_position/identity",
-      { method: "POST", body: JSON.stringify(identity) },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: JSON.stringify(identity),
+      },
       env(),
     );
     expect(saved.status).toBe(200);
@@ -180,7 +200,11 @@ describe("manual holdings API", () => {
       (
         await app.request(
           "/api/manual-holdings/manual_synthetic_position/identity",
-          { method: "POST", body: JSON.stringify(missing) },
+          {
+            method: "POST",
+            headers: { Origin: "http://localhost" },
+            body: JSON.stringify(missing),
+          },
           env(),
         )
       ).status,
@@ -192,7 +216,11 @@ describe("manual holdings API", () => {
     const app = createApp({ manualHoldingRepository: repo });
     const large = await app.request(
       "/api/manual-holdings",
-      { method: "POST", body: " ".repeat(16_385) },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: " ".repeat(16_385),
+      },
       env(),
     );
     expect(large.status).toBe(413);
@@ -200,7 +228,11 @@ describe("manual holdings API", () => {
     const production = { ...env(), ENVIRONMENT: "production" };
     const denied = await app.request(
       "/api/manual-holdings",
-      { method: "POST", body: JSON.stringify(draft) },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: JSON.stringify(draft),
+      },
       production,
     );
     expect(denied.status).toBeGreaterThanOrEqual(400);

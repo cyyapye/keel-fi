@@ -37,6 +37,221 @@ function reconnectOptions(
 }
 
 describe("managed provider browser reconnect", () => {
+  it("rejects foreign debugging targets and bounds shutdown discovery", async () => {
+    const child = Object.assign(new EventEmitter(), {
+      exitCode: null as number | null,
+      signalCode: null as NodeJS.Signals | null,
+    });
+    const endpoint = "http://127.0.0.1:41337";
+    const browserEndpoint =
+      "ws://127.0.0.1:41337/devtools/browser/synthetic-browser";
+    const request = vi.fn(() =>
+      Promise.resolve(Response.json({ webSocketDebuggerUrl: browserEndpoint })),
+    );
+    const opened = vi.fn();
+    vi.stubGlobal("fetch", request);
+    vi.stubGlobal(
+      "WebSocket",
+      class {
+        constructor(url: unknown) {
+          opened(url);
+        }
+      },
+    );
+    try {
+      for (const url of [
+        "https://127.0.0.1:41337",
+        "http://other.example.com:41337",
+        "http://localhost:41337",
+        "http://127.0.0.1",
+        "http://user:secret@127.0.0.1:41337",
+        endpoint + "/other",
+        endpoint + "?other=1",
+        endpoint + "#other",
+      ]) {
+        request.mockClear();
+        await expect(
+          __providerBrowserReconnectTest.closeChromeGracefully(
+            child as unknown as ChildProcess,
+            url,
+          ),
+        ).rejects.toMatchObject({
+          code: "browser_unavailable",
+          message: expect.not.stringMatching(/secret|other\.example|not json/u),
+        });
+        expect(request).not.toHaveBeenCalled();
+        expect(opened).not.toHaveBeenCalled();
+      }
+      for (const response of [
+        new Response(null, {
+          status: 302,
+          headers: { Location: "http://other.example.com" },
+        }),
+        new Response("unavailable", { status: 503 }),
+        new Response("not json"),
+        Response.json({}),
+        Response.json({
+          webSocketDebuggerUrl: browserEndpoint,
+          padding: "x".repeat(4096),
+        }),
+        ...[
+          "ws://127.0.0.1:41337/devtools/browser/" + "a".repeat(2050),
+          "ws://other.example.com:41337/devtools/browser/synthetic-browser",
+          "ws://127.0.0.1:41338/devtools/browser/synthetic-browser",
+          "wss://127.0.0.1:41337/devtools/browser/synthetic-browser",
+          "ws://127.0.0.1:41337/devtools/page/synthetic-page",
+          browserEndpoint + "?other=1",
+          browserEndpoint + "#other",
+          "ws://user:secret@127.0.0.1:41337/devtools/browser/synthetic-browser",
+        ].map((webSocketDebuggerUrl) =>
+          Response.json({ webSocketDebuggerUrl }),
+        ),
+      ]) {
+        request.mockClear();
+        request.mockResolvedValueOnce(response);
+        await expect(
+          __providerBrowserReconnectTest.closeChromeGracefully(
+            child as unknown as ChildProcess,
+            endpoint,
+          ),
+        ).rejects.toMatchObject({
+          code: "browser_unavailable",
+          message: expect.not.stringMatching(/secret|other\.example|not json/u),
+        });
+        expect(request).toHaveBeenCalledExactlyOnceWith(
+          new URL("/json/version", endpoint),
+          expect.objectContaining({
+            redirect: "error",
+            signal: expect.any(AbortSignal),
+          }),
+        );
+        expect(opened).not.toHaveBeenCalled();
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("requires normal Chrome exit and shares the five-second shutdown control deadline", async () => {
+    vi.useFakeTimers();
+    let child = Object.assign(new EventEmitter(), {
+      exitCode: null as number | null,
+      signalCode: null as NodeJS.Signals | null,
+      kill: vi.fn(),
+    });
+    const endpoint = "http://127.0.0.1:41337";
+    const browserEndpoint =
+      "ws://127.0.0.1:41337/devtools/browser/synthetic-browser";
+    let outcome: "zero" | "nonzero" | "signal" | "stalled" = "zero";
+    let discoveryDelay = 0;
+    let openingDelay = 0;
+    const commands: unknown[] = [];
+    const sockets: ShutdownSocket[] = [];
+    class ShutdownSocket extends EventTarget {
+      closed = false;
+      timer: ReturnType<typeof setTimeout>;
+      constructor(readonly url: string | URL) {
+        super();
+        sockets.push(this);
+        this.timer = setTimeout(
+          () => this.dispatchEvent(new Event("open")),
+          openingDelay,
+        );
+      }
+      send(message: string) {
+        commands.push(JSON.parse(message));
+        if (outcome === "stalled") return;
+        child.exitCode =
+          outcome === "zero" ? 0 : outcome === "nonzero" ? 7 : null;
+        child.signalCode = outcome === "signal" ? "SIGTERM" : null;
+        child.emit("exit", child.exitCode, child.signalCode);
+      }
+      close() {
+        clearTimeout(this.timer);
+        this.closed = true;
+      }
+    }
+    const request = vi.fn(async () => {
+      if (discoveryDelay)
+        await new Promise((resolve) => setTimeout(resolve, discoveryDelay));
+      return Response.json({ webSocketDebuggerUrl: browserEndpoint });
+    });
+    const reset = () => {
+      child = Object.assign(new EventEmitter(), {
+        exitCode: null as number | null,
+        signalCode: null as NodeJS.Signals | null,
+        kill: vi.fn(),
+      });
+      request.mockClear();
+      commands.length = 0;
+      sockets.length = 0;
+    };
+    const close = () =>
+      __providerBrowserReconnectTest.closeChromeGracefully(
+        child as unknown as ChildProcess,
+        endpoint,
+      );
+    vi.stubGlobal("fetch", request);
+    vi.stubGlobal("WebSocket", ShutdownSocket);
+    try {
+      for (const next of ["zero", "nonzero", "signal", "stalled"] as const) {
+        reset();
+        outcome = next;
+        const pending = close();
+        const checked =
+          next === "zero"
+            ? expect(pending).resolves.toBeUndefined()
+            : expect(pending).rejects.toMatchObject({
+                code: "browser_unavailable",
+              });
+        await vi.advanceTimersByTimeAsync(0);
+        if (next === "stalled") await vi.advanceTimersByTimeAsync(5000);
+        await checked;
+        expect(commands).toEqual([{ id: 1, method: "Browser.close" }]);
+        expect(sockets[0]?.url.toString()).toBe(browserEndpoint);
+        expect(sockets[0]?.closed).toBe(true);
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(child.kill).not.toHaveBeenCalled();
+        expect(child.listenerCount("exit")).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+      }
+      for (const [discovery, opening] of [
+        [0, 6000],
+        [4000, 1500],
+        [5000, 0],
+      ]) {
+        reset();
+        outcome = "zero";
+        discoveryDelay = discovery!;
+        openingDelay = opening!;
+        const checked = expect(close()).rejects.toMatchObject({
+          code: "browser_unavailable",
+        });
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(commands).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        await checked;
+        expect(commands).toEqual([]);
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(sockets.every((socket) => socket.closed)).toBe(true);
+        if (discovery === 5000) expect(sockets).toHaveLength(0);
+        expect(child.kill).not.toHaveBeenCalled();
+        expect(child.listenerCount("exit")).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+      }
+      reset();
+      child.exitCode = 0;
+      await expect(close()).rejects.toMatchObject({
+        code: "browser_unavailable",
+      });
+      expect(request).not.toHaveBeenCalled();
+      expect(sockets).toHaveLength(0);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it("bounds network status checks for a full fifteen-minute active session", async () => {
     let now = Date.parse("2026-09-01T00:00:00Z");
     const expires = now + 15 * 60_000;

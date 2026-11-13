@@ -66,7 +66,11 @@ function form(includeBytes = true, capture = syntheticDocumentCapture()) {
   return body;
 }
 function post(body = form()) {
-  return { method: "POST", headers: { "X-Keel-Agent-Lease": token }, body };
+  return {
+    method: "POST",
+    headers: { Origin: "http://localhost", "X-Keel-Agent-Lease": token },
+    body,
+  };
 }
 
 describe("private provider agreement API", () => {
@@ -100,7 +104,10 @@ describe("private provider agreement API", () => {
         `/api/legal-entity-documents/${target}/recheck`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ provider }),
         },
         env,
@@ -131,7 +138,7 @@ describe("private provider agreement API", () => {
       (
         await app.request(
           `/api/legal-entity-documents/${id}`,
-          { method: "POST" },
+          { method: "POST", headers: { Origin: "http://localhost" } },
           env,
         )
       ).status,
@@ -182,7 +189,7 @@ describe("private provider agreement API", () => {
       );
       const download = await app.request(
         `/api/legal-entity-documents/${String(row.id)}`,
-        { method: "POST" },
+        { method: "POST", headers: { Origin: "http://localhost" } },
         env,
       );
       expect(download.status).toBe(423);
@@ -233,7 +240,10 @@ describe("private provider agreement API", () => {
     expect(put).toHaveBeenCalledTimes(1);
     const manifest = await app.request(
       `${path}/document-manifest`,
-      { method: "POST", headers: { "X-Keel-Agent-Lease": token } },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost", "X-Keel-Agent-Lease": token },
+      },
       env,
     );
     expect(manifest.status).toBe(200);
@@ -245,7 +255,7 @@ describe("private provider agreement API", () => {
     const id = data.captures[0]?.documents[0]?.id ?? "";
     const download = await app.request(
       `/api/legal-entity-documents/${id}`,
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env,
     );
     expect(download.status).toBe(200);
@@ -287,16 +297,25 @@ describe("private provider agreement API", () => {
     const storage = vi.spyOn(env.DOCUMENTS, "get");
     const secured = { ...env, ENVIRONMENT: "preview" as const };
     const url = `/api/legal-entity-documents/${String(document.id)}`;
-    expect((await app.request(url, { method: "POST" }, secured)).status).toBe(
-      401,
-    );
+    expect(
+      (
+        await app.request(
+          url,
+          { method: "POST", headers: { Origin: "http://localhost" } },
+          secured,
+        )
+      ).status,
+    ).toBe(401);
     expect(
       (
         await app.request(
           url,
           {
             method: "POST",
-            headers: { "Cf-Access-Jwt-Assertion": "synthetic-jwt" },
+            headers: {
+              Origin: "http://localhost",
+              "Cf-Access-Jwt-Assertion": "synthetic-jwt",
+            },
           },
           secured,
         )
@@ -328,7 +347,7 @@ describe("private provider agreement API", () => {
     );
     const response = await app.request(
       `/api/legal-entity-documents/${String(document.id)}`,
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env,
     );
     expect(response.status).toBe(503);
@@ -367,7 +386,7 @@ describe("private provider agreement API", () => {
     });
     const response = await app.request(
       `/api/legal-entity-documents/${String(document.id)}`,
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env,
     );
     expect(response.status).toBe(423);
@@ -516,7 +535,11 @@ describe("private provider agreement API", () => {
       (
         await app.request(
           `${origin}/api/legal-entity-documents/${crypto.randomUUID()}/recheck`,
-          { method: "POST", headers, body: "{}" },
+          {
+            method: "POST",
+            headers,
+            body: "{}",
+          },
           agentEnv,
         )
       ).status,
@@ -543,7 +566,11 @@ describe("private provider agreement API", () => {
       (
         await app.request(
           `${origin}${path}/documents`,
-          { method: "POST", headers, body: form() },
+          {
+            method: "POST",
+            headers,
+            body: form(),
+          },
           agentEnv,
         )
       ).status,
@@ -552,7 +579,13 @@ describe("private provider agreement API", () => {
       (
         await app.request(
           `${path}/documents`,
-          { ...post(), headers: { "X-Keel-Agent-Lease": "x".repeat(43) } },
+          {
+            ...post(),
+            headers: {
+              Origin: "http://localhost",
+              "X-Keel-Agent-Lease": "x".repeat(43),
+            },
+          },
           env,
         )
       ).status,

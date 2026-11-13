@@ -32,6 +32,9 @@ follow the
 [PDF runtime setup](docs/deployment/pdf-sandbox.md#development-worktree-bootstrap).
 Bootstrap reports missing or inaccessible infrastructure before seeding D1.
 
+Review the [development toolchain](docs/engineering/development-toolchain.md)
+before changing dependency pins or overrides.
+
 The isolated [Tugling candidate pilot](docs/engineering/tugling-pilot.md) adds
 `make pilot-verify` for complete native case accounting on a committed revision.
 Its separate source pin and PR-head evidence do not promote the candidate or
@@ -39,7 +42,7 @@ replace the accepted release/deployment checks.
 
 Repository rules for `main` should require the four PR Checks jobs documented in
 `.github/workflows/README.md`. The post-merge workflow verifies the exact merged
-commit; it does not deploy it.
+commit before automatically deploying it to the protected preview environment.
 
 ## Design constraints
 

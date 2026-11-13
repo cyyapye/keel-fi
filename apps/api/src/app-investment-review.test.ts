@@ -90,7 +90,10 @@ describe("connected investment review API", () => {
         `/api/investment-positions/${details.positionId}/${suffix}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({
             ...request,
             ownershipObservation: { ownershipPpm: 1.2 },
@@ -118,7 +121,10 @@ describe("connected investment review API", () => {
         `/api/investment-positions/${details.positionId}/review`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ ...request, amountCorrection }),
         },
         environment,
@@ -132,7 +138,10 @@ describe("connected investment review API", () => {
       `/api/investment-positions/${details.positionId}/review`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(request),
       },
       environment,
@@ -155,7 +164,10 @@ describe("connected investment review API", () => {
         `/api/investment-positions/${details.positionId}/review`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(request),
         },
         environment,

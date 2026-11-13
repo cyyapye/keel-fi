@@ -53,6 +53,11 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertLessEqual(path.stat().st_size, 1024 * 1024)
         self.assertEqual(manifest["status"], "success")
         self.assertTrue(image.exists())
+        cached = self.write("pilot/node-compile/preflight/v22-synthetic/synthetic-bytecode", b"synthetic code cache")
+        for status in ("success", "failure", "cancelled"):
+            _, cached_contents, _ = self.bundle(status)
+            self.assertFalse(any(name.startswith("pilot/node-compile/") for name in cached_contents))
+            self.assertEqual(cached.read_bytes(), b"synthetic code cache")
         phases = ("vitest-preflight.json", "vitest-preflight-proof.json", "vitest-preflight-used.json", "vitest-main.json")
         for name in phases:
             self.write(f"pilot/{name}", b'{"synthetic":"phase"}')

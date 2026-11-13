@@ -35,7 +35,7 @@ jobs:
     if: >-
       !cancelled() && (needs.secret-scan.result != 'success' ||
       needs.secret-scan.outputs.plan == '')
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require successful native execution
@@ -57,7 +57,7 @@ jobs:
     if: >-
       !cancelled() && (needs.secret-scan.result != 'success' ||
       needs.secret-scan.outputs.plan == '')
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require successful native execution
@@ -79,7 +79,7 @@ jobs:
     if: >-
       !cancelled() && (needs.secret-scan.result != 'success' ||
       needs.secret-scan.outputs.plan == '')
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require successful native execution
@@ -101,7 +101,8 @@ jobs:
       plan: >-
         ${{ steps.draft.outcome == 'success' && steps.draft.outputs.selected ==
         'true' && steps.draft.outputs.plan || '' }}
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
@@ -151,7 +152,7 @@ jobs:
     if:
       success() && needs.secret-scan.outputs.plan != '' &&
       fromJSON(needs.secret-scan.outputs.plan).profile != 'layout'
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 15

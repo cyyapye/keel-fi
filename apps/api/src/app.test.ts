@@ -508,7 +508,10 @@ describe("Keel API", () => {
           path,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              Origin: "http://localhost",
+              "Content-Type": "application/json",
+            },
             body: JSON.stringify({
               decision: "ignore",
               expectedReviewId: null,
@@ -544,7 +547,10 @@ describe("Keel API", () => {
             path,
             {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                Origin: "http://localhost",
+                "Content-Type": "application/json",
+              },
               body: JSON.stringify(body),
             },
             testEnv("local"),
@@ -595,7 +601,7 @@ describe("Keel API", () => {
       (
         await app.request(
           "/api/holding-imports/synthetic-import/reconcile",
-          { method: "POST" },
+          { method: "POST", headers: { Origin: "http://localhost" } },
           testEnv("production"),
         )
       ).status,
@@ -605,7 +611,7 @@ describe("Keel API", () => {
       (
         await app.request(
           "/api/holding-imports/synthetic-import/reconcile",
-          { method: "POST" },
+          { method: "POST", headers: { Origin: "http://localhost" } },
           testEnv("local"),
         )
       ).status,
@@ -621,7 +627,7 @@ describe("Keel API", () => {
       (
         await app.request(
           "/api/holding-imports/synthetic-import/reconcile",
-          { method: "POST" },
+          { method: "POST", headers: { Origin: "http://localhost" } },
           testEnv("local"),
         )
       ).status,
@@ -634,15 +640,20 @@ describe("Keel API", () => {
       (
         await app.request(
           refreshPath,
-          { method: "POST" },
+          { method: "POST", headers: { Origin: "http://localhost" } },
           testEnv("production"),
         )
       ).status,
     ).toBe(401);
     expect(completeExposures).not.toHaveBeenCalled();
     expect(
-      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
-        .status,
+      (
+        await app.request(
+          refreshPath,
+          { method: "POST", headers: { Origin: "http://localhost" } },
+          testEnv("local"),
+        )
+      ).status,
     ).toBe(409);
     expect(completeExposures).not.toHaveBeenCalled();
     getHoldingImport.mockResolvedValue({
@@ -663,12 +674,22 @@ describe("Keel API", () => {
       new Error("Synthetic grouping outage"),
     );
     expect(
-      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
-        .status,
+      (
+        await app.request(
+          refreshPath,
+          { method: "POST", headers: { Origin: "http://localhost" } },
+          testEnv("local"),
+        )
+      ).status,
     ).toBe(503);
     expect(
-      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
-        .status,
+      (
+        await app.request(
+          refreshPath,
+          { method: "POST", headers: { Origin: "http://localhost" } },
+          testEnv("local"),
+        )
+      ).status,
     ).toBe(200);
     expect(completeExposures).toHaveBeenLastCalledWith(
       "synthetic-access-subject",
@@ -680,8 +701,13 @@ describe("Keel API", () => {
       new Error("Holding import not found"),
     );
     expect(
-      (await app.request(refreshPath, { method: "POST" }, testEnv("local")))
-        .status,
+      (
+        await app.request(
+          refreshPath,
+          { method: "POST", headers: { Origin: "http://localhost" } },
+          testEnv("local"),
+        )
+      ).status,
     ).toBe(404);
     expect(completeExposures.mock.calls).toHaveLength(completionCalls);
   });
@@ -710,7 +736,11 @@ describe("Keel API", () => {
     );
     const response = await createApp({ repository }).request(
       "/api/holding-imports/tokenfolio",
-      { method: "POST", body: formData },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: formData,
+      },
       env,
     );
     expect(response.status).toBe(500);
@@ -883,7 +913,10 @@ describe("Keel API", () => {
       "/api/portfolio-baselines",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       testEnv("local"),
@@ -908,7 +941,10 @@ describe("Keel API", () => {
       "/api/portfolio-baselines",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           sourceRevision: portfolioBaselineState.sourceRevision,
           baseForecastSnapshotId: portfolioBaselineState.baseForecastSnapshotId,
@@ -974,7 +1010,10 @@ describe("Keel API", () => {
       "/api/plan-inputs",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       testEnv("local"),
@@ -1008,7 +1047,10 @@ describe("Keel API", () => {
       "/api/plan-inputs",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ ...staleInput, householdBurnMonthlyMinor: -1 }),
       },
       testEnv("local"),
@@ -1020,7 +1062,10 @@ describe("Keel API", () => {
       "/api/plan-inputs",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(staleInput),
       },
       testEnv("local"),
@@ -1069,7 +1114,7 @@ describe("Keel API", () => {
     env.INGESTION_QUEUE = { sendBatch } as unknown as Queue;
     const response = await createApp({ repository }).request(
       "/api/watch/scan",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       env,
     );
 
@@ -1133,7 +1178,11 @@ describe("Keel API", () => {
 
     const response = await createApp({ repository }).request(
       "/api/holding-imports/angellist",
-      { method: "POST", body: formData },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: formData,
+      },
       env,
     );
 
@@ -1211,7 +1260,11 @@ describe("Keel API", () => {
 
       const response = await createApp({ repository }).request(
         `/api/holding-imports/${provider}`,
-        { method: "POST", body: formData },
+        {
+          method: "POST",
+          headers: { Origin: "http://localhost" },
+          body: formData,
+        },
         env,
       );
 
@@ -1305,7 +1358,11 @@ describe("Keel API", () => {
 
     const response = await createApp({ repository }).request(
       "/api/holding-imports/tokenfolio",
-      { method: "POST", body: formData },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost" },
+        body: formData,
+      },
       env,
     );
 
@@ -1369,7 +1426,10 @@ describe("Keel API", () => {
         "/api/automation/angellist/sign-in-refreshes/11111111-1111-4111-8111-111111111111/magic-link",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ magicLink: submittedLink }),
         },
         testEnv("local"),
@@ -1420,7 +1480,10 @@ describe("Keel API", () => {
       `/api/holding-imports/${holdingImportPreview.id}/apply`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ currency: "USD", decisions: [decision] }),
       },
       testEnv("local"),
@@ -1458,7 +1521,10 @@ describe("Keel API", () => {
       "/api/evidence/evt_demo/review",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           decision: "scenario_only",
           rationale: "Use only in the synthetic upside case.",
@@ -1500,7 +1566,7 @@ describe("Keel API", () => {
     };
     const response = await createApp({ repository }).request(
       "/api/evidence/evt_demo/apply",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       testEnv("local"),
     );
 
@@ -1534,7 +1600,7 @@ describe("Keel API", () => {
     };
     const response = await createApp({ repository }).request(
       "/api/evidence/evt_demo/apply",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       testEnv("local"),
     );
 
@@ -1598,7 +1664,10 @@ describe("Keel API", () => {
       "/api/signal-update-proposals",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       testEnv("local"),
@@ -1653,7 +1722,10 @@ describe("Keel API", () => {
       "/api/goals",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       testEnv("local"),
@@ -1700,7 +1772,10 @@ describe("Keel API", () => {
       "/api/scenarios",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       testEnv("local"),
@@ -1736,7 +1811,10 @@ describe("Keel API", () => {
       "/api/scenarios",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           scenarioId: "scn_fi",
           assumptions: [],
@@ -1765,7 +1843,7 @@ describe("Keel API", () => {
     });
     const rejected = await app.request(
       "/api/automation/angellist/mac-agent/authorize",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       testEnv("local"),
     );
     expect(rejected.status).toBe(403);
@@ -1773,7 +1851,10 @@ describe("Keel API", () => {
 
     const response = await app.request(
       "/api/automation/angellist/mac-agent/authorize",
-      { method: "POST", headers: { "X-Keel-Mac-Setup": "1" } },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost", "X-Keel-Mac-Setup": "1" },
+      },
       testEnv("local"),
     );
 
@@ -1858,7 +1939,7 @@ describe("Keel API", () => {
 
     const requested = await app.request(
       "/api/automation/provider-browser/angellist/reconnect",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       testEnv("local"),
     );
     expect(requested.status).toBe(202);
@@ -1878,7 +1959,7 @@ describe("Keel API", () => {
     expect(consume).not.toHaveBeenCalled();
     const denied = await app.request(
       path,
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       testEnv("local"),
     );
     expect(denied.status).toBe(403);
@@ -1897,7 +1978,10 @@ describe("Keel API", () => {
     expect(consume).not.toHaveBeenCalled();
     const opened = await app.request(
       path,
-      { method: "POST", headers: { "X-Keel-Reconnect-Open": "1" } },
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost", "X-Keel-Reconnect-Open": "1" },
+      },
       testEnv("local"),
     );
     expect(opened.status).toBe(200);
@@ -1927,7 +2011,7 @@ describe("Keel API", () => {
       });
       const response = await app.request(
         "/api/automation/provider-browser/sydecar/reconnect",
-        { method: "POST" },
+        { method: "POST", headers: { Origin: "http://localhost" } },
         testEnv("local"),
       );
       expect(response.status).toBe(503);
@@ -2093,7 +2177,7 @@ describe("Keel API", () => {
 
     const requested = await app.request(
       "/api/automation/angellist/run",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       testEnv("local"),
     );
     expect(requested.status).toBe(202);
@@ -2108,7 +2192,10 @@ describe("Keel API", () => {
       "/api/automation/angellist/mac-agent/config",
       {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ interval: "hourly" }),
       },
       testEnv("local"),
@@ -2167,7 +2254,10 @@ describe("Keel API", () => {
       "/api/automation/angellist/mac-agent/runs/11111111-1111-4111-8111-111111111111/complete",
       {
         method: "POST",
-        headers: { "X-Keel-Agent-Lease": leaseToken },
+        headers: {
+          Origin: "http://localhost",
+          "X-Keel-Agent-Lease": leaseToken,
+        },
         body,
       },
       env,
@@ -2227,7 +2317,7 @@ describe("Keel API", () => {
 
     const requested = await app.request(
       "/api/automation/provider-holdings/sydecar/run",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       testEnv("local"),
     );
     expect(requested.status).toBe(202);
@@ -2307,7 +2397,10 @@ describe("Keel API", () => {
       `/api/automation/provider-holdings/tokenfolio/mac-agent/runs/${runId}/complete`,
       {
         method: "POST",
-        headers: { "X-Keel-Agent-Lease": leaseToken },
+        headers: {
+          Origin: "http://localhost",
+          "X-Keel-Agent-Lease": leaseToken,
+        },
         body,
       },
       env,

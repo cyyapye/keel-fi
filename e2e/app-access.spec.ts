@@ -83,6 +83,8 @@ async function image(page: Page, info: TestInfo, state: string) {
       fullPage: true,
       animations: "disabled",
       scale: "css",
+      mask: [page.locator('[data-secret="true"]')],
+      maskColor: "#222222",
     });
   }
 }
@@ -256,6 +258,12 @@ test("creates, persists, rotates and revokes a scoped key with a retained draft"
       exact: true,
     }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Save your replacement key",
+      exact: true,
+    }),
+  ).toBeFocused();
   expect(replacement.grant.expiresAt).toBe(receipt.grant.expiresAt);
   expect(replacement.grant.permissions).toEqual(receipt.grant.permissions);
   await page.getByRole("button", { name: "Done", exact: true }).click();

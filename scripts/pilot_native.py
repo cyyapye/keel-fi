@@ -971,13 +971,23 @@ def run_vitest(runner, inventory):
                "--allowOnly=false", "--passWithNoTests=false", "--reporter=default", "--reporter=json",
                "--reporter=./scripts/pilot-vitest-reporter.ts", f"--outputFile={output}"]
     started_at = int(time.time() * 1000)
-    with cost_seed_directory() as seed, cost_seed_directory(prefix="node-compile-") as compile_cache:
+    cache_owner = None
+    with (cost_seed_directory() as seed,
+          cost_seed_directory(prefix="migration-fixtures-") as migration_fixtures):
         env = {**os.environ, "KEEL_TEST_SQLITE_SNAPSHOT_ROOT": seed,
-               "NODE_COMPILE_CACHE": compile_cache}
+               "NODE_DISABLE_COMPILE_CACHE": "1"}
+        env.pop("NODE_COMPILE_CACHE", None)
+        if "KEEL_CI_NODE_CACHE_ROOT" in env:
+            cache_owner = load_module("ci-disposable-linux")
+            env["NODE_COMPILE_CACHE"] = str(cache_owner.start_unit_compile_cache(ARTIFACTS, runner, env))
+            env.pop("NODE_DISABLE_COMPILE_CACHE")
+            env["NODE_OPTIONS"] = "--v8-pool-size=1"
+        env.pop("KEEL_TEST_POPULATED_MIGRATION_FIXTURES", None)
         if strict:
             command.extend(["--maxWorkers=1", *STRICT_VITEST_FILES])
             returncode = subprocess.run(command, cwd=ROOT, check=False, env=env).returncode
         else:
+            env["KEEL_TEST_POPULATED_MIGRATION_FIXTURES"] = migration_fixtures
             if partitioned:
                 command.extend(f"--exclude={file}" for file in STRICT_VITEST_FILES)
             with provider_day_scratch() as provider_scratch:
@@ -1004,6 +1014,8 @@ def run_vitest(runner, inventory):
         raise ValueError(f"vitest reported errors (exit {returncode})")
     if partitioned and context != vitest_context():
         raise ValueError("Vitest source changed during its partition execution")
+    if cache_owner is not None:
+        cache_owner.admit_unit_compile_cache(ARTIFACTS / "node-compile")
     if strict:
         write_vitest_artifact(proof, {"context": context, "started_at": started_at,
                                      "completed_at": completed_at,

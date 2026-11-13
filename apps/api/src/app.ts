@@ -206,6 +206,7 @@ import { NONCE, secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 
 import { verifyAccessToken, type AccessVerifier } from "./auth";
+import { isAllowedBrowserWrite } from "./browser-write-request";
 import {
   deploymentSmokeTokenMatches,
   runDeploymentSmoke,
@@ -1288,6 +1289,28 @@ export function createApp(options: AppOptions = {}) {
         401,
       );
     }
+  });
+
+  app.use("/api/*", async (context, next) => {
+    if (
+      context.get("identity").kind !== "service" &&
+      !context.get("appAccess") &&
+      !context.get("macAgentTarget") &&
+      !isAllowedBrowserWrite(context.req.raw)
+    ) {
+      return context.json(
+        {
+          ...(context.req.path.startsWith("/api/v1/")
+            ? { code: "forbidden" }
+            : {}),
+          error: "Browser writes require a same-origin Keel request.",
+        },
+        403,
+        { "Cache-Control": "no-store" },
+      );
+    }
+    await next();
+    return;
   });
 
   registerAppAccessManagement(app);

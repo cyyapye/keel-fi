@@ -60,13 +60,18 @@ See
 This repository inventory check is an admission signal, not an atomic account
 reservation. Other repositories, Packages and concurrent uploads can consume
 headroom after it runs. Retention and per-upload limits alone cannot guarantee
-the shared free quota for unlimited run volume. Keep **account-wide
-$0 Actions
-and Packages hard budgets** enabled, with **Stop usage when budget limit is
-reached** and included-usage alerts. These are the billing backstop, not a promise
-that uploads will always remain available. Both $0
+the shared free quota for unlimited run volume. Keep **account-wide Actions and
+Packages hard budgets** enabled, with **Stop usage when budget limit is
+reached** and included-usage alerts. These are the billing backstop, not a
+promise that uploads will always remain available. Both
+$0
 budgets visibly showed “Usage blocked” when inspected on 2026-10-26; repository
-checks cannot attest or change hosted account settings. Recheck them after
+checks cannot attest or change hosted account settings. For a new no-charge
+configuration, use $0
+hard budgets. An existing operator-approved hard stop can remain unchanged for a
+bounded trial only when the complete run envelope fits within confirmed included
+usage. Record that approval and the live allowance privately. Do not raise a
+budget or spend beyond included usage to enable a run. Recheck them after
 billing or plan changes in
 [Budgets and alerts](https://github.com/settings/billing/budgets), following
 [GitHub's budget guidance](https://docs.github.com/en/billing/how-tos/set-up-budgets).

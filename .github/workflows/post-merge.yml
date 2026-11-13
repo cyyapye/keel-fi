@@ -20,10 +20,12 @@ jobs:
 
   secret-scan:
     name: Secret scan
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
         with:
+          persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.sha }}
       - uses: gitleaks/gitleaks-action@v2
@@ -34,12 +36,13 @@ jobs:
 
   tugling-contract:
     name: Tugling project contract
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Check out the exact merged Keel commit
         uses: actions/checkout@v5
         with:
+          persist-credentials: false
           ref: ${{ github.sha }}
       - name: Check out the accepted Tugling revision
         uses: actions/checkout@v5
@@ -61,7 +64,7 @@ jobs:
       - verify
       - secret-scan
       - tugling-contract
-    runs-on: [self-hosted, Linux, X64, keel-deploy]
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -82,6 +85,7 @@ jobs:
       - name: Check out the exact verified SHA
         uses: actions/checkout@v5
         with:
+          persist-credentials: false
           fetch-depth: 1
           ref: ${{ github.sha }}
       - name: Confirm exact main SHA
@@ -160,11 +164,15 @@ jobs:
               "$RUNNER_TEMP/keel-preview-backup-passphrase"
           }
           trap cleanup_plaintext EXIT
-          pnpm exec wrangler d1 export "$KEEL_PREVIEW_D1_NAME" \
+          if ! pnpm exec wrangler d1 export "$KEEL_PREVIEW_D1_NAME" \
             --remote \
             --config apps/api/wrangler.preview.jsonc \
             --output "$KEEL_PREVIEW_BACKUP_PLAINTEXT_PATH" \
-            --skip-confirmation
+            --skip-confirmation >/dev/null 2>&1; then
+            echo "D1 export failed; provider output withheld." >&2
+            exit 1
+          fi
+          echo "D1 export completed."
           gpg --batch --yes --symmetric \
             --cipher-algo AES256 \
             --pinentry-mode loopback \

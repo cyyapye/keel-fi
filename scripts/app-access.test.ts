@@ -11,9 +11,8 @@ import {
   AppAccessStateSchema,
   KeyReceiptSchema,
 } from "../packages/domain/src/app-access";
-import { createCostFixtureDatabase } from "./test-support/cost-database";
-import { COST_SUBJECT } from "./test-support/cost-fixtures";
-import { measureD1 } from "./test-support/d1-cost";
+import { COST_SUBJECT, seedCostHoldings } from "./test-support/cost-fixtures";
+import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
 import { goalReceipt } from "../apps/api/src/agent-api/goals";
 import {
   positionDetail,
@@ -21,8 +20,11 @@ import {
 } from "../apps/api/src/agent-api/resources";
 
 it("accepts MCP request metadata without widening tool arguments or connection scopes", async () => {
-  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
+  const fixture = await createCostDatabase();
   try {
+    await seedCostHoldings(fixture.database, COST_SUBJECT, 1, false, {
+      positionCount: 1,
+    });
     const meter = measureD1(fixture.database),
       store = new AppAccessStore(meter.database),
       owner = await store.owner(COST_SUBJECT),
@@ -145,7 +147,7 @@ it("accepts MCP request metadata without widening tool arguments or connection s
 });
 
 it("keeps owner keys scoped, isolated, expiring and revocable through the actual middleware and D1", async () => {
-  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
+  const fixture = await createCostDatabase();
   try {
     const meter = measureD1(fixture.database),
       db = meter.database;
@@ -415,7 +417,7 @@ it("keeps owner keys scoped, isolated, expiring and revocable through the actual
 }, 120000);
 
 it("binds OAuth consent, PKCE, audience, single-use codes, refresh and independent revocation", async () => {
-  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
+  const fixture = await createCostDatabase();
   try {
     const meter = measureD1(fixture.database),
       db = meter.database,
@@ -683,7 +685,7 @@ it("binds OAuth consent, PKCE, audience, single-use codes, refresh and independe
 }, 120000);
 
 it("requires rotation opt-in, attributes goal writes and isolates a foreign household through bearer access", async () => {
-  const fixture = await createCostFixtureDatabase({ operation: "holdings" });
+  const fixture = await createCostDatabase();
   try {
     const meter = measureD1(fixture.database),
       db = meter.database,

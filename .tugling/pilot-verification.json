@@ -92,7 +92,8 @@
         "scripts/test-support/sqlite-vitest-global.ts",
         "scripts/test-support/sqlite-vitest-worker.ts",
         "scripts/test-support/legal-documents.ts",
-        "scripts/test-support/cost-fixtures.ts"
+        "scripts/test-support/cost-fixtures.ts",
+        "scripts/ci-disposable-linux.py"
       ],
       "runtime": {
         "owner": "native-command",
@@ -110,6 +111,7 @@
       "sources": [
         "vitest.config.ts",
         "scripts/pilot_native.py",
+        "scripts/ci-disposable-linux.py",
         ".tugling/pilot-cases.json",
         "scripts/shared-ui-usage.test.ts",
         "scripts/d1-query-cost.test.ts",
@@ -223,13 +225,16 @@
         "scripts/test-support/investment-migration-history.ts",
         "packages/domain/src/investment-history.test.ts",
         "packages/connectors/src/plaid-investment-history.test.ts",
-        "packages/database/migrations/0095_investment_history.sql"
+        "packages/database/migrations/0095_investment_history.sql",
+        "packages/database/migrations/0096_economics_snapshot_lookup.sql",
+        "scripts/test-support/populated-migration-fixture-store.ts",
+        "scripts/test-support/populated-migration-fixture-store.test.ts"
       ],
       "runtime": {
         "owner": "native-command",
         "launch": "After the isolated gate, Vitest runs every remaining unit case with three workers. The native command first claims the exact-source and same-attempt preflight proof, then verifies the complementary report and complete union. The first-ready map admits units before the independent image build and migration flow; each real D1 cost fixture copies a verified closed seed into its own fresh runtime. Unit PDF configuration remains explicitly absent.",
         "health": "Repository/API readbacks, real D1 billing metadata and SQL query plans validate behavior. Populated OLD-schema cases meter actual D1 rows before pending SQL and certify preservation. Shared quota admission is deferred to its runtime draft.",
-        "cleanup": "Native teardown disposes workerd and temporary files; the helper rejects lingering owned descendants."
+        "cleanup": "Native teardown disposes workerd and synthetic fixture files. The disposable hosted VM owns unit bytecode until job disposal; local runs disable the cache. The helper rejects lingering owned descendants before accepting a receipt."
       },
       "depends_on": ["gate-and-artifact-integrity"]
     },
@@ -536,7 +541,7 @@
     },
     {
       "id": "temporary-work-ownership",
-      "description": "Exercise success, failure and cancellation cleanup and explicit retained-run ownership; external seven-day collector activation remains outside this pilot.",
+      "description": "Exercise success, failure and cancellation cleanup and explicit retained-run ownership. Disposable hosted bytecode scratch belongs to the job VM; external seven-day collector activation remains outside this pilot.",
       "sources": [
         "docs/deployment/linux-test-cleanup.md",
         "docs/engineering/tugling-pilot.md"

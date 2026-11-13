@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import { Miniflare, Log, LogLevel } from "miniflare";
+import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from "miniflare";
 import { unstable_splitSqlQuery } from "wrangler";
 import { z } from "zod";
 import { D1HoldingImportRepository } from "../../packages/database/src/holding-imports";
@@ -18,6 +18,13 @@ import { D1ManualHoldingRepository } from "../../packages/database/src/manual-ho
 import { LegalDocumentTestD1 } from "./legal-documents";
 import { syntheticWefunderImport } from "./wefunder-holdings";
 import { copyCostSeed, costSeedInput, sealCostSeed } from "./d1-cost-seed";
+import {
+  EncodedMigrationFixturesSchema,
+  POPULATED_FIXTURE_BYTE_LIMIT,
+  PopulatedFixtureFrontierSchema,
+  prepareExpectedFixtureStore,
+  readExpectedFixtureStore,
+} from "./populated-migration-fixture-store";
 
 const cell = z.union([z.string(), z.number().finite(), z.null()]);
 const SchemaObject = z.object({
@@ -26,17 +33,7 @@ const SchemaObject = z.object({
   sql: z.string().nullable(),
 });
 const FixtureSchema = z.object({
-  frontier: z.enum([
-    "0088",
-    "0089",
-    "0090",
-    "0090-public",
-    "0091",
-    "0092",
-    "0093",
-    "0094",
-    "0095",
-  ]),
+  frontier: PopulatedFixtureFrontierSchema,
   history: z.number().int().min(12).max(24),
   mainPositions: z.literal(120),
   unrelatedPositions: z.literal(120),
@@ -372,9 +369,16 @@ async function buildFixture(
       });
     }
     if (
-      ["0090", "0090-public", "0091", "0092", "0093", "0094", "0095"].includes(
-        frontier,
-      )
+      [
+        "0090",
+        "0090-public",
+        "0091",
+        "0092",
+        "0093",
+        "0094",
+        "0095",
+        "0096",
+      ].includes(frontier)
     ) {
       if (captureOld) captureOld(snapshotFixture("0089"));
       statements.clear();
@@ -389,7 +393,7 @@ async function buildFixture(
       frontier === "0090-public" ||
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095"].includes(frontier)
+      ["0093", "0094", "0095", "0096"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
@@ -399,7 +403,7 @@ async function buildFixture(
     if (
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095"].includes(frontier)
+      ["0093", "0094", "0095", "0096"].includes(frontier)
     ) {
       statements.clear();
       db.exec(
@@ -409,7 +413,10 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0092" || ["0093", "0094", "0095"].includes(frontier)) {
+    if (
+      frontier === "0092" ||
+      ["0093", "0094", "0095", "0096"].includes(frontier)
+    ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0091"));
       db.exec(
@@ -419,7 +426,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0093", "0094", "0095"].includes(frontier)) {
+    if (["0093", "0094", "0095", "0096"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0092"));
       db.exec(
@@ -429,7 +436,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0094", "0095"].includes(frontier)) {
+    if (["0094", "0095", "0096"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0093"));
       db.exec(
@@ -439,7 +446,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0095") {
+    if (frontier === "0095" || frontier === "0096") {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0094"));
       db.exec(
@@ -449,6 +456,16 @@ async function buildFixture(
         ),
       );
       investmentMigrationHistory(db);
+    }
+    if (frontier === "0096") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0095"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0096_economics_snapshot_lookup.sql",
+          "utf8",
+        ),
+      );
     }
     return snapshotFixture(frontier);
   } finally {
@@ -560,7 +577,7 @@ export function migrationFiles(frontier: string): string[] {
     .map((file) => `packages/database/migrations/${file}`);
 }
 
-const fixtureByteLimit = 32 * 1024 * 1024;
+const fixtureByteLimit = POPULATED_FIXTURE_BYTE_LIMIT;
 
 async function fixtureOutput(history: 12 | 24, frontier: Frontier | "both") {
   const { stdout } = await promisify(execFile)(
@@ -585,6 +602,12 @@ function packFixture(fixture: PopulatedMigrationFixture) {
   return gzipSync(json, { level: 1 }).toString("base64");
 }
 
+export async function preparePopulatedMigrationFixtureStore(root: string) {
+  await prepareExpectedFixtureStore(root, (history) =>
+    fixtureOutput(history, "both"),
+  );
+}
+
 export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
   const fixtures = new Map<
     12 | 24,
@@ -596,28 +619,24 @@ export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
       throw new Error("Requested a boundary outside the selected fixture");
     let result = fixtures.get(history);
     if (!result) {
-      result = fixtureOutput(history, selectedFrontier ?? "both").then(
-        (stdout) => {
-          if (selectedFrontier !== undefined) {
-            const selected = FixtureSchema.parse(JSON.parse(stdout));
-            return { [selectedFrontier]: packFixture(selected) };
-          }
-          return z
-            .object({
-              "0088": z.string(),
-              "0089": z.string(),
-              "0090": z.string(),
-              "0090-public": z.string(),
-              "0091": z.string(),
-              "0092": z.string(),
-              "0093": z.string(),
-              "0094": z.string(),
-              "0095": z.string(),
+      const store = process.env.KEEL_TEST_POPULATED_MIGRATION_FIXTURES;
+      result =
+        store !== undefined
+          ? Promise.resolve().then(() => {
+              const packed = readExpectedFixtureStore(store, history);
+              return selectedFrontier === undefined
+                ? packed
+                : { [selectedFrontier]: packed[selectedFrontier] };
             })
-            .strict()
-            .parse(JSON.parse(stdout));
-        },
-      );
+          : fixtureOutput(history, selectedFrontier ?? "both").then(
+              (stdout) => {
+                if (selectedFrontier !== undefined) {
+                  const selected = FixtureSchema.parse(JSON.parse(stdout));
+                  return { [selectedFrontier]: packFixture(selected) };
+                }
+                return EncodedMigrationFixturesSchema.parse(JSON.parse(stdout));
+              },
+            );
       fixtures.set(history, result);
     }
     const packed = (await result)[frontier];
@@ -771,7 +790,7 @@ export async function preparePopulatedMigrationSeed(
   const directory = mkdtempSync(join(tmpdir(), "keel-migration-seed-"));
   try {
     const source = await populatedMigrationDatabase(fixture, {
-      persist: join(directory, "d1"),
+      resourcePersistencePath: directory,
     });
     let platformSchemaObjects: z.infer<typeof SchemaObject>[];
     try {
@@ -799,7 +818,7 @@ export async function preparePopulatedMigrationSeed(
 export async function populatedMigrationDatabase(
   fixture: PopulatedMigrationFixture,
   options: {
-    persist?: string;
+    resourcePersistencePath?: string;
     seed?: PopulatedMigrationSeed;
     replayWorker?: string;
   } = {},
@@ -814,9 +833,11 @@ export async function populatedMigrationDatabase(
     }
   };
   try {
-    if (options.seed && options.persist)
+    if (options.seed && options.resourcePersistencePath)
       throw new Error("A migration seed must use a fresh owned destination");
-    const persist = options.persist ?? join(directory, "d1");
+    const resourcePersistencePath =
+      options.resourcePersistencePath ?? directory;
+    const persist = join(resourcePersistencePath, "d1");
     const carriedPlatformObjects = options.seed
       ? z.array(SchemaObject).parse(options.seed.platformSchemaObjects)
       : undefined;
@@ -827,36 +848,38 @@ export async function populatedMigrationDatabase(
         populatedMigrationSeedInput(fixture, carriedPlatformObjects!),
       );
     const { script, modules, ...bindings } = runtimeOptions;
-    runtime = new Miniflare({
-      ...bindings,
-      ...(options.replayWorker
-        ? {
-            modules: [
-              {
-                type: "ESModule" as const,
-                path: "populated-main.js",
-                contents: `import bootstrap from './populated-bootstrap.js';
+    runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        ...bindings,
+        ...(options.replayWorker
+          ? {
+              modules: [
+                {
+                  type: "ESModule" as const,
+                  path: "populated-main.js",
+                  contents: `import bootstrap from './populated-bootstrap.js';
 import replay from './populated-replay.js';
 export default { fetch(request, env, context) {
   return (new URL(request.url).pathname === '/replay' ? replay : bootstrap).fetch(request, env, context);
 } };`,
-              },
-              {
-                type: "ESModule" as const,
-                path: "populated-bootstrap.js",
-                contents: script,
-              },
-              {
-                type: "ESModule" as const,
-                path: "populated-replay.js",
-                contents: options.replayWorker,
-              },
-            ],
-          }
-        : { script, modules }),
-      log: new Log(LogLevel.NONE),
-      d1Persist: persist,
-    });
+                },
+                {
+                  type: "ESModule" as const,
+                  path: "populated-bootstrap.js",
+                  contents: script,
+                },
+                {
+                  type: "ESModule" as const,
+                  path: "populated-replay.js",
+                  contents: options.replayWorker,
+                },
+              ],
+            }
+          : { script, modules }),
+        log: new Log(LogLevel.NONE),
+        resourcePersistencePath,
+      }),
+    );
     const database = await runtime.getD1Database("DB");
     // Miniflare adds bookmark schema after evaluating the first query's SQL.
     await database.prepare("SELECT 1").first();
@@ -951,17 +974,35 @@ export default { fetch(request, env, context) {
   }
 }
 
-export async function preserveMigrationFixture(
+type MigrationPreservationCheck = {
+  fixture: PopulatedMigrationFixture;
+  exactObjects: boolean;
+};
+const preservationProjection = (
+  table: PopulatedMigrationFixture["tables"][number],
+) => JSON.stringify([table.name, table.columns]);
+
+export async function preserveMigrationFixtures(
   database: D1Database,
-  fixture: PopulatedMigrationFixture,
-  exactObjects = false,
+  checks: readonly [
+    MigrationPreservationCheck,
+    ...MigrationPreservationCheck[],
+  ],
 ) {
+  const projections = new Map<
+    string,
+    PopulatedMigrationFixture["tables"][number]
+  >();
+  for (const { fixture } of checks)
+    for (const table of fixture.tables)
+      projections.set(preservationProjection(table), table);
+  const tables = [...projections.values()];
   const readDigests = runtimeTableDigests.get(database);
   const digests = readDigests
-    ? await readDigests(fixture.tables)
+    ? await readDigests(tables)
     : (
         await database.batch<Record<string, unknown>>(
-          fixture.tables.map((table) =>
+          tables.map((table) =>
             database.prepare(
               `SELECT ${table.columns.map(identifier).join(",")} FROM ${identifier(table.name)}`,
             ),
@@ -972,20 +1013,19 @@ export async function preserveMigrationFixture(
         sha256: migrationDigest(
           canonicalRows(
             result.results.map((row) =>
-              fixture.tables[index]!.columns.map((column) => row[column]),
+              tables[index]!.columns.map((column) => row[column]),
             ),
           ),
         ),
       }));
-  if (digests.length !== fixture.tables.length)
+  if (digests.length !== tables.length)
     throw new Error("Missing preservation table digests");
-  for (const [index, table] of fixture.tables.entries()) {
-    if (
-      digests[index]!.rows !== table.rows.length ||
-      digests[index]!.sha256 !== table.sha256
-    )
-      throw new Error(`Old rows changed in ${table.name}`);
-  }
+  const byProjection = new Map(
+    tables.map((table, index) => [
+      preservationProjection(table),
+      digests[index]!,
+    ]),
+  );
   const check = await database.prepare("PRAGMA foreign_key_check").all();
   if (check.results.length)
     throw new Error("Migration introduced foreign-key violations");
@@ -996,39 +1036,58 @@ export async function preserveMigrationFixture(
       )
       .all()
   ).results;
-  const expectedObjects = [
-    ...fixture.objects,
-    ...(runtimePlatformObjects.get(database) ?? []),
-  ];
-  const changed = expectedObjects.find(
-    (old) =>
-      !objects.some(
-        (row) =>
-          row.type === old.type &&
-          row.name === old.name &&
-          (!exactObjects || normalizedSql(row.sql) === normalizedSql(old.sql)),
-      ),
-  );
-  if (changed)
-    throw new Error(
-      `Migration lost or changed old schema object ${changed.type} ${changed.name}`,
-    );
-  if (exactObjects && objects.length !== expectedObjects.length) {
-    const extra = objects.filter(
-      (row) =>
-        !expectedObjects.some(
-          (old) => row.type === old.type && row.name === old.name,
+  const verify = ({ fixture, exactObjects }: MigrationPreservationCheck) => {
+    for (const table of fixture.tables) {
+      const actual = byProjection.get(preservationProjection(table))!;
+      if (actual.rows !== table.rows.length || actual.sha256 !== table.sha256)
+        throw new Error(`Old rows changed in ${table.name}`);
+    }
+    const expectedObjects = [
+      ...fixture.objects,
+      ...(runtimePlatformObjects.get(database) ?? []),
+    ];
+    const changed = expectedObjects.find(
+      (old) =>
+        !objects.some(
+          (row) =>
+            row.type === old.type &&
+            row.name === old.name &&
+            (!exactObjects ||
+              normalizedSql(row.sql) === normalizedSql(old.sql)),
         ),
     );
-    throw new Error(
-      `Migration changed complete schema object set: ${extra.map((row) => `${String(row.type)} ${String(row.name)} ${normalizedSql(row.sql)}`).join(", ")}`,
-    );
-  }
-  return {
-    tablesPreserved: fixture.tables.length,
-    schemaObjectsPreserved: fixture.objects.length,
-    foreignKeyViolations: 0 as const,
+    if (changed)
+      throw new Error(
+        `Migration lost or changed old schema object ${changed.type} ${changed.name}`,
+      );
+    if (exactObjects && objects.length !== expectedObjects.length) {
+      const extra = objects.filter(
+        (row) =>
+          !expectedObjects.some(
+            (old) => row.type === old.type && row.name === old.name,
+          ),
+      );
+      throw new Error(
+        `Migration changed complete schema object set: ${extra.map((row) => `${String(row.type)} ${String(row.name)} ${normalizedSql(row.sql)}`).join(", ")}`,
+      );
+    }
+    return {
+      tablesPreserved: fixture.tables.length,
+      schemaObjectsPreserved: fixture.objects.length,
+      foreignKeyViolations: 0 as const,
+    };
   };
+  return [verify(checks[0]), ...checks.slice(1).map(verify)] as const;
+}
+
+export async function preserveMigrationFixture(
+  database: D1Database,
+  fixture: PopulatedMigrationFixture,
+  exactObjects = false,
+) {
+  return (
+    await preserveMigrationFixtures(database, [{ fixture, exactObjects }])
+  )[0];
 }
 
 export async function immutableMigrationProbes(
@@ -1128,15 +1187,16 @@ if (
       "0093",
       "0094",
       "0095",
+      "0096",
       "both",
     ])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0095", (fixture) => {
+    const terminal = await buildFixture(history, "0096", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0095": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0096": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

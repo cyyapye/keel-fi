@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { test as base } from "@playwright/test";
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { unstable_readConfig } from "wrangler";
 import { z } from "zod";
 import type { createPublicSourceFixture } from "./public-source-fixture-worker";
@@ -82,17 +82,19 @@ export const test = base.extend<
         external: ["node:*", "cloudflare:*"],
         logLevel: "silent",
       });
-      const runtime = new Miniflare({
-        name: config.name,
-        script: bundled.outputFiles[0]!.text,
-        modules: true,
-        compatibilityDate: config.compatibility_date,
-        compatibilityFlags: config.compatibility_flags,
-        defaultPersistRoot: resolve(persist, "v3"),
-        d1Databases: { DB: config.d1_databases[0].database_id },
-        r2Buckets: { DOCUMENTS: config.r2_buckets[0].bucket_name },
-        bindings: config.vars,
-      });
+      const runtime = new Miniflare(
+        convertV4MiniflareOptions({
+          name: config.name,
+          script: bundled.outputFiles[0]!.text,
+          modules: true,
+          compatibilityDate: config.compatibility_date,
+          compatibilityFlags: config.compatibility_flags,
+          resourcePersistencePath: resolve(persist, "v3"),
+          d1Databases: { DB: config.d1_databases[0].database_id },
+          r2Buckets: { DOCUMENTS: config.r2_buckets[0].bucket_name },
+          bindings: config.vars,
+        }),
+      );
       const dispatch = async (body: object) => {
         const response = await runtime.dispatchFetch(
           "https://synthetic-source-fixture.invalid/",

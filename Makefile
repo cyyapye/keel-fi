@@ -106,7 +106,7 @@ lint:
 	$(PNPM) lint
 
 lint-typecheck:
-	node --max-old-space-size=4096 scripts/lint-typecheck.mjs
+	node --v8-pool-size=1 --max-old-space-size=4096 scripts/lint-typecheck.mjs
 
 typecheck:
 	$(PNPM) typecheck

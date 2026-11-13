@@ -58,7 +58,10 @@ it("authenticates company identity reads and writes, validates boundaries and re
           `/api/companies/${path}`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              Origin: "http://localhost",
+              "Content-Type": "application/json",
+            },
             body: JSON.stringify(body),
           },
           env,
@@ -69,7 +72,11 @@ it("authenticates company identity reads and writes, validates boundaries and re
       (
         await app.request(
           `/api/companies/${path}`,
-          { method: "POST", body: "{}" },
+          {
+            method: "POST",
+            headers: { Origin: "http://localhost" },
+            body: "{}",
+          },
           env,
         )
       ).status,
@@ -78,7 +85,11 @@ it("authenticates company identity reads and writes, validates boundaries and re
       (
         await app.request(
           `/api/companies/${path}`,
-          { method: "POST", body: JSON.stringify(body) },
+          {
+            method: "POST",
+            headers: { Origin: "http://localhost" },
+            body: JSON.stringify(body),
+          },
           { ...env, ENVIRONMENT: "preview" },
         )
       ).status,
@@ -104,7 +115,11 @@ it("authenticates company identity reads and writes, validates boundaries and re
     (
       await app.request(
         "/api/companies/aliases",
-        { method: "POST", body: JSON.stringify(input) },
+        {
+          method: "POST",
+          headers: { Origin: "http://localhost" },
+          body: JSON.stringify(input),
+        },
         env,
       )
     ).status,

@@ -83,20 +83,44 @@ def helper_command(helper, source, mode, receipt=None):
     return command
 
 
-def run_layout_draft(contract, source):
-    """Run the native graph without the late scanner marker; emit only a draft log."""
+def run_partial_native(contract, source, mode):
     revision = contract.clean_revision(ROOT)
     report = contract.validate_project(root=ROOT, config_path=Path(CONFIG),
                                        source_root=source, source_mode="pinned")
     mapping = report["verification"]
     selected = contract.required_flow_ids(mapping)
-    pdf = next((flow for flow in mapping["flows"] if flow["id"] == "pdf-isolation"), None)
-    if pdf is None or "pdf-isolation" not in selected or pdf["argv"] != ["make", "pdf-sandbox-verify"]:
-        raise ValueError("review the layout draft command against the PDF verification map")
-    pdf["argv"] = ["node", "--import", "tsx", "scripts/pdf-sandbox-verify.ts", "--layout-draft"]
+    if mode == "layout-draft":
+        label = "Layout draft native checks"
+        pdf = next((flow for flow in mapping["flows"] if flow["id"] == "pdf-isolation"), None)
+        if pdf is None or "pdf-isolation" not in selected or pdf["argv"] != ["make", "pdf-sandbox-verify"]:
+            raise ValueError("review the layout draft command against the PDF verification map")
+        pdf["argv"] = ["node", "--import", "tsx", "scripts/pdf-sandbox-verify.ts", "--layout-draft"]
+    elif mode == "unit-diagnostic":
+        label = "Isolated unit diagnostic (partial; no required receipt)"
+        expected = {
+            "gate-and-artifact-integrity": {
+                "argv": ["python3", "-I", "scripts/pilot_native.py", "preflight"],
+                "depends_on": [], "timeout_seconds": 120,
+            },
+            "native-unit-and-cost": {
+                "argv": ["python3", "-I", "scripts/pilot_native.py", "vitest-main"],
+                "depends_on": ["gate-and-artifact-integrity"], "timeout_seconds": 1500,
+            },
+        }
+        selected = list(expected)
+        if not set(selected).issubset(contract.required_flow_ids(mapping)):
+            raise ValueError("isolated unit diagnostic requires both native unit flows")
+        by_id = {flow["id"]: flow for flow in mapping["flows"]}
+        if any({key: by_id[flow_id].get(key) for key in shape} != shape
+               for flow_id, shape in expected.items()):
+            raise ValueError("review the isolated unit commands, deadlines and dependencies")
+    else:
+        raise ValueError("unknown partial native mode")
     budget = report["verification_budget_seconds"]
     if budget is None:
-        raise ValueError("layout draft verification requires the native time budget")
+        raise ValueError("partial native verification requires the native time budget")
+    if mode == "unit-diagnostic" and budget != 900:
+        raise ValueError("isolated unit diagnostic requires the unchanged 900-second budget")
     contract.flow_execution_ancestry(ROOT)
     # The pinned scheduler owns each process group and cleans up on KeyboardInterrupt.
     def interrupt(signum, frame):
@@ -107,17 +131,21 @@ def run_layout_draft(contract, source):
     finally:
         signal.signal(signal.SIGTERM, previous)
     performance = contract.performance_summary(rows, budget)
-    print("Layout draft native checks " + json.dumps({"revision": revision, "results": rows,
-                                                      "performance": performance}, sort_keys=True))
+    limits = {flow["id"]: flow["timeout_seconds"] for flow in mapping["flows"]}
+    print(label + " " + json.dumps({"revision": revision, "context": contract.execution_context(),
+                                    "selected_flows": selected, "results": rows,
+                                    "performance": performance, "required_receipt": False}, sort_keys=True))
     if (not performance["within_budget"] or contract.clean_revision(ROOT) != revision
+            or len(rows) != len(selected) or {row["id"] for row in rows} != set(selected)
+            or any(row["duration_seconds"] > limits[row["id"]] for row in rows)
             or any(row["failure"] or row["exit_code"] != 0 or row["forced_cleanup"] for row in rows)):
-        raise ValueError("layout draft native verification failed")
+        raise ValueError("partial native verification failed")
     contract.validate_execution_timing(rows, contract.execution_plan(mapping, selected))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("validate", "required", "evidence", "cleanup", "layout-draft"))
+    parser.add_argument("mode", choices=("validate", "required", "evidence", "cleanup", "layout-draft", "unit-diagnostic"))
     parser.add_argument("receipt", nargs="?")
     args = parser.parse_args()
     if args.mode != "evidence" and args.receipt is not None:
@@ -131,19 +159,19 @@ def main():
         raise ValueError("candidate source and project must be separate sibling checkouts")
     config = json.loads((ROOT / CONFIG).read_text())
     helper = validate_source(source, config["tugling"]["revision"])
-    if args.mode in ("required", "layout-draft"):
+    if args.mode in ("required", "layout-draft", "unit-diagnostic"):
         local = ROOT / ".tugling/local"
         local.mkdir(parents=True, exist_ok=True, mode=0o700)
         if local.resolve() != local or (local / "pilot-required.lease").is_symlink():
             raise ValueError("pilot evidence ownership must not follow symlinks")
         lease = os.fdopen(os.open(local / "pilot-required.lease", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600), "a")
         fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    if args.mode == "layout-draft":
+    if args.mode in ("layout-draft", "unit-diagnostic"):
         environment = git_environment()
         os.environ.clear()
         os.environ.update(environment)
         contract = SimpleNamespace(**runpy.run_path(str(helper)))
-        run_layout_draft(contract, source)
+        run_partial_native(contract, source, args.mode)
         return
     if args.mode == "required":
         os.set_inheritable(lease.fileno(), True)

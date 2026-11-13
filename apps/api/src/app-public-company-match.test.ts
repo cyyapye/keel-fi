@@ -47,14 +47,18 @@ it("authenticates issuer recommendations and approval and rejects stale or inval
         (
           await app.request(
             path,
-            { method: "POST" },
+            { method: "POST", headers: { Origin: "http://localhost" } },
             { ...env, ENVIRONMENT: "preview" },
           )
         ).status,
       ).toBe(401);
     expect(recommend).not.toHaveBeenCalled();
     expect(approve).not.toHaveBeenCalled();
-    const response = await app.request(paths[0]!, { method: "POST" }, env);
+    const response = await app.request(
+      paths[0]!,
+      { method: "POST", headers: { Origin: "http://localhost" } },
+      env,
+    );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(match);
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
@@ -63,14 +67,20 @@ it("authenticates issuer recommendations and approval and rejects stale or inval
       "demo_public",
       expect.any(Function),
     );
-    expect((await app.request(paths[1]!, { method: "POST" }, env)).status).toBe(
-      201,
-    );
+    expect(
+      (
+        await app.request(
+          paths[1]!,
+          { method: "POST", headers: { Origin: "http://localhost" } },
+          env,
+        )
+      ).status,
+    ).toBe(201);
     expect(
       (
         await app.request(
           "/api/companies/public-links/recommendations/invalid/approve",
-          { method: "POST" },
+          { method: "POST", headers: { Origin: "http://localhost" } },
           env,
         )
       ).status,
@@ -78,9 +88,15 @@ it("authenticates issuer recommendations and approval and rejects stale or inval
     approve.mockRejectedValueOnce(
       new PublicCompanyLinkError("stale", "Company evidence changed."),
     );
-    expect((await app.request(paths[1]!, { method: "POST" }, env)).status).toBe(
-      409,
-    );
+    expect(
+      (
+        await app.request(
+          paths[1]!,
+          { method: "POST", headers: { Origin: "http://localhost" } },
+          env,
+        )
+      ).status,
+    ).toBe(409);
   } finally {
     vi.restoreAllMocks();
   }

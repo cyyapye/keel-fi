@@ -170,7 +170,10 @@ describe("saved Portfolio Watch activity", () => {
         `/api/watch/observations/${observation.id}/read`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ read: false, expectedVersion: 1 }),
         },
         f.env,
@@ -181,7 +184,10 @@ describe("saved Portfolio Watch activity", () => {
         `/api/watch/observations/${observation.id}/read`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify({ read: true, expectedVersion: 1 }),
         },
         f.env,
@@ -395,7 +401,7 @@ describe("saved Portfolio Watch activity", () => {
       f.measured.reset();
       const submitted = await createApp().request(
         "/api/watch/scan",
-        { method: "POST" },
+        { method: "POST", headers: { Origin: "http://localhost" } },
         f.env,
       );
       expect(submitted.status).toBe(202);

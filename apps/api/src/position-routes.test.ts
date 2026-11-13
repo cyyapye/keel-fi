@@ -37,7 +37,10 @@ it("validates optional purchase details and scopes accepted writes to the authen
       "/api/investment-positions/position/purchases",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(body),
       },
       env,
@@ -58,7 +61,10 @@ it("validates optional purchase details and scopes accepted writes to the authen
     "/api/investment-positions/position/purchases",
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Origin: "http://localhost",
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(input),
     },
     { ...env, ENVIRONMENT: "preview" },
@@ -117,7 +123,10 @@ it("validates optional purchase details and scopes accepted writes to the authen
         `/api/investment-positions/${id}/valuation`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(body),
         },
         { ...env, DB: database.asD1() },
@@ -172,7 +181,10 @@ it("validates optional purchase details and scopes accepted writes to the authen
         path.endsWith("valuation")
           ? {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                Origin: "http://localhost",
+                "Content-Type": "application/json",
+              },
               body: JSON.stringify(valuation),
             }
           : {},
@@ -253,7 +265,10 @@ it("validates and authenticates distribution-only saves with CAS and household o
         `/api/investment-positions/${id}/distributions`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(input),
         },
         targetEnv,
@@ -374,7 +389,10 @@ it("validates authenticated link decisions and reloads the saved current project
         "/api/investment-position-links",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            Origin: "http://localhost",
+            "Content-Type": "application/json",
+          },
           body: JSON.stringify(value),
         },
         bindings,

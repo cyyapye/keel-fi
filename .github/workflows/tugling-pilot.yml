@@ -14,6 +14,12 @@ on:
           passing gate
         type: boolean
         default: false
+      isolated_unit:
+        description:
+          Diagnose the complete native unit inventory without competing flows;
+          produces no required receipt
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,19 +34,26 @@ jobs:
     name:
       ${{ inputs.isolated_browser && 'Isolated browser timing diagnostic' ||
       inputs.regression_probe && 'Polling regression rejection probe' ||
-      'Complete native pilot gate' }}
-    runs-on: [self-hosted, Linux, X64, keel-ci]
+      inputs.isolated_unit && 'Isolated unit diagnostic (partial)' || 'Complete
+      native pilot gate' }}
+    runs-on: ubuntu-24.04
     timeout-minutes:
-      ${{ (inputs.regression_probe || inputs.isolated_browser) && 30 || 120 }}
+      ${{ (inputs.regression_probe || inputs.isolated_browser ||
+      inputs.isolated_unit) && 30 || 120 }}
     defaults:
       run:
         working-directory: keel
     env:
+      KEEL_SCREENSHOT_MODE: canonical
+      TUGLING_VERIFICATION_ENVIRONMENT: keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
       TUGLING_PILOT_SOURCE: ${{ github.workspace }}/tugling-candidate
     steps:
       - name: Reject conflicting diagnostic modes
-        if: ${{ inputs.isolated_browser && inputs.regression_probe }}
+        if:
+          ${{ (inputs.isolated_browser && inputs.regression_probe) ||
+          (inputs.isolated_unit && (inputs.isolated_browser ||
+          inputs.regression_probe)) }}
         working-directory: ${{ github.workspace }}
         run: exit 1
       - name: Check out exact PR head or merge-queue candidate
@@ -70,19 +83,29 @@ jobs:
           cache-dependency-path: keel/pnpm-lock.yaml
       - name: Prepare locked dependencies and Chromium
         run: make bootstrap-ci
+      - name: Prepare disposable native runtime
+        timeout-minutes: 15
+        run: python3 -I scripts/ci-disposable-linux.py
       - name: Execute complete required gate on this revision
-        if: ${{ !inputs.regression_probe && !inputs.isolated_browser }}
+        if:
+          ${{ !inputs.regression_probe && !inputs.isolated_browser &&
+          !inputs.isolated_unit }}
         run: |
           mkdir -p .tugling/local
           make pilot-verify > .tugling/local/pilot-required.json
       - name: Inspect current required receipt
-        if: ${{ !inputs.regression_probe && !inputs.isolated_browser }}
+        if:
+          ${{ !inputs.regression_probe && !inputs.isolated_browser &&
+          !inputs.isolated_unit }}
         run: |
           receipt=$(python3 -I -c 'import json; print(json.load(open(".tugling/local/pilot-required.json"))["flow_verification"]["path"])')
           python3 -I scripts/tugling-pilot.py evidence "$receipt"
       - name: Prove the required gate rejects increased idle polling
         if: ${{ inputs.regression_probe }}
         run: python3 -I scripts/pilot_regression_probe.py
+      - name: Diagnose the complete native unit inventory
+        if: ${{ inputs.isolated_unit }}
+        run: python3 -I scripts/tugling-pilot.py unit-diagnostic
       - name: Prepare the canonical browser build and synthetic seed
         if: ${{ inputs.isolated_browser }}
         run: |

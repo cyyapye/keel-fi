@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type FormEvent,
@@ -300,6 +301,11 @@ export function AppAccess() {
   const abort = useRef<AbortController | null>(null),
     pending = useRef(false),
     heading = useRef<HTMLHeadingElement | null>(null);
+  useLayoutEffect(() => {
+    if (receipt === null) return;
+    heading.current?.focus({ preventScroll: true });
+    heading.current?.scrollIntoView({ block: "center" });
+  }, [receipt]);
   const load = useCallback(
     (after: string | null = null) => {
       abort.current?.abort();
@@ -396,10 +402,6 @@ export function AppAccess() {
           }
         : previous,
     );
-    requestAnimationFrame(() => {
-      heading.current?.focus({ preventScroll: true });
-      heading.current?.scrollIntoView({ block: "center" });
-    });
     if (pageAfter !== null) refresh();
   }
   function create(event: FormEvent) {

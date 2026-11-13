@@ -44,12 +44,27 @@ Browser execution waits for source checks and unit/D1 verification to finish so
 these heavy phases do not compete for the runner's memory and CPU. All remain
 required within the complete gate's 900-second active budget.
 
+Successful hosted setup also owns an exclusive compilation-cache root for the
+job VM. Unit phases use separate directories and never upload this bytecode or
+reuse it across phases or jobs. The VM disposes it after the job, including
+cancellation. Local runs disable compilation caching. Aggregate storage
+admission and the distinction from synthetic fixture teardown are documented in
+[CI performance](../../docs/engineering/ci-performance.md).
+
 For browser timing, dispatch the Tugling candidate workflow with
 `isolated_browser` enabled. It prepares the same build and synthetic seed and
-times the complete browser process on `keel-ci` while the other native flows are
-idle. Compare its elapsed time and case counts with a complete PR run on the
-same Git tree and runner. The ordinary PR workflow supplies the required
-verification receipt.
+times the complete browser process on a fresh `ubuntu-24.04` VM. Compare its
+elapsed time and case counts with a complete PR run on the same Git tree and
+runner. The ordinary PR workflow supplies the required verification receipt.
+
+For unit timeout diagnosis, dispatch the same manual workflow with
+`isolated_unit` enabled. It runs the existing preflight and complementary main
+unit flows under the pinned scheduler, with one 900-second active clock and
+unchanged case deadlines. The complete unit inventory must still pass. This
+partial diagnostic excludes competing source, build and PDF flows and emits no
+required receipt. It cannot pass named PR checks or authorize deployment. The
+three manual diagnostic modes are mutually exclusive. Confirm fresh included
+compute headroom before dispatch; a push to a ready PR also starts full CI.
 
 A same-repository draft targeting `main` can take a shorter path when its only
 changes are edits to seven reviewed documents, four registered Vitest files,
@@ -122,7 +137,7 @@ assertions. Preserve exact-revision receipts, native coverage, retries, artifact
 retention and spending stops. See the
 [visual verification procedure](../../.codex/skills/keel-ui-quality/references/visual-verification.md).
 
-## Self-hosted runner lanes
+## Disposable Linux workers
 
 The complete native gate includes populated OLD-schema migration cost and
 preservation evidence. Deployment and independent document backup retain their
@@ -130,34 +145,35 @@ existing execution paths. Shared quota admission and its activation requirements
 remain in draft PR #340. See [D1 safety](../../docs/deployment/d1-safety.md) for
 the proof scope and deferred runtime boundary.
 
-The private repository uses two isolated Linux x64 runner services on the
-existing OVH host:
+Every concrete workflow job selects a fresh `ubuntu-24.04` GitHub-hosted VM.
+Verification and protected deployment run in separate jobs and separate VMs.
+Native verification receives no preview or private-backup secrets.
 
-- `keel-ci` runs PR and post-merge verification without repository secrets,
-  cloud credentials, `sudo`, or a rootful Docker socket. It owns a separate
-  rootless Docker daemon for the isolated, synthetic PDF-reader tests.
-- `keel-deploy` runs protected `preview` deployments after verification and
-  secret scan pass, plus the explicit main-only synthetic storage probe. The
-  probe cannot deploy application code or change D1. This lane has a separate
-  service user, home, runner root, and work directory, and it also has no
-  Docker-socket access.
+`scripts/ci-disposable-linux.py` prepares only the native verification and
+manual pilot VMs. It rejects other runner environments, operating systems,
+architectures, and root execution before provisioning. It installs Chromium
+system dependencies, starts a user systemd session with delegated cgroup-v2
+controllers, and prepares rootless Docker. It masks the preinstalled rootful
+daemon and refuses a remaining rootful socket. Missing prerequisites fail the
+job. The helper never changes a developer or provider runtime registry.
 
-Both services are registered only to `cyyapye/keel-fi`. The host provides Docker
-Compose and Playwright system libraries; workflows install the pinned Node,
-pnpm, dependencies, and Chromium in the unprivileged job context. If a runner is
-offline, its required job must queue and fail closed. Do not route public or
-untrusted-fork pull requests to these persistent runners. Return PR jobs to
-GitHub-hosted or ephemeral runners before changing repository visibility or
-accepting untrusted contributors.
+VM provisioning can use the hosted VM's `sudo`. PDF containers retain their
+existing non-root, rootless, no-network boundary. The existing native flow owns
+fresh image builds and real kernel isolation probes. Deployment and backup jobs
+do not call the native setup helper or consume its Docker daemon. See the
+[PDF sandbox runbook](../../docs/deployment/pdf-sandbox.md).
 
-The CI account needs the rootless prerequisites and delegated cgroup-v2 CPU,
-memory and process controllers described in the
-[PDF sandbox runbook](../../docs/deployment/pdf-sandbox.md). The native gate
-builds the sandbox images as a required flow alongside source checks. Image
-consumers wait for that build, and real isolation probes remain required;
-missing infrastructure fails the checks. Package installation happens inside the
-sandbox image build, not with `sudo` in the runner job. The deployment lane does
-not build or run PDFs.
+The native producer, manual pilot, and receipt consumers use a distinct
+`keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8` environment identity.
+The 900-second active native budget, 300-second complete browser budget,
+registered cases, canonical screenshot baselines, and receipt checks remain
+unchanged. A local workflow test does not establish hosted compatibility.
+
+Changing YAML does not revoke a persistent runner registration. Before public
+contributors can run workflows, remove both legacy repository registrations and
+read back an empty runner inventory. Keep the repository private throughout
+preparation. Follow the
+[private CI migration procedure](../../docs/deployment/disposable-ci.md).
 
 `post-merge.yml` runs the complete native required gate, the exact pinned
 Tugling project contract, and a full-history secret scan on the exact commit

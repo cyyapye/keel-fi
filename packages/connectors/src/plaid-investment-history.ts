@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { InvestmentHistoryTimestampSchema } from "@keel/domain/investment-history";
 import { plaidDecimalToScaledInteger } from "./plaid-investments-holdings";
 
 const decimal = z.union([
@@ -15,10 +16,8 @@ export const PlaidInvestmentTransactionSchema = z
     account_id: id,
     security_id: id.nullable(),
     date: z.iso.date(),
-    transaction_datetime: z.iso
-      .datetime({ offset: true })
-      .nullable()
-      .optional(),
+    transaction_datetime:
+      InvestmentHistoryTimestampSchema.nullable().optional(),
     name: z.string().max(1000),
     type: z.enum(["buy", "sell", "cash", "fee", "transfer", "cancel"]),
     subtype: z.string().max(256),
@@ -78,7 +77,7 @@ function quantityPrecision(value: number | string | null) {
 export const PlaidTaxLotSchema = z
   .object({
     institution_lot_id: id.nullable(),
-    original_purchase_datetime: z.iso.datetime({ offset: true }).nullable(),
+    original_purchase_datetime: InvestmentHistoryTimestampSchema.nullable(),
     quantity: decimal.nullable(),
     purchase_price: decimal.nullable(),
     cost_basis: decimal.nullable(),

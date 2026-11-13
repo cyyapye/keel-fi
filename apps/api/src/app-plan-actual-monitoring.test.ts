@@ -102,7 +102,10 @@ describe("plan-versus-actual monitoring API", () => {
       "/api/plan-actual-monitoring/snooze",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(input),
       },
       env(),
@@ -130,7 +133,10 @@ describe("plan-versus-actual monitoring API", () => {
       "/api/plan-actual-monitoring/snooze",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           itemKey: "cash_drift",
           sourceRevision,
@@ -146,7 +152,10 @@ describe("plan-versus-actual monitoring API", () => {
       "/api/plan-actual-monitoring/snooze",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          Origin: "http://localhost",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           itemKey: "cash_drift",
           sourceRevision,

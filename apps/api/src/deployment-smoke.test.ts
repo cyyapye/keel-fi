@@ -18,15 +18,7 @@ beforeEach(() =>
 const deployedGitSha = "a".repeat(40);
 const deploymentSmokeToken = "preview-smoke-token-with-at-least-32-characters";
 
-function deploymentEnv(): {
-  env: Env;
-  alphaProjectionLoader: ReturnType<typeof vi.fn>;
-  deleteObject: ReturnType<typeof vi.fn>;
-  getObject: ReturnType<typeof vi.fn>;
-  headObject: ReturnType<typeof vi.fn>;
-  putObject: ReturnType<typeof vi.fn>;
-  queueSend: ReturnType<typeof vi.fn>;
-} {
+function deploymentEnv() {
   const first = vi.fn().mockResolvedValueOnce({ ok: 1 }).mockResolvedValueOnce({
     access_subject: "synthetic-access-subject",
   });
@@ -40,29 +32,30 @@ function deploymentEnv(): {
   const deleteObject = vi.fn(() => Promise.resolve());
   const headObject = vi.fn(() => Promise.resolve(null));
   const queueSend = vi.fn(() => Promise.resolve());
-  return {
-    env: {
-      ACCESS_AUD: "synthetic-access-audience",
-      ACCESS_TEAM_DOMAIN: "access.example.com",
-      CF_VERSION_METADATA: {
-        id: "api-version-1",
-        tag: deployedGitSha,
-        timestamp: "2026-08-08T12:00:00.000Z",
-      },
-      DB: {
-        prepare: vi.fn(() => ({ first })),
-      } as unknown as D1Database,
-      DEPLOYED_GIT_SHA: deployedGitSha,
-      DEPLOYMENT_SMOKE_TOKEN: deploymentSmokeToken,
-      DOCUMENTS: {
-        delete: deleteObject,
-        get: getObject,
-        head: headObject,
-        put: putObject,
-      } as unknown as R2Bucket,
-      ENVIRONMENT: "preview",
-      INGESTION_QUEUE: { send: queueSend } as unknown as Queue,
+  const env: Env = {
+    ACCESS_AUD: "synthetic-access-audience",
+    ACCESS_TEAM_DOMAIN: "access.example.com",
+    CF_VERSION_METADATA: {
+      id: "api-version-1",
+      tag: deployedGitSha,
+      timestamp: "2026-08-08T12:00:00.000Z",
     },
+    DB: {
+      prepare: vi.fn(() => ({ first })),
+    } as unknown as D1Database,
+    DEPLOYED_GIT_SHA: deployedGitSha,
+    DEPLOYMENT_SMOKE_TOKEN: deploymentSmokeToken,
+    DOCUMENTS: {
+      delete: deleteObject,
+      get: getObject,
+      head: headObject,
+      put: putObject,
+    } as unknown as R2Bucket,
+    ENVIRONMENT: "preview",
+    INGESTION_QUEUE: { send: queueSend } as unknown as Queue,
+  };
+  return {
+    env,
     alphaProjectionLoader,
     deleteObject,
     getObject,
@@ -198,7 +191,7 @@ describe("preview deployment smoke", () => {
     bindings.env.ENVIRONMENT = "local";
     const outsidePreview = await app.request(
       "/api/deployment-smoke",
-      { method: "POST" },
+      { method: "POST", headers: { Origin: "http://localhost" } },
       bindings.env,
     );
     expect(outsidePreview.status).toBe(404);
