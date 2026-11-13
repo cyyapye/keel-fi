@@ -1097,14 +1097,25 @@ successful capture records the conservative bound for its actual retained rows;
 uncertain attempts retain the larger initial reservation. Admission guards
 enforce both count and cumulative reservations under contention.
 
+Account admission and capture use the same currently reported account set.
+Historical containers do not create extra contexts in a new capture. The account
+lookup drives the connection/account-key index from the bounded reported-key
+list, including an empty reported account. With 12 and 120 older containers, the
+real-D1 holdout reads four rows in one account-lookup statement, writes zero,
+and has unchanged indexed plans. The retained 500-transaction capture measures
+2,574 additional writes / 9,578 reads in both cases, below its 3,986-write
+settled bound and 4,000-write reservation. The older containers retain their
+existing history. These are synthetic workload measurements.
+
 The real-D1 sync holdout uses 120 securities plus cash and exercises useful,
 outage and correction captures. Additional history statements measured 1,184 /
-854 / 1,089 writes and 8,370 / 8,171 / 8,472 reads respectively. The
-500-transaction provider holdout takes both pages, marks its retained history
-partial, and measures 2,581 writes / 9,261 reads under its 4,000-write
-reservation. Tests assert actual counters are below the reservation, including
-index rewrites, and race twelve admissions against the fixed daily limit. Values
-describe the synthetic fixture, not a target database measurement.
+854 / 1,089 writes and 8,371 / 8,172 / 8,473 reads respectively. The preceding
+single-account 500-transaction fixture measured 2,581 writes / 9,261 reads; the
+current reported-empty-account and historical-container holdouts above retain
+both pages and explicitly mark their retained history partial. Tests assert
+actual counters are below the reservation, including index rewrites, and race
+twelve admissions against the fixed daily limit. Values describe the synthetic
+fixture, not a target database measurement.
 
 The declared combined useful-work envelope above becomes at most 80,000 writes
 (76,000 plus this 4,000) before the retained 20,000-write allowance for other

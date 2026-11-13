@@ -89,10 +89,14 @@ their stated effects; editing historical identity alone cannot revive ownership
 absent from a newer inventory. A decision elsewhere does not block the next due
 source check. Daily admission and retry budgets remain unchanged.
 
-This is positions-only reconciliation. The connector does not download
-`/investments/transactions/get` or activate paid `/investments/refresh`.
-Transaction histories, realized performance and tax lots require their own
-stable transaction IDs, pagination, corrections/cancellations and evidence.
+This is positions-only reconciliation. The admitted holdings sync separately
+captures bounded investment activity and broker-reported lots, with their own
+stable transaction IDs, coverage, corrections and retained evidence. It does not
+activate paid `/investments/refresh`, infer realized performance or reconstruct
+remaining lots. History capture uses only accounts in the current verified
+provider response, including reported empty accounts. Older account containers
+retain their prior history and do not consume the new report's account-write
+reservation. See [investment history](../product/investment-history.md).
 
 The source comparison offers three direct choices using recorded facts: confirm
 the same holding, add a separate holding, or ignore this reported position. It

@@ -38,6 +38,7 @@ const scopes = async (db: D1Database) => {
         connectionId!,
         row!.import_id,
         keys,
+        original.containers.map((container) => container.protectedAccountKey),
       );
       if (scope.positions.length !== 120)
         throw new Error(
