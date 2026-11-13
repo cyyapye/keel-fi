@@ -51,6 +51,12 @@ const portfolioWatchCostSchema = z
 const setupResultSchema = z.discriminatedUnion("operation", [
   z
     .object({
+      operation: z.literal("mcp-metadata-holding"),
+      importId: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
       operation: z.literal("baseline-refresh"),
       status: z.enum(["refreshed", "manual_required", "not_needed"]),
       baselineId: z.uuid().nullable(),
