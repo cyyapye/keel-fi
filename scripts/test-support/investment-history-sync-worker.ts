@@ -94,9 +94,31 @@ holdings.holdings.push({
 });
 export default {
   async fetch(request: Request, bindings: { DB: D1Database }) {
-    const { mode } = z
-      .object({ mode: z.enum(["success", "outage", "correction", "bounded"]) })
+    const { mode, retiredAccounts } = z
+      .object({
+        mode: z.enum(["success", "outage", "correction", "bounded"]),
+        retiredAccounts: z.union([z.literal(12), z.literal(120)]).default(12),
+      })
       .parse(await request.json());
+    const currentHoldings =
+      mode === "bounded"
+        ? {
+            ...holdings,
+            accounts: [
+              ...holdings.accounts,
+              {
+                ...holdings.accounts[0]!,
+                account_id: "synthetic-history-empty-account",
+                name: "Synthetic empty brokerage",
+                balances: {
+                  current: 0,
+                  iso_currency_code: "USD",
+                  unofficial_currency_code: null,
+                },
+              },
+            ],
+          }
+        : holdings;
     const meter = measureD1(bindings.DB),
       repository = new D1InvestmentConnectionsRepository(meter.database);
     const objects = new Map<string, Uint8Array>();
@@ -163,14 +185,17 @@ export default {
         return Promise.resolve({ bytes: bytes(status), parsed: status });
       },
       getHoldings() {
-        return Promise.resolve({ bytes: bytes(holdings), parsed: holdings });
+        return Promise.resolve({
+          bytes: bytes(currentHoldings),
+          parsed: currentHoldings,
+        });
       },
       getInvestmentTransactions(_token, query) {
         transactionRequests++;
         if (mode === "outage")
           return Promise.reject(new Error("Synthetic activity outage"));
         const value = {
-          accounts: holdings.accounts,
+          accounts: currentHoldings.accounts,
           securities: [security(0)],
           item: holdings.item,
           request_id: "synthetic-history-page",
@@ -240,6 +265,26 @@ export default {
         accessSubject: COST_SUBJECT,
         publicToken: "synthetic-public-token",
       }));
+    if (mode === "bounded") {
+      await bindings.DB.prepare(
+        `INSERT INTO ownership_containers
+        (id,household_id,connection_id,protected_account_key,created_by_user_id,created_at,immutable)
+        SELECT 'synthetic-history-retired-account-'||j.key,c.household_id,c.id,j.value,h.owner_user_id,'2025-01-01T00:00:00Z',1
+        FROM investment_connections c JOIN households h ON h.id=c.household_id
+        CROSS JOIN json_each(?) j WHERE c.id=?`,
+      )
+        .bind(
+          JSON.stringify(
+            Array.from(
+              { length: retiredAccounts },
+              (_, index) =>
+                "e".repeat(60) + index.toString(16).padStart(4, "0"),
+            ),
+          ),
+          connection.connectionId,
+        )
+        .run();
+    }
     meter.reset();
     await syncInvestmentConnection({
       env,
@@ -250,6 +295,11 @@ export default {
       holdingImports: new D1HoldingImportRepository(meter.database),
     });
     const syncCost = { ...meter.cost };
+    const accountLookup = [...meter.byQuery].find(([sql]) =>
+      sql.includes("a.protected_account_key key,prior.context_json"),
+    );
+    if (!accountLookup)
+      throw new Error("History account lookup was not measured.");
     const historyCost = [...meter.byQuery]
       .filter(([sql]) =>
         /investment_history_|investment_transaction_|investment_tax_lots/u.test(
@@ -266,6 +316,11 @@ export default {
     const reservation = await bindings.DB.prepare(
       "SELECT reserved_writes reserved,write_cost_bound bound FROM investment_history_admissions a JOIN investment_history_captures c ON c.admission_run_id=a.run_id ORDER BY c.sequence DESC LIMIT 1",
     ).first();
+    if (!reservation)
+      return Response.json(
+        { error: "admitted_history_missing" },
+        { status: 500 },
+      );
     await bindings.DB.prepare(
       "CREATE TABLE IF NOT EXISTS investment_sync_fixture_secrets(key TEXT PRIMARY KEY,value TEXT)",
     ).run();
@@ -310,6 +365,29 @@ export default {
     const activity = await history.transactions("hh_demo", {
       accountId: "container:" + row.containerId,
     });
+    const recordedAccounts = await bindings.DB.prepare(
+      `SELECT COUNT(*) count,
+      SUM(CASE WHEN a.id LIKE 'synthetic-history-retired-account-%' THEN 1 ELSE 0 END) retired,
+      SUM(CASE WHEN NOT EXISTS(SELECT 1 FROM holding_position_ownerships o WHERE o.container_id=a.id) THEN 1 ELSE 0 END) empty
+      FROM investment_history_accounts history JOIN ownership_containers a ON a.id=history.container_id WHERE history.capture_id=?`,
+    )
+      .bind(activity!.context.readContextId)
+      .first<{ count: number; retired: number; empty: number }>();
+    const accountKeys = await bindings.DB.prepare(
+      `SELECT protected_account_key key FROM ownership_containers
+      WHERE connection_id=? AND id NOT LIKE 'synthetic-history-retired-account-%'`,
+    )
+      .bind(connection.connectionId)
+      .all<{ key: string }>();
+    const accountLookupPlan = await bindings.DB.prepare(
+      "EXPLAIN QUERY PLAN " + accountLookup[0],
+    )
+      .bind(
+        JSON.stringify(accountKeys.results.map((row) => row.key)),
+        connection.connectionId,
+        "hh_demo",
+      )
+      .all<{ detail: string }>();
     const targetTransactions = [...activity!.items];
     let next = activity!.nextAfter;
     while (next) {
@@ -342,6 +420,11 @@ export default {
       rawPagesPreserved:
         JSON.stringify(evidenceEnvelope.pages) === JSON.stringify(rawPages),
       reservation,
+      recordedAccountCount: recordedAccounts!.count,
+      retiredAccountHistoryCount: recordedAccounts!.retired,
+      emptyAccountHistoryCaptured: recordedAccounts!.empty > 0,
+      accountLookupCost: accountLookup[1],
+      accountLookupPlan: accountLookupPlan.results.map((row) => row.detail),
       quantity: row.quantity,
       activity,
       targets: targetTransactions.filter((transaction) =>

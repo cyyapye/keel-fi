@@ -219,6 +219,7 @@ export async function capturePlaidInvestmentHistory(input: {
     input.connectionId,
     input.importId,
     uniqueKeys,
+    [...accounts.values()],
   );
   const accountByKey = new Map(scope.accounts.map((a) => [a.key, a]));
   const keyByProvider = new Map(
