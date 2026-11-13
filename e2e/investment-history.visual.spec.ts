@@ -98,8 +98,9 @@ async function openHolding(page: Page) {
     name: "Investment activity and tax lots",
   });
   await expect(
-    feature.getByRole("heading", {
-      name: "Whether trades are reflected in the reported share count is unknown.",
+    feature.getByRole("button", {
+      name: "Reconciliation unknown",
+      exact: true,
     }),
   ).toBeVisible();
   return feature;
@@ -156,13 +157,39 @@ test("inspects source-backed activity, remaining lots and account-only events wi
   });
   const feature = await openHolding(page);
   const initialSummary = await page.locator(".holding-summary").textContent();
-  await expect(feature.getByText("Buy · SYN", { exact: true })).toBeVisible();
-  const purchase = feature
-    .locator('[data-slot="record-item"]')
-    .filter({ has: page.getByText("Buy · SYN", { exact: true }) });
-  await purchase.getByRole("button", { name: "Details", exact: true }).click();
-  await expect(purchase).toContainText("Previous version: 38 shares");
-  await expect(purchase).toContainText("Exact execution time is not provided");
+  await expect(
+    feature.getByText("Buy 40 shares", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    feature.getByRole("combobox", { name: "Activity type" }),
+  ).not.toBeVisible();
+  const purchase = feature.getByRole("article", {
+    name: "Buy 40 shares",
+    exact: true,
+  });
+  await expect(purchase).toContainText("−$6,000.00");
+  const beside = await purchase
+    .locator(".investment-history__record-trigger")
+    .evaluate((element) => {
+      const identity = element
+        .querySelector(".investment-history__record-identity")!
+        .getBoundingClientRect();
+      const value = element
+        .querySelector(".investment-history__record-value")!
+        .getBoundingClientRect();
+      return value.left >= identity.right - 1;
+    });
+  expect(beside).toBe(true);
+  await purchase.locator('[data-slot="collapsible-trigger"]').click();
+  await expect(purchase).toContainText("Previously reported");
+  await expect(purchase).toContainText("38 shares");
+  await expect(purchase.getByText("Fees", { exact: true })).not.toBeVisible();
+  await expect(
+    purchase.getByText("synthetic-provider-buy", { exact: true }),
+  ).not.toBeVisible();
+  await expect(
+    purchase.getByText("Execution time", { exact: true }),
+  ).not.toBeVisible();
   await mobileGeometry(
     page,
     feature,
@@ -171,9 +198,46 @@ test("inspects source-backed activity, remaining lots and account-only events wi
   await expect(feature).toHaveScreenshot("investment-history-activity.png", {
     stylePath: "e2e/purchase-details.capture.css",
   });
+  const readsBeforeSource = calls.length;
+  await purchase.getByRole("button", { name: "Source →", exact: true }).click();
+  await expect(
+    purchase.getByRole("button", { name: "← Trade details", exact: true }),
+  ).toBeFocused();
+  await expect(
+    purchase.getByText("synthetic-provider-buy", { exact: true }),
+  ).toBeVisible();
+  await expect(purchase.getByText("$0.00", { exact: true })).toBeVisible();
+  await expect(
+    purchase.getByText("Execution time", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    purchase.getByText("Not provided", { exact: true }),
+  ).toBeVisible();
+  await mobileGeometry(
+    page,
+    feature,
+    testInfo.project.name === "mobile-chromium",
+  );
+  await expect(feature).toHaveScreenshot("investment-history-source.png", {
+    stylePath: "e2e/purchase-details.capture.css",
+  });
+  await purchase
+    .getByRole("button", { name: "← Trade details", exact: true })
+    .click();
+  await expect(
+    purchase.getByRole("button", { name: "Source →", exact: true }),
+  ).toBeFocused();
+  expect(calls.length).toBe(readsBeforeSource);
+  await feature.getByRole("button", { name: "Filter", exact: true }).click();
   await feature.getByRole("combobox", { name: "Activity type" }).click();
   await page.getByRole("option", { name: "Purchases", exact: true }).click();
-  await expect(feature.locator('[data-slot="record-item"]')).toHaveCount(1);
+  await feature.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(
+    feature.getByRole("button", { name: "Filter · 1", exact: true }),
+  ).toBeFocused();
+  await expect(
+    feature.locator(".investment-history__record:visible"),
+  ).toHaveCount(1);
   await expect(page).toHaveScreenshot("investment-history-holding-detail.png", {
     fullPage: true,
     stylePath: "e2e/purchase-details.capture.css",
@@ -202,7 +266,7 @@ test("inspects source-backed activity, remaining lots and account-only events wi
     }),
   ).toBeVisible();
   await expect(
-    feature.locator('[data-slot="record-item"]').first(),
+    feature.locator(".investment-history__record:visible").first(),
   ).toContainText("Nov 6");
   await expect(
     feature.getByRole("combobox", { name: "Sort tax lots" }),
@@ -220,17 +284,20 @@ test("inspects source-backed activity, remaining lots and account-only events wi
     .getByRole("option", { name: "Oldest acquisition", exact: true })
     .click();
   await expect(
-    feature.locator('[data-slot="record-item"]').first(),
+    feature.locator(".investment-history__record:visible").first(),
   ).toContainText("Jun 10");
   await feature
-    .getByRole("button", { name: "View account activity", exact: true })
+    .getByRole("button", { name: "Account activity", exact: true })
     .click();
   await expect(
-    feature.getByRole("heading", {
-      name: "Entire account activity",
+    feature.getByRole("tab", {
+      name: "Account activity",
       exact: true,
     }),
   ).toBeVisible();
+  await expect(
+    feature.getByRole("tab", { name: "Tax lots", exact: true }),
+  ).toHaveCount(0);
   await expect(feature.getByText("Fee", { exact: true })).toBeVisible();
   await mobileGeometry(
     page,
@@ -241,14 +308,15 @@ test("inspects source-backed activity, remaining lots and account-only events wi
   await expect(feature).toHaveScreenshot("investment-history-account.png", {
     stylePath: "e2e/purchase-details.capture.css",
   });
+  await feature.getByRole("button", { name: "Filter", exact: true }).click();
   await feature.getByRole("button", { name: "From", exact: true }).click();
   await page
     .getByRole("button", { name: "Tuesday, November 10, 2026", exact: true })
     .click();
-  await feature
-    .getByRole("button", { name: "Apply dates", exact: true })
-    .click();
-  await expect(feature.getByText("Buy · SYN", { exact: true })).toHaveCount(0);
+  await feature.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(
+    feature.getByText("Buy 40 shares · SYN", { exact: true }),
+  ).toHaveCount(0);
   expect(calls.some((q) => q.includes("accountId="))).toBe(true);
   expect(
     await page.evaluate(
@@ -265,6 +333,7 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
 }, testInfo) => {
   let expired = true,
     partial = false,
+    unknownActivity = false,
     emptyActivity = false,
     reads = 0;
   const activityRequests: URLSearchParams[] = [];
@@ -272,8 +341,23 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
   const initialResponse = new Promise<void>((resolve) => {
     releaseInitial = resolve;
   });
+  const context = {
+    ...historyActivity.context,
+    coverage: {
+      ...historyActivity.context.coverage,
+      status: "partial" as const,
+    },
+  };
   await page.route("**/api/v1/investment-reconciliation?*", (route) =>
-    route.fulfill({ json: historyReconciliation }),
+    route.fulfill({
+      json: {
+        ...historyReconciliation,
+        context,
+        status: "insufficient_coverage",
+        reason:
+          "Captured activity is incomplete and there is no comparable quantity date.",
+      },
+    }),
   );
   await page.route("**/api/v1/investment-transactions?*", async (route) => {
     reads++;
@@ -286,19 +370,33 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
           json: { code: "stale_revision", error: "History changed" },
         })
       : route.fulfill({
-          json: emptyActivity
-            ? { ...historyActivity, items: [] }
-            : {
-                ...historyActivity,
-                items: historyActivity.items.filter(
-                  (record) =>
-                    (!query.has("type") || record.type === query.get("type")) &&
-                    (!query.has("from") ||
-                      record.postedOn >= query.get("from")!) &&
-                    (!query.has("through") ||
-                      record.postedOn <= query.get("through")!),
-                ),
-              },
+          json: {
+            ...historyActivity,
+            context,
+            items: emptyActivity
+              ? []
+              : unknownActivity
+                ? [
+                    {
+                      ...historyActivity.items[0]!,
+                      quantityMicros: null,
+                      feesMinor: null,
+                      cashDeltaMinor: null,
+                      presence: "not_in_latest_complete_report",
+                      revision: 1,
+                      previous: null,
+                    },
+                  ]
+                : historyActivity.items.filter(
+                    (record) =>
+                      (!query.has("type") ||
+                        record.type === query.get("type")) &&
+                      (!query.has("from") ||
+                        record.postedOn >= query.get("from")!) &&
+                      (!query.has("through") ||
+                        record.postedOn <= query.get("through")!),
+                  ),
+          },
         });
   });
   await page.route("**/api/v1/tax-lots?*", (route) =>
@@ -306,6 +404,7 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
       json: partial
         ? {
             ...historyLots,
+            context,
             coverage: {
               ...historyLots.coverage,
               status: "partial",
@@ -315,6 +414,7 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
           }
         : {
             ...historyLots,
+            context,
             coverage: {
               status: "unavailable",
               reportedQuantityMicros: 110_000_000,
@@ -337,9 +437,10 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
   await expect(feature.getByRole("alert")).toContainText("History changed");
   await page.waitForTimeout(250);
   expect(reads).toBe(1);
+  await feature.getByRole("button", { name: "Filter", exact: true }).click();
   await feature.getByRole("combobox", { name: "Activity type" }).click();
   await page.getByRole("option", { name: "Purchases", exact: true }).click();
-  await expect.poll(() => reads).toBe(2);
+  expect(reads).toBe(1);
   await feature.getByRole("button", { name: "From", exact: true }).click();
   await page
     .getByRole("button", { name: "Monday, November 9, 2026", exact: true })
@@ -348,10 +449,16 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
   await page
     .getByRole("button", { name: "Wednesday, November 11, 2026", exact: true })
     .click();
-  await feature
-    .getByRole("button", { name: "Apply dates", exact: true })
-    .click();
-  await expect.poll(() => reads).toBe(3);
+  await mobileGeometry(
+    page,
+    feature,
+    testInfo.project.name === "mobile-chromium",
+  );
+  await expect(feature).toHaveScreenshot("investment-history-filters.png", {
+    stylePath: "e2e/purchase-details.capture.css",
+  });
+  await feature.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect.poll(() => reads).toBe(2);
   await expect(feature.getByRole("alert")).toContainText("History changed");
   await expect(feature).toHaveScreenshot("investment-history-conflict.png", {
     stylePath: "e2e/purchase-details.capture.css",
@@ -360,11 +467,16 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
   await feature
     .getByRole("button", { name: "Reload history", exact: true })
     .click();
-  await expect(feature.getByText("Buy · SYN", { exact: true })).toBeVisible();
-  expect(reads).toBe(4);
+  await expect(
+    feature.getByText("Buy 40 shares", { exact: true }),
+  ).toBeVisible();
+  expect(reads).toBe(3);
   expect(activityRequests.at(-1)!.get("type")).toBe("buy");
   expect(activityRequests.at(-1)!.get("from")).toBe("2026-11-09");
   expect(activityRequests.at(-1)!.get("through")).toBe("2026-11-11");
+  await feature
+    .getByRole("button", { name: "Filter · 2", exact: true })
+    .click();
   await expect(
     feature.getByRole("combobox", { name: "Activity type" }),
   ).toContainText("Purchases");
@@ -374,10 +486,19 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
   await expect(
     feature.getByRole("button", { name: "Through", exact: true }),
   ).toContainText("Nov 11, 2026");
+  await feature
+    .getByRole("button", { name: "Filter · 2", exact: true })
+    .click();
+  await expect(
+    feature.getByRole("button", { name: "Partial history", exact: true }),
+  ).toBeVisible();
   await feature.getByRole("tab", { name: "Tax lots", exact: true }).click();
   await expect(
     feature.getByText("The broker did not provide tax lots.", { exact: true }),
   ).toBeVisible();
+  await expect(
+    feature.getByRole("combobox", { name: "Sort tax lots" }),
+  ).not.toBeVisible();
   await expect(feature.getByText("0 shares", { exact: false })).toHaveCount(0);
   await expect(feature).toHaveScreenshot(
     "investment-history-unavailable-lots.png",
@@ -392,10 +513,28 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
     "investment-history-partial-lots.png",
     { stylePath: "e2e/purchase-details.capture.css" },
   );
+  unknownActivity = true;
+  await feature.getByRole("tab", { name: "Activity", exact: true }).click();
+  const unknown = feature.getByRole("article", { name: "Buy", exact: true });
+  await expect(unknown).toContainText("Cash unavailable");
+  await expect(unknown).toContainText("$150/share");
+  await expect(unknown).toContainText("Unconfirmed in latest report");
+  await unknown.locator('[data-slot="collapsible-trigger"]').click();
+  await expect(unknown).toContainText("Cancellation is unconfirmed");
+  await expect(unknown.getByText("$0.00", { exact: true })).not.toBeVisible();
+  await mobileGeometry(
+    page,
+    feature,
+    testInfo.project.name === "mobile-chromium",
+  );
+  await expect(feature).toHaveScreenshot("investment-history-unknown.png", {
+    stylePath: "e2e/purchase-details.capture.css",
+  });
   emptyActivity = true;
+  await feature.getByRole("tab", { name: "Tax lots", exact: true }).click();
   await feature.getByRole("tab", { name: "Activity", exact: true }).click();
   await expect(
-    feature.getByText("No transactions reported for this filter.", {
+    feature.getByText("No captured activity.", {
       exact: true,
     }),
   ).toBeVisible();
