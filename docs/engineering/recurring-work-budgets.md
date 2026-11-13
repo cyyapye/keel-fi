@@ -193,6 +193,22 @@ its profile without running an idle page. Empty checks must open zero browsers;
 the one-minute discovery clock cannot become 1,440 browser launches per day.
 Browser startup failures follow the leased operation's bounded failure path.
 
+Owned Chrome shutdown makes one loopback `/json/version` read and one root
+browser WebSocket connection, then sends only `Browser.close`. Discovery and
+connection share the existing five-second control deadline; the owned process
+still has five seconds to exit normally. Discovery rejects redirects, caps its
+streamed body at 4 KiB, and validates that the browser socket stays on the same
+loopback authority. Shutdown does not attach to pages or wait for their scripts.
+It adds no polling, retry, provider/API/D1/object operation or idle work. Within
+the existing 17-preparation daily envelope, it makes at most 17 local discovery
+attempts and 17 local browser connections on useful or failure days; idle days
+make none. Repeated manual work still consumes the existing admission allowance.
+A socket acknowledgement, signal or timeout never proves a saved session: normal
+zero process exit and the existing saved-profile verification remain required
+before completion. Local or CI proof does not activate this change on an
+existing provider agent; fleet credentials, identities and profiles must be
+preserved.
+
 Tokenfolio's passkey/MFA classification inspects only visible DOM controls in
 the existing page-readiness check. It adds no browser launch, network request,
 API/D1/object operation, timer, credential probe, or retry. Existing 45-second

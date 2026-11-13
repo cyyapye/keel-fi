@@ -229,6 +229,8 @@ exports[`accounts for every runtime timer, network and queue call in the entrypo
   "scripts/provider-agent-polling.ts | runProviderAgentPolling | timer | setTimeout | 057c9228e72e1282",
   "scripts/provider-agent-polling.ts | runProviderAgentPolling | timer | sleep | 3991e2481b30ec93",
   "scripts/provider-agent-polling.ts | runProviderAgentPolling | timer | sleep | ab841696e54fd33c",
+  "scripts/provider-browser-reconnect.ts | closeChromeGracefully | network | fetch | 87144863b07e5bc7",
+  "scripts/provider-browser-reconnect.ts | closeChromeGracefully | timer | setTimeout | 8046f9ea39140c7d",
   "scripts/provider-browser-reconnect.ts | leaseProviderBrowserSession | network | macAgentApi | 6ccf6ed02fb1a17e",
   "scripts/provider-browser-reconnect.ts | rotateProviderAgentAuthorization | network | macAgentApi | 4de1fc29a44f1ae7",
   "scripts/provider-browser-reconnect.ts | sessionApi | network | macAgentApi | 292813c6323db27d",

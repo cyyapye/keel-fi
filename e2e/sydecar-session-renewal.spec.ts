@@ -351,7 +351,20 @@ test("a working Sydecar access token does not prove a refresh token survived ano
     runtime.signInElsewhere();
     runtime.state.now = start + hour / 2;
     const immediate = await runtime.launch();
-    await ordinaryCapture(immediate.context);
+    const immediatePage = await ordinaryCapture(immediate.context);
+    const hung = immediatePage.waitForEvent("console", {
+      predicate: (message) =>
+        message.text() === "Synthetic shutdown hang ready",
+    });
+    await immediatePage.evaluate(() => {
+      setTimeout(() => {
+        console.info("Synthetic shutdown hang ready");
+        for (;;) {
+          performance.now();
+        }
+      }, 0);
+    });
+    await hung;
     await immediate.close();
     expect(runtime.state.refreshes).toBe(0);
     runtime.state.now = start + 6 * hour;

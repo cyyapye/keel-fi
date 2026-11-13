@@ -23,7 +23,7 @@ import {
 } from "node:net";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { chromium } from "@playwright/test";
+import { z } from "zod";
 
 import {
   MacAgentAuthorizationSchema,
@@ -373,27 +373,105 @@ async function closeChromeGracefully(
   child: ChildProcess,
   endpointUrl: string,
 ): Promise<void> {
-  const browser = await chromium.connectOverCDP(endpointUrl, {
-    noDefaults: true,
-    timeout: PROCESS_STOP_TIMEOUT_MS,
-  });
+  const unavailable = () =>
+    new ProviderBrowserRuntimeError(
+      "browser_unavailable",
+      "The provider browser could not finish saving its session.",
+    );
+  const controller = new AbortController();
+  const deadline = performance.now() + PROCESS_STOP_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(), PROCESS_STOP_TIMEOUT_MS);
+  let socket: WebSocket | undefined;
   try {
-    const session = await browser.newBrowserCDPSession();
+    const endpoint = new URL(endpointUrl);
+    if (
+      childExited(child) ||
+      endpoint.protocol !== "http:" ||
+      endpoint.hostname !== "127.0.0.1" ||
+      !endpoint.port ||
+      endpoint.pathname !== "/" ||
+      endpoint.search ||
+      endpoint.hash ||
+      endpoint.username ||
+      endpoint.password
+    )
+      throw unavailable();
+    const response = await fetch(new URL("/json/version", endpoint), {
+      redirect: "error",
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) throw unavailable();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    let text = "";
+    let bytes = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > 4096) throw unavailable();
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+    } finally {
+      void reader.cancel().catch(() => undefined);
+    }
+    const version = z
+      .object({ webSocketDebuggerUrl: z.url().max(2048) })
+      .parse(JSON.parse(text));
+    const browserEndpoint = new URL(version.webSocketDebuggerUrl);
+    if (
+      browserEndpoint.protocol !== "ws:" ||
+      browserEndpoint.hostname !== endpoint.hostname ||
+      browserEndpoint.port !== endpoint.port ||
+      !/^\/devtools\/browser\/[A-Za-z0-9-]+$/u.test(browserEndpoint.pathname) ||
+      browserEndpoint.search ||
+      browserEndpoint.hash ||
+      browserEndpoint.username ||
+      browserEndpoint.password
+    )
+      throw unavailable();
+    if (
+      controller.signal.aborted ||
+      performance.now() >= deadline ||
+      childExited(child)
+    )
+      throw unavailable();
+    const connection = new WebSocket(browserEndpoint);
+    socket = connection;
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        connection.removeEventListener("open", opened);
+        connection.removeEventListener("error", failed);
+        connection.removeEventListener("close", failed);
+        controller.signal.removeEventListener("abort", failed);
+        if (error) reject(error);
+        else resolve();
+      };
+      const opened = () => finish();
+      const failed = () => finish(unavailable());
+      connection.addEventListener("open", opened, { once: true });
+      connection.addEventListener("error", failed, { once: true });
+      connection.addEventListener("close", failed, { once: true });
+      controller.signal.addEventListener("abort", failed, { once: true });
+      if (controller.signal.aborted) failed();
+    });
+    if (performance.now() >= deadline || childExited(child))
+      throw unavailable();
     const exited = waitForChildExit(child);
     // Browser.close lets Chrome flush its profile. A signal/timeout is cleanup,
     // not proof that a sign-in was saved, so it must never lead to success.
-    await Promise.race([
-      session.send("Browser.close").catch(() => undefined),
-      exited,
-    ]);
-    if (!(await exited) || child.exitCode !== 0) {
-      throw new ProviderBrowserRuntimeError(
-        "browser_unavailable",
-        "The provider browser could not finish saving its session.",
-      );
-    }
+    connection.send(JSON.stringify({ id: 1, method: "Browser.close" }));
+    clearTimeout(timer);
+    if (!(await exited) || child.exitCode !== 0 || child.signalCode !== null)
+      throw unavailable();
+  } catch {
+    throw unavailable();
   } finally {
-    await browser.close().catch(() => undefined);
+    clearTimeout(timer);
+    controller.abort();
+    socket?.close();
   }
 }
 
