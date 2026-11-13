@@ -2,7 +2,7 @@ import { ESLint } from "eslint";
 import ts from "typescript";
 import tseslint from "typescript-eslint";
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
@@ -123,7 +123,8 @@ async function performChecks(cwd) {
   const expected = compilerContexts(cwd);
   const seen = new Set();
   const programs = new WeakSet();
-  const diagnostics = [];
+  const diagnosticOutput = [];
+  let typeDiagnostics = 0;
   const collector = {
     meta: { schema: [] },
     create(context) {
@@ -178,29 +179,87 @@ async function performChecks(cwd) {
           if (seen.has(key))
             throw new Error(`Replaced TypeScript program for ${key}`);
           seen.add(key);
-          diagnostics.push(...ts.getPreEmitDiagnostics(program));
+          const diagnostics = ts.getPreEmitDiagnostics(program);
+          typeDiagnostics += diagnostics.length;
+          if (diagnostics.length) {
+            diagnosticOutput.push(
+              ts.formatDiagnostics(diagnostics, {
+                ...diagnosticHost,
+                getCurrentDirectory: () => cwd,
+              }),
+            );
+          }
         },
       };
     },
   };
-  const eslint = new ESLint({
-    cwd,
-    overrideConfig: [
-      {
-        files: ["**/*.{ts,tsx}"],
-        plugins: { "keel-types": { rules: { diagnostics: collector } } },
-        rules: { "keel-types/diagnostics": "error" },
-      },
-    ],
-  });
-  const results = await eslint.lintFiles(["."]);
-  const configurations = await Promise.all(
-    results.map((result) => eslint.calculateConfigForFile(result.filePath)),
+  const directories = [...expected.keys()].map(
+    (config) => relative(cwd, dirname(config)).split(sep).join("/") || ".",
   );
-  if (configurations.some((configuration) => configuration?.processor)) {
-    throw new Error("Unsupported ESLint processor in combined typecheck");
+  const partitions = directories
+    .map((directory) => ({
+      directory,
+      ignorePatterns: directories
+        .filter(
+          (other) =>
+            other !== directory &&
+            (directory === "." || other.startsWith(directory + "/")),
+        )
+        .map((other) => other.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&") + "/**"),
+    }))
+    .sort((left, right) =>
+      left.directory === "."
+        ? 1
+        : right.directory === "."
+          ? -1
+          : left.directory.localeCompare(right.directory),
+    );
+  const ownership = [...partitions].sort(
+    (left, right) => right.directory.length - left.directory.length,
+  );
+  const results = [];
+  const seenFiles = new Set();
+  for (const partition of partitions) {
+    const eslint = new ESLint({
+      cwd,
+      ignorePatterns: partition.ignorePatterns,
+      errorOnUnmatchedPattern: false,
+      overrideConfig: [
+        {
+          files: ["**/*.{ts,tsx}"],
+          plugins: { "keel-types": { rules: { diagnostics: collector } } },
+          rules: { "keel-types/diagnostics": "error" },
+        },
+      ],
+    });
+    try {
+      const batch = await eslint.lintFiles([partition.directory]);
+      for (const result of batch) {
+        const path = relative(cwd, result.filePath).split(sep).join("/");
+        const owner = ownership.find(
+          ({ directory }) =>
+            directory === "." || path.startsWith(directory + "/"),
+        );
+        if (owner !== partition || seenFiles.has(path)) {
+          throw new Error(`Duplicate or foreign lint file ${path}`);
+        }
+        seenFiles.add(path);
+      }
+      const configurations = await Promise.all(
+        batch.map((result) => eslint.calculateConfigForFile(result.filePath)),
+      );
+      if (configurations.some((configuration) => configuration?.processor)) {
+        throw new Error("Unsupported ESLint processor in combined typecheck");
+      }
+      // ESLint result getters retain its instance and last typed Program.
+      results.push(
+        ...batch.map((result) => Object.fromEntries(Object.entries(result))),
+      );
+    } finally {
+      parser.clearCaches();
+    }
   }
-  const formatter = await eslint.loadFormatter("stylish");
+  const formatter = await new ESLint({ cwd }).loadFormatter("stylish");
   const lintOutput = formatter.format(results);
   let output = lintOutput;
   const missing = [...expected.keys()].filter((key) => !seen.has(key));
@@ -211,12 +270,7 @@ async function performChecks(cwd) {
       stderr: `Missing TypeScript contexts ${missing.join(", ")}\n`,
     };
   }
-  if (diagnostics.length) {
-    output += ts.formatDiagnostics(diagnostics, {
-      ...diagnosticHost,
-      getCurrentDirectory: () => cwd,
-    });
-  }
+  output += diagnosticOutput.join("");
   const lintErrors = results.reduce(
     (total, result) => total + result.errorCount,
     0,
@@ -230,10 +284,10 @@ async function performChecks(cwd) {
     lintFiles: results.length,
     lintErrors,
     warnings,
-    typeDiagnostics: diagnostics.length,
+    typeDiagnostics,
   };
   return {
-    status: lintErrors || warnings || diagnostics.length ? 1 : 0,
+    status: lintErrors || warnings || typeDiagnostics ? 1 : 0,
     stdout: output + JSON.stringify(summary) + "\n",
     stderr: "",
   };

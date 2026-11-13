@@ -88,10 +88,11 @@ run.
 
 ## Capacity and further reductions
 
-One `keel-ci` runner currently serializes verification. Adding YAML jobs alone
-does not add capacity. The host also serves other workloads; measure peak CPU,
-memory, I/O and queue pressure before adding runners or increasing worker
-counts. Keep the credential-bearing deployment account separate.
+The historical baseline used one `keel-ci` runner to serialize verification.
+Adding YAML jobs alone did not add capacity. That host also served other
+workloads; measure peak CPU, memory, I/O and queue pressure before adding
+runners or increasing worker counts. Keep the credential-bearing deployment
+account separate.
 
 Run the small release gates before admitting expensive native verification on
 this single runner. PR native verification waits for its secret scan; post-merge
@@ -162,6 +163,26 @@ and supported source types. Missing contexts and unsupported compiler modes fail
 rather than silently reducing coverage. Alternative parsers and processors are
 refused because transformed input can hide diagnostics from the original source.
 It creates no persistent cache or receipt.
+
+Compiler contexts now define disjoint directory partitions. Each keeps the
+repository's ESLint configuration and root working directory. Ancestors exclude
+only literal descendant context directories, so root JavaScript, new files and
+workspace files retain an owner. Duplicate or foreign paths fail. Empty or
+ignored partitions still fail the complete-context check. Every program keeps
+the existing full-root, compiler-option, parser and processor validations.
+
+After each partition, compiler diagnostics are formatted and lint results are
+materialized before parser caches are released. ESLint's result getters and
+formatter can retain its instance and last typed Program; retaining those
+objects defeated the first private lifetime prototype. The formatter is created
+after the partitions, and no Program is stored in the aggregate result.
+
+Five alternating private macOS pairs preserved the exact nine-context, 613-file
+result with zero diagnostics or lint findings. Median child CPU fell from 70.6
+seconds to 60.9 seconds, with ranges 67.7–73.7 and 59.3–64.4 seconds. These
+unprofiled prototype measurements justify a Linux trial; they do not establish
+hosted deadline compliance. The 600-second source, 900-second native and
+300-second browser gates remain unchanged.
 
 Its regression fixtures reuse loaded modules in an owned child while each
 operation clears parser caches and creates fresh context maps. The strict CLI is

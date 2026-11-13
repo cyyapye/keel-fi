@@ -306,6 +306,42 @@ it("preserves compiler diagnostics and the complete lint failure contract", asyn
 }, 90_000);
 
 it("requires every canonical workspace context and rejects command drift", async () => {
+  await withFixture(
+    {
+      files: {
+        "apps/synthetic[team]/package.json": JSON.stringify({
+          name: "synthetic",
+          scripts: { typecheck: "tsc --noEmit" },
+        }),
+        "apps/synthetic[team]/tsconfig.json": JSON.stringify({
+          compilerOptions: { noEmit: true, types: [] },
+          files: ["source.ts"],
+        }),
+        "apps/synthetic[team]/source.ts": "export const value: number = 1;\n",
+      },
+    },
+    async (cwd) => {
+      const owned = fixtureSession();
+      const clean = await owned.request(cwd);
+      expect(clean.status, clean.stdout + clean.stderr).toBe(0);
+      expect(clean.stdout).toContain('"contexts":3');
+      for (const name of [
+        "new-root.js",
+        "apps/synthetic[team]/new-workspace.js",
+        "e2e/ui-catalogue/new-catalogue.js",
+      ]) {
+        const path = join(cwd, name);
+        writeFileSync(path, "syntheticMissing();\n");
+        const added = await owned.request(cwd);
+        expect(added.status, added.stdout + added.stderr).toBe(1);
+        expect(added.stdout).toContain(name);
+        expect(added.stdout).toContain("no-undef");
+        expect(added.stdout).toContain('"lintErrors":1');
+        rmSync(path);
+      }
+      expect((await owned.request(cwd)).status).toBe(0);
+    },
+  );
   for (const [fixture, failure] of [
     [{ programDrift: "options" }, "TypeScript compiler options differ"],
     [
