@@ -421,6 +421,14 @@ contract.
 
 ## Brokerage source decisions
 
+Investment activity leads with compact transaction rows: shares and reported
+cash stay together, with posting date and price below. Keep type and date
+filters behind one control. Trade detail shows relevant fees and timing; Source
+holds audit identifiers and precise-time limitations. Omit zero fees from trade
+detail while retaining the reported zero in Source. Keep partial history,
+corrections, unconfirmed events and unknown reconciliation explicit. Account
+activity names each security and omits position-only tax-lot navigation.
+
 The ordinary source task needs no action: show the automatic result, accepted
 holdings total, report date and last successful check. Connection health does
 not establish freshness; omit repeated healthy badges. Name a genuine decision

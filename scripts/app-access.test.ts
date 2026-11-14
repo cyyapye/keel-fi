@@ -11,7 +11,8 @@ import {
   AppAccessStateSchema,
   KeyReceiptSchema,
 } from "../packages/domain/src/app-access";
-import { COST_SUBJECT, seedCostHoldings } from "./test-support/cost-fixtures";
+import { COST_SUBJECT } from "./test-support/cost-fixtures";
+import { createMcpMetadataDatabase } from "./test-support/mcp-metadata-database";
 import { createCostDatabase, measureD1 } from "./test-support/d1-cost";
 import { goalReceipt } from "../apps/api/src/agent-api/goals";
 import {
@@ -20,11 +21,8 @@ import {
 } from "../apps/api/src/agent-api/resources";
 
 it("accepts MCP request metadata without widening tool arguments or connection scopes", async () => {
-  const fixture = await createCostDatabase();
+  const fixture = await createMcpMetadataDatabase();
   try {
-    await seedCostHoldings(fixture.database, COST_SUBJECT, 1, false, {
-      positionCount: 1,
-    });
     const meter = measureD1(fixture.database),
       store = new AppAccessStore(meter.database),
       owner = await store.owner(COST_SUBJECT),
