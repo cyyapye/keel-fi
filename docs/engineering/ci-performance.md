@@ -15,34 +15,33 @@ independent test runs.
 
 ## Temporary private CI bridge
 
-The private CI bridge temporarily sets the complete active native budget to 1500
-seconds, the `source-quality` flow limit to 900 seconds and the first MCP
-integration case deadline to 15,000 milliseconds. Every registered case and
-assertion remains required. The complete browser cap is temporarily 420 seconds.
-Worker counts, all other flow and case deadlines, schedules, caches,
-included-compute-only admission and the one-dollar Actions hard stop remain
-unchanged. This policy does not authorize a visibility change, paid capacity or
-a new provider.
+The private CI bridge used a 1500-second complete native budget, a 900-second
+source limit, a 15,000-millisecond first MCP deadline, and a 420-second browser
+cap. Publication followed a separate privacy review and explicit approval.
 
-After separately approved publication, verify the same complete workload on the
-standard public four-core, 16-GB runner. Then restore the original 900-second
-native budget, 600-second source limit, 5000-millisecond first-MCP deadline and
-300-second browser budget in a reviewed follow-up. A capacity specification is
-not a passing receipt. If the original limits fail, preserve that failure and
-repair the measured bottleneck before claiming the public performance target is
-met.
+The complete public baseline in
+[run 43637621724](https://github.com/cyyapye/keel-fi/actions/runs/43637621724)
+passed all 11 flows at `06e63a7e` with those temporary limits unchanged. The
+actual runner reported four CPU cores. Active verification took 639.847 seconds,
+source checks took 286.839 seconds, browsers took 191.416 seconds, and the first
+MCP case took 1.873 seconds. All 1,718 unit cases, 59 Python cases, and 190
+browser cases passed, with the same 15 reviewed browser exclusions. Complete
+case timing vectors and the required receipt bind this evidence to that attempt.
 
-The browser extension is a bounded private-runner trial. Two exact-head runs
-passed every unit case but were terminated at the earlier 300-second browser
-limit; their incomplete results remain failures. A same-tree PR run completed
-browsers in 253.527 seconds. These observations do not establish completion
-within 420 seconds or stable runner capacity. Require fresh complete exact-head
-and exact-main receipts; do not retry unchanged failures repeatedly or count
-interrupted cases as coverage. Keep all cases, assertions, canonical references,
-workers and the 1500-second native budget.
+The configured limits return to 900 seconds for the native gate, 600 seconds for
+source checks, 5000 milliseconds for the first MCP case, and 300 seconds for
+browsers. The isolated unit diagnostic also uses the 900-second active clock.
+Worker counts, cases, assertions, canonical references, schedules, and all other
+deadlines remain unchanged.
+[Standard public runner compute is free](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+The included-compute-only policy and one-dollar Actions hard stop remain
+unchanged.
 
-Historical measurements and trials below retain their recorded limits. The
-temporary limits are a bridge, not permanent performance acceptance.
+One public baseline establishes that attempt, not a recurrence guarantee. The
+restoration still requires complete exact-head and exact-main receipts under the
+original limits. Preserve earlier failed private attempts and their recorded
+limits. If the original limits fail, repair the measured bottleneck before
+claiming the public performance target is met.
 
 ## Baseline and budgets
 
@@ -60,22 +59,21 @@ seconds for browsers and 885.347 seconds for unit/D1 tests. PDF isolation took
 232.225 seconds and source checks 226.340 seconds. It passed 1,151 unit/D1 cases
 and 288 browser cases, with 44 reviewed browser exclusions and no flakes.
 
-`.tugling/pilot.json` enforces a temporary 1500-second active native budget. The
-complete receipt records elapsed execution time, each flow duration and a sorted
-timing summary. Concurrent flow durations are not added to claim wall-clock
-time. Exceeding that budget fails required verification without silently
-dropping checks. Watchdogs remain independent safety ceilings. Do not raise the
-budget to hide a regression.
+`.tugling/pilot.json` enforces a 900-second active native budget. The complete
+receipt records elapsed execution time, each flow duration and a sorted timing
+summary. Concurrent flow durations are not added to claim wall-clock time.
+Exceeding that budget fails required verification without silently dropping
+checks. Watchdogs remain independent safety ceilings. Do not raise the budget to
+hide a regression.
 
-The complete `browser-workflows` command has a separate **temporary 420-second
-elapsed budget** in `.tugling/pilot-verification.json`. It includes profile
-copies, server/browser startup, all registered cases, report validation and
-owned runtime teardown. Queue time and the existing build/seed prerequisite
-flows remain separate. The native launcher terminates an overrun. Receipt
-publication and every downstream receipt check also compare the measured
-duration with the declared limit, so observing an exit-code-zero process just
-after its deadline cannot produce a green check. The temporary 1500-second
-whole-gate budget also applies.
+The complete `browser-workflows` command has a separate **300-second elapsed
+budget** in `.tugling/pilot-verification.json`. It includes profile copies,
+server/browser startup, all registered cases, report validation and owned
+runtime teardown. Queue time and the existing build/seed prerequisite flows
+remain separate. The native launcher terminates an overrun. Receipt publication
+and every downstream receipt check also compare the measured duration with the
+declared limit, so observing an exit-code-zero process just after its deadline
+cannot produce a green check. The 900-second whole-gate budget also applies.
 
 Keep browser lanes balanced as coverage grows. The carry/share-basis change
 added 24 executions to one serial production lane, taking its passing count from
@@ -96,8 +94,8 @@ show memory pressure and 2,398.6 MiB of swap in use; sampled process RSS peaks
 were 8,242 MiB for browsers, 3,667 MiB for source checks and 2,638 MiB for
 unit/D1 work. These peaks are not additive physical-memory measurements.
 Browsers now wait for source checks and unit/D1 verification to release their
-resources. Their existing work remains required within the temporary 1500-second
-native gate, and browser execution has its temporary 420-second limit.
+resources. Their existing work remains required within the 900-second native
+gate, and browser execution has its 300-second limit.
 
 The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
 208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions and
@@ -170,9 +168,9 @@ competing heavy phases. PDF isolation waits for source checks, so its scanner
 cannot overlap the compiler flow; it may overlap browsers after the unit flow
 completes. Source checks still must pass in the same complete receipt.
 Configured scanner and compiler limits do not establish observed memory use or
-available host capacity. The temporary 1500-second active budget and current
-per-case deadlines apply. Native main units and standalone execution use three
-workers after the two-worker trial below failed the complete budget.
+available host capacity. The 900-second active budget and current per-case
+deadlines apply. Native main units and standalone execution use three workers
+after the two-worker trial below failed the complete budget.
 
 Draft PR #340 tried admitting the workspace build before the main unit suite in
 [run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
@@ -505,12 +503,12 @@ Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
 
 The image build is an explicit required flow, with its failure, timing and
-cancellation included in the exact-revision receipt and temporary 1500-second
-budget. Daily `SECURITY_REFRESH_DATE` package refresh, freshclam signature
-refresh, rootless-engine validation, immutable digests, atomic configuration
-writes and the clean-scanner preflight remain unchanged. No consumer uses
-partially built images. Native and manual pilot workflows do not build the
-images a second time outside the dependency graph.
+cancellation included in the exact-revision receipt and 900-second budget. Daily
+`SECURITY_REFRESH_DATE` package refresh, freshclam signature refresh,
+rootless-engine validation, immutable digests, atomic configuration writes and
+the clean-scanner preflight remain unchanged. No consumer uses partially built
+images. Native and manual pilot workflows do not build the images a second time
+outside the dependency graph.
 
 ## Test layers and coverage preservation
 
@@ -735,13 +733,13 @@ seconds. That attempt led to removing the unit image dependency and prioritizing
 ready PDF isolation within the existing three-flow cap. The later test-layering
 and independent-build work below supersedes that admission order: real provider
 document verification precedes UI and remaining PDF probes. The current map
-preserves all required boundaries under the temporary gate budget.
+preserves all required boundaries under the 900-second gate budget.
 
 These observed admission delays are not guaranteed wall-time savings: moving
 work changes contention on the shared host. A complete exact-revision Linux
-receipt must finish within the temporary 1500-second budget. Record active
-duration, remaining headroom, all flow timings, native case accounting and
-resource pressure. One successful run establishes that attempt, not a recurrence
+receipt must finish within the 900-second budget. Record active duration,
+remaining headroom, all flow timings, native case accounting and resource
+pressure. One successful run establishes that attempt, not a recurrence
 guarantee; robustness needs matched coverage under representative host load and
 the daily image security refresh. Preserve earlier failed attempts when
 comparing results.

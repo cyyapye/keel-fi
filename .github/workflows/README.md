@@ -32,25 +32,23 @@ complete receipt from that attempt. A failed or cancelled native run cannot
 supply that receipt. The separate Tugling candidate workflow runs on manual
 dispatch. See [CI performance](../../docs/engineering/ci-performance.md).
 
-The complete required browser flow has a temporary 420-second elapsed budget.
-Its launcher times out and cleans up an overrun; receipt publication and
-validation also reject a late success. Quality, D1, browser checks and preview
-cannot pass with an over-budget browser receipt. The clock covers the browser
-command's profile copies, server/browser startup, tests, reporting and teardown.
-The optional isolated browser timing step has the same seven-minute cap and
-rejects a late successful completion.
+The complete required browser flow has a 300-second elapsed budget. Its launcher
+times out and cleans up an overrun; receipt publication and validation also
+reject a late success. Quality, D1, browser checks and preview cannot pass with
+an over-budget browser receipt. The clock covers the browser command's profile
+copies, server/browser startup, tests, reporting and teardown. The optional
+isolated browser timing step has the same five-minute cap and rejects a late
+successful completion.
 
 Browser execution waits for source checks and unit/D1 verification to finish so
 these heavy phases do not compete for the runner's memory and CPU. All remain
-required within the complete gate's temporary 1500-second active budget.
+required within the complete gate's 900-second active budget.
 
-The private CI bridge temporarily allows 900 seconds for source checks and 15
-seconds for the first MCP integration case. Every case and assertion remains
-required. After separately approved publication and complete verification on the
-standard public runner, restore the original 900-second native, 600-second
-source, 5000-millisecond first-MCP and 300-second browser limits in a reviewed
-follow-up. See the
-[temporary bridge policy](../../docs/engineering/ci-performance.md#temporary-private-ci-bridge).
+The standard public runner passed the complete workload before removal of the
+private CI bridge. The limits are 900 seconds for the native gate, 600 seconds
+for source checks, 5000 milliseconds for the first MCP integration case, and 300
+seconds for browsers. Every case and assertion remains required. See the
+[public-runner evidence](../../docs/engineering/ci-performance.md#temporary-private-ci-bridge).
 
 Successful hosted setup also owns an exclusive compilation-cache root for the
 job VM. Unit phases use separate directories and never upload this bytecode or
@@ -67,13 +65,12 @@ runner. The ordinary PR workflow supplies the required verification receipt.
 
 For unit timeout diagnosis, dispatch the same manual workflow with
 `isolated_unit` enabled. It runs the existing preflight and complementary main
-unit flows under the pinned scheduler, with one temporary 1500-second active
-clock and the complete gate's case deadlines. The complete unit inventory must
-still pass. This partial diagnostic excludes competing source, build and PDF
-flows and emits no required receipt. It cannot pass named PR checks or authorize
-deployment. The three manual diagnostic modes are mutually exclusive. Confirm
-fresh included compute headroom before dispatch; a push to a ready PR also
-starts full CI.
+unit flows under the pinned scheduler, with one 900-second active clock and the
+complete gate's case deadlines. The complete unit inventory must still pass.
+This partial diagnostic excludes competing source, build and PDF flows and emits
+no required receipt. It cannot pass named PR checks or authorize deployment. The
+three manual diagnostic modes are mutually exclusive. Confirm fresh included
+compute headroom before dispatch; a push to a ready PR also starts full CI.
 
 A same-repository draft targeting `main` can take a shorter path when its only
 changes are edits to seven reviewed documents, four registered Vitest files,
@@ -116,12 +113,13 @@ boundaries and native enforcement are defined in the
 
 `tugling.yml` separately verifies the project adapter, synthetic dogfood case,
 instruction routing, ignored local-learning ledger, and exact accepted Tugling
-revision. It is deterministic and does not call a model. On repository plans
-that cannot require checks for a private branch, this workflow provides
-pre-merge feedback while `post-merge.yml` repeats the exact pinned contract as a
-hard deployment dependency. A change can land on `main`, but it cannot reach
-preview unless Tugling, native verification, and the secret scan all pass for
-that exact commit.
+revision. It is deterministic and does not call a model. Main requires pull
+requests, current GitHub Actions checks, and resolved review conversations.
+These protections also apply to administrators. Force pushes and branch deletion
+are disabled. Formal GitHub approval count is zero so the sole owner can merge a
+verified PR. The independent pre-merge review remains required. `post-merge.yml`
+repeats the pinned contract, full native gate, and secret scan as hard
+deployment dependencies for the exact merged commit.
 
 Every Monday, and on manual dispatch, the workflow also checks Tugling's
 `stable` branch. It passes while stable is the accepted version and fails closed
@@ -174,15 +172,15 @@ do not call the native setup helper or consume its Docker daemon. See the
 
 The native producer, manual pilot, and receipt consumers use a distinct
 `keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8` environment identity.
-The temporary active native budget remains 1500 seconds. The complete browser
-budget is temporarily 420 seconds. Registered cases, canonical screenshot
-baselines and receipt checks remain unchanged. A local workflow test does not
-establish hosted compatibility.
+The active native budget is 900 seconds. The complete browser budget is 300
+seconds. Registered cases, canonical screenshot baselines and receipt checks
+remain unchanged. A local workflow test does not establish hosted compatibility.
 
 Changing YAML does not revoke a persistent runner registration. Before public
 contributors can run workflows, remove both legacy repository registrations and
-read back an empty runner inventory. Keep the repository private throughout
-preparation. Follow the
+read back an empty runner inventory. Keep a private repository private
+throughout preparation until its privacy review and publication approval are
+complete. Follow the
 [private CI migration procedure](../../docs/deployment/disposable-ci.md).
 
 `post-merge.yml` runs the complete native required gate, the exact pinned

@@ -1,6 +1,11 @@
-# Migrate CI while keeping the repository private
+# Disposable GitHub-hosted CI
 
-Keep repository visibility private during this procedure. The workflow patch
+Keel uses standard public GitHub-hosted Ubuntu VMs and has no persistent Actions
+runner registrations. Main requires passing PR checks, including administrator
+changes. The preview environment accepts only main.
+
+For a future private migration, keep repository visibility private until its
+privacy review and explicit publication approval are complete. A workflow patch
 does not remove legacy runner access by itself. Complete each proof before
 removing the current execution path.
 
@@ -14,24 +19,21 @@ removing the current execution path.
 3. After approval to push, publish the reviewed candidate branch.
 4. Dispatch `tugling-pilot.yml` on that branch without diagnostic flags.
 5. Match the run's `headSha` to the candidate commit. Require a complete native
-   receipt within the temporary 1500-second active and 420-second browser
-   limits.
+   receipt within the 900-second active and 300-second browser limits.
 6. Require all registered cases, real D1 cost and preservation checks, unchanged
    canonical Linux screenshots, and real PDF containment probes.
 
-The standard private Linux VM has less CPU and memory than the public VM. The
-temporary private CI bridge also allows 900 seconds for source checks and 15
-seconds for the first MCP integration case. Keep every case and assertion. After
-separately approved publication, verify the complete workload on the standard
-public runner, then restore the original 900-second native, 600-second source,
-5000-millisecond first-MCP and 300-second browser limits in a reviewed
-follow-up. A public capacity specification does not establish that verification.
-See the
-[temporary bridge policy](../engineering/ci-performance.md#temporary-private-ci-bridge).
+The private runner had less CPU and memory than the public runner. Its temporary
+bridge allowed 1500 seconds for the native gate, 900 seconds for source checks,
+15 seconds for the first MCP case, and 420 seconds for browsers. After approved
+publication, the complete public baseline passed before restoration of the
+original limits. Source checks use 600 seconds and the first MCP case uses 5000
+milliseconds. Keep every case and assertion. See the
+[public-runner evidence](../engineering/ci-performance.md#temporary-private-ci-bridge).
 
-Neither a successful setup command nor a public capacity specification proves
-that this private run passes. If it fails, diagnose the failure while keeping
-the repository private. Preserve assertions, budgets, and baselines.
+A capacity specification or successful setup command does not establish a
+passing complete receipt. Preserve assertions, budgets, and baselines when
+repairing a failed run.
 
 Only successful hosted runtime setup enables the unit compilation cache. It
 creates an exclusive root in the current checkout's ignored artifacts and
@@ -44,13 +46,14 @@ or allocated storage above 64 MiB. This is an accepted-result limit, not a hard
 concurrent disk quota. Synthetic fixture, process and managed local checkout
 cleanup keep their existing ownership requirements.
 
-The manual pilot has a 120-minute job ceiling. Reserve that complete included
-compute envelope before dispatch. A full ready PR has a conservative
-95-runner-minute ceiling across native, scan, contract, and receipt jobs. Setup
-is outside the native execution clock but consumes billed job time. Main
-verification and deployment consume additional minutes. Ongoing private use
-needs a measured monthly allowance. Do not assume that included compute supports
-an unlimited run rate. See
+The manual pilot has a 120-minute job ceiling. Standard public runner compute is
+free. For a private repository, reserve the complete included compute envelope
+before dispatch. A full ready PR has a conservative 95-runner-minute ceiling
+across native, scan, contract, and receipt jobs. Setup is outside the native
+execution clock but consumes billed job time. Main verification and deployment
+consume additional minutes. Ongoing private use needs a measured monthly
+allowance. Do not assume that included compute supports an unlimited run rate.
+See
 [GitHub-hosted runner capacity](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 and
 [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
@@ -88,7 +91,7 @@ policies to make a hosted check pass.
 6. Read back the repository runner inventory. Require zero available runners. An
    offline registration still permits future host access.
 7. Re-enable Actions only after main contains the verified hosted revision.
-8. Recheck private visibility, main SHA, environment policy, read-only token
+8. Recheck expected visibility, main SHA, environment policy, read-only token
    defaults, backup activation, schedules, and queued work.
 
 Use these read-only checks and retain their results privately.
@@ -106,6 +109,7 @@ Do not use name wildcards or retain an offline registration as a fallback. If
 repository ownership moves to an organization, also exclude inherited persistent
 runner-group access.
 
-Keep the repository private when a proof fails. Do not restore persistent
-public-PR execution as a convenience fallback. Public visibility and API-doc
-publication remain separate operator decisions.
+For a private migration, stop before publication when a proof fails. Once
+public, repair failures through the protected PR path. Never restore persistent
+public-PR execution as a convenience fallback. Publication still requires its
+own privacy review and explicit operator approval.

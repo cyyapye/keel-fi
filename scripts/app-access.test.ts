@@ -142,7 +142,7 @@ it("accepts MCP request metadata without widening tool arguments or connection s
   } finally {
     await fixture.close();
   }
-}, 15_000);
+}, 5_000);
 
 it("keeps owner keys scoped, isolated, expiring and revocable through the actual middleware and D1", async () => {
   const fixture = await createCostDatabase();
