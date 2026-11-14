@@ -42,7 +42,8 @@ successful completion.
 
 Browser execution waits for source checks and unit/D1 verification to finish so
 these heavy phases do not compete for the runner's memory and CPU. All remain
-required within the complete gate's 900-second active budget.
+required within the complete gate's 1,200-second active budget. Source checks
+have a 750-second limit; individual test deadlines remain unchanged.
 
 Successful hosted setup also owns an exclusive compilation-cache root for the
 job VM. Unit phases use separate directories and never upload this bytecode or
@@ -165,9 +166,10 @@ do not call the native setup helper or consume its Docker daemon. See the
 
 The native producer, manual pilot, and receipt consumers use a distinct
 `keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8` environment identity.
-The 900-second active native budget, 300-second complete browser budget,
-registered cases, canonical screenshot baselines, and receipt checks remain
-unchanged. A local workflow test does not establish hosted compatibility.
+The active native budget is 1,200 seconds and source checks have a 750-second
+limit. The 300-second complete browser budget, registered cases, individual test
+deadlines, canonical screenshot baselines, and receipt checks remain unchanged.
+A local workflow test does not establish hosted compatibility.
 
 Changing YAML does not revoke a persistent runner registration. Before public
 contributors can run workflows, remove both legacy repository registrations and

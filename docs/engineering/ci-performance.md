@@ -29,12 +29,12 @@ seconds for browsers and 885.347 seconds for unit/D1 tests. PDF isolation took
 232.225 seconds and source checks 226.340 seconds. It passed 1,151 unit/D1 cases
 and 288 browser cases, with 44 reviewed browser exclusions and no flakes.
 
-`.tugling/pilot.json` enforces a 900-second active native budget. The complete
-receipt records elapsed execution time, each flow duration and a sorted timing
-summary. Concurrent flow durations are not added to claim wall-clock time.
-Exceeding that budget fails required verification without silently dropping
-checks. Watchdogs remain independent safety ceilings. Do not raise the budget to
-hide a regression.
+`.tugling/pilot.json` enforces a 1,200-second active native budget. Source
+checks have a 750-second limit. The complete receipt records elapsed execution
+time, each flow duration and a sorted timing summary. Concurrent flow durations
+are not added to claim wall-clock time. Exceeding that budget fails required
+verification without silently dropping checks. Watchdogs remain independent
+safety ceilings. Do not raise the budget to hide a regression.
 
 The complete `browser-workflows` command has a separate **300-second elapsed
 budget** in `.tugling/pilot-verification.json`. It includes profile copies,
@@ -43,7 +43,22 @@ runtime teardown. Queue time and the existing build/seed prerequisite flows
 remain separate. The native launcher terminates an overrun. Receipt publication
 and every downstream receipt check also compare the measured duration with the
 declared limit, so observing an exit-code-zero process just after its deadline
-cannot produce a green check. The 900-second whole-gate budget remains.
+cannot produce a green check. The whole-gate budget is 1,200 seconds. The
+isolated unit diagnostic retains its separate 900-second clock and emits no
+required receipt.
+
+On November 14, the user approved these hosted limits after PR run `43494926371`
+reached the previous 900-second whole-gate limit twice. Both attempts passed
+unit/API, source, populated migration, build and PDF checks; browser work was
+interrupted. The last passing base-tree run `43428480987` finished in 865.675
+seconds, including 264.414 seconds for browsers. The second failed attempt took
+768.181 seconds for unit/D1 work and 587.217 seconds for source checks,
+admitting browsers at offset 811.405. These observations support allowing more
+elapsed time; they do not establish a performance improvement or prove a
+particular host-level cause. All cases, assertions, per-test deadlines, workers,
+phase dependencies, receipt validation and financial spending stops remain. A
+new complete receipt must establish acceptance under the approved limits.
+Earlier trials below retain their historical limits and outcomes.
 
 Keep browser lanes balanced as coverage grows. The carry/share-basis change
 added 24 executions to one serial production lane, taking its passing count from
@@ -64,8 +79,8 @@ show memory pressure and 2,398.6 MiB of swap in use; sampled process RSS peaks
 were 8,242 MiB for browsers, 3,667 MiB for source checks and 2,638 MiB for
 unit/D1 work. These peaks are not additive physical-memory measurements.
 Browsers now wait for source checks and unit/D1 verification to release their
-resources. Their existing work remains required within the same 900-second
-native gate, and browser execution still has its 300-second limit.
+resources. Their existing work remains required within the 1,200-second native
+gate, and browser execution still has its 300-second limit.
 
 The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
 208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions and
@@ -138,9 +153,9 @@ competing heavy phases. PDF isolation waits for source checks, so its scanner
 cannot overlap the compiler flow; it may overlap browsers after the unit flow
 completes. Source checks still must pass in the same complete receipt.
 Configured scanner and compiler limits do not establish observed memory use or
-available host capacity. The 900-second active budget and per-case deadlines
-remain. Native main units and standalone execution use three workers after the
-two-worker trial below failed the complete budget.
+available host capacity. The active budget is 1,200 seconds; per-case deadlines
+remain unchanged. Native main units and standalone execution use three workers
+after the two-worker trial below failed the complete budget.
 
 Draft PR #340 tried admitting the workspace build before the main unit suite in
 [run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).

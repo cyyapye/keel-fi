@@ -14,7 +14,7 @@ removing the current execution path.
 3. After approval to push, publish the reviewed candidate branch.
 4. Dispatch `tugling-pilot.yml` on that branch without diagnostic flags.
 5. Match the run's `headSha` to the candidate commit. Require a complete native
-   receipt within the existing 900-second active and 300-second browser limits.
+   receipt within the 1,200-second active and 300-second browser limits.
 6. Require all registered cases, real D1 cost and preservation checks, unchanged
    canonical Linux screenshots, and real PDF containment probes.
 
