@@ -18,17 +18,28 @@ independent test runs.
 The private CI bridge temporarily sets the complete active native budget to 1500
 seconds, the `source-quality` flow limit to 900 seconds and the first MCP
 integration case deadline to 15,000 milliseconds. Every registered case and
-assertion remains required. Worker counts, the 300-second complete browser cap,
-all other flow and case deadlines, schedules, caches, included-compute-only
-admission and the one-dollar Actions hard stop remain unchanged. This policy
-does not authorize a visibility change, paid capacity or a new provider.
+assertion remains required. The complete browser cap is temporarily 420 seconds.
+Worker counts, all other flow and case deadlines, schedules, caches,
+included-compute-only admission and the one-dollar Actions hard stop remain
+unchanged. This policy does not authorize a visibility change, paid capacity or
+a new provider.
 
 After separately approved publication, verify the same complete workload on the
 standard public four-core, 16-GB runner. Then restore the original 900-second
-native budget, 600-second source limit and 5000-millisecond first-MCP deadline
-in a reviewed follow-up. A capacity specification is not a passing receipt. If
-the original limits fail, preserve that failure and repair the measured
-bottleneck before claiming the public performance target is met.
+native budget, 600-second source limit, 5000-millisecond first-MCP deadline and
+300-second browser budget in a reviewed follow-up. A capacity specification is
+not a passing receipt. If the original limits fail, preserve that failure and
+repair the measured bottleneck before claiming the public performance target is
+met.
+
+The browser extension is a bounded private-runner trial. Two exact-head runs
+passed every unit case but were terminated at the earlier 300-second browser
+limit; their incomplete results remain failures. A same-tree PR run completed
+browsers in 253.527 seconds. These observations do not establish completion
+within 420 seconds or stable runner capacity. Require fresh complete exact-head
+and exact-main receipts; do not retry unchanged failures repeatedly or count
+interrupted cases as coverage. Keep all cases, assertions, canonical references,
+workers and the 1500-second native budget.
 
 Historical measurements and trials below retain their recorded limits. The
 temporary limits are a bridge, not permanent performance acceptance.
@@ -56,15 +67,15 @@ time. Exceeding that budget fails required verification without silently
 dropping checks. Watchdogs remain independent safety ceilings. Do not raise the
 budget to hide a regression.
 
-The complete `browser-workflows` command has a separate **300-second elapsed
-budget** in `.tugling/pilot-verification.json`. It includes profile copies,
-server/browser startup, all registered cases, report validation and owned
-runtime teardown. Queue time and the existing build/seed prerequisite flows
-remain separate. The native launcher terminates an overrun. Receipt publication
-and every downstream receipt check also compare the measured duration with the
-declared limit, so observing an exit-code-zero process just after its deadline
-cannot produce a green check. The temporary 1500-second whole-gate budget also
-applies.
+The complete `browser-workflows` command has a separate **temporary 420-second
+elapsed budget** in `.tugling/pilot-verification.json`. It includes profile
+copies, server/browser startup, all registered cases, report validation and
+owned runtime teardown. Queue time and the existing build/seed prerequisite
+flows remain separate. The native launcher terminates an overrun. Receipt
+publication and every downstream receipt check also compare the measured
+duration with the declared limit, so observing an exit-code-zero process just
+after its deadline cannot produce a green check. The temporary 1500-second
+whole-gate budget also applies.
 
 Keep browser lanes balanced as coverage grows. The carry/share-basis change
 added 24 executions to one serial production lane, taking its passing count from
@@ -86,7 +97,7 @@ were 8,242 MiB for browsers, 3,667 MiB for source checks and 2,638 MiB for
 unit/D1 work. These peaks are not additive physical-memory measurements.
 Browsers now wait for source checks and unit/D1 verification to release their
 resources. Their existing work remains required within the temporary 1500-second
-native gate, and browser execution still has its 300-second limit.
+native gate, and browser execution has its temporary 420-second limit.
 
 The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
 208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions and

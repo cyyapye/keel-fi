@@ -32,13 +32,13 @@ complete receipt from that attempt. A failed or cancelled native run cannot
 supply that receipt. The separate Tugling candidate workflow runs on manual
 dispatch. See [CI performance](../../docs/engineering/ci-performance.md).
 
-The complete required browser flow has a 300-second elapsed budget. Its launcher
-times out and cleans up an overrun; receipt publication and validation also
-reject a late success. Quality, D1, browser checks and preview cannot pass with
-an over-budget browser receipt. The clock covers the browser command's profile
-copies, server/browser startup, tests, reporting and teardown. The optional
-isolated browser timing step has the same five-minute cap and rejects a late
-successful completion.
+The complete required browser flow has a temporary 420-second elapsed budget.
+Its launcher times out and cleans up an overrun; receipt publication and
+validation also reject a late success. Quality, D1, browser checks and preview
+cannot pass with an over-budget browser receipt. The clock covers the browser
+command's profile copies, server/browser startup, tests, reporting and teardown.
+The optional isolated browser timing step has the same seven-minute cap and
+rejects a late successful completion.
 
 Browser execution waits for source checks and unit/D1 verification to finish so
 these heavy phases do not compete for the runner's memory and CPU. All remain
@@ -48,7 +48,8 @@ The private CI bridge temporarily allows 900 seconds for source checks and 15
 seconds for the first MCP integration case. Every case and assertion remains
 required. After separately approved publication and complete verification on the
 standard public runner, restore the original 900-second native, 600-second
-source and 5000-millisecond first-MCP limits in a reviewed follow-up. See the
+source, 5000-millisecond first-MCP and 300-second browser limits in a reviewed
+follow-up. See the
 [temporary bridge policy](../../docs/engineering/ci-performance.md#temporary-private-ci-bridge).
 
 Successful hosted setup also owns an exclusive compilation-cache root for the
@@ -173,10 +174,10 @@ do not call the native setup helper or consume its Docker daemon. See the
 
 The native producer, manual pilot, and receipt consumers use a distinct
 `keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8` environment identity.
-The temporary active native budget is 1500 seconds. The 300-second complete
-browser budget, registered cases, canonical screenshot baselines, and receipt
-checks remain unchanged. A local workflow test does not establish hosted
-compatibility.
+The temporary active native budget remains 1500 seconds. The complete browser
+budget is temporarily 420 seconds. Registered cases, canonical screenshot
+baselines and receipt checks remain unchanged. A local workflow test does not
+establish hosted compatibility.
 
 Changing YAML does not revoke a persistent runner registration. Before public
 contributors can run workflows, remove both legacy repository registrations and

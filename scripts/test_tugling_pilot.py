@@ -1392,8 +1392,8 @@ console.log(JSON.stringify({ direct, child: JSON.parse(child.stdout) }));
         self.assertIn("keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8", action)
         self.assertEqual(workflow.count("make pilot-verify"), 1)
         isolated_browser = probe.split("      - name: Time the complete browser process\n", 1)[1].split("      - name:", 1)[0]
-        self.assertIn("timeout-minutes: 5", isolated_browser)
-        self.assertIn("if elapsed > 300:", isolated_browser)
+        self.assertIn("timeout-minutes: 7", isolated_browser)
+        self.assertIn("if elapsed > 420:", isolated_browser)
         isolated_unit = probe.split("      - name: Diagnose the complete native unit inventory\n", 1)[1].split("      - name:", 1)[0]
         self.assertIn("if: ${{ inputs.isolated_unit }}", isolated_unit)
         self.assertIn("scripts/tugling-pilot.py unit-diagnostic", isolated_unit)
@@ -1472,7 +1472,7 @@ console.log(JSON.stringify({ direct, child: JSON.parse(child.stdout) }));
             'provider-document-runtime': (['make', 'provider-document-runtime-verify'], 60),
             'browser-fixture-preparation': (['python3', '-I', 'scripts/pilot_native.py', 'browser-fixture'], 300),
             'build-and-entry-budget': (['make', 'build'], 300),
-            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 300),
+            'browser-workflows': (['python3', '-I', 'scripts/pilot_native.py', 'playwright-prepared'], 420),
             'pdf-isolation': (['make', 'pdf-sandbox-verify'], 600),
         }
         self.assertEqual(flow_order, list(expected_commands))
