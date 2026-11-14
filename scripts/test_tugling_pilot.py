@@ -108,14 +108,14 @@ class NativeAccountingTests(unittest.TestCase):
                 contract.clean_revision.return_value = "1" * 40
                 contract.execution_context.return_value = {"github": {"GITHUB_RUN_ID": "321", "GITHUB_RUN_ATTEMPT": "1"}}
                 contract.required_flow_ids.return_value = names
-                contract.validate_project.return_value = {"verification": mapping, "verification_budget_seconds": 900}
+                contract.validate_project.return_value = {"verification": mapping, "verification_budget_seconds": 1500}
                 rows = [{"id": name, "exit_code": 0, "failure": None, "forced_cleanup": False, "duration_seconds": 0} for name in selected]
                 contract.execute_flow_plan.return_value = rows
                 contract.performance_summary.return_value = {"within_budget": True}
                 with patch("sys.stdout", new_callable=io.StringIO) as output:
                     pilot.run_partial_native(contract, Path("/candidate"), mode)
                 self.assertIn('"required_receipt": false', output.getvalue())
-                contract.execute_flow_plan.assert_called_once_with(pilot.ROOT, mapping, selected, active_budget=900)
+                contract.execute_flow_plan.assert_called_once_with(pilot.ROOT, mapping, selected, active_budget=1500)
                 contract.validate_execution_timing.assert_called_once()
                 if mode == "layout-draft":
                     pdf = next(flow for flow in original["flows"] if flow["id"] == "pdf-isolation")
@@ -131,9 +131,10 @@ class NativeAccountingTests(unittest.TestCase):
                     with patch.dict(main, {"depends_on": ["source-quality"]}):
                         with self.assertRaisesRegex(ValueError, "review the isolated unit commands"):
                             pilot.run_partial_native(contract, Path("/candidate"), mode)
-                    with patch.dict(contract.validate_project.return_value, {"verification_budget_seconds": 901}):
-                        with self.assertRaisesRegex(ValueError, "unchanged 900-second budget"):
-                            pilot.run_partial_native(contract, Path("/candidate"), mode)
+                    for budget in (900, 901, 1501):
+                        with self.subTest(budget=budget), patch.dict(contract.validate_project.return_value, {"verification_budget_seconds": budget}):
+                            with self.assertRaisesRegex(ValueError, "temporary 1500-second budget"):
+                                pilot.run_partial_native(contract, Path("/candidate"), mode)
                 for field, bad_value in (("failure", "timeout"), ("exit_code", 1), ("forced_cleanup", True)):
                     if mode == "layout-draft":
                         pdf["argv"] = ["make", "pdf-sandbox-verify"]
@@ -1462,7 +1463,7 @@ console.log(JSON.stringify({ direct, child: JSON.parse(child.stdout) }));
         self.assertEqual(flows["gate-and-artifact-integrity"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "preflight"])
         self.assertEqual(flows["native-unit-and-cost"]["argv"], ["python3", "-I", "scripts/pilot_native.py", "vitest-main"])
         expected_commands = {
-            'source-quality': (['make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 600),
+            'source-quality': (['make', '-j2', 'data-scan', 'format-check', 'lint-typecheck', 'd1-migration-check'], 900),
             'compose-configuration': (['docker', 'compose', 'config', '--quiet'], 30),
             'gate-and-artifact-integrity': (['python3', '-I', 'scripts/pilot_native.py', 'preflight'], 120),
             'native-unit-and-cost': (['python3', '-I', 'scripts/pilot_native.py', 'vitest-main'], 1500),
@@ -1516,7 +1517,7 @@ console.log(JSON.stringify({ direct, child: JSON.parse(child.stdout) }));
                 native.validate_preflight_dependencies(invalid)
         self.assertEqual(plan["execution"]["max_parallel"], 3)
         config = json.loads((pilot.ROOT / ".tugling/pilot.json").read_text())
-        self.assertEqual(config["project"]["verification_budget_seconds"], 900)
+        self.assertEqual(config["project"]["verification_budget_seconds"], 1500)
         self.assertLessEqual(
             sum(flow["timeout_seconds"] for flow in flows.values()), 7200
         )

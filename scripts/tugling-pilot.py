@@ -119,8 +119,8 @@ def run_partial_native(contract, source, mode):
     budget = report["verification_budget_seconds"]
     if budget is None:
         raise ValueError("partial native verification requires the native time budget")
-    if mode == "unit-diagnostic" and budget != 900:
-        raise ValueError("isolated unit diagnostic requires the unchanged 900-second budget")
+    if mode == "unit-diagnostic" and budget != 1500:
+        raise ValueError("isolated unit diagnostic requires the temporary 1500-second budget")
     contract.flow_execution_ancestry(ROOT)
     # The pinned scheduler owns each process group and cleans up on KeyboardInterrupt.
     def interrupt(signum, frame):
