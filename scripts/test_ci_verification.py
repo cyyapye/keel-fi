@@ -206,21 +206,22 @@ class ReceiptTransportTests(unittest.TestCase):
                 verifier.assert_not_called()
 
     def test_browser_budget_rejects_a_late_success_after_original_verification(self):
-        for duration in (299.999, 300, 300.001, 338.356):
-            evidence = {"results": [{"id": "browser-workflows", "duration_seconds": duration,
-                                     "exit_code": 0, "failure": None}]}
-            report = {"status": "PASS", "verification": {"flows": [
-                {"id": "browser-workflows", "timeout_seconds": 300}]},
-                "flow_verification": {"state": "REQUIRED_PASS", "evidence": evidence}}
-            response = subprocess.CompletedProcess([], 0, stdout=json.dumps(report))
-            with self.subTest(duration=duration), patch.object(ci.subprocess, "run", return_value=response) as verifier:
-                if duration <= 300:
-                    self.assertEqual(ci.check("synthetic.json"), evidence)
-                else:
-                    with self.assertRaisesRegex(ValueError, "300-second budget"):
-                        ci.check("synthetic.json")
-                self.assertEqual(verifier.call_args.args[0][-2:], ["evidence", "synthetic.json"])
-                self.assertTrue(verifier.call_args.kwargs["check"])
+        for limit in (300, 420):
+            for duration in (limit - 0.001, limit, limit + 0.001, limit + 38.356):
+                evidence = {"results": [{"id": "browser-workflows", "duration_seconds": duration,
+                                         "exit_code": 0, "failure": None}]}
+                report = {"status": "PASS", "verification": {"flows": [
+                    {"id": "browser-workflows", "timeout_seconds": limit}]},
+                    "flow_verification": {"state": "REQUIRED_PASS", "evidence": evidence}}
+                response = subprocess.CompletedProcess([], 0, stdout=json.dumps(report))
+                with self.subTest(limit=limit, duration=duration), patch.object(ci.subprocess, "run", return_value=response) as verifier:
+                    if duration <= limit:
+                        self.assertEqual(ci.check("synthetic.json"), evidence)
+                    else:
+                        with self.assertRaisesRegex(ValueError, f"{limit}-second budget"):
+                            ci.check("synthetic.json")
+                    self.assertEqual(verifier.call_args.args[0][-2:], ["evidence", "synthetic.json"])
+                    self.assertTrue(verifier.call_args.kwargs["check"])
 
 
 class DraftSelectionTests(unittest.TestCase):

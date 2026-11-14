@@ -22,6 +22,9 @@ const bootstrapResultSchema = z.object({
   batchCount: z.number().int(),
   statementCount: z.number().int(),
 });
+const foreignKeysResultSchema = z
+  .object({ foreignKeys: z.literal(1) })
+  .strict();
 const bootstrapWorker = `
 import userWorker from "./user-worker.js";
 
@@ -32,6 +35,11 @@ export default {
   async fetch(request, bindings, context) {
     if (request.url !== BOOTSTRAP_URL) {
       return userWorker.fetch(request, bindings, context);
+    }
+    if (request.method === "GET") {
+      return Response.json({
+        foreignKeys: await bindings.DB.prepare("PRAGMA foreign_keys").first("foreign_keys"),
+      });
     }
     const text = await request.text();
     if (text.length > MAX_BODY_BYTES) {
@@ -132,14 +140,16 @@ function allocateCostDirectory(
   };
 }
 
-export async function createCostDatabase(
-  script?: string,
-  options: {
-    seed?: string | null;
-    resourcePersistencePath?: string;
-    sharedMemoryParent?: string | undefined;
-    checkProviderDayHeadroom?: boolean;
-  } = {},
+type CostDatabaseOptions = {
+  seed?: string | null;
+  resourcePersistencePath?: string;
+  sharedMemoryParent?: string | undefined;
+  checkProviderDayHeadroom?: boolean;
+};
+
+async function createCostRuntime(
+  script: string | undefined,
+  options: CostDatabaseOptions,
 ) {
   const { directory, storage } = allocateCostDirectory(
     options.resourcePersistencePath === undefined
@@ -183,15 +193,6 @@ export async function createCostDatabase(
         compatibilityDate: "2026-07-28",
       }),
     );
-    const database = await runtime.getD1Database("DB");
-    const execute = async (sql: string) => {
-      const { unstable_splitSqlQuery } = await import("wrangler");
-      return database.batch(
-        unstable_splitSqlQuery(sql).map((statement) =>
-          database.prepare(statement),
-        ),
-      );
-    };
     if (!seed) {
       const bootstrap = await costDatabaseBootstrap(inputs.sources);
       const response = await runtime.dispatchFetch(bootstrapUrl, {
@@ -210,6 +211,26 @@ export async function createCostDatabase(
       )
         throw new Error("Cost database bootstrap was incomplete");
     }
+    return {
+      runtime,
+      storage,
+      seedInput: inputs.fingerprint,
+      dispatchFetch: runtime.dispatchFetch.bind(runtime),
+      close,
+    };
+  } catch (error) {
+    await close();
+    throw error;
+  }
+}
+
+export async function createCostDatabase(
+  script?: string,
+  options: CostDatabaseOptions = {},
+) {
+  const fixture = await createCostRuntime(script, options);
+  try {
+    const database = await fixture.runtime.getD1Database("DB");
     if (
       (await database
         .prepare("PRAGMA foreign_keys")
@@ -217,16 +238,49 @@ export async function createCostDatabase(
     ) {
       throw new Error("Cost fixture must enforce foreign keys");
     }
+    const execute = async (sql: string) => {
+      const { unstable_splitSqlQuery } = await import("wrangler");
+      return database.batch(
+        unstable_splitSqlQuery(sql).map((statement) =>
+          database.prepare(statement),
+        ),
+      );
+    };
     return {
       database,
-      storage,
-      seedInput: inputs.fingerprint,
+      storage: fixture.storage,
+      seedInput: fixture.seedInput,
       execute,
-      dispatchFetch: runtime.dispatchFetch.bind(runtime),
-      close,
+      dispatchFetch: fixture.dispatchFetch,
+      close: fixture.close,
     };
   } catch (error) {
-    await close();
+    await fixture.close();
+    throw error;
+  }
+}
+
+export async function createCostWorker(
+  script: string,
+  options: CostDatabaseOptions = {},
+) {
+  const fixture = await createCostRuntime(script, options);
+  try {
+    const response = await fixture.dispatchFetch(bootstrapUrl);
+    if (
+      !response.ok ||
+      !foreignKeysResultSchema.safeParse(await response.json()).success
+    ) {
+      throw new Error("Cost fixture must enforce foreign keys");
+    }
+    return {
+      storage: fixture.storage,
+      seedInput: fixture.seedInput,
+      dispatchFetch: fixture.dispatchFetch,
+      close: fixture.close,
+    };
+  } catch (error) {
+    await fixture.close();
     throw error;
   }
 }
