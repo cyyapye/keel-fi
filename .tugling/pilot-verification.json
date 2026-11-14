@@ -12,7 +12,7 @@
         "lint-typecheck",
         "d1-migration-check"
       ],
-      "timeout_seconds": 600,
+      "timeout_seconds": 900,
       "sources": [
         "Makefile",
         "package.json",

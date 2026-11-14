@@ -14,11 +14,20 @@ removing the current execution path.
 3. After approval to push, publish the reviewed candidate branch.
 4. Dispatch `tugling-pilot.yml` on that branch without diagnostic flags.
 5. Match the run's `headSha` to the candidate commit. Require a complete native
-   receipt within the existing 900-second active and 300-second browser limits.
+   receipt within the temporary 1500-second active and unchanged 300-second
+   browser limits.
 6. Require all registered cases, real D1 cost and preservation checks, unchanged
    canonical Linux screenshots, and real PDF containment probes.
 
-The standard private Linux VM has less CPU and memory than the public VM.
+The standard private Linux VM has less CPU and memory than the public VM. The
+temporary private CI bridge also allows 900 seconds for source checks and 15
+seconds for the first MCP integration case. Keep every case and assertion. After
+separately approved publication, verify the complete workload on the standard
+public runner, then restore the original 900-second native, 600-second source
+and 5000-millisecond first-MCP limits in a reviewed follow-up. A public capacity
+specification does not establish that verification. See the
+[temporary bridge policy](../engineering/ci-performance.md#temporary-private-ci-bridge).
+
 Neither a successful setup command nor a public capacity specification proves
 that this private run passes. If it fails, diagnose the failure while keeping
 the repository private. Preserve assertions, budgets, and baselines.

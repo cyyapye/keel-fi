@@ -42,7 +42,14 @@ successful completion.
 
 Browser execution waits for source checks and unit/D1 verification to finish so
 these heavy phases do not compete for the runner's memory and CPU. All remain
-required within the complete gate's 900-second active budget.
+required within the complete gate's temporary 1500-second active budget.
+
+The private CI bridge temporarily allows 900 seconds for source checks and 15
+seconds for the first MCP integration case. Every case and assertion remains
+required. After separately approved publication and complete verification on the
+standard public runner, restore the original 900-second native, 600-second
+source and 5000-millisecond first-MCP limits in a reviewed follow-up. See the
+[temporary bridge policy](../../docs/engineering/ci-performance.md#temporary-private-ci-bridge).
 
 Successful hosted setup also owns an exclusive compilation-cache root for the
 job VM. Unit phases use separate directories and never upload this bytecode or
@@ -59,12 +66,13 @@ runner. The ordinary PR workflow supplies the required verification receipt.
 
 For unit timeout diagnosis, dispatch the same manual workflow with
 `isolated_unit` enabled. It runs the existing preflight and complementary main
-unit flows under the pinned scheduler, with one 900-second active clock and
-unchanged case deadlines. The complete unit inventory must still pass. This
-partial diagnostic excludes competing source, build and PDF flows and emits no
-required receipt. It cannot pass named PR checks or authorize deployment. The
-three manual diagnostic modes are mutually exclusive. Confirm fresh included
-compute headroom before dispatch; a push to a ready PR also starts full CI.
+unit flows under the pinned scheduler, with one temporary 1500-second active
+clock and the complete gate's case deadlines. The complete unit inventory must
+still pass. This partial diagnostic excludes competing source, build and PDF
+flows and emits no required receipt. It cannot pass named PR checks or authorize
+deployment. The three manual diagnostic modes are mutually exclusive. Confirm
+fresh included compute headroom before dispatch; a push to a ready PR also
+starts full CI.
 
 A same-repository draft targeting `main` can take a shorter path when its only
 changes are edits to seven reviewed documents, four registered Vitest files,
@@ -165,9 +173,10 @@ do not call the native setup helper or consume its Docker daemon. See the
 
 The native producer, manual pilot, and receipt consumers use a distinct
 `keel-gh-ubuntu24-x64-node22.13.0-pnpm11.9.0-parallel-v8` environment identity.
-The 900-second active native budget, 300-second complete browser budget,
-registered cases, canonical screenshot baselines, and receipt checks remain
-unchanged. A local workflow test does not establish hosted compatibility.
+The temporary active native budget is 1500 seconds. The 300-second complete
+browser budget, registered cases, canonical screenshot baselines, and receipt
+checks remain unchanged. A local workflow test does not establish hosted
+compatibility.
 
 Changing YAML does not revoke a persistent runner registration. Before public
 contributors can run workflows, remove both legacy repository registrations and

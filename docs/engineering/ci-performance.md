@@ -13,6 +13,26 @@ authoritative. PR merge candidates and merged commits require separate
 execution. Named receipt checks are validation of the native producer, not
 independent test runs.
 
+## Temporary private CI bridge
+
+The private CI bridge temporarily sets the complete active native budget to 1500
+seconds, the `source-quality` flow limit to 900 seconds and the first MCP
+integration case deadline to 15,000 milliseconds. Every registered case and
+assertion remains required. Worker counts, the 300-second complete browser cap,
+all other flow and case deadlines, schedules, caches, included-compute-only
+admission and the one-dollar Actions hard stop remain unchanged. This policy
+does not authorize a visibility change, paid capacity or a new provider.
+
+After separately approved publication, verify the same complete workload on the
+standard public four-core, 16-GB runner. Then restore the original 900-second
+native budget, 600-second source limit and 5000-millisecond first-MCP deadline
+in a reviewed follow-up. A capacity specification is not a passing receipt. If
+the original limits fail, preserve that failure and repair the measured
+bottleneck before claiming the public performance target is met.
+
+Historical measurements and trials below retain their recorded limits. The
+temporary limits are a bridge, not permanent performance acceptance.
+
 ## Baseline and budgets
 
 The September 21 UTC baseline is PR run `35548798219` plus pilot run
@@ -29,12 +49,12 @@ seconds for browsers and 885.347 seconds for unit/D1 tests. PDF isolation took
 232.225 seconds and source checks 226.340 seconds. It passed 1,151 unit/D1 cases
 and 288 browser cases, with 44 reviewed browser exclusions and no flakes.
 
-`.tugling/pilot.json` enforces a 900-second active native budget. The complete
-receipt records elapsed execution time, each flow duration and a sorted timing
-summary. Concurrent flow durations are not added to claim wall-clock time.
-Exceeding that budget fails required verification without silently dropping
-checks. Watchdogs remain independent safety ceilings. Do not raise the budget to
-hide a regression.
+`.tugling/pilot.json` enforces a temporary 1500-second active native budget. The
+complete receipt records elapsed execution time, each flow duration and a sorted
+timing summary. Concurrent flow durations are not added to claim wall-clock
+time. Exceeding that budget fails required verification without silently
+dropping checks. Watchdogs remain independent safety ceilings. Do not raise the
+budget to hide a regression.
 
 The complete `browser-workflows` command has a separate **300-second elapsed
 budget** in `.tugling/pilot-verification.json`. It includes profile copies,
@@ -43,7 +63,8 @@ runtime teardown. Queue time and the existing build/seed prerequisite flows
 remain separate. The native launcher terminates an overrun. Receipt publication
 and every downstream receipt check also compare the measured duration with the
 declared limit, so observing an exit-code-zero process just after its deadline
-cannot produce a green check. The 900-second whole-gate budget remains.
+cannot produce a green check. The temporary 1500-second whole-gate budget also
+applies.
 
 Keep browser lanes balanced as coverage grows. The carry/share-basis change
 added 24 executions to one serial production lane, taking its passing count from
@@ -64,7 +85,7 @@ show memory pressure and 2,398.6 MiB of swap in use; sampled process RSS peaks
 were 8,242 MiB for browsers, 3,667 MiB for source checks and 2,638 MiB for
 unit/D1 work. These peaks are not additive physical-memory measurements.
 Browsers now wait for source checks and unit/D1 verification to release their
-resources. Their existing work remains required within the same 900-second
+resources. Their existing work remains required within the temporary 1500-second
 native gate, and browser execution still has its 300-second limit.
 
 The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
@@ -138,9 +159,9 @@ competing heavy phases. PDF isolation waits for source checks, so its scanner
 cannot overlap the compiler flow; it may overlap browsers after the unit flow
 completes. Source checks still must pass in the same complete receipt.
 Configured scanner and compiler limits do not establish observed memory use or
-available host capacity. The 900-second active budget and per-case deadlines
-remain. Native main units and standalone execution use three workers after the
-two-worker trial below failed the complete budget.
+available host capacity. The temporary 1500-second active budget and current
+per-case deadlines apply. Native main units and standalone execution use three
+workers after the two-worker trial below failed the complete budget.
 
 Draft PR #340 tried admitting the workspace build before the main unit suite in
 [run 41803819700](https://github.com/cyyapye/keel-fi/actions/runs/41803819700).
@@ -181,8 +202,8 @@ Five alternating private macOS pairs preserved the exact nine-context, 613-file
 result with zero diagnostics or lint findings. Median child CPU fell from 70.6
 seconds to 60.9 seconds, with ranges 67.7–73.7 and 59.3–64.4 seconds. These
 unprofiled prototype measurements justify a Linux trial; they do not establish
-hosted deadline compliance. The 600-second source, 900-second native and
-300-second browser gates remain unchanged.
+hosted deadline compliance. That trial kept the 600-second source, 900-second
+native and 300-second browser gates unchanged.
 
 Its regression fixtures reuse loaded modules in an owned child while each
 operation clears parser caches and creates fresh context maps. The strict CLI is
@@ -473,12 +494,12 @@ Stateful Wrangler instances use OS-assigned inspector ports so debugger
 listeners cannot collide even though application ports are distinct.
 
 The image build is an explicit required flow, with its failure, timing and
-cancellation included in the exact-revision receipt and 900-second budget. Daily
-`SECURITY_REFRESH_DATE` package refresh, freshclam signature refresh,
-rootless-engine validation, immutable digests, atomic configuration writes and
-the clean-scanner preflight remain unchanged. No consumer uses partially built
-images. Native and manual pilot workflows do not build the images a second time
-outside the dependency graph.
+cancellation included in the exact-revision receipt and temporary 1500-second
+budget. Daily `SECURITY_REFRESH_DATE` package refresh, freshclam signature
+refresh, rootless-engine validation, immutable digests, atomic configuration
+writes and the clean-scanner preflight remain unchanged. No consumer uses
+partially built images. Native and manual pilot workflows do not build the
+images a second time outside the dependency graph.
 
 ## Test layers and coverage preservation
 
@@ -703,15 +724,16 @@ seconds. That attempt led to removing the unit image dependency and prioritizing
 ready PDF isolation within the existing three-flow cap. The later test-layering
 and independent-build work below supersedes that admission order: real provider
 document verification precedes UI and remaining PDF probes. The current map
-preserves all required boundaries and the unchanged gate budget.
+preserves all required boundaries under the temporary gate budget.
 
 These observed admission delays are not guaranteed wall-time savings: moving
 work changes contention on the shared host. A complete exact-revision Linux
-receipt must still finish within 900 seconds. Record active duration, remaining
-headroom, all flow timings, native case accounting and resource pressure. One
-successful run establishes that attempt, not a recurrence guarantee; robustness
-needs matched coverage under representative host load and the daily image
-security refresh. Preserve earlier failed attempts when comparing results.
+receipt must finish within the temporary 1500-second budget. Record active
+duration, remaining headroom, all flow timings, native case accounting and
+resource pressure. One successful run establishes that attempt, not a recurrence
+guarantee; robustness needs matched coverage under representative host load and
+the daily image security refresh. Preserve earlier failed attempts when
+comparing results.
 
 PR run `37951901830` exposed contention across independent native and browser
 fixtures: one attempt timed out an unchanged cash cost case at 60 seconds; the
@@ -724,10 +746,10 @@ with unit work still unfinished. Admit the unit flow immediately after its real
 integrity and image prerequisites, before migration and browser preparation, and
 start the costly native fixtures earlier. The later two-worker schedule retains
 this early admission and the measured priorities. Keep all cases, assertions,
-watchdogs, retries and the 900-second complete-gate budget unchanged. These
-failed runs diagnose scheduling and contention; they do not prove the revised
-schedule's readiness or performance. Only a complete exact-revision receipt can
-establish that.
+watchdogs and retries unchanged. Those failed trials also kept the 900-second
+complete-gate budget. They diagnose scheduling and contention but do not prove
+the revised schedule's readiness or performance. Only a complete exact-revision
+receipt can establish that.
 
 Run `37963326704` completed 1,259 unit cases but timed out the remaining rename
 scale fixture at 300 seconds. It started late, during browser execution; host
@@ -858,7 +880,7 @@ sample intervals. These collection timings exclude JSON output and startup, so
 observer overhead must also be measured externally. Regression fixtures cover
 120 descendants, PID reuse, ancestry boundaries, incomplete reads, bounds and
 counter resets. The sampler does not change flow scheduling, assertions, worker
-counts, isolation, resource limits or the 900-second native verification budget.
+counts, isolation, resource limits or the configured native verification budget.
 
 ## Evaluated remaining source-check optimizations
 
@@ -1047,10 +1069,10 @@ Its critical path delayed canonical migrations until source checks ended at
 237.687 seconds, then delayed browser admission until 379.743 seconds. Unit work
 was already occupying a native slot and competing for CPU. The next schedule
 admits unit work after source checks and canonical migrations, leaving those
-startup dependencies concurrent with real PDF isolation. The same three native
-slots, three unit workers, four browser workers, complete cases, commands,
-security refresh and 900-second budget remain. A new full receipt must measure
-whether this improves actual headroom.
+startup dependencies concurrent with real PDF isolation. That scheduling trial
+retained the same three native slots, three unit workers, four browser workers,
+complete cases, commands, security refresh and 900-second budget. A complete
+receipt remained required to establish actual headroom.
 
 The source-gated unit experiment (`39895875897`) failed at 820.111 seconds: all
 four initial browser lanes passed, but the real cash-request day exceeded its
@@ -1184,8 +1206,8 @@ each hourly state still contains 20 connections and 100 accepted accounts. Every
 SQL operation and result is replayed into a fresh real D1 database, including
 prior scenario state before the measurement boundary. Production round trips are
 counted from the original trace; grouping replay transport cannot lower them.
-Existing deadlines, row/round-trip ceilings, outage calls, worker counts and the
-overall 900-second gate remain unchanged.
+That replay change kept the existing deadlines, row/round-trip ceilings, outage
+calls, worker counts and overall 900-second gate unchanged.
 
 | Scenario                | Client requests | Production D1 trips/statements | D1 rows read | D1 rows written | Host replay requests |
 | ----------------------- | --------------- | ------------------------------ | ------------ | --------------- | -------------------- |
@@ -1275,8 +1297,8 @@ Independent provider restart, catalogue and API-mocked visual cases are balanced
 among the existing lanes. These cases own their synthetic provider pages or API
 mocks and do not depend on the destination lane's D1 fixture. Mocked contexts
 continue blocking service workers and rejecting unhandled application APIs. The
-reviewed cases, renderer, database copies, assertions, worker caps and
-300/900-second deadlines are unchanged. A complete passing receipt is still
+rebalance kept the reviewed cases, renderer, database copies, assertions, worker
+caps and 300/900-second deadlines unchanged. A complete passing receipt is still
 required to establish the resulting timing.
 
 Successful disposable-hosted setup creates an exclusive `node-compile` scratch
@@ -1429,8 +1451,9 @@ identical results and counters, with median setup times of 0.171 and 0.142
 seconds. A single Linux pair took 0.910 and 1.033 seconds, so it does not
 establish a Linux latency gain. The same five-second case deadline and
 120-second migration deadlines apply. All native membership, worker ceilings and
-complete 300/900-second budgets remain unchanged. A fresh complete
-exact-revision receipt is still required to establish release fit.
+complete 300/900-second budgets stayed unchanged for those optimizations. A
+fresh complete exact-revision receipt is still required to establish release
+fit.
 
 ## App access boundary fixtures
 
@@ -1447,10 +1470,11 @@ Five alternating macOS pairs ran the complete four-case file with the same
 sealed base seed, runtime and worker settings. All 40 case executions passed.
 Median complete-process elapsed time fell from 2.527 to 2.202 seconds, with
 ranges 2.470–2.551 and 2.185–2.207 seconds. This is local evidence of less
-fixture work, not a whole-native or hosted timing result. All case identities,
-assertions, five-second protocol deadline, explicit credential-case deadlines,
-three unit workers, native overlap and browser references remain unchanged.
-Complete exact-revision hosted receipts remain required before release.
+fixture work, not a whole-native or hosted timing result. Those comparisons
+preserved all case identities, assertions, the five-second protocol deadline,
+explicit credential-case deadlines, three unit workers, native overlap and
+browser references. Complete exact-revision hosted receipts remain required
+before release.
 
 ## Grouped migration preservation observations
 
