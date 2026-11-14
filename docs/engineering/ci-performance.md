@@ -1455,6 +1455,24 @@ complete 300/900-second budgets stayed unchanged for those optimizations. A
 fresh complete exact-revision receipt is still required to establish release
 fit.
 
+## Reconnect fixture runtime admission
+
+The reconnect fixture performs its foreign-key admission read through the real
+Worker binding before running the same repository operations. It no longer
+creates a Node D1 proxy just for that read. Both fixture paths share the sealed
+seed, runtime configuration and owned cleanup. Fixtures that use host-side SQL
+retain their D1 handle and foreign-key check. The reconnect case keeps its
+five-second deadline, 120/1,200 histories, complete assertions, query plans and
+actual D1 billing counters.
+
+Five alternating macOS pairs ran the original complete test against the same
+sealed seed, including teardown. All ten executions passed. Median case time
+fell from 212.0 to 164.7 milliseconds, with ranges 208.5–222.2 and 162.9–169.6
+milliseconds. Median complete-process time fell from 0.784 to 0.738 seconds and
+child-process CPU from 1.214 to 1.125 seconds. These are local measurements;
+complete hosted verification still determines release fit. Native/source/browser
+limits, workers, case inventories and screenshots remain unchanged.
+
 ## App access boundary fixtures
 
 Each App access protocol and credential case keeps its own fresh real D1
