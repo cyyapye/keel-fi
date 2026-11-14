@@ -1,0 +1,546 @@
+{
+  "experiment": "keel-ui-ordinary-model-2026-10-06",
+  "status": "completed_no_measured_improvement",
+  "conclusion": "Both arms pass all three cases. No measured improvement; consequential behavior-correction lift gate not met.",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "xhigh",
+  "cli_version": "0.160.1",
+  "harness_condition_both_arms": "candidate",
+  "tugling_revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+  "scored_attempts": 6,
+  "attempts_per_case_per_arm": 1,
+  "max_concurrency": 2,
+  "timeout_seconds": 300,
+  "frozen_at_utc": "2026-10-06T17:00:16.073313+00:00",
+  "original_protocol_sha256": "ab17ffb1bebdbce22126c071f60255a583105f4c3febcc69550dc3a3096afb97",
+  "protocol_amendment_sha256": "68b09d7659427a93faec87629caf0ffcf8751030c62b8fd4511a67a61fa03f9c",
+  "frozen_case_and_rubric_hashes": {
+    "README.md": "7c1053b01771a4151d21abcc33d528ee7761bba07e89654eba5544935df0e6b9",
+    "keel-ordinary-holdout.json": "94076c32a3af4b944947fac48b1e213fd9c936d96c533fa4fef76ed7799548e8",
+    "keel-ordinary-representative.json": "544cc0b345d3a3dec0fa25c04c550b3ca3a699ca95591fa67d041ceebbb29869",
+    "keel-ordinary-scope.json": "5087455e392a783be57c6f358a92a2ffdb857ab88c5329a79b218336f19bb720"
+  },
+  "receipt_checker_sha256": "0389379a5f920c65ef32f46c2c3dd1ed3967a98099250b44f8ef92a9b742c5ff",
+  "evaluated_fixtures": {
+    "baseline": {
+      "original_commit": "34002a3004ed5442c38fab6429c665b619fd11b8",
+      "reconstructed_commit": "b67e47e15cfd2b6209523e8d400c6f3b81e483f2",
+      "sha256": {
+        ".codex/skills/keel-ui-quality/SKILL.md": "630965fa889c448d6d4a0c183207fb1e92a8c5e54c1f6c149343be9640cee2d8",
+        ".codex/skills/keel-ui-quality/agents/openai.yaml": "522e8cbd5a7bcd01970b045ff68b365768ce2984761e29c829f162518e877eff",
+        ".codex/skills/keel-ui-quality/references/visual-verification.md": "e704d2c5f82a1762e1c0dbfff6c1ea713c3804752b75035ede433bf990808846",
+        "AGENTS.md": "1b5cb7f84ee22ce3fe45b427a8957e59c065ce35ce94fb948f5ab10cdd92ed4f",
+        "docs/architecture/source-update-policy.md": "39810b4d8a4669be9d561de3380ae30dd01422bc15e9912b2e61603453e0177b",
+        "docs/product/ui-and-copy.md": "f926be16ae94ea77133f0815c3c8f4b958aec7a9af94b1e9231e4cd9d6821698"
+      }
+    },
+    "candidate": {
+      "original_commit": "c667312128cc65da571c8c7b722214b738eadab0",
+      "reconstructed_commit": "9ac486069e79be4cc4ab4868d3525183940f9e45",
+      "sha256": {
+        ".codex/skills/keel-ui-quality/SKILL.md": "60846d7129e1caf4b1f411872ba1bd9702f6a723d0e17fae1de9036d7e4e681b",
+        ".codex/skills/keel-ui-quality/agents/openai.yaml": "522e8cbd5a7bcd01970b045ff68b365768ce2984761e29c829f162518e877eff",
+        ".codex/skills/keel-ui-quality/references/visual-verification.md": "e704d2c5f82a1762e1c0dbfff6c1ea713c3804752b75035ede433bf990808846",
+        "AGENTS.md": "1b5cb7f84ee22ce3fe45b427a8957e59c065ce35ce94fb948f5ab10cdd92ed4f",
+        "docs/architecture/source-update-policy.md": "39810b4d8a4669be9d561de3380ae30dd01422bc15e9912b2e61603453e0177b",
+        "docs/product/ui-and-copy.md": "8929d57a290fd0f2d0f1a3db57bb31e7396c4ee804793aed41d4e1cc95031fcb"
+      }
+    }
+  },
+  "working_guidance_after_format": {
+    ".codex/skills/keel-ui-quality/SKILL.md": {
+      "evaluated_sha256": "60846d7129e1caf4b1f411872ba1bd9702f6a723d0e17fae1de9036d7e4e681b",
+      "working_sha256": "025e4e920a134463255831fe5f6dc319e5f26284d6adb7f2227c120239112af2",
+      "whitespace_normalized_match": true,
+      "bytes_unchanged": false
+    },
+    ".codex/skills/keel-ui-quality/agents/openai.yaml": {
+      "evaluated_sha256": "522e8cbd5a7bcd01970b045ff68b365768ce2984761e29c829f162518e877eff",
+      "working_sha256": "522e8cbd5a7bcd01970b045ff68b365768ce2984761e29c829f162518e877eff",
+      "whitespace_normalized_match": true,
+      "bytes_unchanged": true
+    },
+    ".codex/skills/keel-ui-quality/references/visual-verification.md": {
+      "evaluated_sha256": "e704d2c5f82a1762e1c0dbfff6c1ea713c3804752b75035ede433bf990808846",
+      "working_sha256": "e704d2c5f82a1762e1c0dbfff6c1ea713c3804752b75035ede433bf990808846",
+      "whitespace_normalized_match": true,
+      "bytes_unchanged": true
+    },
+    "AGENTS.md": {
+      "evaluated_sha256": "1b5cb7f84ee22ce3fe45b427a8957e59c065ce35ce94fb948f5ab10cdd92ed4f",
+      "working_sha256": "1b5cb7f84ee22ce3fe45b427a8957e59c065ce35ce94fb948f5ab10cdd92ed4f",
+      "whitespace_normalized_match": true,
+      "bytes_unchanged": true
+    },
+    "docs/architecture/source-update-policy.md": {
+      "evaluated_sha256": "39810b4d8a4669be9d561de3380ae30dd01422bc15e9912b2e61603453e0177b",
+      "working_sha256": "39810b4d8a4669be9d561de3380ae30dd01422bc15e9912b2e61603453e0177b",
+      "whitespace_normalized_match": true,
+      "bytes_unchanged": true
+    },
+    "docs/product/ui-and-copy.md": {
+      "evaluated_sha256": "8929d57a290fd0f2d0f1a3db57bb31e7396c4ee804793aed41d4e1cc95031fcb",
+      "working_sha256": "d552d7eed257678321ab6954f48a8702e2dc47cc4587a010cfe6d04c508f75b3",
+      "whitespace_normalized_match": true,
+      "bytes_unchanged": false
+    }
+  },
+  "structural_validation": {
+    "passed": true,
+    "method": "Existing repository Prettier YAML parser plus equivalent quick-validator constraints and metadata/link checks; Python PyYAML was unavailable.",
+    "checks": [
+      "folder and name",
+      "YAML mappings and allowed frontmatter",
+      "name and description constraints",
+      "no unfinished TODO placeholders",
+      "UI metadata and invocation",
+      "all skill and reference Markdown links"
+    ],
+    "links": [
+      "../../../docs/product/ui-and-copy.md",
+      "references/visual-verification.md",
+      "../../../docs/architecture/source-update-policy.md",
+      "../../../../docs/product/ui-and-copy.md",
+      "../../../../docs/deployment/linux-test-cleanup.md"
+    ],
+    "parser": "prettier/plugins/yaml"
+  },
+  "offline_controls": {
+    "case_schema": {
+      "keel-ordinary-scope.json": "pass",
+      "keel-ordinary-representative.json": "pass",
+      "keel-ordinary-holdout.json": "pass"
+    },
+    "receipt_controls": {
+      "valid_both_arms": "pass",
+      "missing_rejected": "pass",
+      "wrong_rejected": "pass",
+      "other_arm_rejected_both_directions": "pass"
+    }
+  },
+  "excluded_health_probe": {
+    "elapsed_seconds": 6.006,
+    "exit_code": 0,
+    "timed_out": false,
+    "event_count": 4,
+    "event_types": [
+      "thread.started",
+      "turn.started",
+      "item.completed",
+      "turn.completed"
+    ],
+    "final_output": "HEALTH_OK",
+    "passed": true,
+    "excluded_from_behavioral_comparison": true,
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "xhigh",
+    "cli_version": "codex-cli 0.160.1",
+    "controller_host_execution": true,
+    "child_sandbox": "read-only"
+  },
+  "timeout_capture_caveat": {
+    "synthetic_only": true,
+    "model_calls": 0,
+    "captured_stdout_type": "bytes",
+    "partial_stdout_present": true,
+    "unmodified_runner_retains_partial_stdout": false,
+    "conclusion": "Zero retained timeout events cannot establish zero emitted events."
+  },
+  "independent_blind_grading": {
+    "complete_output_count": 6,
+    "criteria_passed": 24,
+    "criteria_total": 24,
+    "critical_failures": 0,
+    "arm_identity_withheld": true,
+    "grades_sha256": "ef71b91ce8aad8a11846ed175ebe9234f8e7a44864baaeb31029c116f351bb90"
+  },
+  "scored_runs": [
+    {
+      "id": "representative-baseline",
+      "case": "representative",
+      "arm": "baseline",
+      "native_pass": true,
+      "elapsed_seconds": 153.613,
+      "event_count": 23,
+      "command_count": 16,
+      "usage": {
+        "cached_input_tokens": 123136,
+        "input_tokens": 175484,
+        "output_tokens": 6283,
+        "reasoning_output_tokens": 2943
+      },
+      "raw_result_sha256": "30e45514c0098640a8d987b6ef02c05da260ed36f1ccd2708ffc7c5e98e2a661",
+      "tugling_identity": {
+        "content_sha256": "1e34d0cd49ee808ecbdbb004ed8bdbbc3f542cf4c22650c7142c7037f76a801e",
+        "plugin_content_sha256": "69f573605ed6551551ad05f8fd881d762e37a7cde5dd5c5fdda70a5454d5540f",
+        "revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+        "version": "0.7.0",
+        "worktree_dirty": false
+      },
+      "guidance_receipts": true,
+      "semantic_grade": {
+        "criteria": [
+          {
+            "id": "R1",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Opens one legal holding with one subscription and models six separate SPVs to match the described workflow. Says the rich fixture's control coverage does not establish ordinary investment shape. Investment details groups cash, received refunds, deductions, net capital and contractual terms with one editor and supporting disclosure."
+          },
+          {
+            "id": "R2",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Two SPVs share an already-reviewed company relationship without merging positions or reopening identity review. It distinguishes company exposure, the legal SPV, subscription and funding events; installments remain within the subscription unless distinct-interest evidence exists. The two-installment calculation counts them as one subscription."
+          },
+          {
+            "id": "R3",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Keeps the rich three-purchase fixture as additional coverage and explicitly includes its differing terms, two refunds and partial disposal, plus large purchase histories. The initial ordinary case and installment variant are separate; no supported acquisition behavior or terms are removed."
+          },
+          {
+            "id": "R4",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Withholds holding-level share estimates and dependent gain/return figures despite the company price. Says missing disposal history does not confirm unchanged ownership, capture time cannot supply an absent valuation date, and contribution amounts do not establish current shares. Net invested and price evidence remain separately labelled; ownership limits appear beside affected estimates."
+          },
+          {
+            "id": "R5",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Provides a concrete v1 mockup brief, data, concept groups, calculations and extra states. Next steps require a versioned clickable proposal and approval of 'that exact version before application work.' It reports ADVISORY, no file changes and no existing clickable artifact or approval."
+          }
+        ],
+        "complete_pass": true,
+        "critical_failures": [],
+        "notes": "Semantic grading only. The task permits choosing synthetic representative data; the illustrative cash and company-price values do not fill the explicitly missing current ownership or date evidence. No grading-changing ambiguity."
+      }
+    },
+    {
+      "id": "representative-candidate",
+      "case": "representative",
+      "arm": "candidate",
+      "native_pass": true,
+      "elapsed_seconds": 131.756,
+      "event_count": 19,
+      "command_count": 12,
+      "usage": {
+        "cached_input_tokens": 64512,
+        "input_tokens": 99689,
+        "output_tokens": 5400,
+        "reasoning_output_tokens": 3013
+      },
+      "raw_result_sha256": "fb6946e21708a1edcff1310459ba45b30615383772c69de7a6701ee66d9c36da",
+      "tugling_identity": {
+        "content_sha256": "1e34d0cd49ee808ecbdbb004ed8bdbbc3f542cf4c22650c7142c7037f76a801e",
+        "plugin_content_sha256": "69f573605ed6551551ad05f8fd881d762e37a7cde5dd5c5fdda70a5454d5540f",
+        "revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+        "version": "0.7.0",
+        "worktree_dirty": false
+      },
+      "guidance_receipts": true,
+      "semantic_grade": {
+        "criteria": [
+          {
+            "id": "R1",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Starts with 'one investment in one legal SPV' because all six described investments had one subscription per SPV. Its Investment group keeps the subscription, paid amounts, upfront deductions, applicable terms and refund history together, with supporting detail expandable. It rejects schema capacity and the rich fixture as evidence of everyday frequency."
+          },
+          {
+            "id": "R2",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Says reviewed company identity 'groups economic exposure without merging legal positions' and explicitly includes two distinct SPVs under the already-reviewed company. It distinguishes acquisition commitment from funding payments and states that neither installments nor observations create another acquisition."
+          },
+          {
+            "id": "R3",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Keeps the three-purchase fixture for exception coverage and separately specifies 'multiple accepted acquisitions with differing terms, two refunds and partial disposal.' The ordinary initial screen and installment/refund challenge are distinct from this preserved exceptional case."
+          },
+          {
+            "id": "R4",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "States 'No disposal history does not prove unchanged ownership' and withholds share-based valuation until ownership, security class, date and coverage are supported. Company price stays contextual; any cost fallback is labelled Net invested. Uses Shares while placing relevant uncertainty beside value. Proposed synthetic cash examples do not fill missing current ownership."
+          },
+          {
+            "id": "R5",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Provides a concrete author brief, scenario coverage and next steps, ending with approval of 'the exact proposal version' before application implementation. It reports ADVISORY, an empty changes_made list, and no created clickable proposal or claimed application verification."
+          }
+        ],
+        "complete_pass": true,
+        "critical_failures": [],
+        "notes": "Semantic grading only. The brief explicitly proposes synthetic accepted cash/refund evidence for its demonstration; this is not an assertion that the missing current ownership evidence exists. No grading-changing ambiguity."
+      }
+    },
+    {
+      "id": "holdout-candidate",
+      "case": "holdout",
+      "arm": "candidate",
+      "native_pass": true,
+      "elapsed_seconds": 150.265,
+      "event_count": 19,
+      "command_count": 12,
+      "usage": {
+        "cached_input_tokens": 99584,
+        "input_tokens": 132239,
+        "output_tokens": 6242,
+        "reasoning_output_tokens": 3407
+      },
+      "raw_result_sha256": "368857d23c90048ca497572c7620c5817d569d4579d9adc3107aeb37101ff02d",
+      "tugling_identity": {
+        "content_sha256": "1e34d0cd49ee808ecbdbb004ed8bdbbc3f542cf4c22650c7142c7037f76a801e",
+        "plugin_content_sha256": "69f573605ed6551551ad05f8fd881d762e37a7cde5dd5c5fdda70a5454d5540f",
+        "revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+        "version": "0.7.0",
+        "worktree_dirty": false
+      },
+      "guidance_receipts": true,
+      "semantic_grade": {
+        "criteria": [
+          {
+            "id": "H1",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Access I opens as one investment with two payments linked to their subscription references, 'not as two purchases.' Access II remains a separate legal investment with both accepted acquisitions, individual dates and differing terms. It explicitly says the legacy purchase table does not determine the visible hierarchy."
+          },
+          {
+            "id": "H2",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Uses the reviewed company grouping for Access I and II while listing both separately and preserving each SPV, accepted facts and source/review history. The third vehicle retains its own legal identity and gets an identity-review link; similar naming establishes neither exposure nor duplication."
+          },
+          {
+            "id": "H3",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Preserves the accepted partial disposal while leaving remaining shares unresolved and inventing no quantities, proceeds or distribution. The undated price remains evidence; capture time is not a valuation date. Missing refund/deduction evidence is not zero, and a setup rate cannot establish paid fees or coverage. It withholds confirmed fees, final net capital and unsupported returns; a proxy cannot repair absent ownership quantities."
+          },
+          {
+            "id": "H4",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Provides initial record views, a canonical Investment details editor, conditional transaction detail, identity/grouping ownership and contextual evidence/history links. Explains unresolved ownership beside dependent results and requires 'Exact mockup approval' before app edits. It reports no produced or approved mockup and no changes."
+          }
+        ],
+        "complete_pass": true,
+        "critical_failures": [],
+        "notes": "Semantic grading only. The permitted explicit proxy is qualified by source-policy requirements and does not manufacture a date or bypass unknown ownership. No grading-changing ambiguity."
+      }
+    },
+    {
+      "id": "holdout-baseline",
+      "case": "holdout",
+      "arm": "baseline",
+      "native_pass": true,
+      "elapsed_seconds": 177.948,
+      "event_count": 19,
+      "command_count": 12,
+      "usage": {
+        "cached_input_tokens": 76416,
+        "input_tokens": 110838,
+        "output_tokens": 7713,
+        "reasoning_output_tokens": 4511
+      },
+      "raw_result_sha256": "73b641aab35f287494c3225b4925dd40a6bb2dbb81cabc0248e1cf76f7d7c0b1",
+      "tugling_identity": {
+        "content_sha256": "1e34d0cd49ee808ecbdbb004ed8bdbbc3f542cf4c22650c7142c7037f76a801e",
+        "plugin_content_sha256": "69f573605ed6551551ad05f8fd881d762e37a7cde5dd5c5fdda70a5454d5540f",
+        "revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+        "version": "0.7.0",
+        "worktree_dirty": false
+      },
+      "guidance_receipts": true,
+      "semantic_grade": {
+        "criteria": [
+          {
+            "id": "H1",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Access I is 'one accepted subscription with two linked bank-payment installments'; its legacy rows are funding components, not acquisitions. Access II preserves two accepted acquisitions, their dates, evidence and differing terms, and explicitly must not be flattened into one subscription. Each legal-position record remains accessible."
+          },
+          {
+            "id": "H2",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Links Access I and II through reviewed company/exposure context while identifying distinct vehicles and forbidding merged legal positions. Retains accepted facts, source evidence and history. The similarly named third vehicle has no asserted company link and instead offers the canonical identity-review entry."
+          },
+          {
+            "id": "H3",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "The disposal establishes neither quantity, lot allocation nor remaining shares; original shares cannot be represented as remaining. The undated quote stays sourced context and capture time cannot supply its date. A setup rate proves neither paid deductions nor prepaid coverage; accepted calculations require evidenced operands. Any explicit proxy retains the unknown date and cannot bypass missing remaining shares."
+          },
+          {
+            "id": "H4",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Supplies initial views, evidence/history links, material limitations beside results, one canonical Investment details editor and separate identity-review ownership. Proposes versioned desktop/mobile states and requires approval of 'that exact mockup before app edits.' The response remains ADVISORY with no changes."
+          }
+        ],
+        "complete_pass": true,
+        "critical_failures": [],
+        "notes": "Semantic grading only. 'Preserve ... actual payment dates' requests preservation of source-backed dates, not invented date values; the output expressly says no numerical dates or quantities were manufactured. No grading-changing ambiguity."
+      }
+    },
+    {
+      "id": "scope-baseline",
+      "case": "scope",
+      "arm": "baseline",
+      "native_pass": true,
+      "elapsed_seconds": 105.602,
+      "event_count": 28,
+      "command_count": 20,
+      "usage": {
+        "cached_input_tokens": 106240,
+        "input_tokens": 134779,
+        "output_tokens": 4866,
+        "reasoning_output_tokens": 2697
+      },
+      "raw_result_sha256": "6bb63d648332fda30fd9e26ccd0de9cd848aab00f1e29bb207b03d6f270a8ae5",
+      "tugling_identity": {
+        "content_sha256": "1e34d0cd49ee808ecbdbb004ed8bdbbc3f542cf4c22650c7142c7037f76a801e",
+        "plugin_content_sha256": "69f573605ed6551551ad05f8fd881d762e37a7cde5dd5c5fdda70a5454d5540f",
+        "revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+        "version": "0.7.0",
+        "worktree_dirty": false
+      },
+      "guidance_receipts": true,
+      "semantic_grade": {
+        "criteria": [
+          {
+            "id": "S1",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Specifies a minimal local layout patch using the approved pattern and says 'Proceed under existing authorization.' Its decision and work sequence do not add a concept-map, redesign or mockup-approval prerequisite."
+          },
+          {
+            "id": "S2",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Explicitly preserves inputs, copy, editing owner, acceptance semantics and task steps. Says 'Retain both legitimate acquisitions' and verifies that both records and their existing editing paths remain intact despite sharing an SPV."
+          },
+          {
+            "id": "S3",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Plans current screenshot and element-bound inspection, 390px/desktop/mobile checks, unclipped Save, overflow checks, 44px targets and keyboard focus. It inspects affected baselines, replays without updates, retains behavioral checks and runs make verify. Explicitly reports no repair or test execution in the advisory fixture."
+          }
+        ],
+        "complete_pass": true,
+        "critical_failures": [],
+        "notes": "Semantic grading only. No grading-changing ambiguity."
+      }
+    },
+    {
+      "id": "scope-candidate",
+      "case": "scope",
+      "arm": "candidate",
+      "native_pass": true,
+      "elapsed_seconds": 104.684,
+      "event_count": 21,
+      "command_count": 14,
+      "usage": {
+        "cached_input_tokens": 103680,
+        "input_tokens": 134106,
+        "output_tokens": 4828,
+        "reasoning_output_tokens": 2249
+      },
+      "raw_result_sha256": "67f970ebf76159c60a785d7c2d498f6be504ec2b9a68433d4491bce6bbb3f1b5",
+      "tugling_identity": {
+        "content_sha256": "1e34d0cd49ee808ecbdbb004ed8bdbbc3f542cf4c22650c7142c7037f76a801e",
+        "plugin_content_sha256": "69f573605ed6551551ad05f8fd881d762e37a7cde5dd5c5fdda70a5454d5540f",
+        "revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+        "version": "0.7.0",
+        "worktree_dirty": false
+      },
+      "guidance_receipts": true,
+      "semantic_grade": {
+        "criteria": [
+          {
+            "id": "S1",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Proposes a minimal local layout patch under existing repair authorization and expressly says 'no new concept map or mockup approval is needed.' No redesign or extra approval prerequisite is introduced."
+          },
+          {
+            "id": "S2",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Preserves 'the inputs, copy, editing owner, acceptance behavior and task steps.' Keeps the affected two-genuine-acquisition fixture and its supported transaction detail; separate ordinary-case coverage does not replace it."
+          },
+          {
+            "id": "S3",
+            "passed": true,
+            "critical_failure": false,
+            "rationale": "Plans reproduction and inspected screenshots at 390px and desktop/mobile, checks clipping, horizontal scrolling, keyboard focus and 44px targets, inspects affected visual baselines and replays without update mode, then runs focused checks and make verify. Explicitly says no repair or application verification was attempted in this instructions-only exercise."
+          }
+        ],
+        "complete_pass": true,
+        "critical_failures": [],
+        "notes": "Semantic grading only. Additional ordinary-case coverage is verification, not a replacement of the genuine-acquisition fixture or a new design gate. No grading-changing ambiguity."
+      }
+    }
+  ],
+  "original_attempts": [
+    {
+      "id": "representative-baseline",
+      "status": "excluded_infrastructure_attempt",
+      "elapsed_seconds": 300.073,
+      "exit_code": 124,
+      "timed_out": true,
+      "retained_event_count": 0,
+      "final_output_present": false,
+      "raw_native_grade_retained": false,
+      "raw_result_sha256": "ba4e1d8d887ea0013ddd8170259c5298306d75832d02d9f4cf5f3ed4a9a0bfaa",
+      "reason": "Timeout without a final answer; no semantic grade. Partial byte output is discarded by the unmodified runner on timeout, so no-model-progress is unverified."
+    },
+    {
+      "id": "representative-candidate",
+      "status": "excluded_infrastructure_attempt",
+      "elapsed_seconds": 300.072,
+      "exit_code": 124,
+      "timed_out": true,
+      "retained_event_count": 0,
+      "final_output_present": false,
+      "raw_native_grade_retained": false,
+      "raw_result_sha256": "a1cff457e3c29644f8d00e5962ea86d86743f0a7275231d795c0243e0408f4fe",
+      "reason": "Timeout without a final answer; no semantic grade. Partial byte output is discarded by the unmodified runner on timeout, so no-model-progress is unverified."
+    }
+  ],
+  "execution_aggregates": {
+    "baseline": {
+      "native_passes": 3,
+      "attempts": 3,
+      "median_elapsed_seconds": 153.613,
+      "input_tokens": 421101,
+      "cached_input_tokens": 305792,
+      "output_tokens": 18862,
+      "semantic_passes": 3,
+      "critical_failures": 0
+    },
+    "candidate": {
+      "native_passes": 3,
+      "attempts": 3,
+      "median_elapsed_seconds": 131.756,
+      "input_tokens": 366034,
+      "cached_input_tokens": 267776,
+      "output_tokens": 16470,
+      "semantic_passes": 3,
+      "critical_failures": 0
+    }
+  },
+  "limits": [
+    "Single attempt per case per arm; no reliability estimate.",
+    "Tie does not establish instruction improvement or cost/latency savings.",
+    "Synthetic advisory plans only; no application, rendered UI, persistence, CI, deployment or plugin installation proof.",
+    "Working guidance wrapping changed after grading; whitespace-normalized content matches evaluated bytes.",
+    "Original timeout event retention is incomplete; no-model-progress claim is unverified."
+  ],
+  "raw_evidence_retention": "Durable task-local archive outside Git: holdings-v3-guidance-evidence.",
+  "retention_decision": "Retain explicit user-authorized domain clarification as project specification; not a certified skill improvement or promotion."
+}

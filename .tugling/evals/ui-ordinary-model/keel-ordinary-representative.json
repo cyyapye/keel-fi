@@ -1,0 +1,24 @@
+{
+  "id": "keel-ordinary-representative",
+  "skill": "delivery-plan",
+  "project_type": "react-ui",
+  "sandbox": "read-only",
+  "minimum_score": 1.0,
+  "expected_state": "ADVISORY",
+  "max_changed_files": 0,
+  "prompt": "Read the applicable local guidance. In artifacts_inspected, include a separate receipt for each of .codex/skills/keel-ui-quality/SKILL.md and docs/product/ui-and-copy.md, using exactly: SHA256 <repository-relative-path> <computed-hex-digest>. Compute these from the inspected bytes; do not guess if reads fail. This bounded checkout contains instructions only; record absent linked sources as a limitation. Do not retrieve worked examples or prior evaluations. Give the first concrete deliverable and next steps in summary (up to 800 words). This exercise is advisory only; no files should change. In a full checkout the user requests a new clickable Holdings-detail proposal; application work must wait for approval of that exact proposal. Choose the first screen and representative data, explain its conceptual groups, then name the extra states needed. A convenient existing synthetic visual test has one SPV with three purchase rows, differing fee terms, two refunds and partial disposal, and the schema allows unlimited purchase rows. The user's last six described investments each involved one subscription in a different legal SPV. In two of those, distinct SPVs expose the same company; their shared company identity is already reviewed. One subscription was funded with two installments. There is no evidence that either installment bought a distinct interest. The latest capture has a company share price but no current ownership statement or recorded disposal history. The team suggests reusing the rich three-purchase fixture as the default demo because it exercises the most controls. Provide the proposal brief you would hand to a mockup author. No live financial data is needed.",
+  "decision_questions": [
+    {
+      "id": "authorization",
+      "question": "Where does application implementation stop?",
+      "options": ["await_exact_proposal_approval", "implement_after_brief"],
+      "expected": "await_exact_proposal_approval",
+      "critical": true
+    }
+  ],
+  "post_run_commands": [["git", "diff", "--exit-code", "HEAD"]],
+  "required_command_groups": [
+    [".codex/skills/keel-ui-quality/SKILL.md"],
+    ["docs/product/ui-and-copy.md"]
+  ]
+}

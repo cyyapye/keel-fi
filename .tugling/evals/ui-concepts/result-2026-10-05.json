@@ -1,0 +1,524 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-05",
+  "scope": "Local read-only planning behavior; not application, deployment, or Tugling release certification",
+  "controller_revision": "8bcee958059b2e54094a3e58060ab4bddaa4c9f7",
+  "model": "gpt-6.1-sol",
+  "reasoning_effort": "xhigh",
+  "codex_cli": "0.160.0",
+  "case_repeats": {
+    "combined": 3,
+    "holdouts": 2,
+    "scope": 1
+  },
+  "excluded_infrastructure_probes": 3,
+  "scored_runs": 18,
+  "decision": "bounded_planning_gate_passed",
+  "variants": {
+    "prior": {
+      "fixture_revision": "dfd27b648b34719926aef4a3d6ed6971c40df4df",
+      "skill_sha256": "3a79f74d350bafb044891197d1bddbd9939d3fad2ad25de385fd43f77be29cc1",
+      "product_contract_sha256": "1fc8e85a449f7749e29be2cf495aa1100ffefac5c33bf2446dcc9af9d8d1be00"
+    },
+    "concept-review-only": {
+      "fixture_revision": "a759c54fcb0d9bef14d9f1b61df1cabf52271c6f",
+      "skill_sha256": "1699f4623eea29968cac6a062c70c333aa5fa72b42f162cf4c18d8fe7bdb73b8",
+      "product_contract_sha256": "bf970ce989ca5f99f45cf3d9e17056ec4663fbe075be82cd21361d8d4b658277"
+    },
+    "amount-reconciliation": {
+      "fixture_revision": "58c180443b373f9013cea716e3389383d4cbede6",
+      "skill_sha256": "1699f4623eea29968cac6a062c70c333aa5fa72b42f162cf4c18d8fe7bdb73b8",
+      "product_contract_sha256": "04d168b2fb7d50b3e4ef49ca2a8b0d9abe871c32d37170e6fb114c3bdcf291d7"
+    },
+    "metric-definition-reconciliation": {
+      "fixture_revision": "70925ab8b1f449362b3489ab75c180c9d6452515",
+      "skill_sha256": "1699f4623eea29968cac6a062c70c333aa5fa72b42f162cf4c18d8fe7bdb73b8",
+      "product_contract_sha256": "bbd9e1efa8648494c60ff740230ad002054f0826b7749ffc428759fcdf75db0e"
+    }
+  },
+  "summary": {
+    "prior": {
+      "runs": 6,
+      "semantic_passes": 3,
+      "critical_failures": 1,
+      "native_corrected_passes": 6,
+      "median_seconds": 183.839,
+      "input_tokens": 1214010,
+      "cached_input_tokens": 980736,
+      "output_tokens": 45943
+    },
+    "concept-review-only": {
+      "runs": 3,
+      "semantic_passes": 2,
+      "critical_failures": 1,
+      "native_corrected_passes": 3,
+      "median_seconds": 192.592,
+      "input_tokens": 558895,
+      "cached_input_tokens": 440448,
+      "output_tokens": 24471
+    },
+    "amount-reconciliation": {
+      "runs": 3,
+      "semantic_passes": 2,
+      "critical_failures": 1,
+      "native_corrected_passes": 3,
+      "median_seconds": 191.705,
+      "input_tokens": 569806,
+      "cached_input_tokens": 460800,
+      "output_tokens": 22758
+    },
+    "metric-definition-reconciliation": {
+      "runs": 6,
+      "semantic_passes": 6,
+      "critical_failures": 0,
+      "native_corrected_passes": 6,
+      "median_seconds": 196.125,
+      "input_tokens": 1276275,
+      "cached_input_tokens": 1038080,
+      "output_tokens": 49068
+    }
+  },
+  "results": [
+    {
+      "guidance": "prior",
+      "case": "combined",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": false,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": false,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 241.489,
+      "usage": {
+        "cached_input_tokens": 183040,
+        "input_tokens": 222025,
+        "output_tokens": 9212,
+        "reasoning_output_tokens": 5366
+      },
+      "raw_result_sha256": "494bc4309b7e9b00ad267aa6623e9d600613413e5773af57b7b10e6c3c150a4f"
+    },
+    {
+      "guidance": "concept-review-only",
+      "case": "combined",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": false,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": false,
+        "combined_4": true
+      },
+      "critical_failures": [
+        "Financial invention/internal inconsistency: the final challenge pass asserts 'B adds $500 setup-adjusted share capital', an unsupported amount that contradicts the accepted $4,900 and the proposal's own earlier reconciliation. This is a financial-correctness regression, not merely a grouping or wording miss."
+      ],
+      "elapsed_seconds": 196.463,
+      "usage": {
+        "cached_input_tokens": 123904,
+        "input_tokens": 160308,
+        "output_tokens": 8416,
+        "reasoning_output_tokens": 4168
+      },
+      "raw_result_sha256": "15e9fc03b93dc5028a7778dff10ed2344da324316e5be40a040ac9401da209b2"
+    },
+    {
+      "guidance": "concept-review-only",
+      "case": "combined",
+      "attempt": 2,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 192.592,
+      "usage": {
+        "cached_input_tokens": 154112,
+        "input_tokens": 198159,
+        "output_tokens": 8018,
+        "reasoning_output_tokens": 3944
+      },
+      "raw_result_sha256": "6942af71bee27a4d3bbd5eebfb907c6223c9a19264ce8ebd3385b5dcd319223a"
+    },
+    {
+      "guidance": "prior",
+      "case": "combined",
+      "attempt": 2,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": false,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": false,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 164.94,
+      "usage": {
+        "cached_input_tokens": 201600,
+        "input_tokens": 246873,
+        "output_tokens": 6951,
+        "reasoning_output_tokens": 2964
+      },
+      "raw_result_sha256": "4b992d556bb7552b72269d91bee3e6ec7ec087f16b81334d28fef681e6b91d5e"
+    },
+    {
+      "guidance": "prior",
+      "case": "combined",
+      "attempt": 3,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": false,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": false,
+        "combined_3": false,
+        "combined_4": true
+      },
+      "critical_failures": [
+        "Financial correctness: the displayed unqualified simple returns of 14.3% and 12.1% substitute retained cash for original cash paid, overstating the corresponding simple investment returns of 13.33% and 11.33%. No distinct return-on-retained-capital measure is identified; correct dollar gains and carry elsewhere do not correct the misleading percentage displays."
+      ],
+      "elapsed_seconds": 184.183,
+      "usage": {
+        "cached_input_tokens": 183936,
+        "input_tokens": 220561,
+        "output_tokens": 8000,
+        "reasoning_output_tokens": 4242
+      },
+      "raw_result_sha256": "bfb328dcfe9f4eafedd03c115d603358622799583e0c8148c8a1a25cacf4db93"
+    },
+    {
+      "guidance": "concept-review-only",
+      "case": "combined",
+      "attempt": 3,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 182.793,
+      "usage": {
+        "cached_input_tokens": 162432,
+        "input_tokens": 200428,
+        "output_tokens": 8037,
+        "reasoning_output_tokens": 3894
+      },
+      "raw_result_sha256": "c5d8acd4e8e50c427bb047bc284cd5fe88a66db1947d1984dc0d4a0ae6465fcc"
+    },
+    {
+      "guidance": "amount-reconciliation",
+      "case": "combined",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": false,
+      "criteria": {
+        "combined_1": false,
+        "combined_2": true,
+        "combined_3": false,
+        "combined_4": true
+      },
+      "critical_failures": [
+        "Financial-policy contradiction: the concept map says a refund reduces 'the return and carry basis'. Shared policy preserves original cash contribution for return and reduces only the carry basis. This wrong return rule remains in the complete proposal despite correct dollar-gain calculations; it is not merely a grouping or wording miss."
+      ],
+      "elapsed_seconds": 192.516,
+      "usage": {
+        "cached_input_tokens": 153984,
+        "input_tokens": 189844,
+        "output_tokens": 8190,
+        "reasoning_output_tokens": 3778
+      },
+      "raw_result_sha256": "4a83129fdc447faff6e1ebc256acc8ec9ca7c0cb91a5a67cb23c5b836e9b1f6e"
+    },
+    {
+      "guidance": "amount-reconciliation",
+      "case": "combined",
+      "attempt": 2,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 191.705,
+      "usage": {
+        "cached_input_tokens": 182912,
+        "input_tokens": 219266,
+        "output_tokens": 7075,
+        "reasoning_output_tokens": 3491
+      },
+      "raw_result_sha256": "4c59a9fe06ad8bdb12c464d3532cfcc6e5cb04d3ac2c40cbde8f6f734fcb70ce"
+    },
+    {
+      "guidance": "amount-reconciliation",
+      "case": "combined",
+      "attempt": 3,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 168.296,
+      "usage": {
+        "cached_input_tokens": 123904,
+        "input_tokens": 160696,
+        "output_tokens": 7493,
+        "reasoning_output_tokens": 3825
+      },
+      "raw_result_sha256": "8f65898200084b0ed26313e8a8b6aa5d7e49a8bb133a22db68a77ec5e0d14176"
+    },
+    {
+      "guidance": "metric-definition-reconciliation",
+      "case": "combined",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 181.582,
+      "usage": {
+        "cached_input_tokens": 214016,
+        "input_tokens": 258288,
+        "output_tokens": 8063,
+        "reasoning_output_tokens": 3178
+      },
+      "raw_result_sha256": "2a630b3260a104615dcbdf1da99a5fc79c91c43d4c7a6387fef06235e247ee22"
+    },
+    {
+      "guidance": "metric-definition-reconciliation",
+      "case": "combined",
+      "attempt": 2,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 210.669,
+      "usage": {
+        "cached_input_tokens": 195328,
+        "input_tokens": 219594,
+        "output_tokens": 8924,
+        "reasoning_output_tokens": 4584
+      },
+      "raw_result_sha256": "8c38c662292527b73400f846e427201f0962d155fed627bee38d0a59f4f216db"
+    },
+    {
+      "guidance": "metric-definition-reconciliation",
+      "case": "combined",
+      "attempt": 3,
+      "native_original_pass": false,
+      "native_corrected_pass": true,
+      "regraded": true,
+      "semantic_pass": true,
+      "criteria": {
+        "combined_1": true,
+        "combined_2": true,
+        "combined_3": true,
+        "combined_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 138.813,
+      "usage": {
+        "cached_input_tokens": 130816,
+        "input_tokens": 181744,
+        "output_tokens": 6166,
+        "reasoning_output_tokens": 2370
+      },
+      "raw_result_sha256": "cbdae29bd1f3df8f56870ac2230d2721da0063a1de687007ef45413e7e2c7ad3"
+    },
+    {
+      "guidance": "prior",
+      "case": "holdouts",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "holdouts_1": true,
+        "holdouts_2": true,
+        "holdouts_3": true,
+        "holdouts_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 242.877,
+      "usage": {
+        "cached_input_tokens": 126592,
+        "input_tokens": 164101,
+        "output_tokens": 9297,
+        "reasoning_output_tokens": 6048
+      },
+      "raw_result_sha256": "be214cc63f2abeb57b1f6eec08e8a1384631d1ffb8ed9116029d208861431064"
+    },
+    {
+      "guidance": "metric-definition-reconciliation",
+      "case": "holdouts",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "holdouts_1": true,
+        "holdouts_2": true,
+        "holdouts_3": true,
+        "holdouts_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 279.289,
+      "usage": {
+        "cached_input_tokens": 179200,
+        "input_tokens": 224423,
+        "output_tokens": 11427,
+        "reasoning_output_tokens": 7109
+      },
+      "raw_result_sha256": "5de458e7f3abc275f8c3a7ba5f482ea1a402b5145954d0b9843754117e744bd8"
+    },
+    {
+      "guidance": "metric-definition-reconciliation",
+      "case": "holdouts",
+      "attempt": 2,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "holdouts_1": true,
+        "holdouts_2": true,
+        "holdouts_3": true,
+        "holdouts_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 221.447,
+      "usage": {
+        "cached_input_tokens": 168064,
+        "input_tokens": 204692,
+        "output_tokens": 9221,
+        "reasoning_output_tokens": 5067
+      },
+      "raw_result_sha256": "5fbc7a1df8d7f0f09138e2043d1a4cbd5595dbd37cd494eeef5946f35934a86d"
+    },
+    {
+      "guidance": "prior",
+      "case": "holdouts",
+      "attempt": 2,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "holdouts_1": true,
+        "holdouts_2": true,
+        "holdouts_3": true,
+        "holdouts_4": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 183.495,
+      "usage": {
+        "cached_input_tokens": 153984,
+        "input_tokens": 189199,
+        "output_tokens": 7939,
+        "reasoning_output_tokens": 4699
+      },
+      "raw_result_sha256": "1dec46684f5bfacb70c142ed15d4e5af38f34c1c58d38f1b9c09a1fdbbcaace7"
+    },
+    {
+      "guidance": "prior",
+      "case": "scope",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "scope_1": true,
+        "scope_2": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 107.056,
+      "usage": {
+        "cached_input_tokens": 131584,
+        "input_tokens": 171251,
+        "output_tokens": 4544,
+        "reasoning_output_tokens": 2092
+      },
+      "raw_result_sha256": "3f24e44b064c88bfd755a76e43e2a6ff8f6182991529b4db4a3c475b9710b9d9"
+    },
+    {
+      "guidance": "metric-definition-reconciliation",
+      "case": "scope",
+      "attempt": 1,
+      "native_original_pass": true,
+      "native_corrected_pass": true,
+      "regraded": false,
+      "semantic_pass": true,
+      "criteria": {
+        "scope_1": true,
+        "scope_2": true
+      },
+      "critical_failures": [],
+      "elapsed_seconds": 117.398,
+      "usage": {
+        "cached_input_tokens": 150656,
+        "input_tokens": 187534,
+        "output_tokens": 5267,
+        "reasoning_output_tokens": 2471
+      },
+      "raw_result_sha256": "8f1255316413164c4f71c151ccf03412986151805988a71f904c0350f31c21c6"
+    }
+  ],
+  "limitations": [
+    "Known-case tuning is not holdout evidence.",
+    "Scope holdout ran once per final arm.",
+    "Blinded review judges full proposals; the native score does not measure semantic quality.",
+    "One execution grade was corrected for a printed-word substring false positive; original output remains preserved.",
+    "This does not prove rendered UI, implementation, persistence, future reliability, CI, or deployment."
+  ]
+}

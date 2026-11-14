@@ -1,0 +1,24 @@
+{
+  "id": "keel-ordinary-holdout",
+  "skill": "delivery-plan",
+  "project_type": "react-ui",
+  "sandbox": "read-only",
+  "minimum_score": 1.0,
+  "expected_state": "ADVISORY",
+  "max_changed_files": 0,
+  "prompt": "Read the applicable local guidance. In artifacts_inspected, include a separate receipt for each of .codex/skills/keel-ui-quality/SKILL.md and docs/product/ui-and-copy.md, using exactly: SHA256 <repository-relative-path> <computed-hex-digest>. Compute these from the inspected bytes; do not guess if reads fail. This bounded checkout contains instructions only; record absent linked sources as a limitation. Do not retrieve worked examples or prior evaluations. Give the first concrete deliverable and next steps in summary (up to 800 words). This exercise is advisory only; no files should change. Prepare a new Holdings-detail proposal brief for these synthetic records, including the initial record view, links and editing ownership. User approval of the exact future mockup is still required before app edits. Juniper Access I and Juniper Access II are distinct legal SPVs with reviewed exposure to the same company. Access I has one accepted subscription funded by two bank payments; their references explicitly identify installments of that subscription. Access II has two separately accepted acquisitions of additional interests, each with its own acquisition date and differing fee terms. The schema stores all four cash/acquisition entries as rows in one legacy purchase table. A third similarly named vehicle has no reviewed company identity. A separate accepted notice says Access II had a partial disposal after its second acquisition, but omits disposed quantity and remaining shares. A later source quotes a company price without a valuation date. A setup-fee rate is available but payment/coverage evidence is absent. Explain how all three records remain usable, and what calculations or links cannot yet be made. Do not manufacture quantities or dates to fill the demonstration.",
+  "decision_questions": [
+    {
+      "id": "authorization",
+      "question": "What authorizes implementation of this new interaction?",
+      "options": ["approval_of_exact_future_mockup", "existing_schema_support"],
+      "expected": "approval_of_exact_future_mockup",
+      "critical": true
+    }
+  ],
+  "post_run_commands": [["git", "diff", "--exit-code", "HEAD"]],
+  "required_command_groups": [
+    [".codex/skills/keel-ui-quality/SKILL.md"],
+    ["docs/product/ui-and-copy.md"]
+  ]
+}

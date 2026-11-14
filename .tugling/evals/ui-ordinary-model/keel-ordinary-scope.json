@@ -1,0 +1,27 @@
+{
+  "id": "keel-ordinary-scope",
+  "skill": "delivery-plan",
+  "project_type": "react-ui",
+  "sandbox": "read-only",
+  "minimum_score": 1.0,
+  "expected_state": "ADVISORY",
+  "max_changed_files": 0,
+  "prompt": "Read the applicable local guidance. In artifacts_inspected, include a separate receipt for each of .codex/skills/keel-ui-quality/SKILL.md and docs/product/ui-and-copy.md, using exactly: SHA256 <repository-relative-path> <computed-hex-digest>. Compute these from the inspected bytes; do not guess if reads fail. This bounded checkout contains instructions only; record absent linked sources as a limitation. Do not retrieve worked examples or prior evaluations. Give the first concrete deliverable and next steps in summary (up to 800 words). This exercise is advisory only; no files should change. Describe the work you would carry out in a normal full checkout for this already authorized repair. The approved SPV investment-details panel has a Save button clipped at 390px. The user says: fix the layout locally, keep the same inputs, copy, editing ownership, acceptance behavior and task steps; use the existing approved pattern. No new information architecture or publication is requested. The visual regression fixture for the affected panel contains two genuine acquisitions within one SPV. Explain the checks and stopping point. Do not attempt the repair inside this instructions-only fixture.",
+  "decision_questions": [
+    {
+      "id": "authorization",
+      "question": "What is the next action in a full checkout?",
+      "options": [
+        "repair_under_existing_authorization",
+        "new_concept_map_and_mockup_approval"
+      ],
+      "expected": "repair_under_existing_authorization",
+      "critical": true
+    }
+  ],
+  "post_run_commands": [["git", "diff", "--exit-code", "HEAD"]],
+  "required_command_groups": [
+    [".codex/skills/keel-ui-quality/SKILL.md"],
+    ["docs/product/ui-and-copy.md"]
+  ]
+}
