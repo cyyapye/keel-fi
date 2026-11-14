@@ -18,7 +18,7 @@
       "max_files": 64,
       "max_bytes": 16777216
     },
-    "verification_budget_seconds": 1500
+    "verification_budget_seconds": 900
   },
   "learning": {
     "mode": "local",
