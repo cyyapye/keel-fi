@@ -1,6 +1,6 @@
 import { build } from "esbuild";
 import { z } from "zod";
-import { createCostDatabase } from "./d1-cost";
+import { createCostWorker } from "./d1-cost";
 import { reconnectCostResultSchema } from "./provider-reconnect-cost";
 
 const worker = build({
@@ -23,7 +23,7 @@ const resultSchema = z
   .strict();
 
 export async function createProviderReconnectCostDatabase() {
-  const fixture = await createCostDatabase(await worker);
+  const fixture = await createCostWorker(await worker);
   try {
     const response = await fixture.dispatchFetch(
       "https://synthetic-reconnect-cost.invalid",

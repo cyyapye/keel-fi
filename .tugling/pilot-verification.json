@@ -359,7 +359,7 @@
         "scripts/pilot_native.py",
         "playwright-prepared"
       ],
-      "timeout_seconds": 300,
+      "timeout_seconds": 420,
       "sources": [
         "Makefile",
         "playwright.config.ts",
@@ -398,7 +398,7 @@
       "runtime": {
         "owner": "native-command",
         "launch": "After source checks and unit/D1 verification release their resources, the sealed, verified and closed synthetic D1 fixture is copied into three independent profiles without rerunning setup. Three one-worker stateful shards and one production-served API-mocked worker start on distinct ports. Once the mocked worker validates its report and releases its runtime, the remaining mocked specs use its single worker slot while the three stateful shards finish.",
-        "health": "The development stateful lane validates the initial Vite module graph; all stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers. The complete browser command, including reporting and owned teardown, must finish within 300 elapsed seconds.",
+        "health": "The development stateful lane validates the initial Vite module graph; all stateful lanes also wait through the web proxy for /api/holdings-page. Mocked contexts reject unhandled application APIs. Five validated reports must cover the complete reviewed browser inventory with unchanged snapshots and at most four active browser workers. The complete browser command, including reporting and owned teardown, must finish within the temporary 420-second elapsed budget.",
         "cleanup": "Owned lane process groups are terminated on completion, failure or cancellation before profile removal. Per-suite leases prevent duplicate report and runtime writers."
       },
       "depends_on": [

@@ -18,17 +18,28 @@ independent test runs.
 The private CI bridge temporarily sets the complete active native budget to 1500
 seconds, the `source-quality` flow limit to 900 seconds and the first MCP
 integration case deadline to 15,000 milliseconds. Every registered case and
-assertion remains required. Worker counts, the 300-second complete browser cap,
-all other flow and case deadlines, schedules, caches, included-compute-only
-admission and the one-dollar Actions hard stop remain unchanged. This policy
-does not authorize a visibility change, paid capacity or a new provider.
+assertion remains required. The complete browser cap is temporarily 420 seconds.
+Worker counts, all other flow and case deadlines, schedules, caches,
+included-compute-only admission and the one-dollar Actions hard stop remain
+unchanged. This policy does not authorize a visibility change, paid capacity or
+a new provider.
 
 After separately approved publication, verify the same complete workload on the
 standard public four-core, 16-GB runner. Then restore the original 900-second
-native budget, 600-second source limit and 5000-millisecond first-MCP deadline
-in a reviewed follow-up. A capacity specification is not a passing receipt. If
-the original limits fail, preserve that failure and repair the measured
-bottleneck before claiming the public performance target is met.
+native budget, 600-second source limit, 5000-millisecond first-MCP deadline and
+300-second browser budget in a reviewed follow-up. A capacity specification is
+not a passing receipt. If the original limits fail, preserve that failure and
+repair the measured bottleneck before claiming the public performance target is
+met.
+
+The browser extension is a bounded private-runner trial. Two exact-head runs
+passed every unit case but were terminated at the earlier 300-second browser
+limit; their incomplete results remain failures. A same-tree PR run completed
+browsers in 253.527 seconds. These observations do not establish completion
+within 420 seconds or stable runner capacity. Require fresh complete exact-head
+and exact-main receipts; do not retry unchanged failures repeatedly or count
+interrupted cases as coverage. Keep all cases, assertions, canonical references,
+workers and the 1500-second native budget.
 
 Historical measurements and trials below retain their recorded limits. The
 temporary limits are a bridge, not permanent performance acceptance.
@@ -56,15 +67,15 @@ time. Exceeding that budget fails required verification without silently
 dropping checks. Watchdogs remain independent safety ceilings. Do not raise the
 budget to hide a regression.
 
-The complete `browser-workflows` command has a separate **300-second elapsed
-budget** in `.tugling/pilot-verification.json`. It includes profile copies,
-server/browser startup, all registered cases, report validation and owned
-runtime teardown. Queue time and the existing build/seed prerequisite flows
-remain separate. The native launcher terminates an overrun. Receipt publication
-and every downstream receipt check also compare the measured duration with the
-declared limit, so observing an exit-code-zero process just after its deadline
-cannot produce a green check. The temporary 1500-second whole-gate budget also
-applies.
+The complete `browser-workflows` command has a separate **temporary 420-second
+elapsed budget** in `.tugling/pilot-verification.json`. It includes profile
+copies, server/browser startup, all registered cases, report validation and
+owned runtime teardown. Queue time and the existing build/seed prerequisite
+flows remain separate. The native launcher terminates an overrun. Receipt
+publication and every downstream receipt check also compare the measured
+duration with the declared limit, so observing an exit-code-zero process just
+after its deadline cannot produce a green check. The temporary 1500-second
+whole-gate budget also applies.
 
 Keep browser lanes balanced as coverage grows. The carry/share-basis change
 added 24 executions to one serial production lane, taking its passing count from
@@ -86,7 +97,7 @@ were 8,242 MiB for browsers, 3,667 MiB for source checks and 2,638 MiB for
 unit/D1 work. These peaks are not additive physical-memory measurements.
 Browsers now wait for source checks and unit/D1 verification to release their
 resources. Their existing work remains required within the temporary 1500-second
-native gate, and browser execution still has its 300-second limit.
+native gate, and browser execution has its temporary 420-second limit.
 
 The same tree, `83cee0ee`, passes the complete canonical Linux browser suite in
 208.228 seconds in isolated diagnostic run `42340411992`: all 151 executions and
@@ -1454,6 +1465,24 @@ establish a Linux latency gain. The same five-second case deadline and
 complete 300/900-second budgets stayed unchanged for those optimizations. A
 fresh complete exact-revision receipt is still required to establish release
 fit.
+
+## Reconnect fixture runtime admission
+
+The reconnect fixture performs its foreign-key admission read through the real
+Worker binding before running the same repository operations. It no longer
+creates a Node D1 proxy just for that read. Both fixture paths share the sealed
+seed, runtime configuration and owned cleanup. Fixtures that use host-side SQL
+retain their D1 handle and foreign-key check. The reconnect case keeps its
+five-second deadline, 120/1,200 histories, complete assertions, query plans and
+actual D1 billing counters.
+
+Five alternating macOS pairs ran the original complete test against the same
+sealed seed, including teardown. All ten executions passed. Median case time
+fell from 212.0 to 164.7 milliseconds, with ranges 208.5–222.2 and 162.9–169.6
+milliseconds. Median complete-process time fell from 0.784 to 0.738 seconds and
+child-process CPU from 1.214 to 1.125 seconds. These are local measurements;
+complete hosted verification still determines release fit. Native/source/browser
+limits, workers, case inventories and screenshots remain unchanged.
 
 ## App access boundary fixtures
 
