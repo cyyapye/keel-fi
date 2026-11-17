@@ -80,6 +80,17 @@ const triggerUpgrades = [
     tables: 159,
     schemaObjects: 812,
   },
+  {
+    id: "price-metadata-continuation-v1",
+    frontier: "0096_economics_snapshot_lookup.sql",
+    oldFixture: "0096",
+    newFixture: "0097",
+    migration: "0097_price_metadata_continuation.sql",
+    statements: 2,
+    changedNames: ["holding_price_continuation_guard"],
+    tables: 159,
+    schemaObjects: 812,
+  },
 ] as const;
 const completedRegressions = new Set<number>();
 const baselineScenarios: MigrationSafetyBaselineScenario[] = [];
@@ -916,14 +927,14 @@ describe("populated OLD-schema D1 migration safety", () => {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "public-holding-history-v1" ||
-        registry.baseline.frontier !== "0096_economics_snapshot_lookup.sql" ||
-        registry.cases.length !== 7 ||
+        registry.baseline.frontier !== "0097_price_metadata_continuation.sql" ||
+        registry.cases.length !== 8 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0096");
+      const fixture = await populatedMigrationFixture(history, "0097");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {

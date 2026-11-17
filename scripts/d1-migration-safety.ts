@@ -444,15 +444,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "economics-snapshot-lookup-schema-v1" ||
-    registry.baseline.frontier !== "0096_economics_snapshot_lookup.sql" ||
+    registry.baseline.id !== "price-metadata-continuation-schema-v1" ||
+    registry.baseline.frontier !== "0097_price_metadata_continuation.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 7 ||
+    registry.cases.length !== 8 ||
+    registry.cases[7]?.id !== "price-metadata-continuation-v1" ||
+    registry.cases[7].frontier !== "0096_economics_snapshot_lookup.sql" ||
+    registry.cases[7].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[7].migrations.map((item) => item.name),
+      ["0097_price_metadata_continuation.sql"],
+    ) ||
     registry.cases[6]?.id !== "economics-snapshot-lookup-v1" ||
     registry.cases[6].frontier !== "0095_investment_history.sql" ||
     registry.cases[6].fixture !== "public-holding-history-v1" ||

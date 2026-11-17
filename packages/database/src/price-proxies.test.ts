@@ -529,6 +529,93 @@ it("follows a newer undated GP price using recorded metadata assumptions, reject
   ).toEqual({ recalculated: 0 });
 });
 
+it("retains an undated reviewed split through partial and missing source metadata without applying it twice", async () => {
+  await setUpRepository();
+  await reviewQuote();
+  await link(0);
+  await link(1);
+  const original = current(0)!;
+  const postSplit = current(1)!;
+  const correctedQuantity = structuredClone(postSplit.details);
+  correctedQuantity.lots[0]!.remainingSharesMicros = 844_000_000;
+  correctedQuantity.lots[0]!.quantityDetails!.shareBasis.unitsPerOriginal = 10;
+  await repo.accept(COST_SUBJECT, positions[1]!.id, {
+    expectedSnapshotId: positions[1]!.snapshotId,
+    expectedReceiptId: postSplit.id,
+    details: correctedQuantity,
+  });
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  await repo.acceptValuation(COST_SUBJECT, positions[3]!.id, {
+    expectedSnapshotId: positions[3]!.snapshotId,
+    expectedReceiptId: current(3)!.id,
+    method: "total",
+    record: { ...gp(20_000_000, "2026-09-10", 10), priceDate: null },
+  });
+  const splitQuoteId = current(0)!.details.valuation!.calculation!.quoteId;
+  expect(value(0)).toBe(1_688_000);
+  expect(value(1)).toBe(1_688_000);
+  // Editing investment facts can preserve an already accepted quote verbatim;
+  // its older, now-unused assumptions remain reconstructable until refresh.
+  const splitReceipt = current(0)!;
+  await repo.accept(COST_SUBJECT, positions[0]!.id, {
+    expectedSnapshotId: positions[0]!.snapshotId,
+    expectedReceiptId: splitReceipt.id,
+    details: { ...splitReceipt.details, cashCoversPosition: false },
+  });
+  expect(current(0)!.id).not.toBe(splitReceipt.id);
+  for (const revision of [2, 3, 4, 5, 6]) {
+    vi.setSystemTime(new Date(Date.now() + 1000));
+    await seedCostHoldings(db.asD1(), COST_SUBJECT, revision, false, {
+      sharePrices: {
+        ...prices(20_000_000 + revision * 1_000_000, null, 10),
+        shareClass: revision === 5 ? "Class A" : null,
+        // A split-only observation and a later metadata-free observation must
+        // each retain the newest evidenced basis, not the old dated anchor.
+        shareBasis: revision === 3 ? { ...basis, unitsPerOriginal: 10 } : null,
+      },
+    });
+    expect(value(0)).toBe(1_688_000 + revision * 84_400);
+    expect(value(1)).toBe(value(0));
+    expect(current(0)!.details.lots).toEqual(original.details.lots);
+    const record = current(0)!.details.valuation!.records.find(
+      (r) => r.followSource,
+    )!;
+    expect(record.priceDate).toBeNull();
+    expect(record.sourceContinuation?.shareBasis.unitsPerOriginal).toBe(10);
+    if (revision <= 5)
+      expect(record.sourceContinuation?.quoteId).toBe(splitQuoteId);
+    if (revision === 4)
+      expect(record.sourceContinuation?.shareBasisQuoteId).toBeDefined();
+    if (revision === 6)
+      expect(record.sourceContinuation?.shareClass).toBe("Class A");
+    const receiptId = current(0)!.id;
+    expect(
+      await new D1PriceProxyRepository(db.asD1()).refresh(COST_SUBJECT),
+    ).toEqual({ recalculated: 0 });
+    expect(current(0)!.id).toBe(receiptId);
+  }
+  const latest = current(0)!;
+  const forged = structuredClone(latest);
+  forged.id = crypto.randomUUID();
+  forged.details.valuation!.records.find(
+    (r) => r.followSource,
+  )!.sourceContinuation!.shareBasis.unitsPerOriginal = 1;
+  expect(() =>
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,'hh_demo',?,?,?,?,'usr_demo',?)`,
+      )
+      .run(
+        forged.id,
+        forged.positionId,
+        forged.snapshotId,
+        latest.id,
+        JSON.stringify(forged),
+        forged.acceptedAt,
+      ),
+  ).toThrow("price continuation provenance mismatch");
+});
+
 it("explains distinct missing input and compatibility failures", () => {
   const record = gp();
   const details = { coversPosition: false, lots: [] };

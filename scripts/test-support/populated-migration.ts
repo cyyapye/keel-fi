@@ -378,6 +378,7 @@ async function buildFixture(
         "0094",
         "0095",
         "0096",
+        "0097",
       ].includes(frontier)
     ) {
       if (captureOld) captureOld(snapshotFixture("0089"));
@@ -393,7 +394,7 @@ async function buildFixture(
       frontier === "0090-public" ||
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095", "0096"].includes(frontier)
+      ["0093", "0094", "0095", "0096", "0097"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
@@ -403,7 +404,7 @@ async function buildFixture(
     if (
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095", "0096"].includes(frontier)
+      ["0093", "0094", "0095", "0096", "0097"].includes(frontier)
     ) {
       statements.clear();
       db.exec(
@@ -415,7 +416,7 @@ async function buildFixture(
     }
     if (
       frontier === "0092" ||
-      ["0093", "0094", "0095", "0096"].includes(frontier)
+      ["0093", "0094", "0095", "0096", "0097"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0091"));
@@ -426,7 +427,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0093", "0094", "0095", "0096"].includes(frontier)) {
+    if (["0093", "0094", "0095", "0096", "0097"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0092"));
       db.exec(
@@ -436,7 +437,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0094", "0095", "0096"].includes(frontier)) {
+    if (["0094", "0095", "0096", "0097"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0093"));
       db.exec(
@@ -446,7 +447,7 @@ async function buildFixture(
         ),
       );
     }
-    if (frontier === "0095" || frontier === "0096") {
+    if (["0095", "0096", "0097"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0094"));
       db.exec(
@@ -457,12 +458,22 @@ async function buildFixture(
       );
       investmentMigrationHistory(db);
     }
-    if (frontier === "0096") {
+    if (["0096", "0097"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0095"));
       db.exec(
         readFileSync(
           "packages/database/migrations/0096_economics_snapshot_lookup.sql",
+          "utf8",
+        ),
+      );
+    }
+    if (frontier === "0097") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0096"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0097_price_metadata_continuation.sql",
           "utf8",
         ),
       );
@@ -1188,15 +1199,16 @@ if (
       "0094",
       "0095",
       "0096",
+      "0097",
       "both",
     ])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0096", (fixture) => {
+    const terminal = await buildFixture(history, "0097", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0096": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0097": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

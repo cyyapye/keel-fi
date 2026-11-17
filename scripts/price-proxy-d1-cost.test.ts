@@ -325,6 +325,63 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     expect(await propagator.refresh(COST_SUBJECT)).toEqual({ recalculated: 0 });
     expect(measured.cost.roundTrips).toBe(1);
     expect(measured.cost.rowsWritten).toBe(0);
+    // The same 120-position envelope covers undated split corrections and
+    // independent class/basis anchors after history has grown. Later captures
+    // must neither revert the split nor multiply already normalized quantities.
+    for (const revision of [7, 8, 9]) {
+      vi.setSystemTime(new Date(`2026-10-0${revision - 4}T00:00:00.000Z`));
+      await expect(
+        seed(
+          COST_SUBJECT,
+          revision,
+          {
+            costMicros: null,
+            markMicros: 15_000_000,
+            markDate: null,
+            shareClass: revision === 7 ? "Common" : null,
+            shareBasis:
+              revision === 9 ? null : { ...basis, unitsPerOriginal: 10 },
+          },
+          true,
+        ),
+      ).rejects.toThrow("synthetic projection interruption");
+      measured.reset();
+      expect(await propagator.refresh(COST_SUBJECT)).toEqual({
+        recalculated: 120,
+      });
+      expect(measured.cost.roundTrips).toBe(2);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(6_000);
+      expect(measured.cost.rowsWritten).toBeLessThanOrEqual(1_000);
+      costs.push({ ...measured.cost });
+      const values = await db
+        .prepare(
+          `SELECT receipt_json FROM holding_purchase_reviews r JOIN holding_purchase_heads h ON h.review_id=r.id WHERE h.household_id='hh_demo'`,
+        )
+        .all<{ receipt_json: string }>();
+      expect(values.results).toHaveLength(120);
+      for (const row of values.results) {
+        const receipt = PurchaseReceiptSchema.parse(
+          JSON.parse(row.receipt_json),
+        );
+        expect(receipt.details.valuation!.calculation!.valueMinor).toBe(185185);
+        expect(receipt.details.valuation!.records[0]!.priceDate).toBeNull();
+        if (revision === 9) {
+          expect(
+            receipt.details.valuation!.records[0]!.sourceContinuation,
+          ).toMatchObject({ shareBasis: { ...basis, unitsPerOriginal: 10 } });
+          expect(
+            receipt.details.valuation!.records[0]!.sourceContinuation!
+              .shareBasisQuoteId,
+          ).toBeDefined();
+        }
+      }
+      measured.reset();
+      expect(await propagator.refresh(COST_SUBJECT)).toEqual({
+        recalculated: 0,
+      });
+      expect(measured.cost.roundTrips).toBe(1);
+      expect(measured.cost.rowsWritten).toBe(0);
+    }
     measured.reset();
     expect(await propagator.refresh("foreign-subject")).toEqual({
       recalculated: 0,

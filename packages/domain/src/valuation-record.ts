@@ -21,6 +21,9 @@ export const ValuationRecordSchema = z
       .object({
         policy: z.literal("accepted-source-continuation-v1"),
         quoteId: text,
+        // Class and split metadata can arrive in different observations.
+        // Omitted on older receipts whose single quote anchors both fields.
+        shareBasisQuoteId: text.optional(),
         shareClass: text,
         shareBasis: ShareBasisSchema,
       })
@@ -158,17 +161,21 @@ export function continuedPriceMetadata(
     (quote.priceDate && quote.shareClass && quote.shareBasis)
   )
     return undefined;
-  return (
-    prior.sourceContinuation ??
-    (prior.sourceEvidenceId && prior.shareClass && prior.shareBasis
-      ? {
-          policy: "accepted-source-continuation-v1" as const,
-          quoteId: prior.sourceEvidenceId,
-          shareClass: prior.shareClass,
-          shareBasis: prior.shareBasis,
-        }
-      : undefined)
-  );
+  const previous = prior.sourceContinuation;
+  const shareClass = prior.shareClass ?? previous?.shareClass;
+  const shareBasis = prior.shareBasis ?? previous?.shareBasis;
+  const quoteId = prior.shareClass ? prior.sourceEvidenceId : previous?.quoteId;
+  const basisQuoteId = prior.shareBasis
+    ? prior.sourceEvidenceId
+    : (previous?.shareBasisQuoteId ?? previous?.quoteId);
+  if (!shareClass || !shareBasis || !quoteId || !basisQuoteId) return undefined;
+  return {
+    policy: "accepted-source-continuation-v1" as const,
+    quoteId,
+    ...(basisQuoteId !== quoteId ? { shareBasisQuoteId: basisQuoteId } : {}),
+    shareClass,
+    shareBasis,
+  };
 }
 export type ValuationState = z.infer<typeof ValuationStateSchema>;
 export type AcceptValuation = z.infer<typeof AcceptValuationSchema>;

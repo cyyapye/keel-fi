@@ -373,7 +373,10 @@
       "fixture": "holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [12, 24],
+      "histories": [
+        12,
+        24
+      ],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     },
@@ -390,7 +393,10 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [12, 24],
+      "histories": [
+        12,
+        24
+      ],
       "maxRowsRead": 15000,
       "maxRowsWritten": 10000
     },
@@ -407,7 +413,10 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [12, 24],
+      "histories": [
+        12,
+        24
+      ],
       "maxRowsRead": 15000,
       "maxRowsWritten": 5000
     },
@@ -424,7 +433,10 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [12, 24],
+      "histories": [
+        12,
+        24
+      ],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     },
@@ -441,7 +453,10 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [12, 24],
+      "histories": [
+        12,
+        24
+      ],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     },
@@ -458,7 +473,10 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [12, 24],
+      "histories": [
+        12,
+        24
+      ],
       "maxRowsRead": 2000,
       "maxRowsWritten": 150
     },
@@ -475,19 +493,44 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [12, 24],
+      "histories": [
+        12,
+        24
+      ],
+      "maxRowsRead": 2000,
+      "maxRowsWritten": 100
+    },
+    {
+      "kind": "upgrade",
+      "id": "price-metadata-continuation-v1",
+      "frontier": "0096_economics_snapshot_lookup.sql",
+      "migrations": [
+        {
+          "name": "0097_price_metadata_continuation.sql",
+          "sha256": "441dcaff29d5ec24d708c524450e3bb44b1b2e4de0e9cee9f406160cceae4180"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [
+        12,
+        24
+      ],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "economics-snapshot-lookup-schema-v1",
-    "frontier": "0096_economics_snapshot_lookup.sql",
+    "id": "price-metadata-continuation-schema-v1",
+    "frontier": "0097_price_metadata_continuation.sql",
     "pending": [],
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,
     "unrelatedPositions": 120,
-    "histories": [24]
+    "histories": [
+      24
+    ]
   }
 }

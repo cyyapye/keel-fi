@@ -814,6 +814,15 @@ policy cannot establish a new source or invent share metadata. The user can
 correct source metadata through the existing valuation editor; failed source
 syncs use the existing Sources recovery controls.
 
+Migration `0097` retains the latest explicitly evidenced share class and split
+basis independently, including metadata from an undated accepted quote. Each
+assumption binds its own immutable quote when the fields came from different
+observations. A later metadata-free observation cannot restore an older split
+basis. Source corrections reuse the GP valuation editor and bounded proxy
+refresh; they preserve reported dollar totals, original investment quantities
+and unknown mark dates. The correction applies the quote-to-quantity basis ratio
+once, including positions whose quantities already use the post-split basis.
+
 A failed propagation can be retried by replaying the accepted import or the
 authenticated `POST /api/valuation-proxies/refresh` maintenance operation.
 Compare-and-swap guards preserve concurrent user edits and reject changed
