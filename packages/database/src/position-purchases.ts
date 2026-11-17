@@ -466,13 +466,14 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
           'markMicros',q.price_micros,'markDate',q.price_date,'shareClass',q.share_class,
           'shareBasis',json(q.basis_json),'priceSourcePositionId',q.source_position_id,
           'sourceMetadata',json(CASE WHEN class_quote.id IS NOT NULL OR basis_quote.id IS NOT NULL THEN json_object(
-            'policy','accepted-source-continuation-v1','quoteId',class_quote.id,'shareBasisQuoteId',head.share_basis_quote_id,
-            'shareClass',class_quote.share_class,'shareBasis',json(CASE WHEN head.share_basis_quote_id IS head.share_class_quote_id THEN class_quote.basis_json ELSE basis_quote.basis_json END)) END)) evidence_json
+            'policy','accepted-source-continuation-v1','quoteId',class_quote.id,'shareBasisQuoteId',metadata_head.share_basis_quote_id,
+            'shareClass',class_quote.share_class,'shareBasis',json(CASE WHEN metadata_head.share_basis_quote_id IS metadata_head.share_class_quote_id THEN class_quote.basis_json ELSE basis_quote.basis_json END)) END)) evidence_json
       FROM related priced_position
       CROSS JOIN holding_price_current_quotes head ON head.source_position_id=priced_position.id AND head.household_id=priced_position.household_id
       CROSS JOIN holding_price_quotes q ON q.id=head.quote_id
-      LEFT JOIN holding_price_quotes class_quote ON class_quote.id=head.share_class_quote_id
-      LEFT JOIN holding_price_quotes basis_quote ON basis_quote.id=(CASE WHEN head.share_basis_quote_id IS NOT head.share_class_quote_id THEN head.share_basis_quote_id END)
+      LEFT JOIN holding_price_metadata_heads metadata_head ON metadata_head.source_position_id=priced_position.id AND metadata_head.household_id=priced_position.household_id
+      LEFT JOIN holding_price_quotes class_quote ON class_quote.id=metadata_head.share_class_quote_id
+      LEFT JOIN holding_price_quotes basis_quote ON basis_quote.id=(CASE WHEN metadata_head.share_basis_quote_id IS NOT metadata_head.share_class_quote_id THEN metadata_head.share_basis_quote_id END)
       LEFT JOIN holding_import_share_prices e ON e.import_row_id=q.import_row_id
       WHERE NOT EXISTS(SELECT 1 FROM holding_position_continuities c WHERE c.predecessor_position_id=priced_position.id)
       ORDER BY q.price_date DESC,q.accepted_at DESC,q.id LIMIT 120

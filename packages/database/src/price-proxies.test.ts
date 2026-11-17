@@ -902,28 +902,37 @@ it("preserves established source heads across tied acceptances and excludes init
   expect(
     db.sqlite
       .prepare(
-        "SELECT 1 FROM holding_price_metadata_heads WHERE source_position_id=?",
+        "SELECT current_quote_id,share_class_quote_id,share_basis_quote_id FROM holding_price_metadata_heads WHERE source_position_id=?",
       )
       .get(positions[0]!.id),
-  ).toBeUndefined();
+  ).toEqual({
+    current_quote_id: "synthetic-future",
+    share_class_quote_id: null,
+    share_basis_quote_id: null,
+  });
   replayMetadataMigration();
   expect(
     db.sqlite
       .prepare(
-        "SELECT share_class_quote_id,share_basis_quote_id FROM holding_price_metadata_heads WHERE source_position_id=?",
+        "SELECT current_quote_id,share_class_quote_id,share_basis_quote_id FROM holding_price_metadata_heads WHERE source_position_id=?",
       )
       .get(positions[3]!.id),
   ).toMatchObject({
+    current_quote_id: "synthetic-b",
     share_class_quote_id: "synthetic-b",
     share_basis_quote_id: "synthetic-b",
   });
   expect(
     db.sqlite
       .prepare(
-        "SELECT 1 FROM holding_price_metadata_heads WHERE source_position_id=?",
+        "SELECT current_quote_id,share_class_quote_id,share_basis_quote_id FROM holding_price_metadata_heads WHERE source_position_id=?",
       )
       .get(positions[0]!.id),
-  ).toBeUndefined();
+  ).toEqual({
+    current_quote_id: "synthetic-future",
+    share_class_quote_id: null,
+    share_basis_quote_id: null,
+  });
 });
 
 it("explains distinct missing input and compatibility failures", () => {
@@ -982,6 +991,95 @@ it("explains distinct missing input and compatibility failures", () => {
       followSource: true,
     }),
   ).toMatchObject({ code: "cross_class" });
+});
+
+it("advances later changed candidates across multiple owned households beyond one 500-row batch", async () => {
+  await setUpRepository();
+  await reviewQuote();
+  const template = await link(0);
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 2, false, {
+    positionCount: 260,
+    sharePrices: prices(),
+  });
+  db.sqlite
+    .exec(`INSERT INTO users VALUES ('proxy-other-user','proxy-other-subject','proxy-other@example.invalid','Synthetic Other','2026-09-01');
+    INSERT INTO households VALUES ('proxy-other','proxy-other-user','Synthetic Other','USD','2026-09-01');`);
+  await seedCostHoldings(db.asD1(), "proxy-other-subject", 1, false, {
+    positionCount: 260,
+    sharePrices: prices(),
+  });
+  // The owner can have multiple households; each remains below its 500-link cap.
+  db.sqlite.exec(
+    "UPDATE households SET owner_user_id='usr_demo' WHERE id='proxy-other'",
+  );
+  const rows = db.sqlite
+    .prepare(
+      `SELECT p.id,p.household_id,application.snapshot_id,price.id quote_id,price.observed_at
+    FROM holding_positions p JOIN holding_import_application_heads application ON application.position_id=p.id
+    JOIN holding_price_metadata_heads metadata ON metadata.source_position_id=p.id
+    JOIN holding_price_quotes price ON price.id=metadata.current_quote_id
+    LEFT JOIN holding_purchase_heads review ON review.position_id=p.id
+    WHERE p.provider='tokenfolio' AND review.position_id IS NULL ORDER BY p.id`,
+    )
+    .all() as {
+    id: string;
+    household_id: string;
+    snapshot_id: string;
+    quote_id: string;
+    observed_at: string;
+  }[];
+  expect(rows).toHaveLength(518);
+  for (const row of rows) {
+    const id = crypto.randomUUID();
+    const details = structuredClone(template.details);
+    details.investmentSnapshotId = row.snapshot_id;
+    details.valuation!.snapshotId = row.snapshot_id;
+    const record = details.valuation!.records.find((r) => r.followSource)!;
+    Object.assign(record, {
+      id: `proxy:${row.id}`,
+      sourcePositionId: row.id,
+      priceSourcePositionId: row.id,
+      sourceEvidenceId: row.quote_id,
+      sourceCapturedAt: row.observed_at,
+    });
+    details.valuation!.selected!.recordId = record.id;
+    Object.assign(details.valuation!.calculation!, {
+      quoteId: row.quote_id,
+      quantityReceiptId: id,
+    });
+    const receipt = PurchaseReceiptSchema.parse({
+      ...template,
+      id,
+      positionId: row.id,
+      snapshotId: row.snapshot_id,
+      supersedesEconomicsTermsId: null,
+      details,
+    });
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,?,?,?,NULL,?,'usr_demo',?)`,
+      )
+      .run(
+        id,
+        row.household_id,
+        row.id,
+        row.snapshot_id,
+        JSON.stringify(receipt),
+        receipt.acceptedAt,
+      );
+  }
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  for (const row of rows)
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_price_quotes(id,household_id,source_position_id,import_row_id,review_id,price_micros,price_date,share_class,basis_json,source_label,source_url,observed_at,accepted_at,decision_policy)
+    SELECT id||':new',household_id,source_position_id,import_row_id,NULL,300_000_000,'2026-09-11',share_class,basis_json,source_label,source_url,?,?,'accepted-import-price-v1' FROM holding_price_quotes WHERE id=?`,
+      )
+      .run(new Date().toISOString(), new Date().toISOString(), row.quote_id);
+  const refresh = new D1PriceProxyRepository(db.asD1());
+  expect(await refresh.refresh(COST_SUBJECT)).toEqual({ recalculated: 500 });
+  expect(await refresh.refresh(COST_SUBJECT)).toEqual({ recalculated: 18 });
+  expect(await refresh.refresh(COST_SUBJECT)).toEqual({ recalculated: 0 });
 });
 
 it("keeps refresh queries independent of receipt and quote history", async () => {

@@ -17,46 +17,36 @@ export class D1PriceProxyRepository {
     const rows = await this.db
       .prepare(
         `
-      WITH context AS MATERIALIZED (
-        SELECT u.id user_id,h.id household_id FROM users u JOIN households h ON h.owner_user_id=u.id WHERE u.access_subject=?
-      ), source_ids AS MATERIALIZED (
-        SELECT DISTINCT link.source_position_id,link.household_id FROM context
-        CROSS JOIN holding_price_proxy_links link ON link.household_id=context.household_id
-      ), source_prices AS MATERIALIZED (
-        SELECT head.* FROM source_ids
-        CROSS JOIN holding_price_current_quotes head ON head.household_id=source_ids.household_id AND head.source_position_id=source_ids.source_position_id
-      ), candidates AS MATERIALIZED (
-        SELECT link.household_id,context.user_id,link.position_id,review.id prior_id,
-          review.receipt_json,link.source_position_id,price_head.quote_id,
-          price_head.share_class_quote_id,price_head.share_basis_quote_id,price_head.dated_quote_id,price_head.observation_id
-        FROM context
-        CROSS JOIN holding_price_proxy_links link ON link.household_id=context.household_id
+      WITH candidates AS MATERIALIZED (
+        SELECT link.household_id,u.id user_id,link.position_id,review.id prior_id,
+          review.receipt_json,link.source_position_id,metadata_head.current_quote_id quote_id,
+          metadata_head.share_class_quote_id,metadata_head.share_basis_quote_id
+        FROM users u JOIN households h ON h.owner_user_id=u.id
+        CROSS JOIN holding_price_proxy_links link ON link.household_id=h.id
         JOIN holding_purchase_reviews review ON review.id=link.receipt_id
         JOIN json_each(review.receipt_json,'$.details.valuation.records') chosen
           ON json_extract(chosen.value,'$.id')=json_extract(review.receipt_json,'$.details.valuation.selected.recordId')
-        JOIN source_prices price_head ON price_head.source_position_id=link.source_position_id AND price_head.household_id=link.household_id
-        WHERE (price_head.quote_id IS NOT json_extract(review.receipt_json,'$.details.valuation.calculation.quoteId')
-            OR (json_extract(chosen.value,'$.shareClass') IS NULL AND price_head.share_class_quote_id IS NOT NULL AND price_head.share_class_quote_id IS NOT json_extract(chosen.value,'$.sourceContinuation.quoteId'))
-            OR (json_extract(chosen.value,'$.shareBasis') IS NULL AND price_head.share_basis_quote_id IS NOT NULL AND price_head.share_basis_quote_id IS NOT COALESCE(
+        JOIN holding_price_metadata_heads metadata_head ON metadata_head.source_position_id=link.source_position_id AND metadata_head.household_id=link.household_id
+        WHERE u.access_subject=? AND (metadata_head.current_quote_id IS NOT json_extract(review.receipt_json,'$.details.valuation.calculation.quoteId')
+            OR (json_extract(chosen.value,'$.shareClass') IS NULL AND metadata_head.share_class_quote_id IS NOT NULL AND metadata_head.share_class_quote_id IS NOT json_extract(chosen.value,'$.sourceContinuation.quoteId'))
+            OR (json_extract(chosen.value,'$.shareBasis') IS NULL AND metadata_head.share_basis_quote_id IS NOT NULL AND metadata_head.share_basis_quote_id IS NOT COALESCE(
               json_extract(chosen.value,'$.sourceContinuation.shareBasisQuoteId'),json_extract(chosen.value,'$.sourceContinuation.quoteId'))))
           AND NOT EXISTS(SELECT 1 FROM holding_position_continuities c WHERE c.predecessor_position_id=link.position_id)
         ORDER BY link.position_id LIMIT 500
-      ), sources AS MATERIALIZED (
-        SELECT source_key.source_position_id,q.price_micros,q.price_date,q.share_class,q.basis_json,q.source_url,q.observed_at,
-          CASE source.provider WHEN 'tokenfolio' THEN 'Tokenfolio' ELSE q.source_label END source_label,
-          CASE WHEN class_quote.id IS NOT NULL OR basis_quote.id IS NOT NULL THEN json_object(
-            'policy','accepted-source-continuation-v1','quoteId',class_quote.id,'shareBasisQuoteId',source_key.share_basis_quote_id,
-            'shareClass',class_quote.share_class,'shareBasis',json(CASE WHEN source_key.share_basis_quote_id IS source_key.share_class_quote_id THEN class_quote.basis_json ELSE basis_quote.basis_json END)) END source_metadata_json
-        FROM (SELECT DISTINCT source_position_id,household_id,quote_id,share_class_quote_id,share_basis_quote_id FROM candidates) source_key
-        JOIN holding_price_quotes q ON q.id=source_key.quote_id AND q.household_id=source_key.household_id
-        JOIN holding_positions source ON source.id=source_key.source_position_id
-        LEFT JOIN holding_price_quotes class_quote ON class_quote.id=source_key.share_class_quote_id
-        LEFT JOIN holding_price_quotes basis_quote ON basis_quote.id=(CASE WHEN source_key.share_basis_quote_id IS NOT source_key.share_class_quote_id THEN source_key.share_basis_quote_id END)
       )
-      SELECT candidate.*,sources.*,application_head.snapshot_id
+      SELECT candidate.*,q.price_micros,q.price_date,q.share_class,q.basis_json,q.source_url,q.observed_at,
+        CASE WHEN EXISTS(SELECT 1 FROM holding_positions source INDEXED BY holding_positions_household_id_idx
+          WHERE source.household_id=candidate.household_id AND source.provider='tokenfolio' AND source.id=candidate.source_position_id)
+          THEN 'Tokenfolio' ELSE q.source_label END source_label,
+        application_head.snapshot_id,
+        CASE WHEN class_quote.id IS NOT NULL OR basis_quote.id IS NOT NULL THEN json_object(
+          'policy','accepted-source-continuation-v1','quoteId',class_quote.id,'shareBasisQuoteId',candidate.share_basis_quote_id,
+          'shareClass',class_quote.share_class,'shareBasis',json(CASE WHEN candidate.share_basis_quote_id IS candidate.share_class_quote_id THEN class_quote.basis_json ELSE basis_quote.basis_json END)) END source_metadata_json
       FROM candidates candidate
-      JOIN sources ON sources.source_position_id=candidate.source_position_id
+      JOIN holding_price_quotes q ON q.id=candidate.quote_id AND q.household_id=candidate.household_id
       JOIN holding_import_application_heads application_head ON application_head.position_id=candidate.position_id
+      LEFT JOIN holding_price_quotes class_quote ON class_quote.id=candidate.share_class_quote_id
+      LEFT JOIN holding_price_quotes basis_quote ON basis_quote.id=(CASE WHEN candidate.share_basis_quote_id IS NOT candidate.share_class_quote_id THEN candidate.share_basis_quote_id END)
       ORDER BY candidate.position_id
     `,
       )
@@ -77,8 +67,8 @@ export class D1PriceProxyRepository {
         observed_at: string;
         snapshot_id: string;
         source_metadata_json: string | null;
-        dated_quote_id: string | null;
-        observation_id: string;
+        share_class_quote_id: string | null;
+        share_basis_quote_id: string | null;
       }>();
     const acceptedAt = new Date().toISOString();
     const statements: D1PreparedStatement[] = [];
@@ -154,7 +144,7 @@ export class D1PriceProxyRepository {
         INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at)
         SELECT ?,?,?,?,?,?,?,? WHERE EXISTS(
           SELECT 1 FROM holding_purchase_heads WHERE position_id=? AND review_id=?)
-          AND EXISTS(SELECT 1 FROM holding_price_source_heads INDEXED BY holding_price_source_heads_version WHERE household_id=? AND source_position_id=? AND quote_id IS ? AND observation_id=?)
+          AND EXISTS(SELECT 1 FROM holding_price_metadata_heads WHERE household_id=? AND source_position_id=? AND current_quote_id=? AND share_class_quote_id IS ? AND share_basis_quote_id IS ?)
       `,
           )
           .bind(
@@ -170,8 +160,9 @@ export class D1PriceProxyRepository {
             prior.id,
             row.household_id,
             old.priceSourcePositionId!,
-            row.dated_quote_id,
-            row.observation_id,
+            row.quote_id,
+            row.share_class_quote_id,
+            row.share_basis_quote_id,
           ),
       );
     }

@@ -86,13 +86,12 @@ const triggerUpgrades = [
     oldFixture: "0096-prices",
     newFixture: "0097",
     migration: "0097_price_metadata_continuation.sql",
-    statements: 12,
+    statements: 10,
     changedNames: [
       "holding_price_metadata_heads",
       "holding_price_source_heads_version",
       "holding_price_source_heads_household",
       "holding_selected_valuation_guard",
-      "holding_price_current_quotes",
       "holding_price_quote_head",
       "holding_price_continuation_guard",
     ],
@@ -784,11 +783,19 @@ describe("populated OLD-schema D1 migration safety", () => {
             )!;
             const plan = await runtime.database
               .prepare(`EXPLAIN QUERY PLAN ${backfill}`)
-              .all<{ detail: string }>();
+              .all<{ id: number; parent: number; detail: string }>();
+            const nodes = new Map(plan.results.map((row) => [row.id, row]));
             expect(
-              plan.results.filter((row) =>
-                /SCAN (?:head|observation|dated)\b/u.test(row.detail),
-              ),
+              plan.results.filter((row) => {
+                if (!/SCAN (?:head|observation|dated)\b/u.test(row.detail))
+                  return false;
+                let parent = nodes.get(row.parent);
+                while (parent) {
+                  if (/CORRELATED/u.test(parent.detail)) return true;
+                  parent = nodes.get(parent.parent);
+                }
+                return false;
+              }),
             ).toEqual([]);
           }
           const [preservation, terminalPreservation] =
@@ -820,7 +827,7 @@ describe("populated OLD-schema D1 migration safety", () => {
             const metadata = await runtime.database
               .prepare(
                 `SELECT metadata.household_id,
-              class.share_class,basis.basis_json,current.price_date,current.share_class raw_class,current.basis_json raw_basis
+              metadata.current_quote_id=head.quote_id price_matches,class.share_class,basis.basis_json,current.price_date,current.share_class raw_class,current.basis_json raw_basis
               FROM holding_price_metadata_heads metadata
               JOIN holding_price_quotes class ON class.id=metadata.share_class_quote_id AND class.household_id=metadata.household_id AND class.source_position_id=metadata.source_position_id
               JOIN holding_price_quotes basis ON basis.id=metadata.share_basis_quote_id AND basis.household_id=metadata.household_id AND basis.source_position_id=metadata.source_position_id
@@ -829,6 +836,7 @@ describe("populated OLD-schema D1 migration safety", () => {
               )
               .all<{
                 household_id: string;
+                price_matches: number;
                 share_class: string;
                 basis_json: string;
                 price_date: null;
@@ -840,6 +848,7 @@ describe("populated OLD-schema D1 migration safety", () => {
               new Set(metadata.results.map((row) => row.household_id)).size,
             ).toBe(2);
             for (const row of metadata.results) {
+              expect(row.price_matches).toBe(1);
               expect(row.share_class).toBe("Common");
               expect(JSON.parse(row.basis_json)).toEqual({
                 key: "issuer-original",

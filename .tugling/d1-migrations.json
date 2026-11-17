@@ -486,7 +486,7 @@
       "migrations": [
         {
           "name": "0097_price_metadata_continuation.sql",
-          "sha256": "fcdd1a015febe2d721d68c6060a9856b4781d53e10a5bedb43c3ffc1e8a54bbf"
+          "sha256": "8f3e771b0cec0f0b63cffce50feffc017db5914ea0f3bee72ad6d8c6e6c25d8d"
         }
       ],
       "fixture": "public-holding-history-v1",

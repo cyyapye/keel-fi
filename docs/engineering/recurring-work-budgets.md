@@ -119,6 +119,14 @@ These interactions add zero idle-day or unattended failure-day network requests.
 The link-copy confirmation uses one cancellable 1.6-second local timer after a
 successful copy, with zero network or storage operations.
 
+Accepted quote writes maintain the source's current price pointer and metadata
+heads once, inside the existing acceptance transaction. Proxy refresh reads
+these indexed projections and selects at most 500 changed candidates; repeat
+calls can advance later candidates across multiple owned households. It adds no
+temporary source cache, timer, request, retry or provider call. Holdings GETs
+retain the passive price view and join metadata by household/source keys, so
+enrichment does not materialize an unscoped shared price view.
+
 ## Explicit connection recovery
 
 The shared browser `requestKeel` helper owns one fetch for the existing Holdings

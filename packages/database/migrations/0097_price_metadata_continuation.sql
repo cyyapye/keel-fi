@@ -3,6 +3,7 @@
 CREATE TABLE holding_price_metadata_heads (
   source_position_id TEXT PRIMARY KEY REFERENCES holding_positions(id),
   household_id TEXT NOT NULL REFERENCES households(id),
+  current_quote_id TEXT NOT NULL REFERENCES holding_price_quotes(id),
   share_class_quote_id TEXT REFERENCES holding_price_quotes(id),
   share_basis_quote_id TEXT REFERENCES holding_price_quotes(id)
 ) WITHOUT ROWID;
@@ -10,20 +11,6 @@ CREATE TABLE holding_price_metadata_heads (
 -- table lookup per source. Producer cost includes maintenance of this index.
 DROP INDEX holding_price_source_heads_household;
 CREATE INDEX holding_price_source_heads_version ON holding_price_source_heads(household_id,source_position_id,quote_id,observation_id);
-DROP VIEW holding_price_current_quotes;
-CREATE VIEW holding_price_current_quotes AS
-SELECT head.source_position_id,head.household_id,head.observation_id,head.quote_id dated_quote_id,metadata.share_class_quote_id,metadata.share_basis_quote_id,
-  (CASE WHEN EXISTS (
-    SELECT 1 FROM holding_price_quotes observation
-    JOIN holding_price_quotes dated ON dated.id=head.quote_id
-    WHERE observation.id=head.observation_id AND observation.decision_policy IN ('accepted-import-price-v1','reviewed-price-v1')
-      AND observation.id<>dated.id AND (observation.accepted_at,observation.id)>(dated.accepted_at,dated.id)
-      AND (observation.observed_at,observation.accepted_at,observation.id)>(dated.observed_at,dated.accepted_at,dated.id)
-      AND (observation.price_date IS NULL OR (observation.price_date>=dated.price_date AND observation.price_date<=substr(observation.accepted_at,1,10)))
-    ) THEN head.observation_id ELSE COALESCE(head.quote_id,head.observation_id) END) quote_id
-FROM holding_price_source_heads head LEFT JOIN holding_price_metadata_heads metadata ON metadata.source_position_id=head.source_position_id;
-
-
 -- Replay only metadata eligibility, in the source's accepted ordering. The
 -- running dated/observation watermarks mirror the existing quote-head policy;
 -- late historical and future-dated quotes cannot supersede usable metadata.
@@ -50,10 +37,13 @@ WITH history AS MATERIALIZED (
     ROW_NUMBER() OVER(PARTITION BY household_id,source_position_id,kind ORDER BY accepted_at DESC,id DESC) rank
   FROM eligible CROSS JOIN (SELECT 'class' kind UNION ALL SELECT 'basis')
   WHERE (kind='class' AND share_class IS NOT NULL) OR (kind='basis' AND basis_json IS NOT NULL)
+), anchors AS (
+  SELECT source_position_id,household_id,MAX(CASE WHEN kind='class' THEN id END) class_id,MAX(CASE WHEN kind='basis' THEN id END) basis_id
+  FROM ranked WHERE rank=1 GROUP BY household_id,source_position_id
 )
-INSERT INTO holding_price_metadata_heads(source_position_id,household_id,share_class_quote_id,share_basis_quote_id)
-SELECT source_position_id,household_id,MAX(CASE WHEN kind='class' THEN id END),MAX(CASE WHEN kind='basis' THEN id END)
-FROM ranked WHERE rank=1 GROUP BY household_id,source_position_id;
+INSERT INTO holding_price_metadata_heads(source_position_id,household_id,current_quote_id,share_class_quote_id,share_basis_quote_id)
+SELECT current.source_position_id,current.household_id,current.quote_id,anchors.class_id,anchors.basis_id
+FROM holding_price_current_quotes current LEFT JOIN anchors ON anchors.household_id=current.household_id AND anchors.source_position_id=current.source_position_id;
 
 DROP TRIGGER holding_price_quote_head;
 CREATE TRIGGER holding_price_quote_head AFTER INSERT ON holding_price_quotes BEGIN
@@ -68,16 +58,18 @@ CREATE TRIGGER holding_price_quote_head AFTER INSERT ON holding_price_quotes BEG
         AND NEW.review_id IS NOT NULL
         AND (NEW.accepted_at,NEW.id) > (SELECT accepted_at,id FROM holding_price_quotes WHERE id=quote_id)))
       THEN NEW.id ELSE quote_id END);
-  INSERT INTO holding_price_metadata_heads(source_position_id,household_id,share_class_quote_id,share_basis_quote_id)
-  SELECT NEW.source_position_id,NEW.household_id,
-    CASE WHEN NEW.share_class IS NOT NULL THEN NEW.id END,
-    CASE WHEN NEW.basis_json IS NOT NULL THEN NEW.id END
-  WHERE (NEW.share_class IS NOT NULL OR NEW.basis_json IS NOT NULL)
-    AND (NEW.price_date IS NULL OR NEW.price_date<=substr(NEW.accepted_at,1,10))
-    AND EXISTS(SELECT 1 FROM holding_price_current_quotes current WHERE current.source_position_id=NEW.source_position_id AND current.household_id=NEW.household_id AND current.quote_id=NEW.id)
+  INSERT INTO holding_price_metadata_heads(source_position_id,household_id,current_quote_id,share_class_quote_id,share_basis_quote_id)
+  SELECT NEW.source_position_id,NEW.household_id,current.quote_id,
+    CASE WHEN current.quote_id=NEW.id AND (NEW.price_date IS NULL OR NEW.price_date<=substr(NEW.accepted_at,1,10)) AND NEW.share_class IS NOT NULL THEN NEW.id END,
+    CASE WHEN current.quote_id=NEW.id AND (NEW.price_date IS NULL OR NEW.price_date<=substr(NEW.accepted_at,1,10)) AND NEW.basis_json IS NOT NULL THEN NEW.id END
+  FROM holding_price_current_quotes current WHERE current.source_position_id=NEW.source_position_id AND current.household_id=NEW.household_id
   ON CONFLICT(source_position_id) DO UPDATE SET
+    current_quote_id=excluded.current_quote_id,
     share_class_quote_id=COALESCE(excluded.share_class_quote_id,share_class_quote_id),
-    share_basis_quote_id=COALESCE(excluded.share_basis_quote_id,share_basis_quote_id);
+    share_basis_quote_id=COALESCE(excluded.share_basis_quote_id,share_basis_quote_id)
+  WHERE current_quote_id IS NOT excluded.current_quote_id
+    OR share_class_quote_id IS NOT COALESCE(excluded.share_class_quote_id,share_class_quote_id)
+    OR share_basis_quote_id IS NOT COALESCE(excluded.share_basis_quote_id,share_basis_quote_id);
 END;
 
 DROP TRIGGER holding_price_continuation_guard;

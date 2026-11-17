@@ -852,6 +852,7 @@
     "packages/database/src/position-valuation.test.ts :: persists both valuation facts, projects the explicit choice and isolates edits with compare-and-swap",
     "packages/database/src/position-valuation.test.ts :: preserves GP carry classification while adopting an attributed estimate and refuses foreign evidence",
     "packages/database/src/position-valuation.test.ts :: settles a later fee without reducing share capital or omitting the cash payment",
+    "packages/database/src/price-proxies.test.ts :: advances later changed candidates across multiple owned households beyond one 500-row batch",
     "packages/database/src/price-proxies.test.ts :: backfills previously reviewed dates from the append-only ledger without changing balances",
     "packages/database/src/price-proxies.test.ts :: explains distinct missing input and compatibility failures",
     "packages/database/src/price-proxies.test.ts :: follows a newer undated GP price using recorded metadata assumptions, rejects older or incompatible prices and isolates household access",
