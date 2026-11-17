@@ -54,26 +54,41 @@ function isolatedRegistry() {
   );
   return root;
 }
-function tableRows(history: 12 | 24, terminal = true, publicHistory = true) {
+function tableRows(
+  history: 12 | 24,
+  terminal = true,
+  publicHistory = true,
+  metadata = true,
+) {
   return {
     ...Object.fromEntries(
       IMPLEMENTED_BASELINE_TABLES.filter(
         (table) =>
-          terminal ||
-          !/^(investment_history_|investment_transaction_|investment_tax_lots$|app_access_|public_holding_|portfolio_baseline_public_source_versions$)/u.test(
-            table,
-          ),
+          (metadata && terminal) || table !== "holding_price_metadata_heads",
       )
+        .filter(
+          (table) =>
+            terminal ||
+            !/^(investment_history_|investment_transaction_|investment_tax_lots$|app_access_|public_holding_|portfolio_baseline_public_source_versions$)/u.test(
+              table,
+            ),
+        )
         .filter((table) => terminal || !table.startsWith("app_access_"))
         .map((table) => [table, 0]),
     ),
     holding_positions: publicHistory ? 481 : 241,
     holding_position_snapshots: (publicHistory ? 240 : 120) * (history + 2) + 1,
     holding_purchase_reviews: 120 * history + 1,
+    holding_price_quotes: 240 * (history + 5),
+    holding_price_source_heads: 240,
+    ...(metadata && terminal ? { holding_price_metadata_heads: 240 } : {}),
     portfolio_baseline_items: 120,
     manual_holding_submissions: 1,
     households: 2,
   };
+}
+function oldTableRows(history: 12 | 24, terminal = true, publicHistory = true) {
+  return tableRows(history, terminal, publicHistory, false);
 }
 function receipt(): MigrationSafetyReceipt {
   return MigrationSafetyReceiptSchema.parse({
@@ -93,8 +108,8 @@ function receipt(): MigrationSafetyReceipt {
           unrelatedPositions: 120,
           fixtureHash: "d".repeat(64),
           tableRows: tableRows(24),
-          tablesPreserved: 159,
-          schemaObjectsPreserved: 812,
+          tablesPreserved: 160,
+          schemaObjectsPreserved: 813,
           foreignKeyViolations: 0,
           immutableProbes: 3,
           validation: "applied-schema-preservation",
@@ -125,10 +140,10 @@ function receipt(): MigrationSafetyReceipt {
           "economics-snapshot-lookup-v1",
           "price-metadata-continuation-v1",
         ].includes(review.id)
-          ? tableRows(history as 12 | 24)
+          ? oldTableRows(history as 12 | 24)
           : Object.fromEntries(
               Object.entries(
-                tableRows(
+                oldTableRows(
                   history as 12 | 24,
                   review.id === "app-access-v1" ||
                     review.id === "investment-history-v1",
@@ -148,7 +163,7 @@ function receipt(): MigrationSafetyReceipt {
         ].includes(review.id)
           ? 159
           : Object.keys(
-              tableRows(
+              oldTableRows(
                 history as 12 | 24,
                 review.id === "app-access-v1" ||
                   review.id === "investment-history-v1",
@@ -165,7 +180,8 @@ function receipt(): MigrationSafetyReceipt {
         rowsWritten: 4,
         inboundForeignKeyPlans:
           review.id === "public-source-reviews-v1" ||
-          review.id === "public-inventory-v1"
+          review.id === "public-inventory-v1" ||
+          review.id === "price-metadata-continuation-v1"
             ? "indexed-current-head-backfill-no-parent-rebuild"
             : review.id === "app-access-v1" ||
                 review.id === "investment-history-v1"
@@ -285,7 +301,7 @@ describe("populated D1 migration evidence", () => {
       frontier,
       pending: [],
     });
-    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(159);
+    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(160);
   });
 
   it("refuses a registry that attempts to approve rewritten applied history", () => {

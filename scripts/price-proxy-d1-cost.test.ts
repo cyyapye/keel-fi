@@ -44,7 +44,11 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
         interruptPricePropagation,
         observations: { sharePrices: prices },
       });
-    await seed(COST_SUBJECT, 1, sharePrices);
+    const capture = await seed(COST_SUBJECT, 1, sharePrices);
+    if (capture.operation !== "holdings")
+      throw new Error("Unexpected synthetic capture");
+    expect(capture.cost.rowsRead).toBeLessThanOrEqual(60_000);
+    expect(capture.cost.rowsWritten).toBeLessThanOrEqual(8_000);
     const positions = (
       await db
         .prepare(
@@ -328,7 +332,7 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     // The same 120-position envelope covers undated split corrections and
     // independent class/basis anchors after history has grown. Later captures
     // must neither revert the split nor multiply already normalized quantities.
-    for (const revision of [7, 8, 9]) {
+    for (const revision of [7, 8, 9, 10]) {
       vi.setSystemTime(new Date(`2026-10-0${revision - 4}T00:00:00.000Z`));
       await expect(
         seed(
@@ -340,11 +344,15 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
             markDate: null,
             shareClass: revision === 7 ? "Common" : null,
             shareBasis:
-              revision === 9 ? null : { ...basis, unitsPerOriginal: 10 },
+              revision === 7 || revision === 9
+                ? { ...basis, unitsPerOriginal: 10 }
+                : null,
           },
           true,
         ),
       ).rejects.toThrow("synthetic projection interruption");
+      // Do not propagate the correction before another incomplete quote wins.
+      if (revision === 7) continue;
       measured.reset();
       expect(await propagator.refresh(COST_SUBJECT)).toEqual({
         recalculated: 120,
@@ -365,7 +373,7 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
         );
         expect(receipt.details.valuation!.calculation!.valueMinor).toBe(185185);
         expect(receipt.details.valuation!.records[0]!.priceDate).toBeNull();
-        if (revision === 9) {
+        if (revision === 10) {
           expect(
             receipt.details.valuation!.records[0]!.sourceContinuation,
           ).toMatchObject({ shareBasis: { ...basis, unitsPerOriginal: 10 } });
@@ -388,7 +396,9 @@ it("bounds 120 linked recalculations including triggers, tied history, failure r
     });
     expect(measured.cost.rowsRead).toBeLessThanOrEqual(10);
     expect(measured.cost.rowsWritten).toBe(0);
-    console.info(JSON.stringify({ proxyRefresh: costs }));
+    console.info(
+      JSON.stringify({ proxyCapture: capture.cost, proxyRefresh: costs }),
+    );
   } finally {
     vi.useRealTimers();
     await fixture.close();

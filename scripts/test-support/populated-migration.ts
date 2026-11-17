@@ -212,6 +212,62 @@ function insertBaseline(
     );
 }
 
+function seedPriceMetadataHistory(db: DatabaseSync, history: number) {
+  const sources = db
+    .prepare(
+      `SELECT p.id,p.household_id,a.import_row_id FROM holding_positions p
+    JOIN holding_import_application_heads head ON head.position_id=p.id
+    JOIN holding_import_applications a ON a.id=head.application_id
+    WHERE p.provider='wefunder' ORDER BY p.household_id,p.id`,
+    )
+    .all();
+  if (sources.length !== 240)
+    throw new Error("Missing main/unrelated price history sources");
+  const insert = db.prepare(`INSERT INTO holding_price_quotes
+    (id,household_id,source_position_id,import_row_id,review_id,price_micros,price_date,share_class,basis_json,source_label,source_url,observed_at,accepted_at,decision_policy)
+    VALUES(?,?,?,?,NULL,?,?,?,?,'Synthetic source',NULL,?,?,'accepted-import-price-v1')`);
+  for (const source of sources) {
+    for (let revision = 0; revision < history + 5; revision++) {
+      const initial = revision === 0;
+      const split = revision === history;
+      const classOnly = revision === history + 1;
+      const historical = revision === history + 2;
+      const future = revision === history + 3;
+      insert.run(
+        `synthetic-price-${String(source.id)}-${String(revision).padStart(3, "0")}`,
+        source.household_id!,
+        source.id!,
+        source.import_row_id!,
+        initial ? 200_000_000 : 20_000_000,
+        historical
+          ? "2026-08-19"
+          : future
+            ? "2026-08-21"
+            : revision < history
+              ? "2026-08-20"
+              : null,
+        initial || classOnly
+          ? "Common"
+          : historical || future
+            ? "Ineligible class"
+            : null,
+        initial || split || historical || future
+          ? JSON.stringify({
+              key: "issuer-original",
+              unitsPerOriginal: initial ? 1 : split ? 10 : 999,
+            })
+          : null,
+        revision < history
+          ? time
+          : `2026-08-20T12:00:${String(revision - history + 1).padStart(2, "0")}.000Z`,
+        revision < history
+          ? time
+          : `2026-08-20T12:00:${String(revision - history + 1).padStart(2, "0")}.000Z`,
+      );
+    }
+  }
+}
+
 type Frontier = PopulatedMigrationFixture["frontier"];
 
 async function buildFixture(
@@ -378,6 +434,7 @@ async function buildFixture(
         "0094",
         "0095",
         "0096",
+        "0096-prices",
         "0097",
       ].includes(frontier)
     ) {
@@ -394,7 +451,7 @@ async function buildFixture(
       frontier === "0090-public" ||
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095", "0096", "0097"].includes(frontier)
+      ["0093", "0094", "0095", "0096", "0096-prices", "0097"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0090"));
@@ -404,7 +461,7 @@ async function buildFixture(
     if (
       frontier === "0091" ||
       frontier === "0092" ||
-      ["0093", "0094", "0095", "0096", "0097"].includes(frontier)
+      ["0093", "0094", "0095", "0096", "0096-prices", "0097"].includes(frontier)
     ) {
       statements.clear();
       db.exec(
@@ -416,7 +473,7 @@ async function buildFixture(
     }
     if (
       frontier === "0092" ||
-      ["0093", "0094", "0095", "0096", "0097"].includes(frontier)
+      ["0093", "0094", "0095", "0096", "0096-prices", "0097"].includes(frontier)
     ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0091"));
@@ -427,7 +484,9 @@ async function buildFixture(
         ),
       );
     }
-    if (["0093", "0094", "0095", "0096", "0097"].includes(frontier)) {
+    if (
+      ["0093", "0094", "0095", "0096", "0096-prices", "0097"].includes(frontier)
+    ) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0092"));
       db.exec(
@@ -437,7 +496,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0094", "0095", "0096", "0097"].includes(frontier)) {
+    if (["0094", "0095", "0096", "0096-prices", "0097"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0093"));
       db.exec(
@@ -447,7 +506,7 @@ async function buildFixture(
         ),
       );
     }
-    if (["0095", "0096", "0097"].includes(frontier)) {
+    if (["0095", "0096", "0096-prices", "0097"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0094"));
       db.exec(
@@ -458,7 +517,7 @@ async function buildFixture(
       );
       investmentMigrationHistory(db);
     }
-    if (["0096", "0097"].includes(frontier)) {
+    if (["0096", "0096-prices", "0097"].includes(frontier)) {
       statements.clear();
       if (captureOld) captureOld(snapshotFixture("0095"));
       db.exec(
@@ -468,9 +527,13 @@ async function buildFixture(
         ),
       );
     }
+    if (["0096-prices", "0097"].includes(frontier)) {
+      if (captureOld) captureOld(snapshotFixture("0096"));
+      seedPriceMetadataHistory(db, history);
+    }
     if (frontier === "0097") {
       statements.clear();
-      if (captureOld) captureOld(snapshotFixture("0096"));
+      if (captureOld) captureOld(snapshotFixture("0096-prices"));
       db.exec(
         readFileSync(
           "packages/database/migrations/0097_price_metadata_continuation.sql",
@@ -1199,6 +1262,7 @@ if (
       "0094",
       "0095",
       "0096",
+      "0096-prices",
       "0097",
       "both",
     ])

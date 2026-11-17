@@ -814,14 +814,30 @@ policy cannot establish a new source or invent share metadata. The user can
 correct source metadata through the existing valuation editor; failed source
 syncs use the existing Sources recovery controls.
 
-Migration `0097` retains the latest explicitly evidenced share class and split
-basis independently, including metadata from an undated accepted quote. Each
-assumption binds its own immutable quote when the fields came from different
-observations. A later metadata-free observation cannot restore an older split
-basis. Source corrections reuse the GP valuation editor and bounded proxy
-refresh; they preserve reported dollar totals, original investment quantities
-and unknown mark dates. The correction applies the quote-to-quantity basis ratio
-once, including positions whose quantities already use the post-split basis.
+Migration `0097` maintains source-owned metadata heads for the latest eligible
+share class and split basis, including undated accepted corrections. Each field
+binds its own immutable quote. Refresh recovers a correction even if propagation
+failed or the proxy was temporarily deselected, and repairs metadata
+dependencies when the price quote itself is unchanged. Pending repair is
+disclosed as stale. Only previously accepted followed relationships can reuse
+these assumptions; a new source still needs the original complete reviewed
+inputs.
+
+The populated OLD-schema upgrade includes 120 main and 120 unrelated sources
+with growing quote histories. Its 12/24-history holdouts measured 58,468/93,016
+reads and 488 writes, preserving all old table data and verifying the exact
+index replacement. The synthetic source capture with known metadata measured
+13,188 reads and 7,924 writes within the existing 60,000/8,000 capture envelope.
+Backfill preserves the recorded dated/current source heads. For tied historical
+acceptance timestamps, it does not invent the order of other quotes: metadata
+not retained by those heads may require a fresh source review. Runtime future or
+historical prices cannot replace eligible metadata. Source corrections reuse the
+GP valuation editor and bounded refresh; they preserve reported totals, original
+quantities and unknown mark dates. The quote-to-quantity basis ratio applies
+once, including quantities already recorded on the post-split basis. A covering
+source-version index keeps refresh inside its existing read budget;
+source-capture measurements include index maintenance and metadata-head writes
+inside the existing admission envelope.
 
 A failed propagation can be retried by replaying the accepted import or the
 authenticated `POST /api/valuation-proxies/refresh` maintenance operation.

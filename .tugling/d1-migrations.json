@@ -486,15 +486,15 @@
       "migrations": [
         {
           "name": "0097_price_metadata_continuation.sql",
-          "sha256": "441dcaff29d5ec24d708c524450e3bb44b1b2e4de0e9cee9f406160cceae4180"
+          "sha256": "fcdd1a015febe2d721d68c6060a9856b4781d53e10a5bedb43c3ffc1e8a54bbf"
         }
       ],
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
       "histories": [12, 24],
-      "maxRowsRead": 2000,
-      "maxRowsWritten": 100
+      "maxRowsRead": 100000,
+      "maxRowsWritten": 600
     }
   ],
   "baseline": {
