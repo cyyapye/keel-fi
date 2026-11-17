@@ -149,10 +149,11 @@ export default {
     let result: Record<string, unknown>;
     if (operation.operation === "holdings") {
       const observations = operation.observations;
+      const holdingCost = measureD1(bindings.DB);
       const database =
         operation.interruptPricePropagation ||
         operation.interruptGpTotalPropagation
-          ? new Proxy(bindings.DB, {
+          ? new Proxy(holdingCost.database, {
               get(target, key) {
                 if (key === "prepare")
                   return (sql: string) => {
@@ -172,7 +173,7 @@ export default {
                   : value;
               },
             })
-          : bindings.DB;
+          : holdingCost.database;
       // Preserve tied application timestamps when fixture setup moves beside
       // D1. This clock is scoped to a sequential synthetic setup request.
       const originalDate = Date;
@@ -242,7 +243,11 @@ export default {
       } finally {
         globalThis.Date = originalDate;
       }
-      result = { operation: operation.operation, importId };
+      result = {
+        operation: operation.operation,
+        importId,
+        cost: holdingCost.cost,
+      };
     } else if (operation.operation === "baseline-refresh") {
       const measured = measureD1(bindings.DB);
       const { baseline } = baselineCostRepositories(

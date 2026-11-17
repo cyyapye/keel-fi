@@ -80,6 +80,24 @@ const triggerUpgrades = [
     tables: 159,
     schemaObjects: 812,
   },
+  {
+    id: "price-metadata-continuation-v1",
+    frontier: "0096_economics_snapshot_lookup.sql",
+    oldFixture: "0096-prices",
+    newFixture: "0097",
+    migration: "0097_price_metadata_continuation.sql",
+    statements: 10,
+    changedNames: [
+      "holding_price_metadata_heads",
+      "holding_price_source_heads_version",
+      "holding_price_source_heads_household",
+      "holding_selected_valuation_guard",
+      "holding_price_quote_head",
+      "holding_price_continuation_guard",
+    ],
+    tables: 160,
+    schemaObjects: 813,
+  },
 ] as const;
 const completedRegressions = new Set<number>();
 const baselineScenarios: MigrationSafetyBaselineScenario[] = [];
@@ -682,7 +700,7 @@ describe("populated OLD-schema D1 migration safety", () => {
         expect(pending).toHaveLength(upgrade.statements);
         expect(
           pending.every((sql) =>
-            /^(?:--[^\r\n]*(?:\r?\n|$)\s*)*(?:DROP|CREATE) (?:TRIGGER|VIEW)\b/u.test(
+            /^(?:--[^\r\n]*(?:\r?\n|$)\s*)*(?:(?:DROP|CREATE) (?:TRIGGER|VIEW|TABLE|INDEX)\b|WITH\b)/u.test(
               sql.trim(),
             ),
           ),
@@ -714,7 +732,11 @@ describe("populated OLD-schema D1 migration safety", () => {
         expect(
           manualSnapshot[snapshots.columns.indexOf("realized_value_minor")],
         ).toBeNull();
-        expect(terminal.tables).toEqual(fixture.tables);
+        expect(
+          terminal.tables.filter(
+            (table) => table.name !== "holding_price_metadata_heads",
+          ),
+        ).toEqual(fixture.tables);
         const changedNames = new Set<string>(upgrade.changedNames);
         if (review.id === "economics-snapshot-lookup-v1") {
           const name = "holding_position_economics_proposals_integrity_insert";
@@ -740,7 +762,10 @@ describe("populated OLD-schema D1 migration safety", () => {
         );
         expect(
           terminal.objects.filter((object) => changedNames.has(object.name)),
-        ).toHaveLength(upgrade.changedNames.length);
+        ).toHaveLength(
+          upgrade.changedNames.length -
+            (review.id === "price-metadata-continuation-v1" ? 1 : 0),
+        );
         const runtime = await populatedMigrationDatabase(fixture);
         try {
           await preserveMigrationFixture(runtime.database, fixture, true);
@@ -752,9 +777,45 @@ describe("populated OLD-schema D1 migration safety", () => {
           expect(cost.records).toHaveLength(pending.length);
           expect(cost.rowsRead).toBeLessThanOrEqual(review.maxRowsRead);
           expect(cost.rowsWritten).toBeLessThanOrEqual(review.maxRowsWritten);
+          if (review.id === "price-metadata-continuation-v1") {
+            const backfill = pending.find((sql) =>
+              /WITH history AS MATERIALIZED/u.test(sql),
+            )!;
+            const plan = await runtime.database
+              .prepare(`EXPLAIN QUERY PLAN ${backfill}`)
+              .all<{ id: number; parent: number; detail: string }>();
+            const nodes = new Map(plan.results.map((row) => [row.id, row]));
+            expect(
+              plan.results.filter((row) => {
+                if (!/SCAN (?:head|observation|dated)\b/u.test(row.detail))
+                  return false;
+                let parent = nodes.get(row.parent);
+                while (parent) {
+                  if (/CORRELATED/u.test(parent.detail)) return true;
+                  parent = nodes.get(parent.parent);
+                }
+                return false;
+              }),
+            ).toEqual([]);
+          }
           const [preservation, terminalPreservation] =
             await preserveMigrationFixtures(runtime.database, [
-              { fixture, exactObjects: false },
+              {
+                fixture:
+                  review.id === "price-metadata-continuation-v1"
+                    ? {
+                        ...fixture,
+                        // Its exact covering replacement is included in the complete
+                        // terminal schema proof below; no old table data is excluded.
+                        objects: fixture.objects.filter(
+                          (object) =>
+                            object.name !==
+                            "holding_price_source_heads_household",
+                        ),
+                      }
+                    : fixture,
+                exactObjects: false,
+              },
               { fixture: terminal, exactObjects: true },
             ]);
           expect(terminalPreservation).toEqual({
@@ -762,6 +823,49 @@ describe("populated OLD-schema D1 migration safety", () => {
             schemaObjectsPreserved: upgrade.schemaObjects,
             foreignKeyViolations: 0,
           });
+          if (review.id === "price-metadata-continuation-v1") {
+            const metadata = await runtime.database
+              .prepare(
+                `SELECT metadata.household_id,
+              metadata.current_quote_id=head.quote_id price_matches,class.share_class,basis.basis_json,current.price_date,current.share_class raw_class,current.basis_json raw_basis
+              FROM holding_price_metadata_heads metadata
+              JOIN holding_price_quotes class ON class.id=metadata.share_class_quote_id AND class.household_id=metadata.household_id AND class.source_position_id=metadata.source_position_id
+              JOIN holding_price_quotes basis ON basis.id=metadata.share_basis_quote_id AND basis.household_id=metadata.household_id AND basis.source_position_id=metadata.source_position_id
+              JOIN holding_price_current_quotes head ON head.source_position_id=metadata.source_position_id
+              JOIN holding_price_quotes current ON current.id=head.quote_id`,
+              )
+              .all<{
+                household_id: string;
+                price_matches: number;
+                share_class: string;
+                basis_json: string;
+                price_date: null;
+                raw_class: null;
+                raw_basis: null;
+              }>();
+            expect(metadata.results).toHaveLength(240);
+            expect(
+              new Set(metadata.results.map((row) => row.household_id)).size,
+            ).toBe(2);
+            for (const row of metadata.results) {
+              expect(row.price_matches).toBe(1);
+              expect(row.share_class).toBe("Common");
+              expect(JSON.parse(row.basis_json)).toEqual({
+                key: "issuer-original",
+                unitsPerOriginal: 10,
+              });
+              expect([row.price_date, row.raw_class, row.raw_basis]).toEqual([
+                null,
+                null,
+                null,
+              ]);
+            }
+            if (history === 24) {
+              const earlier = scenarios.get(review.id)![0]!;
+              expect(cost.rowsRead).toBeLessThanOrEqual(earlier.rowsRead * 2);
+              expect(cost.rowsWritten).toBe(earlier.rowsWritten);
+            }
+          }
           const immutableProbes = await immutableMigrationProbes(
             runtime.database,
             fixture,
@@ -885,7 +989,10 @@ describe("populated OLD-schema D1 migration safety", () => {
             rowsWritten: cost.rowsWritten,
             measuredFromFirstStatement: true,
             counterSource: "local-workerd-d1-meta",
-            inboundForeignKeyPlans: "not-applicable-trigger-only-no-table-dml",
+            inboundForeignKeyPlans:
+              review.id === "price-metadata-continuation-v1"
+                ? "indexed-current-head-backfill-no-parent-rebuild"
+                : "not-applicable-trigger-only-no-table-dml",
             completeSequence: "preparation-through-cleanup",
             physicalIntegrity: "unsupported-in-local-d1",
           });
@@ -901,7 +1008,10 @@ describe("populated OLD-schema D1 migration safety", () => {
                 ...cost,
                 ...preservation,
                 immutableProbes,
-                foreignKeyPlans: "not-applicable-trigger-only-no-table-dml",
+                foreignKeyPlans:
+                  review.id === "price-metadata-continuation-v1"
+                    ? "indexed-current-head-backfill-no-parent-rebuild"
+                    : "not-applicable-trigger-only-no-table-dml",
               },
             }),
           );
@@ -916,14 +1026,14 @@ describe("populated OLD-schema D1 migration safety", () => {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "public-holding-history-v1" ||
-        registry.baseline.frontier !== "0096_economics_snapshot_lookup.sql" ||
-        registry.cases.length !== 7 ||
+        registry.baseline.frontier !== "0097_price_metadata_continuation.sql" ||
+        registry.cases.length !== 8 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0096");
+      const fixture = await populatedMigrationFixture(history, "0097");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
@@ -1035,8 +1145,8 @@ describe("populated OLD-schema D1 migration safety", () => {
           ],
         );
         expect(preservation).toEqual({
-          tablesPreserved: 159,
-          schemaObjectsPreserved: 812,
+          tablesPreserved: 160,
+          schemaObjectsPreserved: 813,
           foreignKeyViolations: 0,
         });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({

@@ -83,8 +83,8 @@ export const MigrationSafetyBaselineScenarioSchema = z
   .object({
     ...commonScenario,
     history: z.literal(24),
-    tablesPreserved: z.literal(159),
-    schemaObjectsPreserved: z.literal(812),
+    tablesPreserved: z.literal(160),
+    schemaObjectsPreserved: z.literal(813),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -251,6 +251,7 @@ export const IMPLEMENTED_BASELINE_TABLES: readonly string[] = [
   "holding_position_value_proposals",
   "holding_position_value_reviews",
   "holding_positions",
+  "holding_price_metadata_heads",
   "holding_price_proxy_links",
   "holding_price_quotes",
   "holding_price_source_heads",
@@ -342,7 +343,7 @@ const digest = (value: string | Uint8Array) =>
 const same = (left: unknown, right: unknown) =>
   JSON.stringify(left) === JSON.stringify(right);
 const baselineTableNamesDigest =
-  "8815a4c0a847c57c4c9ec0188cb8f2c48cfc541e982a21eca2e5c94fad99a753";
+  "fa7064c121d4fd14258c0c9b959b749ef3560d6bd88cc197c8a897cc9d110e83";
 const safetySources = [
   "package.json",
   "pnpm-lock.yaml",
@@ -444,15 +445,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "economics-snapshot-lookup-schema-v1" ||
-    registry.baseline.frontier !== "0096_economics_snapshot_lookup.sql" ||
+    registry.baseline.id !== "price-metadata-continuation-schema-v1" ||
+    registry.baseline.frontier !== "0097_price_metadata_continuation.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 7 ||
+    registry.cases.length !== 8 ||
+    registry.cases[7]?.id !== "price-metadata-continuation-v1" ||
+    registry.cases[7].frontier !== "0096_economics_snapshot_lookup.sql" ||
+    registry.cases[7].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[7].migrations.map((item) => item.name),
+      ["0097_price_metadata_continuation.sql"],
+    ) ||
     registry.cases[6]?.id !== "economics-snapshot-lookup-v1" ||
     registry.cases[6].frontier !== "0095_investment_history.sql" ||
     registry.cases[6].fixture !== "public-holding-history-v1" ||
@@ -554,6 +562,10 @@ function validateFootprint(
     if (
       baseline &&
       ((scenario.tableRows.holding_positions ?? 0) < 480 ||
+        (scenario.tableRows.holding_price_quotes ?? 0) <
+          240 * (scenario.history + 5) ||
+        (scenario.tableRows.holding_price_source_heads ?? 0) < 240 ||
+        (scenario.tableRows.holding_price_metadata_heads ?? 0) < 240 ||
         (scenario.tableRows.holding_position_snapshots ?? 0) <
           240 * (scenario.history + 2))
     )
@@ -641,13 +653,26 @@ export function validateMigrationSafetyReceipt(
         "Public source migration needs populated public and unrelated history",
       );
     if (
+      review.id === "price-metadata-continuation-v1" &&
+      actual.scenarios.some(
+        (scenario) =>
+          (scenario.tableRows.holding_price_quotes ?? 0) <
+            240 * (scenario.history + 5) ||
+          (scenario.tableRows.holding_price_source_heads ?? 0) < 240,
+      )
+    )
+      throw new Error(
+        "Price metadata migration needs populated main and unrelated quote histories",
+      );
+    if (
       actual.scenarios.some(
         (scenario) =>
           scenario.rowsRead > review.maxRowsRead ||
           scenario.rowsWritten > review.maxRowsWritten ||
           scenario.inboundForeignKeyPlans !==
             (review.id === "public-source-reviews-v1" ||
-            review.id === "public-inventory-v1"
+            review.id === "public-inventory-v1" ||
+            review.id === "price-metadata-continuation-v1"
               ? "indexed-current-head-backfill-no-parent-rebuild"
               : review.id === "app-access-v1" ||
                   review.id === "investment-history-v1"

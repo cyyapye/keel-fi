@@ -11,21 +11,29 @@ export const ShareBasisSchema = z
     unitsPerOriginal: z.number().int().positive().max(1_000_000),
   })
   .strict();
+export const SourcePriceMetadataSchema = z
+  .object({
+    policy: z.literal("accepted-source-continuation-v1"),
+    quoteId: text.nullable(),
+    // Omitted on older receipts whose single quote anchors both fields.
+    shareBasisQuoteId: text.nullable().optional(),
+    shareClass: text.nullable(),
+    shareBasis: ShareBasisSchema.nullable(),
+  })
+  .strict();
+export const PriceMetadataSchema = SourcePriceMetadataSchema.extend({
+  quoteId: text,
+  shareBasisQuoteId: text.optional(),
+  shareClass: text,
+  shareBasis: ShareBasisSchema,
+});
 export const ValuationRecordSchema = z
   .object({
     shareBasis: ShareBasisSchema.nullable().optional(),
     priceSourcePositionId: text.nullable().optional(),
     followSource: z.boolean().optional(),
     crossClassProxy: z.boolean().optional(),
-    sourceContinuation: z
-      .object({
-        policy: z.literal("accepted-source-continuation-v1"),
-        quoteId: text,
-        shareClass: text,
-        shareBasis: ShareBasisSchema,
-      })
-      .strict()
-      .optional(),
+    sourceContinuation: PriceMetadataSchema.optional(),
     id: z.string().min(1).max(200),
     origin: z.enum(["gp", "proxy", "judgment"]),
     totalMinor: money.nullable(),
@@ -152,23 +160,36 @@ export type ValuationRecord = z.infer<typeof ValuationRecordSchema>;
 export function continuedPriceMetadata(
   prior: ValuationRecord | undefined,
   quote: Pick<ValuationRecord, "priceDate" | "shareClass" | "shareBasis">,
+  sourceMetadata?: z.infer<typeof SourcePriceMetadataSchema>,
 ) {
   if (
     !prior?.followSource ||
     (quote.priceDate && quote.shareClass && quote.shareBasis)
   )
     return undefined;
-  return (
-    prior.sourceContinuation ??
-    (prior.sourceEvidenceId && prior.shareClass && prior.shareBasis
-      ? {
-          policy: "accepted-source-continuation-v1" as const,
-          quoteId: prior.sourceEvidenceId,
-          shareClass: prior.shareClass,
-          shareBasis: prior.shareBasis,
-        }
-      : undefined)
-  );
+  // Source heads survive interrupted propagation and temporary deselection.
+  // Only an already accepted followed relationship may reuse assumptions.
+  const previous = prior.sourceContinuation;
+  const shareClass =
+    sourceMetadata?.shareClass ?? prior.shareClass ?? previous?.shareClass;
+  const shareBasis =
+    sourceMetadata?.shareBasis ?? prior.shareBasis ?? previous?.shareBasis;
+  const quoteId =
+    sourceMetadata?.quoteId ??
+    (prior.shareClass ? prior.sourceEvidenceId : previous?.quoteId);
+  const basisQuoteId =
+    sourceMetadata?.shareBasisQuoteId ??
+    (prior.shareBasis
+      ? prior.sourceEvidenceId
+      : (previous?.shareBasisQuoteId ?? previous?.quoteId));
+  if (!shareClass || !shareBasis || !quoteId || !basisQuoteId) return undefined;
+  return {
+    policy: "accepted-source-continuation-v1" as const,
+    quoteId,
+    ...(basisQuoteId !== quoteId ? { shareBasisQuoteId: basisQuoteId } : {}),
+    shareClass,
+    shareBasis,
+  };
 }
 export type ValuationState = z.infer<typeof ValuationStateSchema>;
 export type AcceptValuation = z.infer<typeof AcceptValuationSchema>;

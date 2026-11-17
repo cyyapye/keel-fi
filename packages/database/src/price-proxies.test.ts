@@ -25,7 +25,10 @@ import {
   unknownInvestmentTerms,
 } from "@keel/domain/investment-details";
 import { holdingValueSummary } from "../../../apps/web/src/holding-value";
-import { type ValuationRecord } from "@keel/domain/valuation-record";
+import {
+  continuedPriceMetadata,
+  type ValuationRecord,
+} from "@keel/domain/valuation-record";
 
 let db: LegalDocumentTestD1, repo: D1PositionPurchaseRepository;
 let positions: { id: string; snapshotId: string }[];
@@ -41,7 +44,7 @@ const prices = (
   shareClass: "Common",
   shareBasis: { ...basis, unitsPerOriginal: units },
 });
-async function setUpRepository() {
+async function setUpRepository(omitInitialMetadata = false) {
   vi.useFakeTimers({ toFake: ["Date"] });
   onTestFinished(() => {
     vi.useRealTimers();
@@ -51,7 +54,10 @@ async function setUpRepository() {
   const { sqlite } = db;
   onTestFinished(() => sqlite.close());
   await seedCostHoldings(db.asD1(), COST_SUBJECT, 1, false, {
-    sharePrices: prices(200_000_000, null),
+    sharePrices: {
+      ...prices(200_000_000, null),
+      ...(omitInitialMetadata ? { shareClass: null, shareBasis: null } : {}),
+    },
   });
   await seedCostWatchTargets(db.asD1());
   // One reviewed issuer, separate legal positions. Never infer by company label.
@@ -86,6 +92,42 @@ function current(index: number) {
   return row
     ? PurchaseReceiptSchema.parse(JSON.parse(String(row.receipt_json)))
     : null;
+}
+function replayMetadataMigration() {
+  const old = readFileSync(
+    "packages/database/migrations/0086_live_price_proxies.sql",
+    "utf8",
+  );
+  const prior = readFileSync(
+    "packages/database/migrations/0093_gp_reported_total_refresh.sql",
+    "utf8",
+  );
+  db.sqlite.exec(
+    "DROP TRIGGER holding_price_quote_head; DROP TRIGGER holding_price_continuation_guard; DROP VIEW holding_price_current_quotes; DROP TABLE holding_price_metadata_heads; DROP INDEX holding_price_source_heads_version; CREATE INDEX holding_price_source_heads_household ON holding_price_source_heads(household_id,source_position_id);",
+  );
+  db.sqlite.exec(
+    old.slice(
+      old.indexOf("CREATE TRIGGER holding_price_quote_head"),
+      old.indexOf("CREATE TRIGGER holding_price_quotes_no_update"),
+    ),
+  );
+  db.sqlite.exec(
+    prior.slice(
+      prior.indexOf("CREATE VIEW holding_price_current_quotes"),
+      prior.indexOf("DROP TRIGGER holding_selected_valuation_guard"),
+    ),
+  );
+  db.sqlite.exec(
+    prior.slice(
+      prior.indexOf("CREATE TRIGGER holding_price_continuation_guard"),
+    ),
+  );
+  db.sqlite.exec(
+    readFileSync(
+      "packages/database/migrations/0097_price_metadata_continuation.sql",
+      "utf8",
+    ),
+  );
 }
 function gp(
   price = 200_000_000,
@@ -529,6 +571,370 @@ it("follows a newer undated GP price using recorded metadata assumptions, reject
   ).toEqual({ recalculated: 0 });
 });
 
+it("retains an undated reviewed split through partial and missing source metadata without applying it twice", async () => {
+  await setUpRepository();
+  await reviewQuote();
+  await link(0);
+  await link(1);
+  const original = current(0)!;
+  const postSplit = current(1)!;
+  const correctedQuantity = structuredClone(postSplit.details);
+  correctedQuantity.lots[0]!.remainingSharesMicros = 844_000_000;
+  correctedQuantity.lots[0]!.quantityDetails!.shareBasis.unitsPerOriginal = 10;
+  await repo.accept(COST_SUBJECT, positions[1]!.id, {
+    expectedSnapshotId: positions[1]!.snapshotId,
+    expectedReceiptId: postSplit.id,
+    details: correctedQuantity,
+  });
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  await repo.acceptValuation(COST_SUBJECT, positions[3]!.id, {
+    expectedSnapshotId: positions[3]!.snapshotId,
+    expectedReceiptId: current(3)!.id,
+    method: "total",
+    record: { ...gp(20_000_000, "2026-09-10", 10), priceDate: null },
+  });
+  const splitQuoteId = current(0)!.details.valuation!.calculation!.quoteId;
+  expect(value(0)).toBe(1_688_000);
+  expect(value(1)).toBe(1_688_000);
+  // Editing investment facts can preserve an already accepted quote verbatim;
+  // its older, now-unused assumptions remain reconstructable until refresh.
+  const splitReceipt = current(0)!;
+  await repo.accept(COST_SUBJECT, positions[0]!.id, {
+    expectedSnapshotId: positions[0]!.snapshotId,
+    expectedReceiptId: splitReceipt.id,
+    details: { ...splitReceipt.details, cashCoversPosition: false },
+  });
+  expect(current(0)!.id).not.toBe(splitReceipt.id);
+  for (const revision of [2, 3, 4, 5, 6]) {
+    vi.setSystemTime(new Date(Date.now() + 1000));
+    await seedCostHoldings(db.asD1(), COST_SUBJECT, revision, false, {
+      sharePrices: {
+        ...prices(20_000_000 + revision * 1_000_000, null, 10),
+        shareClass: revision === 5 ? "Class A" : null,
+        // A split-only observation and a later metadata-free observation must
+        // each retain the newest evidenced basis, not the old dated anchor.
+        shareBasis: revision === 3 ? { ...basis, unitsPerOriginal: 10 } : null,
+      },
+    });
+    expect(value(0)).toBe(1_688_000 + revision * 84_400);
+    expect(value(1)).toBe(value(0));
+    expect(current(0)!.details.lots).toEqual(original.details.lots);
+    const record = current(0)!.details.valuation!.records.find(
+      (r) => r.followSource,
+    )!;
+    expect(record.priceDate).toBeNull();
+    expect(record.sourceContinuation?.shareBasis.unitsPerOriginal).toBe(10);
+    if (revision <= 4)
+      expect(record.sourceContinuation?.quoteId).toBe(splitQuoteId);
+    if (revision === 4)
+      expect(record.sourceContinuation?.shareBasisQuoteId).toBeDefined();
+    if (revision === 6)
+      expect(record.sourceContinuation?.shareClass).toBe("Class A");
+    const receiptId = current(0)!.id;
+    expect(
+      await new D1PriceProxyRepository(db.asD1()).refresh(COST_SUBJECT),
+    ).toEqual({ recalculated: 0 });
+    expect(current(0)!.id).toBe(receiptId);
+  }
+  const latest = current(0)!;
+  const forged = structuredClone(latest);
+  forged.id = crypto.randomUUID();
+  forged.details.valuation!.records.find(
+    (r) => r.followSource,
+  )!.sourceContinuation!.shareBasis.unitsPerOriginal = 1;
+  expect(() =>
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,'hh_demo',?,?,?,?,'usr_demo',?)`,
+      )
+      .run(
+        forged.id,
+        forged.positionId,
+        forged.snapshotId,
+        latest.id,
+        JSON.stringify(forged),
+        forged.acceptedAt,
+      ),
+  ).toThrow("price continuation provenance mismatch");
+});
+
+it("recovers a missed source split after a later incomplete capture and reselects only a previously accepted proxy", async () => {
+  await setUpRepository();
+  await reviewQuote();
+  await link(0);
+  await link(1);
+  const original = current(0)!;
+  const previousProxy = current(1)!.details.valuation!.records.find(
+    (r) => r.followSource,
+  )!;
+  await repo.acceptValuation(COST_SUBJECT, positions[1]!.id, {
+    expectedSnapshotId: positions[1]!.snapshotId,
+    expectedReceiptId: current(1)!.id,
+    method: "total",
+    record: { ...gp(), priceMicros: null, priceDate: null },
+  });
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  const interrupted = vi
+    .spyOn(D1PriceProxyRepository.prototype, "refresh")
+    .mockRejectedValueOnce(new Error("synthetic interrupted propagation"));
+  try {
+    await expect(
+      repo.acceptValuation(COST_SUBJECT, positions[3]!.id, {
+        expectedSnapshotId: positions[3]!.snapshotId,
+        expectedReceiptId: current(3)!.id,
+        method: "total",
+        record: { ...gp(20_000_000, "2026-09-10", 10), priceDate: null },
+      }),
+    ).rejects.toThrow("synthetic interrupted propagation");
+  } finally {
+    interrupted.mockRestore();
+  }
+  expect(current(0)!.id).toBe(original.id);
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 2, false, {
+    sharePrices: {
+      ...prices(22_000_000, null),
+      shareClass: null,
+      shareBasis: null,
+    },
+  });
+  expect(value(0)).toBe(1_856_800);
+  await readPositions();
+  const price = (
+    await repo.valuationEvidence(COST_SUBJECT, positions[1]!.id)
+  ).prices.find((p) => p.positionId === positions[3]!.id)!;
+  expect(price).toMatchObject({
+    markDate: null,
+    shareClass: null,
+    shareBasis: null,
+    sourceMetadata: {
+      shareClass: "Common",
+      shareBasis: { ...basis, unitsPerOriginal: 10 },
+    },
+  });
+  const record: ValuationRecord = {
+    ...previousProxy,
+    priceMicros: price.markMicros,
+    priceDate: price.markDate,
+    shareClass: price.shareClass,
+    shareBasis: price.shareBasis,
+    sourceEvidenceId: price.id,
+    sourceCapturedAt: price.capturedAt,
+  };
+  record.sourceContinuation = continuedPriceMetadata(
+    previousProxy,
+    record,
+    price.sourceMetadata ?? undefined,
+  );
+  await repo.acceptValuation(COST_SUBJECT, positions[1]!.id, {
+    expectedSnapshotId: positions[1]!.snapshotId,
+    expectedReceiptId: current(1)!.id,
+    method: "shares",
+    record,
+  });
+  expect(value(1)).toBe(1_856_800);
+  expect(
+    continuedPriceMetadata(
+      undefined,
+      record,
+      price.sourceMetadata ?? undefined,
+    ),
+  ).toBeUndefined();
+  await expect(
+    repo.acceptValuation(COST_SUBJECT, positions[2]!.id, {
+      expectedSnapshotId: positions[2]!.snapshotId,
+      expectedReceiptId: null,
+      method: "shares",
+      record: { ...record, sourceContinuation: undefined },
+    }),
+  ).rejects.toMatchObject({ code: "unsupported" });
+  expect(
+    db.sqlite
+      .prepare("SELECT 1 FROM holding_price_proxy_links WHERE position_id=?")
+      .get(positions[2]!.id),
+  ).toBeUndefined();
+});
+
+it("repairs a legacy proxy after metadata backfill even when its price quote is unchanged and exposes pending recovery", async () => {
+  await setUpRepository();
+  await reviewQuote();
+  await link(0);
+  const original = current(0)!;
+  const refresh = vi
+    .spyOn(D1PriceProxyRepository.prototype, "refresh")
+    .mockResolvedValue({ recalculated: 0 });
+  try {
+    vi.setSystemTime(new Date(Date.now() + 1000));
+    await repo.acceptValuation(COST_SUBJECT, positions[3]!.id, {
+      expectedSnapshotId: positions[3]!.snapshotId,
+      expectedReceiptId: current(3)!.id,
+      method: "total",
+      record: { ...gp(20_000_000, "2026-09-10", 10), priceDate: null },
+    });
+    vi.setSystemTime(new Date(Date.now() + 1000));
+    await seedCostHoldings(db.asD1(), COST_SUBJECT, 2, false, {
+      sharePrices: {
+        ...prices(22_000_000, null),
+        shareClass: null,
+        shareBasis: null,
+      },
+    });
+  } finally {
+    refresh.mockRestore();
+  }
+  await readPositions();
+  const price = (
+    await repo.valuationEvidence(COST_SUBJECT, positions[0]!.id)
+  ).prices.find((p) => p.positionId === positions[3]!.id)!;
+  const legacy = structuredClone(original);
+  legacy.id = crypto.randomUUID();
+  legacy.acceptedAt = new Date().toISOString();
+  legacy.snapshotId = positions[0]!.snapshotId;
+  legacy.details.investmentSnapshotId = original.snapshotId;
+  legacy.details.valuation!.snapshotId = legacy.snapshotId;
+  const record = legacy.details.valuation!.records.find((r) => r.followSource)!;
+  record.sourceContinuation = {
+    policy: "accepted-source-continuation-v1",
+    quoteId: record.sourceEvidenceId!,
+    shareClass: "Common",
+    shareBasis: basis,
+  };
+  Object.assign(record, {
+    priceMicros: price.markMicros,
+    priceDate: null,
+    shareClass: null,
+    shareBasis: null,
+    sourceEvidenceId: price.id,
+    sourceCapturedAt: price.capturedAt,
+  });
+  Object.assign(legacy.details.valuation!.calculation!, {
+    quoteId: price.id,
+    valueMinor: 185_680,
+  });
+  // Reproduce the old policy's immutable receipt; no accepted row is rewritten.
+  const old = readFileSync(
+    "packages/database/migrations/0093_gp_reported_total_refresh.sql",
+    "utf8",
+  );
+  db.sqlite.exec("DROP TRIGGER holding_price_continuation_guard");
+  db.sqlite.exec(
+    old.slice(old.indexOf("CREATE TRIGGER holding_price_continuation_guard")),
+  );
+  db.sqlite
+    .prepare(
+      `INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,'hh_demo',?,?,?,?,'usr_demo',?)`,
+    )
+    .run(
+      legacy.id,
+      legacy.positionId,
+      legacy.snapshotId,
+      original.id,
+      JSON.stringify(legacy),
+      new Date().toISOString(),
+    );
+  replayMetadataMigration();
+  const page = () =>
+    new D1HoldingsPageRepository(db.asD1()).getPage(
+      COST_SUBJECT,
+      "configuration_required",
+    );
+  expect(
+    (await page()).holdings.find((p) => p.id === positions[0]!.id)!
+      .purchaseContext!.priceProxyStatus!.stale,
+  ).toBe(true);
+  expect(value(0)).toBe(185_680);
+  expect(
+    await new D1PriceProxyRepository(db.asD1()).refresh(COST_SUBJECT),
+  ).toEqual({ recalculated: 1 });
+  expect(value(0)).toBe(1_856_800);
+  expect(current(0)!.details.valuation!.calculation!.quoteId).toBe(price.id);
+  expect(
+    (await page()).holdings.find((p) => p.id === positions[0]!.id)!
+      .purchaseContext!.priceProxyStatus!.stale,
+  ).toBe(false);
+  expect(
+    await new D1PriceProxyRepository(db.asD1()).refresh(COST_SUBJECT),
+  ).toEqual({ recalculated: 0 });
+  expect(
+    JSON.parse(
+      String(
+        db.sqlite
+          .prepare(
+            "SELECT receipt_json FROM holding_purchase_reviews WHERE id=?",
+          )
+          .get(legacy.id)!.receipt_json,
+      ),
+    ),
+  ).toEqual(legacy);
+});
+
+it("preserves established source heads across tied acceptances and excludes initial future metadata during backfill", async () => {
+  await setUpRepository(true);
+  const insert = (
+    index: number,
+    id: string,
+    date: string,
+    observed: string,
+    units: number,
+  ) =>
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_price_quotes(id,household_id,source_position_id,import_row_id,review_id,price_micros,price_date,share_class,basis_json,source_label,source_url,observed_at,accepted_at,decision_policy)
+    SELECT ?,'hh_demo',source_position_id,import_row_id,NULL,20_000_000,?,'Common',?,'Synthetic source',NULL,?,'2026-10-01T12:00:01.000Z','accepted-import-price-v1' FROM holding_price_quotes WHERE source_position_id=? LIMIT 1`,
+      )
+      .run(
+        id,
+        date,
+        JSON.stringify({ ...basis, unitsPerOriginal: units }),
+        observed,
+        positions[index]!.id,
+      );
+  insert(3, "synthetic-b", "2026-09-01", "2026-10-01T12:00:01.000Z", 10);
+  insert(3, "synthetic-a", "2026-09-01", "2026-10-01T12:00:02.000Z", 1);
+  insert(0, "synthetic-future", "2027-01-01", "2026-10-01T12:00:03.000Z", 999);
+  expect(
+    db.sqlite
+      .prepare(
+        "SELECT quote_id FROM holding_price_current_quotes WHERE source_position_id=?",
+      )
+      .get(positions[3]!.id)!.quote_id,
+  ).toBe("synthetic-b");
+  expect(
+    db.sqlite
+      .prepare(
+        "SELECT current_quote_id,share_class_quote_id,share_basis_quote_id FROM holding_price_metadata_heads WHERE source_position_id=?",
+      )
+      .get(positions[0]!.id),
+  ).toEqual({
+    current_quote_id: "synthetic-future",
+    share_class_quote_id: null,
+    share_basis_quote_id: null,
+  });
+  replayMetadataMigration();
+  expect(
+    db.sqlite
+      .prepare(
+        "SELECT current_quote_id,share_class_quote_id,share_basis_quote_id FROM holding_price_metadata_heads WHERE source_position_id=?",
+      )
+      .get(positions[3]!.id),
+  ).toMatchObject({
+    current_quote_id: "synthetic-b",
+    share_class_quote_id: "synthetic-b",
+    share_basis_quote_id: "synthetic-b",
+  });
+  expect(
+    db.sqlite
+      .prepare(
+        "SELECT current_quote_id,share_class_quote_id,share_basis_quote_id FROM holding_price_metadata_heads WHERE source_position_id=?",
+      )
+      .get(positions[0]!.id),
+  ).toEqual({
+    current_quote_id: "synthetic-future",
+    share_class_quote_id: null,
+    share_basis_quote_id: null,
+  });
+});
+
 it("explains distinct missing input and compatibility failures", () => {
   const record = gp();
   const details = { coversPosition: false, lots: [] };
@@ -587,6 +993,95 @@ it("explains distinct missing input and compatibility failures", () => {
   ).toMatchObject({ code: "cross_class" });
 });
 
+it("advances later changed candidates across multiple owned households beyond one 500-row batch", async () => {
+  await setUpRepository();
+  await reviewQuote();
+  const template = await link(0);
+  await seedCostHoldings(db.asD1(), COST_SUBJECT, 2, false, {
+    positionCount: 260,
+    sharePrices: prices(),
+  });
+  db.sqlite
+    .exec(`INSERT INTO users VALUES ('proxy-other-user','proxy-other-subject','proxy-other@example.invalid','Synthetic Other','2026-09-01');
+    INSERT INTO households VALUES ('proxy-other','proxy-other-user','Synthetic Other','USD','2026-09-01');`);
+  await seedCostHoldings(db.asD1(), "proxy-other-subject", 1, false, {
+    positionCount: 260,
+    sharePrices: prices(),
+  });
+  // The owner can have multiple households; each remains below its 500-link cap.
+  db.sqlite.exec(
+    "UPDATE households SET owner_user_id='usr_demo' WHERE id='proxy-other'",
+  );
+  const rows = db.sqlite
+    .prepare(
+      `SELECT p.id,p.household_id,application.snapshot_id,price.id quote_id,price.observed_at
+    FROM holding_positions p JOIN holding_import_application_heads application ON application.position_id=p.id
+    JOIN holding_price_metadata_heads metadata ON metadata.source_position_id=p.id
+    JOIN holding_price_quotes price ON price.id=metadata.current_quote_id
+    LEFT JOIN holding_purchase_heads review ON review.position_id=p.id
+    WHERE p.provider='tokenfolio' AND review.position_id IS NULL ORDER BY p.id`,
+    )
+    .all() as {
+    id: string;
+    household_id: string;
+    snapshot_id: string;
+    quote_id: string;
+    observed_at: string;
+  }[];
+  expect(rows).toHaveLength(518);
+  for (const row of rows) {
+    const id = crypto.randomUUID();
+    const details = structuredClone(template.details);
+    details.investmentSnapshotId = row.snapshot_id;
+    details.valuation!.snapshotId = row.snapshot_id;
+    const record = details.valuation!.records.find((r) => r.followSource)!;
+    Object.assign(record, {
+      id: `proxy:${row.id}`,
+      sourcePositionId: row.id,
+      priceSourcePositionId: row.id,
+      sourceEvidenceId: row.quote_id,
+      sourceCapturedAt: row.observed_at,
+    });
+    details.valuation!.selected!.recordId = record.id;
+    Object.assign(details.valuation!.calculation!, {
+      quoteId: row.quote_id,
+      quantityReceiptId: id,
+    });
+    const receipt = PurchaseReceiptSchema.parse({
+      ...template,
+      id,
+      positionId: row.id,
+      snapshotId: row.snapshot_id,
+      supersedesEconomicsTermsId: null,
+      details,
+    });
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_purchase_reviews(id,household_id,position_id,snapshot_id,prior_id,receipt_json,reviewer_user_id,accepted_at) VALUES(?,?,?,?,NULL,?,'usr_demo',?)`,
+      )
+      .run(
+        id,
+        row.household_id,
+        row.id,
+        row.snapshot_id,
+        JSON.stringify(receipt),
+        receipt.acceptedAt,
+      );
+  }
+  vi.setSystemTime(new Date(Date.now() + 1000));
+  for (const row of rows)
+    db.sqlite
+      .prepare(
+        `INSERT INTO holding_price_quotes(id,household_id,source_position_id,import_row_id,review_id,price_micros,price_date,share_class,basis_json,source_label,source_url,observed_at,accepted_at,decision_policy)
+    SELECT id||':new',household_id,source_position_id,import_row_id,NULL,300_000_000,'2026-09-11',share_class,basis_json,source_label,source_url,?,?,'accepted-import-price-v1' FROM holding_price_quotes WHERE id=?`,
+      )
+      .run(new Date().toISOString(), new Date().toISOString(), row.quote_id);
+  const refresh = new D1PriceProxyRepository(db.asD1());
+  expect(await refresh.refresh(COST_SUBJECT)).toEqual({ recalculated: 500 });
+  expect(await refresh.refresh(COST_SUBJECT)).toEqual({ recalculated: 18 });
+  expect(await refresh.refresh(COST_SUBJECT)).toEqual({ recalculated: 0 });
+});
+
 it("keeps refresh queries independent of receipt and quote history", async () => {
   await setUpRepository();
   await reviewQuote();
@@ -620,6 +1115,7 @@ it("backfills previously reviewed dates from the append-only ledger without chan
     DROP TRIGGER holding_price_proxy_link;
     DROP TRIGGER holding_review_price_source_guard;
     DROP TABLE holding_price_proxy_links;
+    DROP TABLE holding_price_metadata_heads;
     DROP TABLE holding_price_source_heads;
     DROP TABLE holding_price_quotes;
     DROP TABLE holding_import_application_heads;
@@ -627,6 +1123,12 @@ it("backfills previously reviewed dates from the append-only ledger without chan
   db.sqlite.exec(
     readFileSync(
       "packages/database/migrations/0086_live_price_proxies.sql",
+      "utf8",
+    ),
+  );
+  db.sqlite.exec(
+    readFileSync(
+      "packages/database/migrations/0097_price_metadata_continuation.sql",
       "utf8",
     ),
   );

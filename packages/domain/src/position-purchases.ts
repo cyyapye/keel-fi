@@ -3,6 +3,7 @@ import { PositionLinkReceiptSchema } from "./position-link-receipt";
 import { InvestmentFeeSchema, investmentFeeAmount } from "./investment-fees";
 import {
   ShareBasisSchema,
+  SourcePriceMetadataSchema,
   ValuationStateSchema,
   type ValuationRecord,
 } from "./valuation-record";
@@ -946,6 +947,7 @@ export function purchaseAllInPrice(lot: PurchaseLot): number | null {
 }
 
 export const SharePriceEvidenceSchema = z.object({
+  sourceMetadata: SourcePriceMetadataSchema.nullable().optional(),
   shareBasis: ShareBasisSchema.nullable().optional(),
   priceSourcePositionId: text.optional(),
   id: text,

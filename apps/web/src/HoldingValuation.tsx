@@ -169,7 +169,11 @@ export function HoldingValuationEditor({
       sourceCapturedAt: price.capturedAt,
       watchEvidenceId: null,
     };
-    record.sourceContinuation = continuedPriceMetadata(previous, record);
+    record.sourceContinuation = continuedPriceMetadata(
+      previous,
+      record,
+      price.sourceMetadata ?? undefined,
+    );
     const index = records.findIndex((r) => r.id === id);
     if (index < 0) records.push(record);
     else records[index] = record;
@@ -271,7 +275,11 @@ export function HoldingValuationEditor({
       sourcePositionId: updatedPrice.positionId,
       sourceCapturedAt: updatedPrice.capturedAt,
     };
-    next.sourceContinuation = continuedPriceMetadata(draft.record, next);
+    next.sourceContinuation = continuedPriceMetadata(
+      draft.record,
+      next,
+      updatedPrice.sourceMetadata ?? undefined,
+    );
     setDrafts((old) => ({
       ...old,
       [source]: {

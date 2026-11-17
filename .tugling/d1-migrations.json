@@ -478,12 +478,29 @@
       "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
+    },
+    {
+      "kind": "upgrade",
+      "id": "price-metadata-continuation-v1",
+      "frontier": "0096_economics_snapshot_lookup.sql",
+      "migrations": [
+        {
+          "name": "0097_price_metadata_continuation.sql",
+          "sha256": "8f3e771b0cec0f0b63cffce50feffc017db5914ea0f3bee72ad6d8c6e6c25d8d"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 100000,
+      "maxRowsWritten": 600
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "economics-snapshot-lookup-schema-v1",
-    "frontier": "0096_economics_snapshot_lookup.sql",
+    "id": "price-metadata-continuation-schema-v1",
+    "frontier": "0097_price_metadata_continuation.sql",
     "pending": [],
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,

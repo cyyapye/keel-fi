@@ -97,6 +97,7 @@ const setupResultSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("holdings"),
       importId: z.string().min(1),
+      cost: d1CostSchema,
     })
     .strict(),
   z

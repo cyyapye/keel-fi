@@ -517,6 +517,10 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                'lastSuccessfulSyncAt',proxy_agent.last_completed_at,
                'stale',json(CASE WHEN proxy_agent.last_error_code IS NOT NULL
                  OR proxy_head.quote_id IS NOT json_extract(purchase_review.receipt_json,'$.details.valuation.calculation.quoteId')
+                 OR EXISTS(SELECT 1 FROM json_each(purchase_review.receipt_json,'$.details.valuation.records') chosen
+                   WHERE json_extract(chosen.value,'$.id')=json_extract(purchase_review.receipt_json,'$.details.valuation.selected.recordId') AND (
+                     (proxy_quote.share_class IS NULL AND proxy_metadata.share_class_quote_id IS NOT NULL AND proxy_metadata.share_class_quote_id IS NOT json_extract(chosen.value,'$.sourceContinuation.quoteId'))
+                     OR (proxy_quote.basis_json IS NULL AND proxy_metadata.share_basis_quote_id IS NOT NULL AND proxy_metadata.share_basis_quote_id IS NOT COALESCE(json_extract(chosen.value,'$.sourceContinuation.shareBasisQuoteId'),json_extract(chosen.value,'$.sourceContinuation.quoteId')))))
                  OR (proxy_observation.id IS NOT proxy_head.quote_id AND (proxy_observation.accepted_at,proxy_observation.id)>(proxy_quote.accepted_at,proxy_quote.id) AND proxy_observation.price_micros IS NOT proxy_quote.price_micros AND (proxy_observation.price_date IS NULL OR proxy_observation.price_date>=proxy_quote.price_date))
                  THEN 'true' ELSE 'false' END)) END AS price_proxy_status_json,
              ownership.container_id,
@@ -628,7 +632,8 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id=position.id AND purchase_head.household_id=position.household_id
            LEFT JOIN holding_purchase_reviews purchase_review ON purchase_review.id=purchase_head.review_id
            LEFT JOIN holding_price_proxy_links proxy_link ON proxy_link.position_id=position.id
-           LEFT JOIN holding_price_current_quotes proxy_head ON proxy_head.source_position_id=proxy_link.source_position_id
+           LEFT JOIN holding_price_current_quotes proxy_head ON proxy_head.source_position_id=proxy_link.source_position_id AND proxy_head.household_id=position.household_id
+           LEFT JOIN holding_price_metadata_heads proxy_metadata ON proxy_metadata.source_position_id=proxy_link.source_position_id AND proxy_metadata.household_id=position.household_id
            LEFT JOIN holding_price_quotes proxy_quote ON proxy_quote.id=proxy_head.quote_id
            LEFT JOIN holding_price_quotes proxy_observation ON proxy_observation.id=proxy_head.observation_id
            LEFT JOIN holding_positions proxy_position ON proxy_position.id=proxy_link.source_position_id
