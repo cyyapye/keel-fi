@@ -373,10 +373,7 @@
       "fixture": "holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     },
@@ -393,10 +390,7 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 15000,
       "maxRowsWritten": 10000
     },
@@ -413,10 +407,7 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 15000,
       "maxRowsWritten": 5000
     },
@@ -433,10 +424,7 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     },
@@ -453,10 +441,7 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     },
@@ -473,10 +458,7 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 150
     },
@@ -493,10 +475,7 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     },
@@ -513,10 +492,7 @@
       "fixture": "public-holding-history-v1",
       "mainPositions": 120,
       "unrelatedPositions": 120,
-      "histories": [
-        12,
-        24
-      ],
+      "histories": [12, 24],
       "maxRowsRead": 2000,
       "maxRowsWritten": 100
     }
@@ -529,8 +505,6 @@
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,
     "unrelatedPositions": 120,
-    "histories": [
-      24
-    ]
+    "histories": [24]
   }
 }
