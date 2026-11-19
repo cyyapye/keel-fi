@@ -84,6 +84,15 @@ const screenshotOptions = {
   ),
 };
 
+// Ancillary reference links above a component shift its fractional crop origin.
+// Their visible navigation remains covered by the separate Journey round trips.
+async function isolateComponentReference(page: Page) {
+  await page.addStyleTag({
+    content:
+      ".catalogue-example > .catalogue-journey-usage { display: none !important; }",
+  });
+}
+
 test(
   "foundations distinguish selection from keyboard focus",
   { tag: "@desktop-only" },
@@ -125,6 +134,7 @@ test(
   { tag: "@mobile-only" },
   async ({ page }) => {
     await page.goto("/ui/#forms");
+    await isolateComponentReference(page);
     const checkbox = page.getByRole("region", {
       name: "Checkbox",
       exact: true,
@@ -170,6 +180,7 @@ test(
   async ({ page }) => {
     await page.clock.install();
     await page.goto("/ui/#forms");
+    await isolateComponentReference(page);
     const refresh = page.getByRole("region", {
       name: "LoadingStatus & Spinner",
       exact: true,
@@ -342,6 +353,7 @@ test(
   { tag: "@desktop-only" },
   async ({ page }) => {
     await page.goto("/ui/#display");
+    await isolateComponentReference(page);
     const chart = page.getByLabel(
       "Synthetic reviewed document counts: July 3, August 5, September 8, October 10.",
     );
@@ -430,9 +442,13 @@ test("Journeys component references resolve to real examples and recover safely"
       .first();
     await expect(card).toBeVisible();
     await expect(card).toBeFocused();
-    const reverse = card.locator('a[href^="#journeys/"]').first();
+    const usage = card.locator(".catalogue-journey-usage");
+    await expect(usage).toBeVisible();
+    const reverse = usage.locator('a[href^="#journeys/"]').first();
     await expect(reverse).toBeVisible();
+    const destination = await reverse.getAttribute("href");
     await reverse.click();
+    expect(new URL(page.url()).hash).toBe(destination);
     await expect(
       page.getByRole("region", { name: "Synthetic screen preview" }),
     ).toBeVisible();
