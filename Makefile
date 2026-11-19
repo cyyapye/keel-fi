@@ -8,6 +8,29 @@ ui-review-prepare:
 ui-review-check:
 	$(PNPM) exec tsx scripts/ui-design-review.ts check "$(PACKET)" "$(REVIEW)"
 
+# Released UI evidence uses the accepted project checkout, never a personal cache.
+TUGLING_UI_SOURCE := $(if $(TUGLING_PILOT_SOURCE),$(TUGLING_PILOT_SOURCE),../tugling-candidate)
+TUGLING_UI_HELPER := $(TUGLING_UI_SOURCE)/plugins/tugling/skills/poteto-mode/scripts/design_evidence.py
+
+.PHONY: ui-evidence-source ui-evidence-checks ui-evidence-prepare ui-evidence-check ui-handoff
+ui-evidence-source:
+	@test -f "$(TUGLING_UI_HELPER)" || { echo "Missing accepted Tugling checkout at $(TUGLING_UI_SOURCE); see docs/engineering/ui-design-workflow.md."; exit 2; }
+	@test "$$(git -C "$(TUGLING_UI_SOURCE)" rev-parse --show-toplevel)" = "$$(cd "$(TUGLING_UI_SOURCE)" && pwd -P)" || { echo "Tugling source must be its own Git checkout."; exit 2; }
+	@test -z "$$(git -C "$(TUGLING_UI_SOURCE)" status --porcelain --untracked-files=all)" || { echo "Tugling source must be clean."; exit 2; }
+	@python3 -I "$(TUGLING_UI_SOURCE)/plugins/tugling/scripts/project_contract.py" --repo . --source-root "$(TUGLING_UI_SOURCE)" --source-mode pinned
+
+ui-evidence-checks: ui-evidence-source
+	python3 -I "$(TUGLING_UI_HELPER)" --repo . run-checks --out "$(CHECKS)"
+
+ui-evidence-prepare: ui-evidence-source
+	python3 -I "$(TUGLING_UI_HELPER)" --repo . prepare --brief "$(BRIEF)" --out "$(OUT)"
+
+ui-evidence-check: ui-evidence-source
+	python3 -I "$(TUGLING_UI_HELPER)" --repo . check --packet "$(PACKET)" --review "$(REVIEW)"
+
+ui-handoff: ui-evidence-source
+	python3 -I "$(TUGLING_UI_HELPER)" --repo . handoff --packet "$(PACKET)" --review "$(REVIEW)" --checks "$(CHECKS)" --review-record "$(REVIEW_RECORD)"
+
 npm_config_cache ?= $(CURDIR)/.npm-cache
 npm_config_prefer_offline ?= true
 npm_config_update_notifier ?= false
@@ -42,6 +65,11 @@ help:
 	@echo "  make pdf-sandbox-check   Check PDF bindings, daemon policy and image availability"
 	@echo "  make pdf-sandbox-verify  Prove PDF isolation with synthetic adversarial probes"
 	@echo "  make check         Run source checks, unit tests, and builds"
+	@echo "  make ui-evidence-source   Validate the clean accepted Tugling checkout"
+	@echo "  make ui-evidence-checks CHECKS=...   Record current native checks"
+	@echo "  make ui-evidence-prepare BRIEF=... OUT=...   Package released UI evidence"
+	@echo "  make ui-evidence-check PACKET=... REVIEW=...   Check released review evidence"
+	@echo "  make ui-handoff PACKET=... REVIEW=... CHECKS=... REVIEW_RECORD=...   Gate material UI handoff"
 	@echo "  make ui-review-prepare BRIEF=... OUT=...   Package current design-review evidence"
 	@echo "  make ui-review-check PACKET=... REVIEW=... Validate review coverage and freshness"
 	@echo "  make lint          Run ESLint"
@@ -118,6 +146,7 @@ build:
 	$(PNPM) build
 
 check:
+	$(MAKE) pdf-sandbox-refresh-test
 	$(MAKE) ci-storage-test
 	$(MAKE) d1-migration-check
 	$(PNPM) check
@@ -208,6 +237,21 @@ pdf-sandbox-register:
 
 pdf-sandbox-check:
 	node --import tsx scripts/pdf-sandbox-setup.ts check
+
+.PHONY: pdf-sandbox-refresh pdf-sandbox-refresh-test
+pdf-sandbox-refresh-test:
+	python3 -I scripts/pdf-sandbox-refresh.test.py
+	python3 -I scripts/pdf-sandbox-publication-lock.test.py
+
+.PHONY: pdf-sandbox-refresh-status pdf-sandbox-refresh-reconcile
+pdf-sandbox-refresh-status:
+	node --import tsx scripts/pdf-scanner-maintenance-status.ts
+
+pdf-sandbox-refresh-reconcile:
+	node --import tsx scripts/pdf-scanner-maintenance-status.ts --reconcile
+
+pdf-sandbox-refresh:
+	python3 scripts/pdf-sandbox-refresh.py
 
 pdf-sandbox-build:
 	$(PNPM) exec tsx scripts/pdf-sandbox-build.ts

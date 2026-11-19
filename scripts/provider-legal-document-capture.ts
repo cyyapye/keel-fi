@@ -968,6 +968,7 @@ export async function createProviderAgreementCollector(
   authorization: MacAgentAuthorization,
   provider: Provider,
   run: Run,
+  scan?: (bytes: Uint8Array) => Promise<LegalDocumentScan>,
 ): Promise<AgreementCollector> {
   const prefix = `/api/automation/provider-holdings/${provider}/mac-agent/runs/${run.id}`;
   const request = async (operation: string, body?: FormData) => {
@@ -985,6 +986,7 @@ export async function createProviderAgreementCollector(
   return providerAgreementCollector({
     provider,
     manifest,
+    ...(scan === undefined ? {} : { scan }),
     ...(run.recheckDocumentId === undefined
       ? {}
       : { recheckDocumentId: run.recheckDocumentId }),

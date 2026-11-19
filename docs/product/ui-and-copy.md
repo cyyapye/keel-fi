@@ -271,6 +271,19 @@ Show the proposed result first when it can be supported by the evidence.
   counts, dates, coverage and distribution treatment cannot become confirmed
   facts through a cleaner presentation.
 
+### Row navigation and actions
+
+Do not append decorative → suffixes to link or button labels. Keep arrows when
+they convey actual meaning, such as transitions in a flow diagram.
+
+For an unambiguous row drill-in, use a trailing right chevron to navigate into
+that row's details instead of redundant “View…” or “Open…” text and a decorative
+arrow. Keep a descriptive accessible name, visible keyboard focus and a target
+of at least 44 × 44px. A disclosure indicator expands supporting information in
+place; it must not imply navigation. Retain meaningful text when an action has a
+distinct purpose or the destination is not clear from the row. This is a narrow
+row-navigation pattern, not a blanket replacement for text links.
+
 Choose section navigation by the task. Use tabs for related alternate views,
 visible sections for information needed together, and disclosure for supporting
 detail. Section count alone does not choose tabs or accordions. Avoid nested

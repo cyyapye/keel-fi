@@ -1,3 +1,4 @@
+import { localScannerForProviderOperation } from "./pdf-scanner-auto";
 import { spawn, spawnSync } from "node:child_process";
 import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -2032,6 +2033,7 @@ async function executeRun(
           authorization,
           provider,
           run,
+          localScannerForProviderOperation(),
         );
         const bytes =
           provider === "tokenfolio"

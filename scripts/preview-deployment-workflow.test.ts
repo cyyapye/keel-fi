@@ -178,7 +178,7 @@ describe("post-merge preview deployment workflow", () => {
     const tugling = workflow.slice(tuglingStart, deploymentStart);
     expect(tugling).toContain("ref: ${{ github.sha }}");
     expect(tugling).toContain("repository: cyyapye/tugling");
-    expect(tugling).toContain("ref: 01af7eda080d3ef49d9fabcb7dfdf40e949a693c");
+    expect(tugling).toContain("ref: 2c4f93263e4d99ad4b8a0cb32093161b45264be4");
     expect(tugling).toContain("persist-credentials: false");
     expect(tugling).toContain("project_contract.py");
     expect(tugling).toContain("--source-mode pinned");
@@ -189,8 +189,8 @@ describe("post-merge preview deployment workflow", () => {
     const pilot = JSON.parse(await readFile(".tugling/pilot.json", "utf8"));
     expect(accepted.tugling).toMatchObject({
       channel: "pinned",
-      revision: "01af7eda080d3ef49d9fabcb7dfdf40e949a693c",
-      version: "0.8.0",
+      revision: "2c4f93263e4d99ad4b8a0cb32093161b45264be4",
+      version: "0.11.0",
     });
     expect(pilot.tugling).toEqual(accepted.tugling);
     for (const path of [

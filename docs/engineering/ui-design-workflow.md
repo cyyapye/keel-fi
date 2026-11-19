@@ -170,3 +170,69 @@ configuration preservation, completeness and drift rejection. A change claiming
 better reviewer decisions still requires a concrete behavioral advantage and
 clean holdouts. Keep the current project adapter usable independently; a local
 Tugling candidate is not an installed or release-certified change.
+
+## Released project-native handoff
+
+The material-UI handoff uses the accepted release in `.tugling/project.json`.
+Reuse the existing native `TUGLING_PILOT_SOURCE` mechanism for a clean sibling
+checkout of that exact revision. Without that variable, the UI commands use
+`../tugling-candidate`, the same sibling layout used by native CI. Keep this
+third-party dependency outside Keel's source tree so native test discovery does
+not collect its own test suites. Local setup may populate the sibling from an
+existing Tugling repository; verify its exact revision with
+`make ui-evidence-source`. Missing, dirty, or mismatched sources fail visibly.
+Do not substitute a personal plugin-cache path or an unreleased candidate.
+
+Use fresh, immutable directories outside the configured source roots for each
+run. The commands are:
+
+```sh
+make ui-evidence-checks CHECKS=/absolute/new-check-run
+make ui-evidence-prepare BRIEF=/absolute/brief.json OUT=/absolute/new-packet
+make ui-evidence-check PACKET=/absolute/new-packet REVIEW=/absolute/review.json
+make ui-handoff PACKET=/absolute/new-packet REVIEW=/absolute/review.json CHECKS=/absolute/new-check-run REVIEW_RECORD=/absolute/reviewer-record.json
+```
+
+These entrypoints invoke the accepted release's `design_evidence.py` with its
+`run-checks`, `prepare`, `check`, and `handoff` commands respectively. Inspect
+the release's generated reviewer instructions and preserve the actual fresh
+review, first-look notes, and session evidence. The author must not fabricate a
+reviewer record. The brief must reference the exact resulting native logs and
+their exact command strings, not an authored description of a passing check.
+
+The existing `make ui-review-prepare` and `make ui-review-check` remain
+compatible with their legacy packets and tests. Those packets lack the released
+helper's identity and Git bindings and are not sufficient for `make ui-handoff`.
+Prepare a new packet through `ui-evidence-prepare` for a material completion
+handoff. This is one final UI gate, not a second set of UI design criteria.
+
+The profile retains the project-owned criteria, `make lint`, the shared-usage
+check, full `make e2e`, and full `make verify`. It hashes the gate,
+instructions, source pin, workflow, UI inputs, and supporting configuration.
+Never put these wrapper targets into the profile's underlying checks, which
+would recurse. An unavailable PDF scanner or browser runtime remains a failed
+required check; focused rendered checks do not replace it. Native commands,
+review coverage, and platform-specific visual-baseline coverage must be reported
+separately.
+
+Before a user-facing material proposal (even in scratch space) or completion,
+run the final gate on its exact current inputs. Missing/stale evidence, failed
+native checks, or unresolved review findings block a verified handoff. Status
+and blocked-result reports remain allowed. Test gate failures with disposable
+synthetic fixtures; a passing fixture proves plumbing, not a Keel full pass.
+
+Scratch prototypes must not hand off against unrelated catalogue hashes. Before
+capture and native checks, bring their actual authored inputs into an approved
+catalogue fixture under the profile's source roots, or obtain approval for exact
+additional in-repository source coverage. Keep generated packets and captures
+outside those roots. The handoff does not automatically discover arbitrary files
+outside this project; a private scratch draft alone is not eligible.
+
+The reviewer record is a JSON object with `packetFingerprint`, `reviewSha256`,
+`authorSession`, `reviewerSession`, `firstLookNotes`, and `transcript`. Each of
+`firstLookNotes` and `transcript` is
+`{ "path": "relative-file", "sha256": "actual-file-hash" }`, resolved relative
+to the record file. Use actual distinct session identities and preserved
+reviewer artifacts. These bindings do not authenticate independence; the review
+must actually be performed by a fresh reviewer who sees the rendered screens
+before the brief and contracts.

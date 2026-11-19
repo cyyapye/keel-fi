@@ -93,7 +93,11 @@
         "scripts/test-support/sqlite-vitest-worker.ts",
         "scripts/test-support/legal-documents.ts",
         "scripts/test-support/cost-fixtures.ts",
-        "scripts/ci-disposable-linux.py"
+        "scripts/ci-disposable-linux.py",
+        "scripts/pdf-sandbox-refresh.test.py",
+        "scripts/pdf-sandbox-refresh.py",
+        "scripts/pdf-sandbox-publication-lock.test.py",
+        "scripts/pdf-sandbox-publication-lock.py"
       ],
       "runtime": {
         "owner": "native-command",

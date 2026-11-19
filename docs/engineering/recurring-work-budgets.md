@@ -167,6 +167,48 @@ The runtime inventory's reader timer changes its error classification only; it
 does not raise the deadline. Process races, caller death, supervisor death and
 cleanup barriers are native regression gates.
 
+Local stale-scanner maintenance is owned by the already admitted macOS
+collector, not a background scheduler. An idle day starts zero maintenance
+commands or timers. Fresh signatures, missing/invalid receipts and unsupported
+service/CI paths start no maintenance build. For a confirmed signature age over
+72 hours, each collector operation permits at most one attempt, rechecking the
+immutable receipt and daemon under the publication lock. A source/receipt
+mismatch refuses download rather than repairing unknown state.
+
+The publication helper acquires locks without waiting and has a **5-second**
+one-shot child deadline. One occupancy probe has a **15-second** command
+deadline; a busy or dirty scanner owner prevents the build. The scanner-only
+builder has a **420-second** parent-command deadline around its unchanged
+**300-second** Docker build bound and genuine synthetic preflight under ordinary
+scanner admission. Command output exceeding 16 KiB triggers termination and
+failure; this is a post-append threshold, not a strict allocation cap. Command
+deadlines request termination of the local child process group; the publication
+helper deadline requests termination of its child and rejects even a successful
+exit delivered after that callback fires. These event-driven timers are not hard
+wall-clock deadlines under event-loop delay. Both clear their timers on
+error/exit. Failures do not replay the command or retry the refresh, and an
+unconfirmed-build marker blocks another build until explicit reconciliation.
+Killing a client does not establish Docker-daemon cancellation or safe recovery.
+
+For N admitted collector operations and P stale adapter invocations, a maximum
+useful or failure day adds at most N build starts and N occupancy probes, plus P
+parent publication validations and at most N inherited-builder validations.
+Later stale documents in an operation still enter the lock before the
+already-attempted check, so P must not be replaced by N. The capture download
+admission limit of 24 documents per run bounds P at 24N: at most 25N validator
+starts, or 75 within the three-capture planning envelope. Explicit manual
+setup/build operations also use the publication helper and are counted
+separately. The existing three-capture planning envelope allows at most three
+build starts, not a hard daily quota: manual captures and retries increase N,
+and document invocations increase P. This maintenance adds zero Keel API, D1 or
+R2 operations. Signed package, registry and FreshClam traffic inside the
+existing builder is cache- and upstream-dependent; its request and byte totals
+are not measured or bounded by this wrapper. No zero-network or exact daily
+vendor-request ceiling is claimed. Shared VM contention and retained build state
+remain possible; these deadlines are not resource isolation guarantees. Focused
+fake-clock child-process regressions protect the actual deadlines and cleanup,
+alongside stale-only routing and publication-lock race tests.
+
 The verification-only orphan probe registers exactly two passive HTTP waits on
 that same rootless socket, for next exit and removal, before starting the
 worker. It makes no repeated lifecycle queries or retries. Registration is

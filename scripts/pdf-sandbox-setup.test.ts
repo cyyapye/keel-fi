@@ -1,3 +1,4 @@
+import { coordinatePdfPublicationFixture } from "./test-support/pdf-publication-fixture";
 import { spawnSync } from "node:child_process";
 import {
   chmod,
@@ -271,3 +272,5 @@ it("honors an explicit PDF configuration override and reports the recovery comma
     await rm(root, { recursive: true, force: true });
   }
 });
+
+coordinatePdfPublicationFixture();
