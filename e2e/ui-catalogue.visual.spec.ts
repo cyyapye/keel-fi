@@ -385,7 +385,10 @@ test("Journeys preserves company scope, lot uncertainty and component round trip
     .getByRole("link", { name: "View Northstar Robotics exposure" })
     .click();
   await page.getByRole("link", { name: "Open position", exact: true }).click();
-  await page.getByRole("link", { name: "Activity", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Synthetic screen preview" })
+    .getByRole("link", { name: "Activity", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Source", exact: true }),
   ).toBeVisible();
