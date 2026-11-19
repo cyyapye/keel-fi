@@ -35,7 +35,22 @@
     ".codex/skills/keel-ui-quality/SKILL.md",
     "scripts/ui-guide.ts",
     "scripts/ui-catalogue.ts",
-    "scripts/ui-catalogue-plugin.ts"
+    "scripts/ui-catalogue-plugin.ts",
+    "AGENTS.md",
+    "apps/web/AGENTS.md",
+    ".codex/skills/keel-ui-quality/references/visual-verification.md",
+    "scripts/journey-spec.test.ts",
+    ".tugling/project.json",
+    ".github/workflows/tugling.yml",
+    "docs/engineering/ui-design-workflow.md",
+    ".tugling/pilot.json",
+    ".github/workflows/post-merge.yml",
+    ".github/workflows/native-verification.yml",
+    ".github/workflows/tugling-pilot.yml",
+    ".github/actions/verify-native-receipt/action.yml",
+    "scripts/preview-deployment-workflow.test.ts",
+    "vitest.config.ts",
+    "scripts/ci-test-sequencer.ts"
   ],
   "theme": "packages/ui/src/styles.css",
   "components": "packages/ui/src/index.tsx",
@@ -48,7 +63,7 @@
   "checks": {
     "lint": ["make", "lint"],
     "structure": ["make", "test", "TEST_ARGS=scripts/shared-ui-usage.test.ts"],
-    "browser": ["make", "e2e", "E2E_ARGS=<affected specs>"],
+    "browser": ["make", "e2e"],
     "materialHandoff": ["make", "verify"]
   },
   "criteria": [

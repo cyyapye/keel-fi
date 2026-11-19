@@ -338,3 +338,116 @@ apply; no new provider abstraction or shared control API is introduced. The real
 API/D1 browser flow covers automatic matching, selected corrections, failed
 saves and status checks on desktop/mobile. Generated component guidance stays
 unchanged because the reused control contracts are unchanged.
+
+## Journey references
+
+The synthetic `/ui/#journeys` reference surface sits alongside the existing
+component examples. `e2e/ui-catalogue/journey-spec.ts` owns versioned stable
+step IDs, action edges, source references and component names, separate from the
+shared component catalogue manifest. The first journey follows portfolio →
+company exposure → holding position → reported activity/tax lots → company.
+Adjacent product areas are orientation-only, not audited cross-area workflows.
+
+Journey examples import `@keel/ui`; they do not call portfolio APIs or edit
+application state. Current ownership, source-reported activity and remaining
+lots remain distinct. Unknown lots are not zero holdings. The reference's hash
+routes are not promises of production tab deep links or scroll restoration.
+
+When a PR changes an affected screen/action boundary, update the journey source
+reference and its trigger/result/context together, or explain why the reference
+is unchanged. Component references must resolve to existing example cards and
+have reverse journey links. Keep the reference-contract test and the lean
+catalogue round-trip regression current; reuse product journey tests for
+financial semantics rather than duplicating them in the catalogue.
+
+The owner approved the exact synthetic Journeys v1 proposal on 2026-11-14,
+SHA-256 `2f8bf2dcf1620fc6fb3e36463f3890fc08912e5e631a3bfced2b607c4a341e9a`, for
+implementation with existing Keel components and principles. This approval
+covers the reference-only journey and its reviewed scenarios, not product
+navigation, financial semantics, publication or deployment. Material departures
+require renewed design review under the interface contract.
+
+## Row navigation and actions
+
+Follow the canonical row-navigation rule in
+[Interface and copy contract](ui-and-copy.md#row-navigation-and-actions). The
+**Drill into details** composition demonstrates it with `RecordItem`, `TextLink`
+and the existing `DisclosureIndicator` rotated right, not a new shared
+component. The catalogue-local helper provides a descriptive accessible name and
+44 × 44px focusable target. Right chevrons navigate into an unambiguous row's
+details; in-place expansion remains a disclosure, and distinct actions keep
+meaningful text. Do not append decorative → suffixes to link/button labels;
+meaningful transitions in flow diagrams retain arrows.
+
+## Manual import reference approval
+
+The owner approved synthetic Import v2, SHA-256
+`5a6ae46f36a03309e890fa6220c8c5521c6ef2a3a51a42ba3818b612af7b861e`, for
+catalogue-only implementation. Eligible ready rows start included, with opt-out
+and one explicit batch Apply. Identity exceptions remain excluded until source
+review confirms the match; invalid and unchanged rows are not applied. Known
+failures retain choices. An unknown outcome locks editing, reset and repreview
+until status is resolved, preventing duplicate attempts. This manual reference
+does not require a second Apply for policy-accepted provider updates. The
+example reads no file contents and makes no writes or network calls. This
+approval does not authorize product import changes or deployment.
+
+## Current-state task walkthroughs
+
+`task-journey-spec.ts` records five additional independent paths for planning,
+Watch/evidence, obligations, source exceptions, and app access, alongside the
+existing detailed Holdings fixture. Each step names its product route, source
+owner, inspected revision, action, result, carried context and alternate
+boundary. Manual main-navigation transitions are explicitly distinguished from
+product redirects and in-memory selections. These paths cover the nine major
+areas, not every possible product edge case.
+
+`task-journeys.tsx` reuses the approved task cards, ordered step navigation,
+inline source treatment and shared reference controls. Except for the approved
+Planning slice below, these are read-only walkthroughs, not simulated save or
+authorization forms. Their links only move between catalogue reference screens.
+There are no network requests, file-content reads, external links, writes,
+credentials or clipboard actions. Further interactive scenarios or redesigned
+flows still require exact-version design review. This reference expansion does
+not change production behavior or the separately approved manual-import example.
+
+For a source citation inside an expanded history entry, keep the citation inline
+with a differentiated Source heading and supporting evidence. The Collapsible
+reference uses one outer Sources & history disclosure, not a nested Source
+details toggle. Do not copy a nested disclosure merely to hide a short citation.
+
+The owner approved the full-row detail target proposal, SHA-256
+`98c450945b8be7df68d4f63dc95b406bf4e8bc2dfbba7e290452bae2ffd47412`. In
+Alternating record rows, the existing native detail button covers its actionable
+position row, with one keyboard stop and an aria-hidden chevron. The action and
+synthetic selection are unchanged. This approval does not cover the separate
+landing-hierarchy proposal. Planning has its own exact approval below.
+
+For an unambiguous record with exactly one detail destination, make its existing
+native link/button cover the row: one action and one keyboard stop, with an
+aria-hidden trailing chevron. Keep real destinations as links and local demo
+actions as buttons. The catalogue demonstrates this in Portfolio exposure,
+Brokerage A, Drill into details, and Alternating record rows. Do not extend this
+treatment to context-only records, inline expansion, multiple independent
+actions, or distinct Review sources and Activity/Tax lots controls.
+
+### Approved Planning screen walkthrough
+
+The owner approved polished Planning, SHA-256
+`0669c4ab3aa530ae5d898d973de19a2c842703bdc09240b00c89757fe6284f67`, plus
+token-based spacing above the Scenario excerpt's closing note.
+`planning-walkthrough.tsx` uses Keel's goal hero, goal-edit grid, preview,
+scenario metrics and history rail within the journey-first catalogue shell. The
+local synthetic editor supports name, measure label, optional nonnegative
+safe-integer target in months, and required change note. It deliberately saves
+an immutable demonstration receipt; failure retains the draft for retry. Current
+runway is a separate fixed synthetic fact (9 months), not the target. Paired
+Current/Target metrics and an accessible noninteractive meter show the draft in
+Goals and saved goal in Overview. The meter caps at target and is omitted for
+blank, invalid or zero targets; actual values remain visible. Saving stays in
+Goals. Scenarios and History require explicit navigation. Scenario outputs
+remain fixed, timing-adjusted liquidity is not cash in hand, and no forecast
+calculation, scenario editor, restore or product write is added. State lives
+only in the mounted fixture; cold deep links start at baseline. No APIs, storage
+or credentials are involved. Shared controls are reused unchanged. Other
+journeys, full-row links and inline Source treatments remain.

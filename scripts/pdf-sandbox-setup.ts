@@ -1,3 +1,5 @@
+import { readScannerReceipt, writeScannerReceipt } from "./pdf-scanner-receipt";
+import { withPdfPublicationLock } from "./pdf-sandbox-publication";
 import { randomUUID } from "node:crypto";
 import {
   link,
@@ -244,12 +246,80 @@ export async function checkPdfSandbox(options: SetupOptions = {}) {
   return bindings;
 }
 
+// Receipts are optional eligibility evidence, never invented by setup. Copy
+// before publishing the corresponding binding, so a crash only leaves a
+// mismatched sidecar (which the receipt reader rejects).
+async function propagateScannerReceipt(
+  bindings: Bindings,
+  source: string,
+  target: string,
+  replace: boolean,
+) {
+  let receipt: Awaited<ReturnType<typeof readScannerReceipt>>;
+  try {
+    receipt = await readScannerReceipt(bindings.scanner, source);
+  } catch {
+    console.warn("PDF_SCANNER_RECEIPT_UNAVAILABLE");
+    return;
+  }
+  if (!replace && (await exists(target))) {
+    try {
+      const existing = await readScannerReceipt(bindings.scanner, target);
+      if (JSON.stringify(existing) === JSON.stringify(receipt)) return;
+    } catch {
+      /* Preserve invalid or conflicting manual metadata as well. */
+    }
+    console.warn("PDF_SCANNER_RECEIPT_CONFLICT_PRESERVED");
+    return;
+  }
+  await writeScannerReceipt(target, receipt);
+}
+
 export async function registerPdfSandbox(options: SetupOptions = {}) {
-  const bindings = await checkPdfSandbox(options);
-  await publish(bindings, options.sharedPath ?? sharedPdfSandboxPath(), true);
+  if (process.platform !== "darwin" || process.env.CI) {
+    const bindings = await checkPdfSandbox(options);
+    await publish(bindings, options.sharedPath ?? sharedPdfSandboxPath(), true);
+    return;
+  }
+  const observed = await readBindings(
+    options.configPath ?? sandboxConfigPath(),
+  );
+  await withPdfPublicationLock(observed.reader.socket, async () => {
+    const bindings = await checkPdfSandbox(options);
+    const sharedPath = options.sharedPath ?? sharedPdfSandboxPath();
+    await propagateScannerReceipt(
+      bindings,
+      `${options.configPath ?? sandboxConfigPath()}.scanner.receipt`,
+      `${sharedPath}.scanner.receipt`,
+      true,
+    );
+    await publish(bindings, sharedPath, true);
+  });
 }
 
 export async function bootstrapPdfSandbox(options: SetupOptions = {}) {
+  if (process.platform !== "darwin" || process.env.CI)
+    return bootstrapUnlocked(options);
+  const configPath =
+    options.configPath ?? resolve(".keel-local/pdf-sandbox.json");
+  const complete = (
+    await Promise.all(
+      profiles.map((profile) => exists(profilePath(configPath, profile))),
+    )
+  ).every(Boolean);
+  const bindings = complete
+    ? await readBindings(configPath)
+    : await readConfig(
+        options.sharedPath ?? sharedPdfSandboxPath(),
+        bindingsSchema,
+        "shared runtime",
+      );
+  return withPdfPublicationLock(bindings.reader.socket, () =>
+    bootstrapUnlocked(options),
+  );
+}
+
+async function bootstrapUnlocked(options: SetupOptions) {
   const configPath =
     options.configPath ?? resolve(".keel-local/pdf-sandbox.json");
   const sharedPath = options.sharedPath ?? sharedPdfSandboxPath();
@@ -260,6 +330,18 @@ export async function bootstrapPdfSandbox(options: SetupOptions = {}) {
   ).every(Boolean);
   if (complete) {
     const bindings = await checkPdfSandbox({ ...options, configPath });
+    if (
+      process.platform === "darwin" &&
+      !process.env.CI &&
+      !(await exists(sharedPath))
+    ) {
+      await propagateScannerReceipt(
+        bindings,
+        `${configPath}.scanner.receipt`,
+        `${sharedPath}.scanner.receipt`,
+        false,
+      );
+    }
     await publish(bindings, sharedPath, false);
   } else {
     const bindings = await readConfig(
@@ -268,6 +350,14 @@ export async function bootstrapPdfSandbox(options: SetupOptions = {}) {
       "shared runtime",
     );
     await checkRuntime(bindings, options.transport);
+    if (process.platform === "darwin" && !process.env.CI) {
+      await propagateScannerReceipt(
+        bindings,
+        `${sharedPath}.scanner.receipt`,
+        `${configPath}.scanner.receipt`,
+        false,
+      );
+    }
     await bind(bindings, configPath);
   }
 }
@@ -283,7 +373,7 @@ async function main() {
   console.log(
     mode === "register"
       ? "Registered the existing PDF runtime for future worktrees."
-      : "PDF runtime bindings, rootless daemon and immutable images are available.",
+      : "PDF bindings, rootless daemon and images are available (signature freshness is not checked).",
   );
 }
 

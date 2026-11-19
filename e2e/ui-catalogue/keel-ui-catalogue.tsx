@@ -1,3 +1,5 @@
+import { Journeys } from "./keel-journeys";
+import { JourneyUsage } from "./journey-usage";
 import { groups, pages, type Page } from "./catalogue-manifest";
 import { useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
@@ -93,10 +95,12 @@ function Example({
   return (
     <section
       className={`catalogue-example${wide ? " catalogue-example--wide" : ""}`}
+      data-components={components.split(" · ").join(" ")}
     >
       <SectionHeader title={title} />
       <p className="catalogue-source">{components}</p>
       <div className="catalogue-example-content">{children}</div>
+      <JourneyUsage components={components.split(" · ")} />
     </section>
   );
 }
@@ -203,14 +207,12 @@ function Interactions() {
           <CollapsibleContent>
             <div className="catalogue-stack">
               <p>Legal name updated · Oct 20, 2026, 10:30 AM</p>
-              <Collapsible>
-                <CollapsibleTrigger layout="inline">
-                  Source details <DisclosureIndicator />
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <p>Demo formation certificate · May 14, 2024</p>
-                </CollapsibleContent>
-              </Collapsible>
+              <div>
+                <h4 className="candidate-source-heading">Source</h4>
+                <p className="catalogue-note">
+                  Demo formation certificate · May 14, 2024
+                </p>
+              </div>
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -1195,31 +1197,53 @@ function Inventory({ navigate }: { navigate: (page: Page) => void }) {
   );
 }
 
-function pageFromHash(): Page {
-  return pages.some((p) => p.id === location.hash.slice(1))
-    ? (location.hash.slice(1) as Page)
-    : location.hash === "#additions"
+type CataloguePage = Page | "journeys";
+function pageFromHash(): CataloguePage {
+  if (location.hash.startsWith("#journeys")) return "journeys";
+  const hash = location.hash.split("?")[0]!;
+  return pages.some((p) => p.id === hash.slice(1))
+    ? (hash.slice(1) as Page)
+    : hash === "#additions"
       ? "forms"
-      : location.hash === "#audit"
+      : hash === "#audit"
         ? "inventory"
         : "foundations";
 }
 
 function App() {
-  const [page, setPage] = useState<Page>(pageFromHash);
+  const [page, setPage] = useState<CataloguePage>(pageFromHash);
+  const [route, setRoute] = useState(location.hash);
   useEffect(() => {
     const followLink = () => {
       setPage(pageFromHash());
+      setRoute(location.hash);
       window.scrollTo({ top: 0 });
     };
     window.addEventListener("hashchange", followLink);
     return () => window.removeEventListener("hashchange", followLink);
   }, []);
-  const navigate = (next: Page) => {
+  const navigate = (next: CataloguePage) => {
     setPage(next);
     history.replaceState(null, "", `#${next}`);
+    setRoute(`#${next}`);
     window.scrollTo({ top: 0 });
   };
+  useEffect(() => {
+    const component = new URLSearchParams(route.split("?")[1]).get("component");
+    if (!component || !catalogued.has(component)) return;
+    const card = [
+      ...document.querySelectorAll<HTMLElement>(".catalogue-example"),
+    ].find((element) =>
+      element.dataset.components?.split(" ").includes(component),
+    );
+    if (card) {
+      card.tabIndex = -1;
+      card.focus();
+      card.scrollIntoView({ block: "start" });
+    }
+  }, [route]);
+  const title =
+    page === "journeys" ? "Journeys" : pages.find((p) => p.id === page)!.label;
   return (
     <AppShell
       referenceLabel="Application"
@@ -1228,18 +1252,20 @@ function App() {
       brandMark={<BrandMark />}
       brandName="keel"
       contextName="Demo sources"
-      items={pages}
+      items={[...pages, { id: "journeys", index: "08", label: "Journeys" }]}
       onNavigate={navigate}
       operatorInitials="UI"
       operatorName="Theme & components"
-      pageTitle={pages.find((p) => p.id === page)!.label}
+      pageTitle={title}
     >
       <Screen>
         <PageHeader
-          title={pages.find((p) => p.id === page)!.label}
+          title={title}
           description={`Keel @keel/ui · ${CATALOGUE_REVISION} · synthetic browser fixtures`}
         />
-        {page === "collection-loading" ? (
+        {page === "journeys" ? (
+          <Journeys stepId={route.split("/")[1]} />
+        ) : page === "collection-loading" ? (
           <CollectionLoading />
         ) : page === "compositions" ? (
           <Compositions />

@@ -1,4 +1,17 @@
 import {
+  assertScannerBuildAllowed,
+  enterScannerMaintenance,
+  finishScannerMaintenance,
+  recordScannerBuildNotStarted,
+  recordScannerBuildCompletion,
+} from "./pdf-scanner-maintenance";
+import {
+  createScannerReceipt,
+  scannerFactoryIdentity,
+  writeScannerReceipt,
+} from "./pdf-scanner-receipt";
+import { withPdfPublicationLock } from "./pdf-sandbox-publication";
+import {
   mkdir,
   mkdtemp,
   readFile,
@@ -19,8 +32,19 @@ import { syntheticAgreementPdf } from "./test-support/legal-documents";
 import { registerPdfSandbox } from "./pdf-sandbox-setup";
 
 // An explicit operator/build step. Capture never builds/pulls an image, starts a
-// daemon, installs packages, or falls back to the host PDF reader.
+// daemon, installs packages, or falls back to the host PDF reader. The separately
+// approved local preparation adapter may invoke this builder before scanning.
 async function main() {
+  if (process.platform === "darwin" && !process.env.CI) {
+    return withPdfPublicationLock(
+      process.env.KEEL_PDF_SANDBOX_SOCKET ?? "",
+      build,
+    );
+  }
+  return build();
+}
+
+async function build() {
   const socket =
     process.env.KEEL_PDF_SANDBOX_SOCKET ??
     (process.platform === "linux"
@@ -31,9 +55,17 @@ async function main() {
     socket,
     image: `sha256:${"0".repeat(64)}`,
   });
+  await assertScannerBuildAllowed(socket, sandboxConfigPath());
   const temporary = await mkdtemp(join(tmpdir(), "keel-pdf-build-"));
   const command = dockerCommand(socket, temporary);
+  const maintenance =
+    process.platform === "darwin" && !process.env.CI
+      ? await enterScannerMaintenance(socket, sandboxConfigPath())
+      : undefined;
+  let buildStarted = false;
+  let factoryBefore: string | undefined;
   try {
+    factoryBefore = maintenance ? await scannerFactoryIdentity() : undefined;
     const info = await command(["info", "--format", "{{json .}}"]);
     if (info.code !== 0)
       throw new Error(
@@ -50,6 +82,7 @@ async function main() {
       ? (["scanner"] as const)
       : (["reader", "probe", "scanner"] as const)) {
       const iidfile = join(temporary, `${target}.id`);
+      buildStarted = true;
       const result = await command(
         [
           "build",
@@ -76,15 +109,33 @@ async function main() {
         target === "reader"
           ? sandboxConfigPath()
           : `${sandboxConfigPath()}.${target}`;
+      if (
+        target === "scanner" &&
+        process.platform === "darwin" &&
+        !process.env.CI
+      ) {
+        await recordScannerBuildCompletion(config, sandboxConfigPath());
+      }
       // Prove clean scanning before atomically replacing the active digest.
       // A failed refresh leaves the last working image configured; its own
       // freshness gate still prevents stale signatures from releasing bytes.
-      if (
-        target === "scanner" &&
-        (await runDocumentScan(config, syntheticAgreementPdf(), command))
-          .outcome !== "clean"
-      )
-        throw new Error("Scanner preflight failed.");
+      if (target === "scanner") {
+        const proof = await runDocumentScan(
+          config,
+          syntheticAgreementPdf(),
+          command,
+        );
+        if (proof.outcome !== "clean")
+          throw new Error("Scanner preflight failed.");
+        if (process.platform === "darwin" && !process.env.CI) {
+          const receipt = await createScannerReceipt(config, proof);
+          if (receipt.factorySha256 !== factoryBefore)
+            throw new Error(
+              "Scanner factory changed during build; candidate not adopted.",
+            );
+          await writeScannerReceipt(`${file}.receipt`, receipt);
+        }
+      }
       await mkdir(dirname(file), { recursive: true });
       const staged = `${file}.pending`;
       await writeFile(staged, `${JSON.stringify(config, null, 2)}\n`, {
@@ -100,6 +151,11 @@ async function main() {
       );
     }
   } finally {
+    if (maintenance?.owned) {
+      if (!buildStarted)
+        await recordScannerBuildNotStarted(socket, sandboxConfigPath());
+      await finishScannerMaintenance(maintenance.pending);
+    }
     await rm(temporary, { recursive: true, force: true });
   }
 }

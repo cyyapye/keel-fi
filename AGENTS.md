@@ -114,3 +114,19 @@ Load the applicable guidance when the task crosses its boundary:
 - Promote a lesson only after review, sanitization into a synthetic case, and a
   released-versus-candidate evaluation. Never publish Keel records, prompts,
   credentials, or private source material to Tugling.
+
+### Material UI evidence handoff
+
+For material UI work in `apps/web`, `packages/ui`, or the UI catalogue, follow
+[Keel's UI evidence workflow](docs/engineering/ui-design-workflow.md). Before a
+completion handoff or showing a user-facing material rendered proposal or
+prototype (including one built in a scratch directory), run `make ui-handoff`
+with the current immutable packet, actual native check receipts, and actual
+fresh-context independent review. Material work includes rendered structure,
+styling, interactions, states, and domain meaning. This applies in fresh threads
+without another `$setup-ui` request; it is project routing, not automatic Pstack
+invocation. Missing, stale, failed, or unresolved evidence blocks a verified UI
+handoff. Report blockers honestly; do not invent evidence or bypass the gate.
+Status updates remain possible. Mechanical or non-UI changes use focused checks
+unless they affect these UI contracts. The normal `make verify` gate is
+unchanged.

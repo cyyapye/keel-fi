@@ -347,3 +347,240 @@
     gap: 24px;
   }
 }
+
+/* A navigation chevron, not an expanding disclosure. */
+.catalogue-position-link {
+  min-width: 44px;
+  min-height: 44px;
+  justify-content: center;
+}
+.catalogue-position-link .disclosure-indicator {
+  transform: rotate(-90deg);
+}
+
+/* Reserve the same navigation column even for a noninteractive context row. */
+@container (min-width: 600px) {
+  .catalogue-company-positions > .record-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, auto) 44px;
+  }
+}
+
+/* Native link semantics with the library's line-navigation hierarchy. */
+.catalogue-journey-navigation ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+.catalogue-journey-navigation .keel-link {
+  display: flex;
+  align-items: start;
+  gap: var(--space-2);
+  min-height: 56px;
+  width: 100%;
+  padding: var(--space-3);
+  white-space: normal;
+  font-weight: 400;
+  color: var(--muted);
+  border-top: 2px solid var(--line-soft);
+}
+.catalogue-journey-navigation
+  .keel-link:hover:not(:disabled):not([aria-disabled="true"]) {
+  text-decoration: none;
+  color: var(--ink);
+  background: var(--line-soft);
+}
+.catalogue-journey-navigation .keel-link[aria-current="step"] {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 600;
+}
+.catalogue-journey-navigation small {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+.catalogue-journey-step-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.catalogue-journey-usage .keel-link {
+  min-height: 44px;
+  white-space: normal;
+}
+
+.catalogue-drill-in-row .record-item__heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* Approved Evidence V9; scoped to this synthetic journey only. */
+.catalogue-evidence-demo {
+  display: grid;
+  gap: var(--space-6);
+}
+.catalogue-evidence-demo .decision-heading:focus {
+  outline: none;
+}
+.catalogue-evidence-demo .evidence-card,
+.catalogue-evidence-demo .watch-news-card {
+  display: grid;
+  gap: var(--space-4);
+}
+.catalogue-evidence-demo .obligation-review {
+  display: grid;
+  gap: var(--space-4);
+}
+.catalogue-evidence-demo details {
+  border-top: 1px solid var(--line-soft);
+  padding-top: var(--space-4);
+}
+.catalogue-evidence-demo summary {
+  cursor: pointer;
+  min-height: 44px;
+  color: var(--muted);
+}
+/* The excerpt has no icon/status columns: use the native section header's full text column. */
+.catalogue-evidence-demo .evidence-card > .section-heading {
+  grid-template-columns: minmax(0, 1fr);
+}
+.catalogue-evidence-demo .evidence-value-comparison {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.catalogue-evidence-demo .evidence-card .action-group {
+  justify-content: flex-start;
+}
+.catalogue-evidence-demo .evidence-card .action-group > button {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.catalogue-evidence-demo .evidence-confirmation {
+  display: grid;
+  gap: var(--space-5);
+  border-top: 1px solid var(--line-soft);
+  padding-top: var(--space-6);
+  margin-top: var(--space-2);
+}
+.catalogue-evidence-demo .evidence-confirmation-copy {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 65ch;
+}
+.catalogue-evidence-demo .evidence-confirmation-copy p {
+  margin: 0;
+}
+.catalogue-evidence-demo .evidence-confirmation .action-group {
+  gap: var(--space-3);
+}
+
+/* Evidence uses the native compact title group, line tabs and an unruled action row. */
+.catalogue-evidence-demo .evidence-confirmation {
+  border: 0;
+  padding-top: 0;
+  margin-top: var(--space-2);
+  gap: 0;
+}
+.catalogue-evidence-demo .evidence-card > .section-heading p {
+  margin: var(--space-2) 0 0;
+}
+.catalogue-evidence-demo .evidence-card .catalogue-note {
+  line-height: 1.5;
+}
+.catalogue-evidence-demo .tabs-content {
+  padding-top: var(--space-5);
+}
+.catalogue-evidence-demo .evidence-card .form-message {
+  margin: 0;
+}
+
+/* Approved Obligations walkthrough; scoped to this synthetic journey only. */
+.catalogue-obligations-demo {
+  display: grid;
+  gap: var(--space-6);
+}
+.catalogue-obligations-demo .decision-heading:focus {
+  outline: none;
+}
+.catalogue-obligations-demo .tabs-content {
+  padding-top: var(--space-5);
+}
+.catalogue-obligations-demo .obligations-card {
+  display: grid;
+  gap: var(--space-5);
+}
+.catalogue-obligations-demo .obligations-card > .section-heading {
+  grid-template-columns: minmax(0, 1fr);
+}
+.catalogue-obligations-demo .obligations-card > .section-heading p {
+  margin: var(--space-2) 0 0;
+}
+.catalogue-obligations-demo .obligations-pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.catalogue-obligations-demo .proposal-reserve-impact {
+  display: grid;
+  gap: var(--space-3);
+}
+.catalogue-obligations-demo p {
+  margin: 0;
+  line-height: 1.5;
+}
+.catalogue-obligations-demo .obligations-card .action-group {
+  justify-content: flex-start;
+}
+.catalogue-obligations-demo .obligations-card .action-group > button {
+  flex: 0 0 auto;
+  width: auto;
+}
+.catalogue-obligations-demo summary {
+  cursor: pointer;
+  min-height: 44px;
+  color: var(--muted);
+}
+.catalogue-obligations-demo details[open] {
+  display: grid;
+  gap: var(--space-3);
+}
+.catalogue-obligations-demo .obligations-prototype {
+  border-top: 1px solid var(--line-soft);
+  padding-top: var(--space-4);
+}
+
+.catalogue-obligations-demo .obligations-card h2 {
+  font-size: var(--text-body);
+  letter-spacing: normal;
+  line-height: 1.5;
+}
+
+/* Accepted-source outcomes keep the value and its dated basis together. */
+.source-update-outcome {
+  display: grid;
+  gap: 16px;
+}
+.source-update-outcome .stat__value {
+  font-size: 32px;
+  line-height: 1.2;
+}
+.source-update-outcome p {
+  margin: 0;
+}
+.source-update-outcome [data-slot="collapsible-content"] {
+  padding-top: 16px;
+}
+
+.app-access-demo,
+.app-access-demo [data-slot="tabs-content"],
+.app-access-demo-details {
+  display: grid;
+  gap: var(--space-4);
+}
+.app-access-demo p {
+  margin: 0;
+}

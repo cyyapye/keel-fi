@@ -1,3 +1,5 @@
+import { DetailLink } from "./detail-link";
+import { JourneyUsage } from "./journey-usage";
 import {
   useCallback,
   useEffect,
@@ -35,22 +37,26 @@ import {
 function Example({
   title,
   description,
+  components = [],
   children,
   wide = false,
 }: {
   title: string;
   description: string;
+  components?: string[];
   children: ReactNode;
   wide?: boolean;
 }) {
   return (
     <section
       className={"catalogue-example" + (wide ? " catalogue-example--wide" : "")}
+      data-components={components.join(" ")}
       aria-label={title}
     >
       <SectionHeader title={title} />
       <p className="catalogue-source">{description}</p>
       <div className="catalogue-example-content">{children}</div>
+      <JourneyUsage components={components} />
     </section>
   );
 }
@@ -708,9 +714,14 @@ function RecordGroupExample() {
   return (
     <Example
       title="Alternating record rows"
+      components={["RecordGroup", "RecordRow"]}
       description="Alternate a light ink wash with the canvas background to distinguish related rows. The first row is shaded, including in a one-record group. Use this inside a disclosure; keep unrelated sections outside the group."
       wide
     >
+      <p className="catalogue-note">
+        Percentages show total return. Row detail controls demonstrate selection
+        in this preview; they do not open live holdings.
+      </p>
       <PreviewStates
         label="Alternating rows preview"
         value={state}
@@ -732,18 +743,46 @@ function RecordGroupExample() {
               </small>
             </span>
             <span>
-              {state === "Unavailable" && <small>Known value</small>}
+              {state === "Unavailable" && (
+                <span className="visually-hidden">Known value </span>
+              )}
               {state === "Unavailable"
                 ? "$20,000"
                 : state === "Single"
                   ? "$4,800"
                   : "$10,000"}
-              {state === "Unavailable" && <small>1 value unavailable</small>}
+
+              <small className="candidate-parent-return">
+                {state === "Unavailable" ? (
+                  <>
+                    <span aria-hidden="true">
+                      1 value missing · Basis $35,000
+                    </span>
+                    <span className="visually-hidden">
+                      1 value missing. Total basis $35,000. Return unavailable.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    Basis {state === "Single" ? "$3,600" : "$7,600"} ·{" "}
+                    <span aria-hidden="true">
+                      {state === "Single" ? "+33%" : "+32%"}
+                    </span>
+                    <span className="visually-hidden">
+                      {state === "Single" ? "+33%" : "+32%"} aggregate total
+                      return
+                    </span>
+                  </>
+                )}
+              </small>
             </span>
             <DisclosureIndicator />
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <RecordGroup aria-label="Example positions">
+            <RecordGroup
+              aria-label="Example positions"
+              className="candidate-compact-position-metadata"
+            >
               {rows.map((row) => (
                 <RecordRow
                   key={row.name}
@@ -751,17 +790,27 @@ function RecordGroupExample() {
                   detail={row.detail}
                   value={row.value}
                   metadata={
-                    <>
+                    <span className="candidate-basis-return">
                       <span>Basis {row.basis}</span>
-                      {row.performance && <span>{row.performance}</span>}
-                    </>
+                      {row.performance && (
+                        <span>
+                          <span aria-hidden="true">
+                            · {row.performance.replace(" total return", "")}
+                          </span>
+                          <span className="visually-hidden">
+                            {row.performance}
+                          </span>
+                        </span>
+                      )}
+                    </span>
                   }
                   action={
                     <TextLink
                       onClick={() => setSelected(row.name)}
                       aria-label={`Details for ${row.name}`}
+                      className="catalogue-position-link"
                     >
-                      Details
+                      <DisclosureIndicator />
                     </TextLink>
                   }
                 />
@@ -785,6 +834,7 @@ function RecordRowsExample() {
   return (
     <Example
       title="Record rows"
+      components={["RecordItem"]}
       description="Title, meaningful detail, optional provenance and one action per record. Long names wrap without clipping."
       wide
     >
@@ -808,18 +858,24 @@ function RecordRowsExample() {
               <Button
                 tone="quiet"
                 aria-expanded={open === "northstar"}
+                aria-label="Details for Northstar SPV I, LLC"
+                className="catalogue-record-detail-toggle"
                 onClick={() =>
                   setOpen(open === "northstar" ? null : "northstar")
                 }
               >
-                {open === "northstar" ? "Close details" : "View details"}
+                <DisclosureIndicator />
               </Button>
             }
           >
             {open === "northstar" && (
               <div className="catalogue-fact-values">
                 <p>Formed May 14, 2024</p>
-                <p>EIN ending 4821</p>
+                <p>
+                  <span className="visually-hidden">EIN ending </span>
+                  <span aria-hidden="true">••-•••</span>
+                  4821
+                </p>
               </div>
             )}
           </RecordItem>
@@ -890,14 +946,10 @@ function HistoryExample() {
                   <DataItem label="Previous" value="Northstar SPV 1, LLC" />
                   <DataItem label="Accepted" value="Northstar SPV I, LLC" />
                 </DataList>
-                <Collapsible>
-                  <CollapsibleTrigger layout="inline">
-                    Source excerpt <DisclosureIndicator />
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SourceCitation missing={state === "Source unavailable"} />
-                  </CollapsibleContent>
-                </Collapsible>
+                <div>
+                  <h4 className="candidate-source-heading">Source</h4>
+                  <SourceCitation missing={state === "Source unavailable"} />
+                </div>
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -945,11 +997,52 @@ function ImportExample() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [applied, setApplied] = useState<string[]>([]);
-  const [fail, setFail] = useState(true);
+  const [mode, setMode] = useState("Ordinary");
+  const [resolved, setResolved] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [failedOnce, setFailedOnce] = useState(false);
+  const applyButton = useRef<HTMLButtonElement>(null);
+  const statusButton = useRef<HTMLButtonElement>(null);
+  const resetButton = useRef<HTMLButtonElement>(null);
+  const confirmButton = useRef<HTMLButtonElement>(null);
+  const resolveButton = useRef<HTMLButtonElement>(null);
   const later = useDemoDelay();
   const input = useRef<HTMLInputElement>(null);
   const busy = state === "reading" || state === "saving";
+  const locked = busy || state === "uncertain";
+  useEffect(() => {
+    if (state === "uncertain") statusButton.current?.focus();
+    else if (state === "saved") resetButton.current?.focus();
+    else if (state === "ready" || state === "failed")
+      applyButton.current?.focus();
+  }, [state]);
+  useEffect(() => {
+    if (reviewing) confirmButton.current?.focus();
+  }, [reviewing]);
+  const rows =
+    mode === "Mixed"
+      ? [
+          ...importRows,
+          {
+            id: "cedar",
+            name: "Cedar Demo Vehicle",
+            company:
+              "Invalid jurisdiction code. Correct the source; record unchanged.",
+            jurisdiction: "Invalid",
+          },
+          {
+            id: "elm",
+            name: "Elm Demo Vehicle",
+            company: "Matches the accepted record.",
+            jurisdiction: "Delaware, US",
+          },
+        ]
+      : importRows;
   const reset = () => {
+    if (locked) return;
+    setResolved(false);
+    setReviewing(false);
+    setFailedOnce(false);
     setFile("");
     setState("idle");
     setError("");
@@ -958,23 +1051,33 @@ function ImportExample() {
     if (input.current) input.current.value = "";
   };
   const preview = () => {
+    if (locked) return;
+    setResolved(false);
+    setReviewing(false);
+    setFailedOnce(false);
     setState("reading");
     setError("");
     setSelected([]);
     setApplied([]);
-    later(() => setState("ready"));
+    later(() => {
+      setSelected(
+        mode === "Mixed" ? ["northstar"] : importRows.map((row) => row.id),
+      );
+      setState("ready");
+    });
   };
   const apply = () => {
+    if (!["ready", "failed"].includes(state) || selected.length === 0) return;
     setState("saving");
     setError("");
     later(() => {
-      if (fail) {
-        setFail(false);
-        setError("Demo updates could not be saved.");
-        setState("ready");
+      if (mode === "Known failure" && !failedOnce) {
+        setFailedOnce(true);
+        setError("Updates were not saved. Selections kept.");
+        setState("failed");
       } else {
         setApplied(selected);
-        setState("saved");
+        setState(mode === "Unknown outcome" ? "uncertain" : "saved");
       }
     });
   };
@@ -986,12 +1089,15 @@ function ImportExample() {
     >
       <p className="candidate-metadata">
         Synthetic preview only. File contents are not read or uploaded. Use the
-        sample to inspect the review flow.
+        sample to inspect this manual import. Ready updates start selected;
+        uncheck anything you want to leave unchanged. Updates already accepted
+        by a provider policy do not need a second Apply.
       </p>
       <div className="candidate-form">
-        <AccessibleField
+        <Field
+          className="candidate-file-field"
           label="CSV file"
-          help="Choose a .csv file up to 1 MB."
+          description="Choose a .csv file up to 1 MB."
           error={state === "invalid" ? error : undefined}
         >
           {(props) => (
@@ -1000,8 +1106,9 @@ function ImportExample() {
               ref={input}
               type="file"
               accept=".csv,text/csv"
-              disabled={busy}
+              disabled={locked}
               onChange={(e) => {
+                if (locked) return;
                 const chosen = e.currentTarget.files?.[0];
                 setSelected([]);
                 setApplied([]);
@@ -1026,10 +1133,12 @@ function ImportExample() {
               }}
             />
           )}
-        </AccessibleField>
+        </Field>
         <ActionGroup wrap>
           <Button
+            disabled={locked}
             onClick={() => {
+              if (locked) return;
               reset();
               const transfer = new DataTransfer();
               transfer.items.add(
@@ -1047,7 +1156,7 @@ function ImportExample() {
           >
             Use sample CSV
           </Button>
-          <Button tone="primary" disabled={!file || busy} onClick={preview}>
+          <Button tone="primary" disabled={!file || locked} onClick={preview}>
             {state === "reading" ? (
               <>
                 <Spinner />
@@ -1057,16 +1166,28 @@ function ImportExample() {
               "Preview file"
             )}
           </Button>
-          <Button tone="quiet" onClick={reset} disabled={busy}>
+          <Button
+            ref={resetButton}
+            tone="quiet"
+            onClick={reset}
+            disabled={locked}
+          >
             Reset import
           </Button>
         </ActionGroup>
-        {file && <p className="candidate-metadata">{file}</p>}
+        {file && (
+          <p
+            className="candidate-metadata candidate-selected-file"
+            role="status"
+          >
+            Selected: {file}
+          </p>
+        )}
       </div>
       {state === "reading" && (
-        <LoadingStatus>Preparing two synthetic entity rows…</LoadingStatus>
+        <LoadingStatus>Preparing synthetic entity rows…</LoadingStatus>
       )}
-      {["ready", "saving", "saved"].includes(state) && (
+      {["ready", "failed", "saving", "uncertain", "saved"].includes(state) && (
         <div className="candidate-table-wrap">
           <table className="candidate-table" role="table">
             <caption>Demo entity updates</caption>
@@ -1078,7 +1199,7 @@ function ImportExample() {
               </tr>
             </thead>
             <tbody>
-              {importRows.map((row) => (
+              {rows.map((row) => (
                 <tr key={row.id} role="row">
                   <td data-label="Entity">
                     <strong>{row.name}</strong>
@@ -1092,12 +1213,38 @@ function ImportExample() {
                           ? "Applied in preview"
                           : "Left unchanged"}
                       </span>
+                    ) : row.id === "cedar" || row.id === "elm" ? (
+                      <span>
+                        {row.id === "cedar"
+                          ? "Invalid · unchanged"
+                          : "No change"}
+                      </span>
+                    ) : row.id === "meridian" &&
+                      mode === "Mixed" &&
+                      !resolved ? (
+                      <div>
+                        <p>Needs review</p>
+                        <Checkbox
+                          label="Include update"
+                          accessibleLabel={"Include " + row.name}
+                          checked={false}
+                          disabled
+                        />
+                        <Button
+                          ref={resolveButton}
+                          tone="quiet"
+                          disabled={locked}
+                          onClick={() => setReviewing(true)}
+                        >
+                          Resolve identity
+                        </Button>
+                      </div>
                     ) : (
                       <Checkbox
                         label="Include update"
                         accessibleLabel={"Include " + row.name}
                         checked={selected.includes(row.id)}
-                        disabled={busy}
+                        disabled={locked}
                         onCheckedChange={(checked) =>
                           setSelected((current) =>
                             checked
@@ -1114,12 +1261,54 @@ function ImportExample() {
           </table>
         </div>
       )}
+      {reviewing && (
+        <Notice title="Resolve identity">
+          <p>
+            The synthetic source document identifies Meridian SPV I, LLC as
+            DEMO-B. The other possible entity is DEMO-B2. Confirm the document’s
+            identity before including this update.
+          </p>
+          <ActionGroup wrap>
+            <Button
+              ref={confirmButton}
+              disabled={locked}
+              onClick={() => {
+                setResolved(true);
+                setReviewing(false);
+                setSelected((current) => [
+                  ...current.filter((id) => id !== "meridian"),
+                  "meridian",
+                ]);
+                applyButton.current?.focus();
+              }}
+            >
+              Use confirmed DEMO-B
+            </Button>
+            <Button
+              tone="quiet"
+              disabled={locked}
+              onClick={() => {
+                setReviewing(false);
+                resolveButton.current?.focus();
+              }}
+            >
+              Cancel
+            </Button>
+          </ActionGroup>
+        </Notice>
+      )}
+      {resolved && state !== "saved" && (
+        <p className="candidate-metadata">
+          Meridian identity confirmed against synthetic document DEMO-B.
+        </p>
+      )}
       {error && state !== "invalid" && (
         <FormMessage tone="error">{error}</FormMessage>
       )}
-      {["ready", "saving"].includes(state) && (
+      {["ready", "failed", "saving"].includes(state) && (
         <ActionGroup wrap>
           <Button
+            ref={applyButton}
             tone="primary"
             disabled={busy || selected.length === 0}
             onClick={apply}
@@ -1130,40 +1319,77 @@ function ImportExample() {
                 Applying…
               </>
             ) : (
-              "Apply " +
+              (state === "failed" ? "Retry " : "Apply ") +
               selected.length +
-              " selected " +
+              " " +
               (selected.length === 1 ? "update" : "updates")
             )}
           </Button>
-          <p className="candidate-metadata">Unselected rows stay unchanged.</p>
+          <p className="candidate-metadata">
+            Only checked updates are applied. Other records stay unchanged.
+          </p>
         </ActionGroup>
+      )}
+      {state === "uncertain" && (
+        <Notice title="Save outcome unknown">
+          <p role="alert">
+            Check status before retrying. File selection, reset and repreview
+            are locked until this attempt is resolved.
+          </p>
+          <Button
+            ref={statusButton}
+            tone="primary"
+            onClick={() => {
+              if (state === "uncertain") setState("saved");
+            }}
+          >
+            Check status
+          </Button>
+        </Notice>
       )}
       {state === "saved" && (
         <FormMessage tone="success">
           {applied.length} demo {applied.length === 1 ? "update" : "updates"}{" "}
-          applied. No application records were changed.
+          applied. No application records were changed. Preview receipt
+          DEMO-IMPORT-001.
         </FormMessage>
       )}
-      <div className="candidate-demo-options">
-        <Checkbox
-          label="Fail next import save"
-          checked={fail}
-          onCheckedChange={setFail}
-          disabled={busy}
-        />
-        <Button
-          tone="quiet"
-          disabled={busy}
-          onClick={() => {
-            reset();
-            setState("invalid");
-            setError("Choose a CSV file no larger than 1 MB.");
-          }}
-        >
-          Preview file error
-        </Button>
-      </div>
+      <Collapsible className="candidate-demo-options">
+        <CollapsibleTrigger>Try other cases</CollapsibleTrigger>
+        <CollapsibleContent>
+          <p className="candidate-metadata">
+            Synthetic demonstration controls, not import settings.
+          </p>
+          <ActionGroup wrap>
+            {["Ordinary", "Mixed", "Known failure", "Unknown outcome"].map(
+              (value) => (
+                <Button
+                  key={value}
+                  aria-pressed={mode === value}
+                  disabled={locked}
+                  onClick={() => {
+                    reset();
+                    setMode(value);
+                  }}
+                >
+                  {value}
+                </Button>
+              ),
+            )}
+            <Button
+              tone="quiet"
+              disabled={locked}
+              onClick={() => {
+                reset();
+                setState("invalid");
+                setError("Choose a CSV file no larger than 1 MB.");
+              }}
+            >
+              Preview file error
+            </Button>
+          </ActionGroup>
+        </CollapsibleContent>
+      </Collapsible>
     </Example>
   );
 }
@@ -1369,6 +1595,34 @@ function RecoveryExample() {
     </Example>
   );
 }
+function DrillIntoDetailsExample() {
+  return (
+    <Example
+      title="Drill into details"
+      description="A right chevron enters the named row’s details. A disclosure expands in place; distinct actions keep meaningful text. Do not append decorative arrows to action labels."
+      components={["RecordItem", "TextLink", "DisclosureIndicator"]}
+      wide
+    >
+      <RecordItem
+        className="catalogue-drill-in-row"
+        title="Northstar Robotics"
+        detail="Brokerage A · 100 shares"
+        action={
+          <DetailLink
+            href="#journeys/position"
+            label="Open Northstar Robotics position details"
+          />
+        }
+      />
+      <p className="catalogue-note">
+        Synthetic destination: the Holding position journey. The link keeps a
+        descriptive accessible name, visible keyboard focus and a 44 × 44px
+        target.
+      </p>
+    </Example>
+  );
+}
+
 export function Compositions() {
   return (
     <>
@@ -1377,6 +1631,7 @@ export function Compositions() {
         stays in this preview.
       </p>
       <div className="catalogue-grid candidate-examples">
+        <DrillIntoDetailsExample />
         <RecordGroupExample />
         <RecordRowsExample />
         <HistoryExample />

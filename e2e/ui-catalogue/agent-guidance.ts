@@ -10,7 +10,10 @@ export type Guidance = {
 };
 
 const controls = "Controls and form feedback";
-export const consumerRules = ["Verification and enforcement"];
+export const consumerRules = [
+  "Verification and enforcement",
+  "Row navigation and actions",
+];
 const navigation = "Selection and responsive navigation";
 const hierarchy = "Type and spacing hierarchy";
 const example = (symbol: string, title?: string): Guidance["examples"] => [
@@ -50,6 +53,7 @@ export const guidance: Record<string, Guidance> = {
       "Related child records inside a disclosure: alternating RecordGroup rows. Standalone, expandable records: RecordItem.",
     rules: ["Alternating record rows", hierarchy],
     examples: [
+      ...composition("DrillIntoDetailsExample"),
       ...composition("RecordGroupExample"),
       ...composition("RecordRowsExample"),
     ],

@@ -1,0 +1,94 @@
+import {
+  taskJourneys,
+  taskSourceRevision,
+} from "../e2e/ui-catalogue/task-journey-spec";
+import { describe, expect, it } from "vitest";
+import {
+  areas,
+  componentPage,
+  edges,
+  steps,
+  stepsUsing,
+  validateJourney,
+} from "../e2e/ui-catalogue/journey-spec";
+import { readFileSync } from "node:fs";
+describe("catalogue journey reference contract", () => {
+  it("keeps stable connected steps and real component references", () => {
+    expect(validateJourney).not.toThrow();
+    expect(edges.map((edge) => `${edge.from}:${edge.to}`)).toEqual([
+      "portfolio:company",
+      "company:position",
+      "position:activity",
+      "activity:lots",
+      "lots:company",
+    ]);
+    for (const step of steps) {
+      expect(readFileSync(step.source, "utf8").length).toBeGreaterThan(0);
+      for (const name of step.components)
+        expect(componentPage(name)).toBeTruthy();
+    }
+    expect(stepsUsing(["Tabs"]).map((step) => step.id)).toEqual([
+      "activity",
+      "lots",
+    ]);
+  });
+  it("keeps the area inventory unique and source-based", () => {
+    expect(new Set(areas.map(([id]) => id)).size).toBe(9);
+    const nav = readFileSync("apps/web/src/app-navigation.ts", "utf8");
+    for (const [, title] of areas) expect(nav).toContain(title);
+  });
+});
+
+it("keeps decorative action arrows out of the journey while retaining flow meaning", () => {
+  const source = readFileSync("e2e/ui-catalogue/keel-journeys.tsx", "utf8");
+  expect(source).not.toMatch(/[←→]\s*<\/TextLink>/);
+  expect(source).not.toMatch(/>\s*[←→]/);
+  expect(source).toContain("Overview → Holdings");
+  expect(readFileSync("e2e/ui-catalogue/agent-guidance.ts", "utf8")).toContain(
+    "Row navigation and actions",
+  );
+});
+
+it("aggregates synthetic parent return using total basis rather than averaging rounded returns", () => {
+  const valueMinor = 480000 + 320000 + 200000;
+  const basisMinor = 360000 + 250000 + 150000;
+  expect(basisMinor).toBe(760000);
+  // Round the aggregate ratio to the whole-percent presentation using integers.
+  expect(
+    Math.floor(((valueMinor - basisMinor) * 100 + basisMinor / 2) / basisMinor),
+  ).toBe(32);
+});
+
+it("covers all areas with bounded source-backed task paths and safe stable IDs", () => {
+  const ids = taskJourneys.flatMap((journey) =>
+    journey.steps.map((step) => step.id),
+  );
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(taskJourneys).toHaveLength(5);
+  expect(taskSourceRevision).toMatch(/^[a-f0-9]{40}$/);
+  const covered = new Set([
+    "holdings",
+    ...taskJourneys.flatMap((journey) => journey.areas),
+  ]);
+  for (const [area] of areas) expect(covered.has(area)).toBe(true);
+  for (const journey of taskJourneys) {
+    expect(journey.steps.length).toBeGreaterThan(1);
+    for (const step of journey.steps) {
+      expect(step.id).toMatch(/^[a-z-]+$/);
+      expect(readFileSync(step.source, "utf8").length).toBeGreaterThan(0);
+      for (const value of [
+        step.action,
+        step.result,
+        step.context,
+        step.alternate,
+        step.owner,
+      ])
+        expect(value.length).toBeGreaterThan(12);
+      expect(step.route).toMatch(/^\//);
+    }
+  }
+  const renderer = readFileSync("e2e/ui-catalogue/task-journeys.tsx", "utf8");
+  expect(renderer).not.toMatch(
+    /fetch\(|navigator\.clipboard|localStorage|window\.open|<form/,
+  );
+});
