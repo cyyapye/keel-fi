@@ -98,9 +98,10 @@ async function checkOverviewAndAssignMatch(
   ).toContainText("Basis $400k · +200% total return");
 
   await expect(harborAction).toHaveAttribute("data-slot", "text-link");
-  await expect(
-    harborAction.getByText("Details", { exact: true }),
-  ).toBeVisible();
+  await expect(harborAction.locator('svg[aria-hidden="true"]')).toBeVisible();
+  const actionBounds = await harborAction.boundingBox();
+  expect(actionBounds?.width).toBeGreaterThanOrEqual(44);
+  expect(actionBounds?.height).toBeGreaterThanOrEqual(44);
   await expect(
     page.getByText("Beacon Demo SPV", { exact: true }),
   ).toBeVisible();
@@ -109,7 +110,7 @@ async function checkOverviewAndAssignMatch(
     page.getByRole("button", {
       name: "View Seed preferred holding details",
     }),
-  ).toHaveText("Details");
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Company holdings" }),
   ).toHaveCount(0);

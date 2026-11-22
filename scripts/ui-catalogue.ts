@@ -10,6 +10,11 @@ const repository = resolve(import.meta.dirname, "..");
 const fixture = join(repository, "e2e/ui-catalogue");
 const webRequire = createRequire(join(repository, "apps/web/package.json"));
 
+export async function sampleFilingAsset(): Promise<[string, string]> {
+  const file = "sources/cedar-robotics-s1.html";
+  return [`/ui/${file}`, await readFile(join(fixture, file), "utf8")];
+}
+
 /** Synthetic fixtures stay under e2e; the catalogue always bundles production UI. */
 export async function buildUiCatalogue(returnUrl = "/"): Promise<string> {
   const paths = [
@@ -67,12 +72,14 @@ if (
     `http://127.0.0.1:${resolveDevPorts().webPort}/`,
   );
   const port = 18462;
-  createServer((_request, response) => {
+  const [filingPath, filingHtml] = await sampleFilingAsset();
+  createServer((request, response) => {
     response.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
     });
-    response.end(html);
+    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    response.end(path === filingPath ? filingHtml : html);
   }).listen(port, "127.0.0.1", () => {
     console.log(
       `Keel UI catalogue: http://127.0.0.1:${port}/keel-ui-catalogue.html`,

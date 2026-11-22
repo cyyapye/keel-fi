@@ -32,7 +32,7 @@ function renderExposures(data: InvestmentHoldingsView, holdings: Holding[]) {
       openExposureIds={
         new Set(data.exposureView.exposures.map((group) => group.exposure.id))
       }
-      requestedExposureId={null}
+      requestedExposure={null}
       showSmallBalances={true}
       searchMatches={null}
       searchQuery=""

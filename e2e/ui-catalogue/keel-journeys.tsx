@@ -1,3 +1,6 @@
+import { startIpoWalkthrough } from "./ipo-watch-journey";
+import { ValuationJourney } from "./closing-price-journey";
+import { valuationRoute } from "./valuation-scenarios";
 import { TaskJourney } from "./task-journeys";
 import { taskJourneys } from "./task-journey-spec";
 import { DetailLink } from "./detail-link";
@@ -5,6 +8,7 @@ import { useState } from "react";
 import {
   ActionGroup,
   Button,
+  ButtonLink,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
@@ -38,6 +42,9 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
   const [scenario, setScenario] = useState("ordinary");
   const [account, setAccount] = useState(false);
   const step = steps.find((item) => item.id === stepId);
+  const valuation = valuationRoute(stepId);
+  if (valuation)
+    return <ValuationJourney key={valuation.scenario} {...valuation} />;
   if (
     stepId &&
     taskJourneys.some((journey) =>
@@ -71,6 +78,24 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
             Synthetic screen abstractions. Source-backed behavior, not a live
             visual audit. A standalone company workspace is not shipped.
           </p>
+        </section>
+        <section className="catalogue-example">
+          <SectionHeader title="When do I need to review a valuation?" />
+          <p>
+            Explore an IPO, separate GP marks, and followed or one-time proxy
+            estimates from Holdings.
+          </p>
+          <ActionGroup wrap>
+            <ButtonLink href="#journeys/closing-price">
+              Start from Holdings
+            </ButtonLink>
+            <TextLink
+              href="#journeys/closing-price-watch"
+              onClick={startIpoWalkthrough}
+            >
+              Start from Portfolio Watch
+            </TextLink>
+          </ActionGroup>
         </section>
         {taskJourneys.map((journey) => (
           <section className="catalogue-example" key={journey.id}>
@@ -113,6 +138,16 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
                 {(id === "overview" || id === "holdings") && (
                   <TextLink href={href("portfolio")}>
                     Company ownership journey
+                  </TextLink>
+                )}
+                {id === "holdings" && (
+                  <TextLink href="#journeys/closing-price">
+                    Valuation sources
+                  </TextLink>
+                )}
+                {id === "watch" && (
+                  <TextLink href="#journeys/closing-price-watch">
+                    IPO filing to first close
                   </TextLink>
                 )}
                 {taskJourneys

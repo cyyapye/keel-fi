@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
-import { buildUiCatalogue } from "./ui-catalogue";
+import { buildUiCatalogue, sampleFilingAsset } from "./ui-catalogue";
 import { buildUiGuide, guideIndex } from "./ui-guide";
 
 const repository = resolve(import.meta.dirname, "..");
@@ -9,6 +9,7 @@ export async function catalogueAssets() {
   const guide = buildUiGuide();
   return new Map([
     ["/ui/index.html", await buildUiCatalogue()],
+    await sampleFilingAsset(),
     ["/ui/agent-index.json", JSON.stringify(guideIndex(guide), null, 2)],
     ...guide.entries.map((entry): [string, string] => [
       entry.reference,

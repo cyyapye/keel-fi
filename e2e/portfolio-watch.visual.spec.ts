@@ -313,7 +313,7 @@ async function checkFailedMonitoringLayout(page: Page, testInfo: TestInfo) {
   await expect(monitor).toContainText("Last attempt Aug 2, 2026");
   await expect(monitor).not.toContainText("No new updates");
   await expect(
-    empty.getByText("Previously read news is available under All updates."),
+    empty.getByText("Read news is available in All updates."),
   ).toBeVisible();
   await expect(
     filters.getByRole("button", { name: "Unread (0)" }),
@@ -333,7 +333,10 @@ async function checkFailedMonitoringLayout(page: Page, testInfo: TestInfo) {
       await expect(monitor).toHaveCSS(`border-${side}-width`, "0px");
     }
     await expect(empty).toHaveCSS("text-align", "left");
-    await expect(empty).toHaveCSS("padding", "0px");
+    await expect(empty).toHaveCSS("padding", "16px 0px");
+    await expect(empty).toHaveCSS("row-gap", "8px");
+    await expect(empty.getByRole("heading")).toHaveCSS("font-size", "14px");
+    await expect(empty.locator("p")).toHaveCSS("font-size", "13px");
     await expect(empty).toHaveCSS("min-height", "0px");
     await expect(empty.locator('[aria-hidden="true"]')).toHaveCount(0);
     const screenBounds = (await page.locator(".watch-screen").boundingBox())!;

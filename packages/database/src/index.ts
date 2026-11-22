@@ -278,6 +278,7 @@ const PORTFOLIO_WATCH_TARGETS_SQL = `SELECT
   ORDER BY company.legal_name`;
 
 type PublicSourceObservationRow = {
+  event_type: string;
   id: string;
   read_at: string | null;
   read_version: number | null;
@@ -576,6 +577,7 @@ function publicSourceObservationFromRow(
     companyName: row.company_name,
     evidenceEventId: row.evidence_event_id,
     evidenceStatus: row.evidence_status,
+    eventType: row.event_type,
     sourceClass: row.source_class,
     sourceUrl: row.source_url,
     sourceTitle: row.source_title,
@@ -2592,6 +2594,7 @@ export class D1AlphaRepository implements AlphaRepository {
               company.id AS company_id,
               company.legal_name AS company_name,
               observation.evidence_event_id,
+              event.event_type,
               event.status AS evidence_status,
               observation.source_class,
               observation.source_url,

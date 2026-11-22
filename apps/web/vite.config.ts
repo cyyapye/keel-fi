@@ -1,3 +1,4 @@
+import { localClosingPriceFeed } from "../../scripts/local-closing-price-feed";
 import { uiCataloguePlugin } from "../../scripts/ui-catalogue-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -12,6 +13,9 @@ export default defineConfig({
   ...(browserCacheDir === undefined ? {} : { cacheDir: browserCacheDir }),
   plugins: [
     react(),
+    ...(process.env.KEEL_LOCAL_SCENARIO === "closing-price"
+      ? [localClosingPriceFeed()]
+      : []),
     uiCataloguePlugin(),
     ...(browserReadinessEnabled ? [browserTestReadinessPlugin()] : []),
   ],
