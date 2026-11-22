@@ -189,27 +189,25 @@ export async function marketReviewDetail(
 // in the INSERT. Each MAX(rowid) is a last-row seek. The guard covers only the
 // short save window, so unrelated activity between opening and submitting a
 // review does not invalidate the user's selection.
-const comparisonWriteFence = `json_array(${[
-  "holding_import_applications",
-  "holding_purchase_reviews",
-  "holding_position_link_reviews",
-  "holding_position_exposure_mappings",
-  "holding_position_continuities",
-  "holding_investment_reviews",
-  "holding_position_value_reviews",
-  "holding_position_economics_reviews",
-  "holding_position_ownerships",
-  "manual_holding_identity_versions",
-  "automatic_investment_reviews",
-  "investment_company_reviews",
-  "company_alias_reviews",
-  "public_exposure_company_reviews",
-  "public_source_observations",
-  "evidence_claims",
-  "review_decisions",
-]
-  .map((table) => `(SELECT max(rowid) FROM ${table})`)
-  .join(",")})`;
+const comparisonWriteFence = `json_array(
+  (SELECT max(rowid) FROM holding_import_applications),
+  (SELECT max(rowid) FROM holding_purchase_reviews),
+  (SELECT max(rowid) FROM holding_position_link_reviews),
+  (SELECT max(rowid) FROM holding_position_exposure_mappings),
+  (SELECT max(rowid) FROM holding_position_continuities),
+  (SELECT max(rowid) FROM holding_investment_reviews),
+  (SELECT max(rowid) FROM holding_position_value_reviews),
+  (SELECT max(rowid) FROM holding_position_economics_reviews),
+  (SELECT max(rowid) FROM holding_position_ownerships),
+  (SELECT max(rowid) FROM manual_holding_identity_versions),
+  (SELECT max(rowid) FROM automatic_investment_reviews),
+  (SELECT max(rowid) FROM investment_company_reviews),
+  (SELECT max(rowid) FROM company_alias_reviews),
+  (SELECT max(rowid) FROM public_exposure_company_reviews),
+  (SELECT max(rowid) FROM public_source_observations),
+  (SELECT max(rowid) FROM evidence_claims),
+  (SELECT max(rowid) FROM review_decisions)
+)`;
 export async function decideMarketSource(
   db: D1Database,
   subject: string,
