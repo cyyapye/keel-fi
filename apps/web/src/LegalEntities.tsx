@@ -996,6 +996,7 @@ function EntityRow({
         <TextLink
           aria-label={`Open ${entity.legalName} details`}
           className="legal-entity-row__open"
+          data-legal-entity-id={entity.id}
           href={entityReviewUrl({ kind: "entity", id: entity.id })}
           onClick={open}
         >
@@ -2202,6 +2203,8 @@ function LegalEntitiesInventory({
     setLocation(entityReviewLocation(window.location.search));
   }
   const listScroll = useRef(0);
+  const inventorySection = useRef<HTMLElement>(null);
+  const returnEntityId = useRef<string | null>(null);
   useEffect(() => {
     const pop = () => setLocation(entityReviewLocation(window.location.search));
     window.addEventListener("popstate", pop);
@@ -2210,12 +2213,28 @@ function LegalEntitiesInventory({
   const targetKind = location.target?.kind;
   const targetId = location.target?.id;
   useEffect(() => {
-    const frame = requestAnimationFrame(() =>
+    if (targetKind === "entity" && targetId !== undefined)
+      returnEntityId.current = targetId;
+    const frame = requestAnimationFrame(() => {
       window.scrollTo({
         top: targetKind === undefined ? listScroll.current : 0,
         behavior: "instant",
-      }),
-    );
+      });
+      if (targetKind !== undefined || returnEntityId.current === null) return;
+
+      const id = returnEntityId.current;
+      returnEntityId.current = null;
+      const section = inventorySection.current;
+      const row = section?.querySelector<HTMLAnchorElement>(
+        `[data-legal-entity-id="${CSS.escape(id)}"]`,
+      );
+      const focusTarget = row?.getClientRects().length
+        ? row
+        : section?.querySelector<HTMLElement>(
+            '[role="tab"][aria-selected="true"]',
+          );
+      focusTarget?.focus();
+    });
     return () => cancelAnimationFrame(frame);
   }, [targetKind, targetId]);
   const navigate = (
@@ -2614,6 +2633,7 @@ function LegalEntitiesInventory({
         <section
           aria-labelledby="known-legal-entities-title"
           className="legal-entities__known"
+          ref={inventorySection}
         >
           <SectionHeader
             action={
