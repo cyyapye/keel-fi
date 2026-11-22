@@ -183,7 +183,7 @@ it("approves only the visible position and allows a reviewed mapping correction"
     await links.accept(subject, {
       ...link,
       state: "unlinked",
-      expectedReviewId: accepted!.id,
+      expectedReviewId: accepted.id,
     });
     expect((await review()).positions.map((p) => p.id)).toEqual([summit.id]);
 
