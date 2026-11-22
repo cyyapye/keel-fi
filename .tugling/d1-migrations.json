@@ -503,7 +503,7 @@
       "migrations": [
         {
           "name": "0098_exposure_closing_prices.sql",
-          "sha256": "cd57d3073013f624d79e6cacc6cebf866c59be66e05b4516f50f6f716bd3c6c0"
+          "sha256": "34cc2cfba3a91fccc140c4abe4704bf29821b4e48569536c4ec1cd04ee5cbc00"
         }
       ],
       "fixture": "public-holding-history-v1",

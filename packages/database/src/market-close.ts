@@ -101,24 +101,10 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
       snapshotId: row.snapshot_id,
     });
   }
-  await Promise.all(
-    [...groups.values()].map(async ({ review, scope }) => {
-      const digest = await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(
-          JSON.stringify([
-            review.exposureId,
-            review.version,
-            review.quote.id,
-            scope,
-          ]),
-        ),
-      );
-      review.token = Array.from(new Uint8Array(digest), (v) =>
-        v.toString(16).padStart(2, "0"),
-      ).join("");
-    }),
-  );
+  for (const { review } of groups.values()) {
+    if (review.choice === "follow" && !review.positions.some((p) => p.enrolled))
+      review.choice = null;
+  }
   return groups;
 }
 export async function listMarketReviews(db: D1Database, subject: string) {
@@ -127,19 +113,22 @@ export async function listMarketReviews(db: D1Database, subject: string) {
   );
 }
 // The review compares against the same accepted GP, proxy and adjustment precedence as Holdings.
-export async function marketReviewDetail(
-  db: D1Database,
-  subject: string,
-  exposure: string,
-) {
-  const current = (await reviews(db, subject, exposure)).get(exposure)?.review;
-  if (!current) return null;
+async function comparison(db: D1Database, subject: string, exposure: string) {
+  const group = (await reviews(db, subject, exposure)).get(exposure);
+  if (!group) return null;
+  const current = group.review;
   const previous = await new D1InvestmentPositionViewRepository(db).list(
     subject,
   );
+  const valuationRevisions = new Map<string, (string | null)[]>();
   for (const connection of previous.connections)
     for (const account of connection.containers)
       for (const p of account.positions) {
+        valuationRevisions.set(p.id, [
+          p.acceptedValueAdjustment?.id ?? null,
+          p.linkedReportedValue?.reviewId ?? null,
+          p.linkedReportedValue?.snapshotId ?? null,
+        ]);
         if (p.purchaseReceipt?.publicClose)
           delete p.purchaseReceipt.publicClose;
       }
@@ -157,12 +146,70 @@ export async function marketReviewDetail(
       const prior = byId.get(p.id)!;
       return {
         ...p,
+        name: prior.legalVehicleName,
         previousMinor: prior.valueMinor,
         previousSource: prior.valueSourceLabel ?? prior.sourceLabel,
       };
     });
-  return current.positions.length ? MarketReviewSchema.parse(current) : null;
+  if (!current.positions.length) return null;
+  const visible = new Set(current.positions.map((p) => p.id));
+  const scope = group.scope
+    .filter((p) => visible.has(p.id))
+    .map((p) => ({
+      ...p,
+      priorSourceRevisions: valuationRevisions.get(p.id),
+      priorEstimate: byId.get(p.id)?.privateValueEstimate ?? null,
+    }));
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify([
+        current.exposureId,
+        current.name,
+        current.version,
+        current.quote,
+        scope,
+        current.positions,
+      ]),
+    ),
+  );
+  current.token = Array.from(new Uint8Array(digest), (v) =>
+    v.toString(16).padStart(2, "0"),
+  ).join("");
+  return { review: MarketReviewSchema.parse(current), scope };
 }
+export async function marketReviewDetail(
+  db: D1Database,
+  subject: string,
+  exposure: string,
+) {
+  return (await comparison(db, subject, exposure))?.review ?? null;
+}
+// Read these append-only tails before rebuilding the comparison, then match them
+// in the INSERT. Each MAX(rowid) is a last-row seek. The guard covers only the
+// short save window, so unrelated activity between opening and submitting a
+// review does not invalidate the user's selection.
+const comparisonWriteFence = `json_array(${[
+  "holding_import_applications",
+  "holding_purchase_reviews",
+  "holding_position_link_reviews",
+  "holding_position_exposure_mappings",
+  "holding_position_continuities",
+  "holding_investment_reviews",
+  "holding_position_value_reviews",
+  "holding_position_economics_reviews",
+  "holding_position_ownerships",
+  "manual_holding_identity_versions",
+  "automatic_investment_reviews",
+  "investment_company_reviews",
+  "company_alias_reviews",
+  "public_exposure_company_reviews",
+  "public_source_observations",
+  "evidence_claims",
+  "review_decisions",
+]
+  .map((table) => `(SELECT max(rowid) FROM ${table})`)
+  .join(",")})`;
 export async function decideMarketSource(
   db: D1Database,
   subject: string,
@@ -178,15 +225,18 @@ export async function decideMarketSource(
     .first<{ choice: string; input_token: string }>();
   if (prior)
     return prior.choice === input.choice && prior.input_token === input.token;
-  const group = (await reviews(db, subject, exposure)).get(exposure);
-  if (!group || group.review.token !== input.token) return false;
+  const fence = await db
+    .prepare(`SELECT ${comparisonWriteFence} AS revision`)
+    .first<{ revision: string }>();
+  const group = await comparison(db, subject, exposure);
+  if (!fence || !group || group.review.token !== input.token) return false;
   const { review, scope } = group;
   const result = await db
     .prepare(
       `INSERT INTO exposure_market_decisions(id,exposure_id,version,quote_id,user_id,choice,scope_json,input_token,decided_at)
     SELECT ?,e.id,?,?,u.id,?,?,?,? FROM users u JOIN households hh ON hh.owner_user_id=u.id
     JOIN canonical_exposures e ON e.household_id=hh.id JOIN exposure_market_heads h ON h.exposure_id=e.id
-    WHERE u.access_subject=? AND e.id=? AND h.quote_id=? AND
+    WHERE u.access_subject=? AND e.id=? AND h.quote_id=? AND ${comparisonWriteFence}=? AND
     coalesce((SELECT max(version) FROM exposure_market_decisions WHERE exposure_id=e.id),0)=?
     AND NOT EXISTS(SELECT 1 FROM json_each(?) item WHERE NOT EXISTS(
        SELECT 1 FROM exposure_market_candidates c WHERE c.position_id=json_extract(item.value,'$.id') AND c.exposure_id=e.id
@@ -204,6 +254,7 @@ export async function decideMarketSource(
       subject,
       exposure,
       review.quote.id,
+      fence.revision,
       review.version,
       JSON.stringify(scope),
     )
@@ -231,6 +282,8 @@ export const OfficialCloseSchema = z
   .strict();
 export async function recordOfficialClose(db: D1Database, raw: unknown) {
   const q = OfficialCloseSchema.parse(raw);
+  if (Date.parse(q.observedAt) > Date.now())
+    throw new Error("The closing price observation is in the future.");
   if (q.observedAt.slice(0, 10) < q.date)
     throw new Error("The observation predates the closing session.");
   const id = JSON.stringify([q.exposureId, q.date, q.revision]);

@@ -38,7 +38,9 @@ CREATE INDEX exposure_market_members_exposure_idx ON exposure_market_members(exp
 CREATE TRIGGER exposure_market_decision_project AFTER INSERT ON exposure_market_decisions BEGIN
   DELETE FROM exposure_market_members WHERE exposure_id=NEW.exposure_id;
   INSERT INTO exposure_market_members SELECT json_extract(value,'$.id'),NEW.exposure_id,json_extract(value,'$.mappingId'),NEW.id
-  FROM json_each(NEW.scope_json) WHERE NEW.choice='follow';
+  FROM json_each(NEW.scope_json) WHERE NEW.choice='follow'
+  ON CONFLICT(position_id) DO UPDATE SET exposure_id=excluded.exposure_id,
+    mapping_id=excluded.mapping_id,decision_id=excluded.decision_id;
 END;
 CREATE TRIGGER exposure_market_listings_no_update BEFORE UPDATE ON exposure_market_listings BEGIN SELECT RAISE(ABORT,'Immutable market record'); END;
 CREATE TRIGGER exposure_market_listings_no_delete BEFORE DELETE ON exposure_market_listings BEGIN SELECT RAISE(ABORT,'Immutable market record'); END;
@@ -71,6 +73,7 @@ AND COALESCE((SELECT json_extract(review.state_json,'$.participationStatus') FRO
   WHERE review.household_id=m.household_id AND review.position_id=m.position_id ORDER BY review.version DESC LIMIT 1),'current') NOT IN('historical','cancelled')
 AND (mapping.allocation_ppm IS NULL OR mapping.allocation_ppm=1000000)
 AND NOT EXISTS(SELECT 1 FROM holding_position_exposure_heads other WHERE other.position_id=m.position_id AND other.status='active' AND other.exposure_id<>m.exposure_id)
+AND NOT EXISTS(SELECT 1 FROM holding_position_link_heads link WHERE link.source_position_id=m.position_id AND link.state='linked')
 AND NOT EXISTS(SELECT 1 FROM holding_position_continuities c WHERE c.predecessor_position_id=m.position_id);
 
 CREATE TABLE exposure_market_news_reads (

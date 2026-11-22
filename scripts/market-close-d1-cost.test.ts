@@ -6,6 +6,7 @@ import { PurchaseLotSchema } from "../packages/domain/src/position-purchases";
 import {
   decideMarketSource,
   listMarketReviews,
+  marketReviewDetail,
   recordOfficialClose,
 } from "../packages/database/src/market-close";
 import { firstCedarClose } from "./seed-closing-price";
@@ -106,9 +107,11 @@ it("bounds the close review projection for 120 exposures across same-session rev
     expect(measured.cost.roundTrips).toBe(2);
     expect(measured.cost.rowsRead).toBeLessThan(40);
     expect(measured.cost.rowsWritten).toBeLessThan(20);
-    const revised = (await listMarketReviews(db, COST_SUBJECT)).find(
-      (review) => review.exposureId === "cost-exposure-0",
-    )!;
+    const revised = (await marketReviewDetail(
+      db,
+      COST_SUBJECT,
+      "cost-exposure-0",
+    ))!;
     const approval = {
       choice: "follow" as const,
       token: revised.token,
