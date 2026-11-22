@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ProviderLegalDocumentCapture } from "@keel/domain/provider-legal-documents";
+import type { ProviderLegalDocumentCapture } from "../../packages/domain/src/provider-legal-documents";
 import {
   syntheticAgreementPdf,
   syntheticDocumentScan,
