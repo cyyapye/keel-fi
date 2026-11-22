@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { routeCollectionSearchModule } from "./collection-search-module";
 import type * as CollectionSearch from "../apps/web/src/collection-search";
 import type {
@@ -324,7 +324,7 @@ test(
     inventory = { ...inventory, candidates: companyOnly };
     await page.goto("/holdings/entities");
     await expect(
-      page.getByRole("heading", { name: "Known legal entities · 2" }),
+      page.getByRole("tab", { name: "Current · 2", selected: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /^Needs your review/u }),
@@ -379,7 +379,7 @@ test(
     });
     await page.goto("/holdings/entities");
     await page
-      .getByRole("button", { name: "Demo Family Holdings LLC", exact: true })
+      .getByRole("link", { name: "Open Demo Family Holdings LLC details" })
       .click();
     const details = page.locator(".entity-review__identity");
     const ownership = details.locator(".entity-review__ownership");
@@ -547,7 +547,23 @@ test(
       pendingImports: [],
     });
     await page.route("**/api/legal-entities", (route) =>
-      route.fulfill({ json: initialInventory }),
+      route.fulfill({
+        json: {
+          ...initialInventory,
+          entities: [
+            familyHoldingsProfile,
+            { ...studioProfile, interestStatus: "unknown" },
+            { ...historicalTrustProfile, id: "demo-historical-interest" },
+            {
+              ...studioProfile,
+              id: "demo-former-investment",
+              legalName: "Demo Former Investment LLC",
+              interestStatus: "historical",
+              sources: [{ ...positionSource, interestStatus: "historical" }],
+            },
+          ],
+        },
+      }),
     );
     await page.route("**/api/legal-entity-export/options", (route) =>
       route.fulfill({ json: { googleSheetsClientId: null } }),
@@ -561,7 +577,7 @@ test(
     await expect(triage).toHaveAttribute("aria-expanded", "false");
     await expect(
       page.getByRole("heading", {
-        name: "Known legal entities · 2",
+        name: "Known legal entities",
         exact: true,
       }),
     ).toBeInViewport();
@@ -569,6 +585,106 @@ test(
     await expectNoHorizontalOverflow(page);
     if (isMobile)
       await expect(page).toHaveScreenshot("legal-entities-initial.png");
+    const current = page.getByRole("tab", { name: "Current · 2" });
+    const historical = page.getByRole("tab", { name: "Historical · 2" });
+    await expect(current).toHaveAttribute("aria-selected", "true");
+    const currentRows = page
+      .getByRole("tabpanel", { name: "Current · 2" })
+      .getByRole("article");
+    await expect(currentRows).toHaveCount(2);
+    await expect(currentRows.first()).not.toContainText(
+      /Demo Operator|Delaware|100%/u,
+    );
+    async function expectConsistentRows(rows: Locator) {
+      await expect(rows).toHaveCount(2);
+      const layout = await rows.evaluateAll((articles) =>
+        articles.map((row) => {
+          const bounds = row.getBoundingClientRect();
+          const title = row.querySelector("h3")!.getBoundingClientRect();
+          const lastLine =
+            row.querySelector("p")?.getBoundingClientRect() ?? title;
+          const link = row.querySelector("a")!.getBoundingClientRect();
+          const chevron = row.querySelector("a svg")!.getBoundingClientRect();
+          return {
+            topInset: title.top - bounds.top,
+            bottomInset: bounds.bottom - lastLine.bottom,
+            textInset: title.left - bounds.left,
+            chevronInset: bounds.right - chevron.right,
+            centeredChevron:
+              Math.abs(
+                (chevron.top + chevron.bottom) / 2 -
+                  (bounds.top + bounds.bottom) / 2,
+              ) < 1,
+            roomForText: Math.max(title.right, lastLine.right) < chevron.left,
+            fullRowTarget:
+              link.width >= 44 &&
+              link.height >= 44 &&
+              link.top === bounds.top &&
+              link.bottom === bounds.bottom &&
+              link.left === bounds.left &&
+              link.right === bounds.right,
+            background: getComputedStyle(row).backgroundColor,
+          };
+        }),
+      );
+      for (const row of layout) {
+        // Match the UI catalogue's alternating records with a trailing drill-in.
+        expect(row).toMatchObject({
+          topInset: 16,
+          bottomInset: 16,
+          textInset: 16,
+          chevronInset: 32,
+          centeredChevron: true,
+          roomForText: true,
+          fullRowTarget: true,
+        });
+      }
+      const backgrounds = layout.map((row) => row.background);
+      expect(backgrounds[0]).not.toBe(backgrounds[1]);
+      return backgrounds;
+    }
+    const currentBackgrounds = await expectConsistentRows(currentRows);
+    await expect(
+      page.getByRole("link", {
+        name: `Open ${historicalTrustProfile.legalName} details`,
+      }),
+    ).toHaveCount(0);
+    if (captureDesignReview)
+      await page.screenshot({
+        path: testInfo.outputPath("current.png"),
+        animations: "disabled",
+        fullPage: true,
+        scale: "css",
+      });
+    await historical.click();
+    await expect(historical).toHaveAttribute("aria-selected", "true");
+    const historyPanel = page.getByRole("tabpanel", { name: "Historical · 2" });
+    expect(
+      await expectConsistentRows(historyPanel.getByRole("article")),
+    ).toEqual(currentBackgrounds);
+    await expect(historyPanel).toContainText(historicalTrustProfile.legalName);
+    await expect(historyPanel).not.toContainText(
+      historicalTrustProfile.currentOwner,
+    );
+    await expectNoHorizontalOverflow(page);
+    if (captureDesignReview)
+      await page.screenshot({
+        path: testInfo.outputPath("historical.png"),
+        animations: "disabled",
+        fullPage: true,
+        scale: "css",
+      });
+    await historyPanel
+      .getByRole("link", {
+        name: `Open ${historicalTrustProfile.legalName} details`,
+      })
+      .press("Enter");
+    await expect(page.locator(".entity-review")).toContainText(
+      historicalTrustProfile.currentOwner,
+    );
+    await page.getByRole("button", { name: "Back to legal entities" }).click();
+    await expect(historical).toHaveAttribute("aria-selected", "true");
+    await current.click();
     await triage.click();
     await expect(batchAction).toBeVisible();
     const summary = page.locator(".legal-entity-exact-batch__summary");
@@ -617,6 +733,13 @@ test(
     await page.setViewportSize({ width: 320, height: 680 });
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect(triage).toBeInViewport({ ratio: 1 });
+    const currentRect = await current.boundingBox();
+    const historicalRect = await historical.boundingBox();
+    expect(currentRect?.height).toBeGreaterThanOrEqual(44);
+    expect(historicalRect?.height).toBeGreaterThanOrEqual(44);
+    expect(currentRect!.x + currentRect!.width).toBeLessThanOrEqual(
+      historicalRect!.x,
+    );
     await expectNoHorizontalOverflow(page);
   },
 );
@@ -744,18 +867,31 @@ test(
     await search.fill("horizon");
     await expect(
       page.locator(".legal-entities__search [role=status]"),
-    ).toHaveText("4 results · Includes historical interests");
+    ).toHaveText("4 results");
     await expect(
       page.locator(".legal-entities__candidates .legal-entity-candidate"),
     ).toHaveCount(1);
     await expect(
-      page.locator(".legal-entities__history .legal-entity-row"),
-    ).toHaveCount(1);
-    await expect(
-      page
-        .locator(".legal-entities__history")
-        .getByText("Demo Horizon Legacy LLC", { exact: true }),
+      page.getByRole("tab", { name: "Current · 1", selected: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "Historical · 1" }),
+    ).toBeVisible();
+    await search.fill("legacy");
+    await expect(
+      page.getByRole("tab", { name: "Current · 0", selected: true }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Historical · 1" }).click();
+    const historyPanel = page.getByRole("tabpanel", { name: "Historical · 1" });
+    await historyPanel
+      .getByRole("link", { name: "Open Demo Horizon Legacy LLC details" })
+      .click();
+    await page.getByRole("button", { name: "Back to legal entities" }).click();
+    await expect(historyPanel).toContainText("Demo Horizon Legacy LLC");
+    await expect(search).toHaveValue("legacy");
+    expect(reads).toBe(1);
+    await search.fill("horizon");
+    await page.getByRole("tab", { name: "Current · 1" }).click();
     await expect(
       page.locator(".legal-entities__excluded .legal-entity-candidate"),
     ).toHaveCount(1);
@@ -794,18 +930,15 @@ test(
       page.locator(".legal-entities__known .legal-entity-row"),
     ).toHaveCount(25);
     await search.fill("cafe horizon");
-    await page
-      .locator(".legal-entities__known .legal-entity-row h3")
-      .getByRole("button")
-      .click();
+    const foundEntity = page.getByRole("link", {
+      name: "Open Café Horizon Holdings LLC details",
+    });
+    await foundEntity.click();
     await page
       .getByRole("button", { name: "Back to legal entities", exact: true })
       .click();
     await expect(search).toHaveValue("cafe horizon");
-    await page
-      .locator(".legal-entities__known .legal-entity-row h3")
-      .getByRole("button")
-      .click();
+    await foundEntity.click();
     await page
       .getByRole("button", { name: "Edit legal entity", exact: true })
       .click();
@@ -1141,7 +1274,6 @@ test(
     await expect(
       page.getByRole("button", { name: "Add or link 3 sources" }),
     ).toBeVisible();
-    await expect(page.locator(".legal-entities")).toContainText("Not recorded");
     await expect(page.getByText("Needs review", { exact: true })).toHaveCount(
       0,
     );
@@ -1380,10 +1512,10 @@ test(
   },
 );
 
-for (const followingSection of [false, true]) {
+for (const showExcluded of [false, true]) {
   test(
-    `loads 140 entities ${followingSection ? "manually before history" : "automatically at the page end"} without extra reads`,
-    { tag: followingSection ? "@desktop-only" : "@mobile-only" },
+    `loads 140 current entities ${showExcluded ? "manually before excluded sources" : "automatically at the page end"} without extra reads`,
+    { tag: showExcluded ? "@desktop-only" : "@mobile-only" },
     async ({ page }) => {
       let reads = 0;
       await page.route("**/api/legal-entities", (route) => {
@@ -1392,23 +1524,21 @@ for (const followingSection of [false, true]) {
           json: {
             ...initialInventory,
             candidates: [],
-            excludedCandidates: [],
+            excludedCandidates: showExcluded
+              ? initialInventory.excludedCandidates
+              : [],
             entities: [
               ...Array.from({ length: 140 }, (_, index) => ({
                 ...initialInventory.entities[0]!,
                 id: `synthetic-page-${index}`,
                 legalName: `Synthetic ${String(index).padStart(3, "0")} LLC`,
               })),
-              ...(followingSection
-                ? [
-                    {
-                      ...initialInventory.entities[0]!,
-                      id: "synthetic-page-history",
-                      legalName: "Synthetic Historical LLC",
-                      interestStatus: "historical",
-                    },
-                  ]
-                : []),
+              {
+                ...initialInventory.entities[0]!,
+                id: "synthetic-page-history",
+                legalName: "Synthetic Historical LLC",
+                interestStatus: "historical",
+              },
             ],
           },
         });
@@ -1417,20 +1547,28 @@ for (const followingSection of [false, true]) {
       const rows = page.locator(".legal-entity-row");
       await expect(rows).toHaveCount(25);
       const initialReads = reads;
+      const current = page.getByRole("tab", { name: "Current · 140" });
+      const historical = page.getByRole("tab", { name: "Historical · 1" });
+      if (showExcluded) {
+        await current.focus();
+        await page.keyboard.press("ArrowRight");
+        await expect(historical).toBeFocused();
+        await page.keyboard.press("Enter");
+      } else await historical.click();
+      await expect(rows).toHaveCount(1);
+      await expect(rows.first()).toContainText("Synthetic Historical LLC");
+      await current.click();
+      await expect(rows).toHaveCount(25);
       const more = page.getByRole("button", {
         name: "Load more entities",
         exact: true,
       });
       await page.getByRole("button", { name: "Export", exact: true }).focus();
       await more.scrollIntoViewIfNeeded();
-      if (followingSection) {
-        await page
-          .getByRole("button", { name: "Historical interests · 1" })
-          .click();
-        await expect(rows).toHaveCount(26);
+      if (showExcluded) {
         await more.click();
-        await expect(rows).toHaveCount(51);
-        await expect(rows.nth(25).getByRole("button").first()).toBeFocused();
+        await expect(rows).toHaveCount(50);
+        await expect(rows.nth(25).getByRole("link")).toBeFocused();
       } else {
         await expect(rows).toHaveCount(50);
         await expect(

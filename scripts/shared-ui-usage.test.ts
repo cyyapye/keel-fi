@@ -47,6 +47,7 @@ function sourceFacts(source: string) {
     attributes: Map<string, string>;
   }[] = [];
   const nativeDateInputs: { component: string; line: number }[] = [];
+  let navigationIndicators = 0;
   function visit(node: ts.Node) {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const component = node.tagName.getText(file);
@@ -74,6 +75,18 @@ function sourceFacts(source: string) {
           nativeDate = true;
       }
       elements.push({ component, attributes });
+      if (component === "DisclosureIndicator" && ts.isJsxElement(node.parent)) {
+        const parent = node.parent.openingElement;
+        if (
+          parent.tagName.getText(file) === "TextLink" &&
+          parent.attributes.properties.some(
+            (attribute) =>
+              ts.isJsxAttribute(attribute) &&
+              attribute.name.getText(file) === "href",
+          )
+        )
+          navigationIndicators++;
+      }
       if (inputs.has(component) && nativeDate)
         nativeDateInputs.push({
           component,
@@ -84,7 +97,7 @@ function sourceFacts(source: string) {
     ts.forEachChild(node, visit);
   }
   visit(file);
-  return { elements, nativeDateInputs };
+  return { elements, nativeDateInputs, navigationIndicators };
 }
 
 const webSources = reactSourceFiles(webSourceDirectory).map((path) => {
@@ -162,22 +175,27 @@ describe("shared UI usage", () => {
   });
 
   it("routes app disclosures through the shared Collapsible composition", () => {
-    const violations = webSources.flatMap(({ relativePath, source }) => {
-      const disclosureCount = source.match(/<Collapsible\b/gu)?.length ?? 0;
-      const triggerCount = source.match(/<CollapsibleTrigger\b/gu)?.length ?? 0;
-      const contentCount = source.match(/<CollapsibleContent\b/gu)?.length ?? 0;
-      const indicatorCount =
-        source.match(/<DisclosureIndicator\b/gu)?.length ?? 0;
-      const nativeDetailsCount = source.match(/<details\b/gu)?.length ?? 0;
-      return disclosureCount === triggerCount &&
-        triggerCount === contentCount &&
-        contentCount === indicatorCount &&
-        nativeDetailsCount === 0
-        ? []
-        : [
-            `${relativePath}: ${disclosureCount} roots, ${triggerCount} triggers, ${contentCount} panels, ${indicatorCount} indicators, ${nativeDetailsCount} native details`,
-          ];
-    });
+    const violations = webSources.flatMap(
+      ({ relativePath, source, navigationIndicators }) => {
+        const disclosureCount = source.match(/<Collapsible\b/gu)?.length ?? 0;
+        const triggerCount =
+          source.match(/<CollapsibleTrigger\b/gu)?.length ?? 0;
+        const contentCount =
+          source.match(/<CollapsibleContent\b/gu)?.length ?? 0;
+        const indicatorCount =
+          (source.match(/<DisclosureIndicator\b/gu)?.length ?? 0) -
+          navigationIndicators;
+        const nativeDetailsCount = source.match(/<details\b/gu)?.length ?? 0;
+        return disclosureCount === triggerCount &&
+          triggerCount === contentCount &&
+          contentCount === indicatorCount &&
+          nativeDetailsCount === 0
+          ? []
+          : [
+              `${relativePath}: ${disclosureCount} roots, ${triggerCount} triggers, ${contentCount} panels, ${indicatorCount} indicators, ${nativeDetailsCount} native details`,
+            ];
+      },
+    );
 
     expect(violations).toEqual([]);
   });

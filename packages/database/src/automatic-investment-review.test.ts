@@ -16,6 +16,9 @@ import { D1PositionEconomicsRepository } from "./position-economics";
 import { calculatePositionEconomics } from "@keel/domain/position-economics";
 import { D1AlphaRepository } from "./index";
 import { legalReviewIssues } from "@keel/domain/automatic-investment-review";
+import { legalNameEvidenceRevision } from "@keel/domain/legal-entities";
+import { D1LegalEntityRepository } from "./legal-entities";
+import { D1InvestmentPositionViewRepository } from "./position-read-model";
 
 const subject = "synthetic-access-subject";
 let d1: LegalDocumentTestD1;
@@ -404,6 +407,121 @@ describe("exception-based investment review", () => {
       records,
     );
   });
+
+  it.each([
+    {
+      name: "clears the document exception when a clean compartment agreement has a recorded assignment",
+      captureProblem: null,
+    },
+    {
+      name: "retains the document exception when discovery is incomplete despite a recorded structure assignment",
+      captureProblem: "limit_reached" as const,
+    },
+  ])("$name", async ({ captureProblem }) => {
+    setUpRepository();
+    const legalName = "Synthetic Series VII";
+    const quote = `${legalName}, as a compartment of and duly represented by Synthetic Representative LLC, as Issuer.`;
+    const [positionId] = await seedAutomaticInvestments(
+      d1.asD1(),
+      1,
+      [quote],
+      false,
+      subject,
+      undefined,
+      1,
+      { captureProblem },
+    );
+    const source = { kind: "holding_position" as const, id: positionId! };
+    const db = d1.asD1();
+    const positions = new D1InvestmentPositionViewRepository(db);
+    const entities = new D1LegalEntityRepository(db);
+    const reviews = new D1InvestmentReviewRepository(db);
+    const automatic = new D1AutomaticInvestmentReviewRepository(db);
+    const positionView = await positions.list(subject);
+    const inventory = await entities.getState(subject, positionView);
+    const candidate = inventory.candidates.find(
+      (item) => item.source.id === source.id,
+    )!;
+    const evidence = candidate.legalEntityNameEvidence;
+    const doc = evidence.documents![0]!;
+    const entity = await entities.create(
+      subject,
+      {
+        profile: {
+          legalName,
+          entityType: "other",
+          relationship: "investment_vehicle",
+          currentOwner: null,
+          jurisdiction: null,
+          formedOn: null,
+          einLastFour: null,
+          ownershipInterestPpm: null,
+          interestStatus: "current",
+          taxClassification: null,
+          notes: null,
+        },
+        source: {
+          reference: source,
+          expectedDecisionId: null,
+          nameResolution: {
+            kind: "document_structure",
+            documentId: doc.id,
+            legalName,
+            page: 1,
+            quote,
+            reason: null,
+            expectedEvidenceRevision: await legalNameEvidenceRevision(evidence),
+          },
+        },
+      },
+      positionView,
+    );
+
+    await automatic.resolve(subject);
+    expect(receipt(source.id).issues).toContainEqual(
+      expect.objectContaining({ section: "documents", code: "conflicting" }),
+    );
+    const context = await reviews.getContext(subject, source.id);
+    const saved = await reviews.review(subject, source.id, {
+      requestId: crypto.randomUUID(),
+      expectedReviewId: context.review?.id ?? null,
+      expectedSnapshotId: context.snapshotId,
+      expectedEvidenceRevision: context.evidenceRevision,
+      participationStatus: "current",
+      documentAssignments: [
+        {
+          documentId: doc.id,
+          sha256: doc.sha256,
+          relationship: "supports",
+          targetPositionId: null,
+        },
+      ],
+    });
+    await automatic.resolve(subject);
+
+    const result = receipt(source.id);
+    expect(result.resolved).toContain("identity");
+    if (captureProblem === null) {
+      expect(result.resolved).toContain("documents");
+      expect(result.issues).not.toContainEqual(
+        expect.objectContaining({ section: "documents" }),
+      );
+    } else {
+      expect(result.resolved).not.toContain("documents");
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({ section: "documents", code: "conflicting" }),
+      );
+    }
+    expect((await reviews.getContext(subject, source.id)).review).toEqual(
+      saved,
+    );
+    const projected = await entities.getState(subject, positions.list(subject));
+    expect(
+      projected.entities.find((item) => item.id === entity.id)?.versionId,
+    ).toBe(entity.versionId);
+    expect((await automatic.resolve(subject)).changedCount).toBe(0);
+  });
+
   it("retries a racing document check as an exception without applying its financial terms", async () => {
     setUpRepository();
     const [id] = await seed();

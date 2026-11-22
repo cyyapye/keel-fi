@@ -219,7 +219,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   );
   await page.route("**/api/cash-balance-history?*", async (route) => {
     historyRequests++;
-    if (historyRequests === 1) await initialHistory;
+    await initialHistory;
     const params = new URL(route.request().url()).searchParams;
     if (failRecent || (failOlder && params.has("after"))) {
       await route.fulfill({

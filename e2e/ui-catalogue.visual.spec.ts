@@ -1246,7 +1246,10 @@ test("App Access keeps scope, lifetime and failures distinct without authorizing
   ).toBe(true);
   await page.getByRole("link", { name: "All journeys", exact: true }).click();
   await expect(
-    page.getByText("What can a connected app access?", { exact: true }),
+    page.getByRole("heading", {
+      name: "What can a connected app access?",
+      exact: true,
+    }),
   ).toBeVisible();
   await page.goto("/ui/#journeys/unknown-task");
   await expect(page.getByText("Step not found", { exact: true })).toBeVisible();

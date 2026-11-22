@@ -65,6 +65,7 @@ type Row = {
   observation_id: string | null;
   evidence_json: string | null;
   evidence_oversized: number;
+  document_discovery_complete: number | null;
   review_id: string | null;
   state_json: string | null;
   company_review_id: string | null;
@@ -147,6 +148,7 @@ const positionsSql = `SELECT p.id, p.provider, p.position_kind, p.legal_vehicle_
   provider_identity.provider_investment_id, observation.id observation_id,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) <= 131072 THEN observation.evidence_json ELSE NULL END evidence_json,
   CASE WHEN length(CAST(observation.evidence_json AS BLOB)) > 131072 THEN 1 ELSE 0 END evidence_oversized,
+  json_type(observation.capture_json, '$.problem') = 'null' document_discovery_complete,
   review.id review_id, review.state_json, company_review.id company_review_id, COALESCE(alias_receipt.receipt_json, company_review.receipt_json) receipt_json,
   terms.decision_source economics_source, purchase.receipt_json purchase_json,
   reported.management_fee_ppm reported_management_fee_ppm, reported.carry_ppm reported_carry_ppm,
@@ -443,12 +445,12 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
       const assigned = new Map(
         review?.documentAssignments.map((assignment) => [
           assignment.documentId,
-          assignment.relationship,
+          assignment,
         ]),
       );
       const supportedDocuments = documents.filter(
         (doc) =>
-          assigned.get(doc.id) === "supports" ||
+          assigned.get(doc.id)?.relationship === "supports" ||
           (!assigned.has(doc.id) &&
             row.provider_investment_id !== null &&
             doc.sourceInvestment?.id === row.provider_investment_id &&
@@ -485,9 +487,8 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         resolvedName,
       );
       const guard = {
-        // Re-evaluate legacy Wefunder name evidence while preserving exact-company
-        // recovery and the separate optional-fee review boundary.
-        evaluationVersion: 7,
+        // Re-evaluate document exceptions using recorded agreement assignments.
+        evaluationVersion: 8,
         reportedCompanyIds: (
           companiesByName.get(companyNameKey(row.exposure_label)) ?? []
         )
@@ -1120,6 +1121,19 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         }
       } else resolved.push("economics");
 
+      const structureReviewed =
+        row.document_discovery_complete === 1 &&
+        originalEvidence.state === "unavailable" &&
+        originalEvidence.problem === "other_structure" &&
+        currentEvidence.state === "unavailable" &&
+        currentEvidence.problem === "other_structure" &&
+        documents.every((doc) => {
+          const assignment = assigned.get(doc.id);
+          return (
+            assignment?.sha256 === doc.sha256 &&
+            assignment.relationship !== "unassigned"
+          );
+        });
       if (row.evidence_oversized)
         issues.push(
           issue(
@@ -1138,8 +1152,12 @@ export class D1AutomaticInvestmentReviewRepository implements AutomaticInvestmen
         );
       else if (
         guard.incoming.length > 0 ||
-        (documents.length > 0 && currentEvidence.state === "unavailable") ||
-        documents.some((doc) => assigned.get(doc.id) === "unassigned")
+        (documents.length > 0 &&
+          currentEvidence.state === "unavailable" &&
+          !structureReviewed) ||
+        documents.some(
+          (doc) => assigned.get(doc.id)?.relationship === "unassigned",
+        )
       )
         issues.push(
           issue(
