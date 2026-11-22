@@ -408,16 +408,9 @@ describe("exception-based investment review", () => {
     );
   });
 
-  it.each([
-    {
-      name: "clears the document exception when a clean compartment agreement has a recorded assignment",
-      captureProblem: null,
-    },
-    {
-      name: "retains the document exception when discovery is incomplete despite a recorded structure assignment",
-      captureProblem: "limit_reached" as const,
-    },
-  ])("$name", async ({ captureProblem }) => {
+  async function checkStructureAssignment(
+    captureProblem: "limit_reached" | null,
+  ) {
     setUpRepository();
     const legalName = "Synthetic Series VII";
     const quote = `${legalName}, as a compartment of and duly represented by Synthetic Representative LLC, as Issuer.`;
@@ -520,6 +513,14 @@ describe("exception-based investment review", () => {
       projected.entities.find((item) => item.id === entity.id)?.versionId,
     ).toBe(entity.versionId);
     expect((await automatic.resolve(subject)).changedCount).toBe(0);
+  }
+
+  it("clears the document exception when a clean compartment agreement has a recorded assignment", async () => {
+    await checkStructureAssignment(null);
+  });
+
+  it("retains the document exception when discovery is incomplete despite a recorded structure assignment", async () => {
+    await checkStructureAssignment("limit_reached");
   });
 
   it("retries a racing document check as an exception without applying its financial terms", async () => {
