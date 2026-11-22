@@ -674,16 +674,26 @@ test(
         fullPage: true,
         scale: "css",
       });
-    await historyPanel
-      .getByRole("link", {
-        name: `Open ${historicalTrustProfile.legalName} details`,
-      })
-      .press("Enter");
+    const historicalRow = historyPanel.getByRole("link", {
+      name: `Open ${historicalTrustProfile.legalName} details`,
+    });
+    await page.keyboard.press("Tab");
+    if (
+      await historyPanel.evaluate((panel) => panel === document.activeElement)
+    )
+      await page.keyboard.press("Tab");
+    await expect(historicalRow).toBeFocused();
+    await page.keyboard.press("Enter");
     await expect(page.locator(".entity-review")).toContainText(
       historicalTrustProfile.currentOwner,
     );
-    await page.getByRole("button", { name: "Back to legal entities" }).click();
+    await page
+      .getByRole("button", { name: "Back to legal entities" })
+      .press("Enter");
     await expect(historical).toHaveAttribute("aria-selected", "true");
+    await expect(historicalRow).toBeFocused();
+    await expect(historicalRow).toBeInViewport();
+    await expect(historicalRow).toHaveCSS("outline-style", "solid");
     await current.click();
     await triage.click();
     await expect(batchAction).toBeVisible();
@@ -958,6 +968,9 @@ test(
     await expect(
       page.locator(".legal-entities__known .legal-entity-row"),
     ).toHaveCount(0);
+    await expect(
+      page.getByRole("tab", { name: "Current · 0", selected: true }),
+    ).toBeFocused();
     await search.fill("aurora");
     await expect(
       page.getByRole("heading", {
@@ -1575,6 +1588,15 @@ for (const showExcluded of [false, true]) {
           page.getByRole("button", { name: "Export", exact: true }),
         ).toBeFocused();
       }
+      const loadedRow = rows.nth(25).getByRole("link");
+      await loadedRow.press("Enter");
+      await expect(
+        page.getByRole("button", { name: "Back to legal entities" }),
+      ).toBeVisible();
+      await page.goBack();
+      await expect(loadedRow).toBeFocused();
+      await expect(loadedRow).toBeInViewport();
+      await expect(rows).toHaveCount(50);
       expect(reads).toBe(initialReads);
       await expectNoHorizontalOverflow(page);
     },
