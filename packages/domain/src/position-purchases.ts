@@ -1,3 +1,4 @@
+import { MarketQuoteSchema, type MarketQuote } from "./market-close";
 import { z } from "zod";
 import { PositionLinkReceiptSchema } from "./position-link-receipt";
 import { InvestmentFeeSchema, investmentFeeAmount } from "./investment-fees";
@@ -230,6 +231,16 @@ export const PurchaseDetailsSchema = z
     }
   });
 export const PurchaseReceiptSchema = z.object({
+  publicClose: MarketQuoteSchema.extend({
+    exposureId: z.string().min(1),
+  }).optional(),
+  latestGpPrice: z
+    .object({
+      priceMicros: positive,
+      priceDate: z.iso.date().nullable(),
+      sourceLabel: text,
+    })
+    .optional(),
   supersedesEconomicsTermsId: z.string().min(1).nullable().optional(),
   id: z.string().min(1),
   positionId: z.string().min(1),
@@ -382,7 +393,17 @@ export function calculateValuationFromShares(
 
 export function assessValuationFromShares(
   details: PurchaseReceipt["details"],
-  record: ValuationRecord,
+  record: Pick<
+    ValuationRecord,
+    | "priceMicros"
+    | "followSource"
+    | "sourceContinuation"
+    | "priceDate"
+    | "sourceCapturedAt"
+    | "shareClass"
+    | "shareBasis"
+    | "crossClassProxy"
+  > & { origin: ValuationRecord["origin"] | "public_close" },
 ) {
   const failure = (code: string, message: string) => ({
     ok: false as const,
@@ -559,11 +580,42 @@ export function selectedPositionValuation(
   };
 }
 
+export function publicClosingValuation(
+  receipt: PurchaseReceipt,
+  quote: MarketQuote,
+) {
+  const record = {
+    id: quote.id,
+    origin: "public_close" as const,
+    method: "shares" as const,
+    totalMinor: null,
+    priceMicros: quote.priceMicros,
+    priceDate: quote.date,
+    effectiveDate: quote.date,
+    shareClass: quote.shareClass,
+    shareBasis: quote.shareBasis,
+    sourceLabel: "Closing-price estimate",
+    carryStatus: "before_carry" as const,
+    sourceUrl: quote.sourceUrl,
+    sourceEvidenceId: quote.id,
+    sourcePositionId: null,
+    sourceCapturedAt: null,
+    watchEvidenceId: null,
+    followSource: true,
+  };
+  const assessment = assessValuationFromShares(receipt.details, record);
+  return assessment.ok ? { ...record, ...assessment.calculation } : null;
+}
+
 /** A reviewed GP total remains usable when its independent share calculation expires. */
 export function effectivePositionValuation(
   receipt: PurchaseReceipt | null | undefined,
   snapshotId: string,
 ) {
+  if (receipt?.publicClose) {
+    const close = publicClosingValuation(receipt, receipt.publicClose);
+    if (close) return close;
+  }
   const selected = selectedPositionValuation(receipt, snapshotId);
   if (selected) return selected;
   if (

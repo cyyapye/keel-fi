@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./market-close": "./src/market-close.ts",
     ".": "./src/index.ts",
     "./exposure-read-model": "./src/exposure-read-model.ts",
     "./position-read-model": "./src/position-read-model.ts",

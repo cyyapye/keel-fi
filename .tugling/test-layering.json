@@ -33,6 +33,8 @@
     "e2e/investment-history.visual.spec.ts :: chromium :: shows incomplete lot coverage and recovers an expired read without retry loops",
     "e2e/investment-history.visual.spec.ts :: mobile-chromium :: inspects source-backed activity, remaining lots and account-only events without changing holdings",
     "e2e/investment-history.visual.spec.ts :: mobile-chromium :: shows incomplete lot coverage and recovers an expired read without retry loops",
+    "e2e/investment-holdings.visual.spec.ts :: chromium :: valuation readback lands quietly on the exposure and aligns its quote with Change",
+    "e2e/investment-holdings.visual.spec.ts :: mobile-chromium :: valuation readback lands quietly on the exposure and aligns its quote with Change",
     "e2e/legal-entities.visual.spec.ts :: chromium :: keeps company-only holding labels out of legal triage",
     "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: keeps company-only holding labels out of legal triage",
     "e2e/manual-holdings.spec.ts :: chromium :: persists and reopens an unassigned Direct holding with unknown financial facts",
@@ -50,7 +52,15 @@
     "e2e/share-basis.spec.ts :: chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions",
     "e2e/share-basis.spec.ts :: mobile-chromium :: custom price factors persist through the API and D1 with equivalent valuations",
     "e2e/share-basis.spec.ts :: mobile-chromium :: custom quantity factors persist through the API and D1 with immutable receipts",
-    "e2e/share-basis.spec.ts :: mobile-chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions"
+    "e2e/share-basis.spec.ts :: mobile-chromium :: new undated GP prices propagate to followed positions with immutable metadata assumptions",
+    "e2e/ui-catalogue.visual.spec.ts :: chromium :: GP marks respect the source selected for each position",
+    "e2e/ui-catalogue.visual.spec.ts :: chromium :: an IPO filing is news and one Watch decision resolves both Holdings estimates",
+    "e2e/ui-catalogue.visual.spec.ts :: chromium :: choosing a GP proxy through Holdings prices only the unvalued SPV",
+    "e2e/ui-catalogue.visual.spec.ts :: chromium :: one exposure decision applies each close to both SPVs",
+    "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: GP marks respect the source selected for each position",
+    "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: an IPO filing is news and one Watch decision resolves both Holdings estimates",
+    "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: choosing a GP proxy through Holdings prices only the unvalued SPV",
+    "e2e/ui-catalogue.visual.spec.ts :: mobile-chromium :: one exposure decision applies each close to both SPVs"
   ],
   "requiredPdfFlow": "pdf-isolation",
   "migrations": [

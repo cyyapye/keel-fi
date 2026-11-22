@@ -24,6 +24,7 @@ import { investmentFeeAmount } from "@keel/domain/investment-fees";
 import {
   carryUnavailableReason,
   holdingValueSummary,
+  gpRecord,
   signedReturn,
 } from "./holding-value";
 import { holdingInvestmentHasReadbackFacts } from "./holding-investment-readback";
@@ -179,6 +180,9 @@ export function SpvHoldingDetail({
         : record?.method === "shares"
           ? "Estimated value"
           : "Reported value";
+  const closeQuote = holding.purchaseContext?.receipt?.publicClose;
+  const gpPrice = holding.purchaseContext?.receipt?.latestGpPrice;
+  const gp = closeQuote ? gpRecord(holding) : null;
   const source = record && (
     <p className="holding-metadata">
       {record.effectiveDate
@@ -218,17 +222,27 @@ export function SpvHoldingDetail({
         : record?.method === "shares"
           ? "Estimated remaining value"
           : "Reported remaining value";
-  const editButton = !editing && (
-    <Button
-      ref={edit}
-      tone="quiet"
-      aria-label="Edit valuation"
-      disabled={investmentEditing}
-      onClick={() => setEditing(true)}
-    >
-      Edit
-    </Button>
-  );
+  const editButton =
+    closeQuote && record?.origin === "public_close" ? (
+      <TextLink
+        href={`/holdings?valuation=${encodeURIComponent(closeQuote.exposureId)}`}
+        aria-label="Change exposure valuation source"
+      >
+        Change
+      </TextLink>
+    ) : (
+      !editing && (
+        <Button
+          ref={edit}
+          tone="quiet"
+          aria-label="Edit valuation"
+          disabled={investmentEditing}
+          onClick={() => setEditing(true)}
+        >
+          Edit
+        </Button>
+      )
+    );
   const value = (
     amount: number,
     title: string,
@@ -256,7 +270,35 @@ export function SpvHoldingDetail({
           </small>
         </strong>
       )}
-      {provenance && source}
+      {provenance && record?.origin !== "public_close" && source}
+      {provenance && closeQuote && record?.origin === "public_close" && (
+        <div className="holding-metadata">
+          <p>
+            {closeQuote.ticker} · {formatSharePrice(closeQuote.priceMicros)}
+            /share · {formatDate(closeQuote.date)}
+          </p>
+          {gpPrice ? (
+            <p>
+              Latest GP mark · {formatSharePrice(gpPrice.priceMicros)}/share ·{" "}
+              {gpPrice.priceDate
+                ? formatDate(gpPrice.priceDate)
+                : "Date unavailable"}{" "}
+              · {gpPrice.sourceLabel}
+            </p>
+          ) : (
+            gp && (
+              <p>
+                Latest GP mark ·{" "}
+                {gp.totalMinor !== null
+                  ? formatMoney(gp.totalMinor)
+                  : "Value unavailable"}
+                {gp.effectiveDate && ` · ${formatDate(gp.effectiveDate)}`} ·{" "}
+                {gp.sourceLabel}
+              </p>
+            )
+          )}
+        </div>
+      )}
       {title.includes("After carry") &&
         after?.method === "legacy_remaining_only" && (
           <p className="holding-metadata">
@@ -270,7 +312,9 @@ export function SpvHoldingDetail({
         </p>
       )}
       {provenance &&
-        record?.sourceContinuation &&
+        record &&
+        "sourceContinuation" in record &&
+        record.sourceContinuation &&
         (!record.shareClass || !record.shareBasis) && (
           <p className="holding-metadata">
             {!record.shareClass
@@ -281,23 +325,25 @@ export function SpvHoldingDetail({
               : ""}
           </p>
         )}
-      {provenance && holding.purchaseContext?.priceProxyStatus && (
-        <p className="holding-metadata">
-          {holding.purchaseContext.priceProxyStatus.stale
-            ? "Stale source · Last valid estimate retained. "
-            : ""}
-          Observed{" "}
-          {formatDate(
-            holding.purchaseContext.priceProxyStatus.lastObservationAt.slice(
-              0,
-              10,
-            ),
-          )}
-          {holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt
-            ? ` · Last sync ${formatDate(holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt.slice(0, 10))}`
-            : ""}
-        </p>
-      )}
+      {provenance &&
+        record?.origin === "proxy" &&
+        holding.purchaseContext?.priceProxyStatus && (
+          <p className="holding-metadata">
+            {holding.purchaseContext.priceProxyStatus.stale
+              ? "Stale source · Last valid estimate retained. "
+              : ""}
+            Observed{" "}
+            {formatDate(
+              holding.purchaseContext.priceProxyStatus.lastObservationAt.slice(
+                0,
+                10,
+              ),
+            )}
+            {holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt
+              ? ` · Last sync ${formatDate(holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt.slice(0, 10))}`
+              : ""}
+          </p>
+        )}
       {title.includes("After carry") &&
         unpaid.map((f) => (
           <p className="holding-metadata" key={f.id}>

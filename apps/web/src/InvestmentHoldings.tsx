@@ -1,3 +1,6 @@
+import type { ExposureDrilldown } from "./PortfolioSnapshot";
+import { MarketReviewLink } from "./MarketCloseReview";
+import { useMarketReviews } from "./use-market-reviews";
 import { CashHoldingsView } from "./CashHoldings";
 import {
   PublicSourceUpdate,
@@ -72,6 +75,7 @@ import {
   syncInvestmentHoldings,
 } from "./api";
 import {
+  formatSharePrice,
   formatCompactCurrency,
   formatMoney,
   formatCurrency,
@@ -319,6 +323,8 @@ function investmentConnectionTotalsLabel(
 
 function exposurePositionValue(position: InvestmentExposurePosition): string {
   if (position.valueState === "reported" && position.valueMinor !== null) {
+    if (position.valueSourceLabel === "Closing-price estimate")
+      return formatMoney(position.valueMinor).replace(/\.00$/u, "");
     return isCashPosition(position)
       ? formatHoldingCurrency(position.valueMinor, position.currency)
       : formatRoundedHoldingCurrency(
@@ -478,6 +484,7 @@ function exposureValueSourceLabel(
   position: InvestmentExposurePosition,
 ): string | null {
   if (
+    position.valueSourceLabel === "Closing-price estimate" ||
     position.valueSourceLabel === "My estimate" ||
     position.valueSourceLabel?.startsWith("Proxy estimate")
   )
@@ -656,6 +663,7 @@ function companyExposureGroups(data: InvestmentHoldingsView) {
 
 function exposureTotalsLabel(
   totals: InvestmentHoldingsView["exposureView"]["exposures"][number]["totals"],
+  showExact = false,
 ): string {
   const reportedByCurrency = new Map(
     totals
@@ -668,7 +676,9 @@ function exposureTotalsLabel(
   const reported = [...reportedByCurrency.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([currency, valueMinor]) =>
-      formatMagnitudeRoundedHoldingCurrency(valueMinor, currency),
+      showExact && currency === "USD"
+        ? formatMoney(valueMinor).replace(/\.00$/u, "")
+        : formatMagnitudeRoundedHoldingCurrency(valueMinor, currency),
     );
   return reported.join(" · ");
 }
@@ -1234,7 +1244,7 @@ function ExposureView({
   onLoadMoreExposures,
   onLoadMorePositions,
   onSubmitExposureReview,
-  requestedExposureId,
+  requestedExposure,
   sortDirection,
   searchMatches,
   searchQuery,
@@ -1261,13 +1271,17 @@ function ExposureView({
     position: PrivateExposureReviewPosition,
     input: PrivateExposureResolutionInput,
   ) => void;
-  requestedExposureId: string | null;
+  requestedExposure: ExposureDrilldown | null;
   sortDirection: ExposureSortDirection;
   searchMatches: HoldingsSearchMatches | null;
   searchQuery: string;
   visibleExposureCount: number;
   visiblePositionCounts: ReadonlyMap<string, number>;
 }) {
+  const market = useMarketReviews();
+  const marketByExposure = new Map(
+    market.reviews?.map((r) => [r.exposureId, r]),
+  );
   const holdingDetailAction = (
     holdingId: string,
     holdingName: string,
@@ -1276,11 +1290,11 @@ function ExposureView({
     openableHoldingIds.has(holdingId) ? (
       <TextLink
         aria-label={`View ${holdingName} holding details`}
-        className="position-row__action"
+        className={compact ? "position-row__chevron" : "position-row__action"}
         data-holding-id={holdingId}
         onClick={() => onOpenHolding(holdingId)}
       >
-        {compact ? "Details" : "View details"}
+        {compact ? <DisclosureIndicator /> : "View details"}
       </TextLink>
     ) : null;
   const positionContextById = new Map(
@@ -1340,6 +1354,8 @@ function ExposureView({
     0,
     visibleExposureCount,
   );
+  const requestedExposureId = requestedExposure?.exposureId ?? null;
+  const landOnGroup = requestedExposure?.focusTarget === "group";
   const requestedExposureGroup =
     requestedExposureId === null
       ? undefined
@@ -1364,29 +1380,25 @@ function ExposureView({
     visiblePositionCounts.get("unallocated") ?? HOLDINGS_POSITION_PAGE_SIZE;
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const exposureGroupsRef = useRef<HTMLDivElement>(null);
+  const targetExposureId = requestedExposureGroup?.exposure.id ?? null;
   useEffect(() => {
-    if (requestedExposureId === null) {
-      return;
-    }
-    onExposureOpenChange(requestedExposureId, true);
+    if (targetExposureId === null) return;
+    onExposureOpenChange(targetExposureId, true);
     const frame = window.requestAnimationFrame(() => {
-      const target = exposureGroupsRef.current?.querySelector<HTMLElement>(
-        `[data-exposure-id="${CSS.escape(requestedExposureId)}"] [data-slot="collapsible-trigger"]`,
+      const group = exposureGroupsRef.current?.querySelector<HTMLElement>(
+        `[data-exposure-id="${CSS.escape(targetExposureId)}"]`,
       );
-      if (target === undefined || target === null) {
-        return;
-      }
-      target.focus({ preventScroll: true });
-      target.scrollIntoView({ block: "nearest" });
+      // Full-page arrivals land on the named group. Tab reaches its disclosure.
+      const target = landOnGroup
+        ? group
+        : group?.querySelector<HTMLElement>(
+            '[data-slot="collapsible-trigger"]',
+          );
+      target?.focus({ preventScroll: true });
+      target?.scrollIntoView({ block: "nearest" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [
-    data,
-    onExposureOpenChange,
-    requestedExposureId,
-    sortDirection,
-    visibleExposureCount,
-  ]);
+  }, [landOnGroup, onExposureOpenChange, targetExposureId]);
   useEffect(() => {
     const target = loadMoreRef.current;
     if (
@@ -1431,6 +1443,7 @@ function ExposureView({
   }
   return (
     <div className="exposure-groups" ref={exposureGroupsRef}>
+      {market.error && <Notice tone="error">{market.error}</Notice>}
       {canonicalUnallocated.length > 0 && (
         <section className="unallocated-positions">
           <div className="unallocated-positions__heading">
@@ -1636,7 +1649,14 @@ function ExposureView({
           positions,
           isOpen ? null : (currentSharePrice?.label ?? null),
         );
+        const followsClosingPrice =
+          positions.length > 0 &&
+          positions.every(
+            (position) =>
+              position.valueSourceLabel === "Closing-price estimate",
+          );
         const summaryMetaLabel = [
+          followsClosingPrice ? "Before carry" : null,
           investedEstimateCount > 0
             ? `${investedEstimateCount} ${
                 investedEstimateCount === 1 ? "estimate" : "estimates"
@@ -1646,10 +1666,16 @@ function ExposureView({
         ]
           .filter((label): label is string => label !== null)
           .join(" · ");
+        const marketReview = marketByExposure.get(group.exposure.id);
+        const isLandingGroup =
+          landOnGroup && group.exposure.id === requestedExposureId;
         return (
           <Collapsible
             className="exposure-group"
             data-exposure-id={group.exposure.id}
+            role={isLandingGroup ? "group" : undefined}
+            aria-label={isLandingGroup ? displayName : undefined}
+            tabIndex={isLandingGroup ? -1 : undefined}
             key={`${searchMatches === null ? "browse" : searchQuery}:${group.exposure.id}`}
             onOpenChange={(open) =>
               onExposureOpenChange(group.exposure.id, open)
@@ -1663,7 +1689,9 @@ function ExposureView({
           >
             <CollapsibleTrigger
               aria-current={
-                group.exposure.id === requestedExposureId ? "true" : undefined
+                !landOnGroup && group.exposure.id === requestedExposureId
+                  ? "true"
+                  : undefined
               }
               className="exposure-group__summary"
             >
@@ -1704,7 +1732,10 @@ function ExposureView({
                       Known value
                     </small>
                   )}
-                  {exposureTotalsLabel(group.totals)}
+                  {exposureTotalsLabel(
+                    group.totals,
+                    marketReview !== undefined,
+                  )}
                   {hasKnownValue && unavailableValueCount > 0 && (
                     <small className="exposure-group__value-label">
                       {unavailableValueCount} value
@@ -1715,9 +1746,9 @@ function ExposureView({
                 {summaryMetaLabel.length > 0 && (
                   <small
                     className={`exposure-group__performance${
-                      currentSharePrice === null
-                        ? ""
-                        : " exposure-group__market-meta"
+                      currentSharePrice !== null || followsClosingPrice
+                        ? " exposure-group__market-meta"
+                        : ""
                     }`}
                     title={
                       currentSharePrice === null
@@ -1731,15 +1762,43 @@ function ExposureView({
               </span>
               <DisclosureIndicator className="exposure-group__indicator" />
             </CollapsibleTrigger>
+            {marketReview && marketReview.choice === null && (
+              <ActionGroup wrap>
+                <MarketReviewLink review={marketReview} />
+                <small>
+                  First public close · {marketReview.positions.length} eligible{" "}
+                  {marketReview.positions.length === 1
+                    ? "position"
+                    : "positions"}
+                </small>
+              </ActionGroup>
+            )}
             <CollapsibleContent>
               <div className="exposure-group__positions">
+                {marketReview && marketReview.choice !== null && (
+                  <ActionGroup wrap>
+                    {marketReview.choice === "follow" && (
+                      <span className="exposure-group__quote">
+                        {formatSharePrice(marketReview.quote.priceMicros)}/share
+                        · {formatDate(marketReview.quote.date)}
+                      </span>
+                    )}
+                    <MarketReviewLink
+                      review={marketReview}
+                      compact={marketReview.choice === "follow"}
+                    />
+                  </ActionGroup>
+                )}
                 {currentSharePrice !== null && (
                   <p className="exposure-group__quote">
                     {currentSharePrice.label} ·{" "}
                     {formatDate(currentSharePrice.observedAt)}
                   </p>
                 )}
-                <RecordGroup aria-label={`${displayName} positions`}>
+                <RecordGroup
+                  className="holding-position-rows"
+                  aria-label={`${displayName} positions`}
+                >
                   {matchingPositions.slice(0, positionLimit).map((position) => {
                     const positionName = positionDisplayName(position);
                     const context = positionContext(position);
@@ -1888,7 +1947,7 @@ export function InvestmentHoldings({
   onOpenHolding,
   onShowSmallBalancesChange,
   openExposureIds,
-  requestedExposureId,
+  requestedExposure,
   showSmallBalances,
   searchMatches,
   searchQuery,
@@ -1908,7 +1967,7 @@ export function InvestmentHoldings({
   onReviewImport: (importId: string) => void;
   onShowSmallBalancesChange: (open: boolean) => void;
   openExposureIds: ReadonlySet<string>;
-  requestedExposureId: string | null;
+  requestedExposure: ExposureDrilldown | null;
   showSmallBalances: boolean;
   searchMatches: HoldingsSearchMatches | null;
   searchQuery: string;
@@ -2898,7 +2957,7 @@ export function InvestmentHoldings({
           onSubmitExposureReview={(position, input) =>
             void submitExposureReview(position, input)
           }
-          requestedExposureId={requestedExposureId}
+          requestedExposure={requestedExposure}
           sortDirection={exposureSortDirection}
           visibleExposureCount={visibleExposureCount}
           visiblePositionCounts={visiblePositionCounts}

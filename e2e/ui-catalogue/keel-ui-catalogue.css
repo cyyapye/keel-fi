@@ -584,3 +584,39 @@
 .app-access-demo p {
   margin: 0;
 }
+
+.catalogue-valuation-field {
+  width: min(100%, 22rem);
+}
+
+.catalogue-holding-prices {
+  max-width: 38rem;
+  gap: var(--space-6);
+}
+
+.catalogue-holding-prices .data-list__value small {
+  display: block;
+}
+
+.catalogue-valuation-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.catalogue-valuation-prompt small {
+  color: var(--muted);
+}
+
+.keel-link.catalogue-valuation-pill:hover:not([aria-disabled="true"]) {
+  opacity: 1;
+  text-decoration: none;
+}
+
+.catalogue-valuation-pill:hover .badge {
+  color: var(--canvas);
+  background: var(--ink);
+  border-color: var(--ink);
+}

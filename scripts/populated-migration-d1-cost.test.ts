@@ -339,22 +339,30 @@ describe("populated OLD-schema D1 migration safety", () => {
       it(`certifies ${review.id} from populated ${review.frontier} at ${history} captures`, async () => {
         if (
           review.id === "app-access-v1" ||
-          review.id === "investment-history-v1"
+          review.id === "investment-history-v1" ||
+          review.id === "exposure-closing-prices-v1"
         ) {
+          const market = review.id === "exposure-closing-prices-v1";
           const investment = review.id === "investment-history-v1";
           const createdTable = (name: string) =>
-            investment
-              ? /^investment_(?:history_|transaction_|tax_lots$)/u.test(name)
-              : name.startsWith("app_access_");
-          const oldFrontier = investment ? "0094" : "0093";
-          const newFrontier = investment ? "0095" : "0094";
-          const newMigration = investment
-            ? "0095_investment_history.sql"
-            : "0094_app_access.sql";
+            market
+              ? name.startsWith("exposure_market_")
+              : investment
+                ? /^investment_(?:history_|transaction_|tax_lots$)/u.test(name)
+                : name.startsWith("app_access_");
+          const oldFrontier = market ? "0097" : investment ? "0094" : "0093";
+          const newFrontier = market ? "0098" : investment ? "0095" : "0094";
+          const newMigration = market
+            ? "0098_exposure_closing_prices.sql"
+            : investment
+              ? "0095_investment_history.sql"
+              : "0094_app_access.sql";
           expect(review.frontier).toBe(
-            investment
-              ? "0094_app_access.sql"
-              : "0093_gp_reported_total_refresh.sql",
+            market
+              ? "0097_price_metadata_continuation.sql"
+              : investment
+                ? "0094_app_access.sql"
+                : "0093_gp_reported_total_refresh.sql",
           );
           expect(review.migrations.map((m) => m.name)).toEqual([newMigration]);
           const fixture = await populatedMigrationFixture(history, oldFrontier);
@@ -370,7 +378,7 @@ describe("populated OLD-schema D1 migration safety", () => {
           );
           expect(
             pending.every((sql) =>
-              /^CREATE (?:TABLE|(?:UNIQUE )?INDEX|TRIGGER)\b/.test(
+              /^CREATE (?:TABLE|(?:UNIQUE )?INDEX|TRIGGER|VIEW)\b/.test(
                 sql.replace(/--[^\n]*(?:\n|$)/gu, "").trim(),
               ),
             ),
@@ -1026,14 +1034,14 @@ describe("populated OLD-schema D1 migration safety", () => {
     it(`certifies the unchanged applied-schema baseline with no pending SQL at ${history} captures`, async () => {
       if (
         registry.baseline.fixture !== "public-holding-history-v1" ||
-        registry.baseline.frontier !== "0097_price_metadata_continuation.sql" ||
-        registry.cases.length !== 8 ||
+        registry.baseline.frontier !== "0098_exposure_closing_prices.sql" ||
+        registry.cases.length !== 9 ||
         registry.cases[0]?.id !== "distribution-reviews-v1"
       )
         throw new Error(
           "New frontier needs an implemented baseline and OLD-schema upgrade runner, not a metadata-only approval",
         );
-      const fixture = await populatedMigrationFixture(history, "0097");
+      const fixture = await populatedMigrationFixture(history, "0098");
       const runtime = await populatedMigrationDatabase(fixture);
       let scenario: MigrationSafetyBaselineScenario;
       try {
@@ -1145,8 +1153,8 @@ describe("populated OLD-schema D1 migration safety", () => {
           ],
         );
         expect(preservation).toEqual({
-          tablesPreserved: 160,
-          schemaObjectsPreserved: 813,
+          tablesPreserved: 166,
+          schemaObjectsPreserved: 837,
           foreignKeyViolations: 0,
         });
         scenario = MigrationSafetyBaselineScenarioSchema.parse({

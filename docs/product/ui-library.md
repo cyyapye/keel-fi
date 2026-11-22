@@ -119,7 +119,10 @@ Odd rows use the light ink wash and even rows show the canvas, without
 additional row dividers. Each row has 16px inner padding. The title is 14px/600,
 value 16px/650, and supporting text 13px/400. A narrow row keeps the value
 beside its identity and the action beside its supporting facts. At 600px of
-available group width, the action occupies a trailing column.
+available group width, the action occupies a trailing column. In Holdings, a
+position name and its amount are paired primary facts. Both use 14px/600 and
+share a first baseline even when the supporting details wrap. The detail chevron
+stays in a trailing column on narrow screens.
 
 Use this composition inside an expanded disclosure when its records belong to
 one parent, including a single record. Keep parent-level copy, sharing,

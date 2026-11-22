@@ -1,3 +1,4 @@
+import { MarketCloseReview } from "./MarketCloseReview";
 import { AppAccess } from "./AppAccess";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
 import { InvestmentHistory } from "./InvestmentHistory";
@@ -14,6 +15,7 @@ import {
   PositionPurchasesEditor,
   type InvestmentDetailsHandle,
 } from "./PositionPurchasesEditor";
+import { WatchFilingRow } from "./WatchFilingRow";
 import { PortfolioWatchMonitor } from "./PortfolioWatchMonitor";
 import { formatWatchTime, mergeWatchReadState } from "./portfolio-watch-format";
 import {
@@ -241,7 +243,7 @@ function holdingsDrilldownFromLocation(): PortfolioSnapshotDrilldown | null {
     exposureId.trim().length > 0 &&
     exposureId.length <= 200
   ) {
-    return { type: "exposure", exposureId };
+    return { type: "exposure", exposureId, focusTarget: "group" };
   }
   const accessKey = search.get("access");
   if (accessKey !== null && portfolioAccessKeys.has(accessKey)) {
@@ -7376,9 +7378,9 @@ function Holdings({
             onReviewImport={reviewPendingImport}
             onShowSmallBalancesChange={setShowSmallCashBalances}
             openExposureIds={openExposureIds}
-            requestedExposureId={
+            requestedExposure={
               searchMatches === null && requestedDrilldown?.type === "exposure"
-                ? requestedDrilldown.exposureId
+                ? requestedDrilldown
                 : null
             }
             searchMatches={searchMatches}
@@ -7579,6 +7581,49 @@ function WatchNewsRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const unread = observation.readAt == null;
+  const readAction = (
+    <Button
+      tone="quiet"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        setError(null);
+        void onRead(observation.id, unread, observation.readVersion ?? 0)
+          .catch((caught: unknown) =>
+            setError(
+              caught instanceof Error
+                ? caught.message
+                : "Couldn’t save read status.",
+            ),
+          )
+          .finally(() => setBusy(false));
+      }}
+    >
+      {busy ? "Saving…" : unread ? "Mark read" : "Mark unread"}
+    </Button>
+  );
+  if (observation.eventType === "public_listing_announced" && !needsDecision) {
+    return (
+      <WatchFilingRow
+        title={observation.sourceTitle}
+        href={observation.sourceUrl}
+        metadata={
+          <>
+            {observation.companyName} · {sourceHost(observation.sourceUrl)} ·{" "}
+            <time
+              dateTime={observation.publishedAt}
+              title={`Found ${formatWatchTime(observation.retrievedAt)}`}
+            >
+              {formatDate(observation.publishedAt.slice(0, 10))}
+            </time>
+          </>
+        }
+        action={readAction}
+      >
+        {error !== null && <Notice tone="error">{error}</Notice>}
+      </WatchFilingRow>
+    );
+  }
   const fullSummary =
     observation.financingFacts === null
       ? observation.observedFact.trim()
@@ -7665,25 +7710,7 @@ function WatchNewsRow({
             Review decision
           </Button>
         )}
-        <Button
-          tone="quiet"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            setError(null);
-            void onRead(observation.id, unread, observation.readVersion ?? 0)
-              .catch((caught: unknown) =>
-                setError(
-                  caught instanceof Error
-                    ? caught.message
-                    : "Couldn’t save read status.",
-                ),
-              )
-              .finally(() => setBusy(false));
-          }}
-        >
-          {busy ? "Saving…" : unread ? "Mark read" : "Mark unread"}
-        </Button>
+        {readAction}
       </ActionGroup>
     </article>
   );
@@ -7737,18 +7764,14 @@ function PortfolioWatch({
             ? "Demo sources"
             : "Official company websites and feeds"
       }
-      renderSignals={(observations) => (
-        <div className="watch-news-list">
-          {observations.map((observation) => (
-            <WatchNewsRow
-              key={observation.id}
-              observation={observation}
-              needsDecision={decisionIds.has(observation.id)}
-              onReview={onReview}
-              onRead={onRead}
-            />
-          ))}
-        </div>
+      renderSignal={(observation) => (
+        <WatchNewsRow
+          key={observation.id}
+          observation={observation}
+          needsDecision={decisionIds.has(observation.id)}
+          onReview={onReview}
+          onRead={onRead}
+        />
       )}
     />
   );
@@ -9104,7 +9127,34 @@ export function App() {
     holdingsView,
   ]);
 
+  useEffect(() => {
+    if (
+      activeScreen !== "holdings" ||
+      holdingPositionId ||
+      holdingManualEntry ||
+      holdingsView !== "overview"
+    )
+      return;
+    const refresh = () => {
+      if (document.visibilityState === "visible")
+        void refreshHoldingsPage(true).catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", refresh);
+    return () => document.removeEventListener("visibilitychange", refresh);
+  }, [
+    activeScreen,
+    holdingPositionId,
+    holdingManualEntry,
+    holdingsView,
+    refreshHoldingsPage,
+  ]);
+
   const content = useMemo(() => {
+    const marketId = new URLSearchParams(window.location.search).get(
+      "valuation",
+    );
+    if (marketId && (activeScreen === "holdings" || activeScreen === "watch"))
+      return <MarketCloseReview id={marketId} from={activeScreen} />;
     if (activeScreen === "settings") return <AppAccess />;
     if (activeScreen === "holdings") {
       // Entity review owns its data. Do not waterfall through unrelated

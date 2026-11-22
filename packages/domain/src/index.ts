@@ -3108,6 +3108,7 @@ export const PortfolioWatchTargetSchema = z.object({
 });
 
 export const PublicSourceObservationSchema = z.object({
+  eventType: z.string().min(1).optional(),
   id: z.string().min(1),
   readAt: IsoTimestampSchema.nullable().optional(),
   readVersion: z.number().int().nonnegative().optional(),

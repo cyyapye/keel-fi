@@ -28,7 +28,7 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0098_unmeasured.sql";
+const futureMigration = "0099_unmeasured.sql";
 const immutableFrontier = "0089_manual_holdings.sql";
 const distributionFrontier = "0090_distribution_reviews.sql";
 const sourceFrontier = "0091_public_source_reviews.sql";
@@ -37,7 +37,8 @@ const gpFrontier = "0093_gp_reported_total_refresh.sql";
 const appFrontier = "0094_app_access.sql";
 const investmentFrontier = "0095_investment_history.sql";
 const economicsFrontier = "0096_economics_snapshot_lookup.sql";
-const frontier = "0097_price_metadata_continuation.sql";
+const metadataFrontier = "0097_price_metadata_continuation.sql";
+const frontier = "0098_exposure_closing_prices.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -88,7 +89,11 @@ function tableRows(
   };
 }
 function oldTableRows(history: 12 | 24, terminal = true, publicHistory = true) {
-  return tableRows(history, terminal, publicHistory, false);
+  return Object.fromEntries(
+    Object.entries(tableRows(history, terminal, publicHistory, false)).filter(
+      ([name]) => !name.startsWith("exposure_market_"),
+    ),
+  );
 }
 function receipt(): MigrationSafetyReceipt {
   return MigrationSafetyReceiptSchema.parse({
@@ -98,7 +103,7 @@ function receipt(): MigrationSafetyReceipt {
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "price-metadata-continuation-schema-v1",
+      id: "exposure-closing-prices-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -108,8 +113,8 @@ function receipt(): MigrationSafetyReceipt {
           unrelatedPositions: 120,
           fixtureHash: "d".repeat(64),
           tableRows: tableRows(24),
-          tablesPreserved: 160,
-          schemaObjectsPreserved: 813,
+          tablesPreserved: 166,
+          schemaObjectsPreserved: 837,
           foreignKeyViolations: 0,
           immutableProbes: 3,
           validation: "applied-schema-preservation",
@@ -136,46 +141,56 @@ function receipt(): MigrationSafetyReceipt {
         ...upgradeScenario(),
         history,
         fixtureHash: (history === 12 ? "c" : "d").repeat(64),
-        tableRows: [
-          "economics-snapshot-lookup-v1",
-          "price-metadata-continuation-v1",
-        ].includes(review.id)
-          ? oldTableRows(history as 12 | 24)
-          : Object.fromEntries(
-              Object.entries(
-                oldTableRows(
-                  history as 12 | 24,
-                  review.id === "app-access-v1" ||
-                    review.id === "investment-history-v1",
-                  review.id !== "distribution-reviews-v1",
+        tableRows:
+          review.id === "exposure-closing-prices-v1"
+            ? Object.fromEntries(
+                Object.entries(tableRows(history as 12 | 24)).filter(
+                  ([name]) => !name.startsWith("exposure_market_"),
                 ),
-              ).filter(
-                ([name]) =>
-                  !name.startsWith("app_access_") &&
-                  !name.startsWith("investment_history_") &&
-                  !name.startsWith("investment_transaction_") &&
-                  name !== "investment_tax_lots",
-              ),
-            ),
-        tablesPreserved: [
-          "economics-snapshot-lookup-v1",
-          "price-metadata-continuation-v1",
-        ].includes(review.id)
-          ? 159
-          : Object.keys(
-              oldTableRows(
-                history as 12 | 24,
-                review.id === "app-access-v1" ||
-                  review.id === "investment-history-v1",
-                review.id !== "distribution-reviews-v1",
-              ),
-            ).filter(
-              (name) =>
-                !name.startsWith("app_access_") &&
-                !name.startsWith("investment_history_") &&
-                !name.startsWith("investment_transaction_") &&
-                name !== "investment_tax_lots",
-            ).length,
+              )
+            : [
+                  "economics-snapshot-lookup-v1",
+                  "price-metadata-continuation-v1",
+                ].includes(review.id)
+              ? oldTableRows(history as 12 | 24)
+              : Object.fromEntries(
+                  Object.entries(
+                    oldTableRows(
+                      history as 12 | 24,
+                      review.id === "app-access-v1" ||
+                        review.id === "investment-history-v1",
+                      review.id !== "distribution-reviews-v1",
+                    ),
+                  ).filter(
+                    ([name]) =>
+                      !name.startsWith("app_access_") &&
+                      !name.startsWith("investment_history_") &&
+                      !name.startsWith("investment_transaction_") &&
+                      name !== "investment_tax_lots",
+                  ),
+                ),
+        tablesPreserved:
+          review.id === "exposure-closing-prices-v1"
+            ? 160
+            : [
+                  "economics-snapshot-lookup-v1",
+                  "price-metadata-continuation-v1",
+                ].includes(review.id)
+              ? 159
+              : Object.keys(
+                  oldTableRows(
+                    history as 12 | 24,
+                    review.id === "app-access-v1" ||
+                      review.id === "investment-history-v1",
+                    review.id !== "distribution-reviews-v1",
+                  ),
+                ).filter(
+                  (name) =>
+                    !name.startsWith("app_access_") &&
+                    !name.startsWith("investment_history_") &&
+                    !name.startsWith("investment_transaction_") &&
+                    name !== "investment_tax_lots",
+                ).length,
         rowsRead: 10,
         rowsWritten: 4,
         inboundForeignKeyPlans:
@@ -184,6 +199,7 @@ function receipt(): MigrationSafetyReceipt {
           review.id === "price-metadata-continuation-v1"
             ? "indexed-current-head-backfill-no-parent-rebuild"
             : review.id === "app-access-v1" ||
+                review.id === "exposure-closing-prices-v1" ||
                 review.id === "investment-history-v1"
               ? "indexed-new-tables-no-parent-rebuild"
               : "not-applicable-trigger-only-no-table-dml",
@@ -292,16 +308,21 @@ describe("populated D1 migration evidence", () => {
       {
         id: "price-metadata-continuation-v1",
         frontier: economicsFrontier,
+        migrations: [{ name: metadataFrontier }],
+      },
+      {
+        id: "exposure-closing-prices-v1",
+        frontier: metadataFrontier,
         migrations: [{ name: frontier }],
       },
     ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "price-metadata-continuation-schema-v1",
+      id: "exposure-closing-prices-schema-v1",
       frontier,
       pending: [],
     });
-    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(160);
+    expect(IMPLEMENTED_BASELINE_TABLES).toHaveLength(166);
   });
 
   it("refuses a registry that attempts to approve rewritten applied history", () => {
@@ -376,7 +397,7 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "price-metadata-continuation-schema-v1",
+      caseId: "exposure-closing-prices-schema-v1",
       migrationCost: null,
       footprint: { households: 2, holding_position_snapshots: 6241 },
     });
@@ -396,13 +417,13 @@ describe("populated D1 migration evidence", () => {
     ).toMatchObject({ rowsRead: 10, rowsWritten: 4 });
     expect(
       admit(evidence, {
-        frontier: economicsFrontier,
+        frontier: metadataFrontier,
         pending: [frontier],
         gitSha,
       }),
     ).toMatchObject({
       kind: "upgrade",
-      caseId: "price-metadata-continuation-v1",
+      caseId: "exposure-closing-prices-v1",
       migrationCost: { rowsRead: 10, rowsWritten: 4 },
     });
     // An older target has several pending migrations; no individual case claims that complete sequence.
@@ -417,6 +438,7 @@ describe("populated D1 migration evidence", () => {
           appFrontier,
           investmentFrontier,
           economicsFrontier,
+          metadataFrontier,
           frontier,
         ],
         gitSha,
@@ -468,6 +490,7 @@ describe("populated D1 migration evidence", () => {
           appFrontier,
           investmentFrontier,
           economicsFrontier,
+          metadataFrontier,
           frontier,
         ],
         gitSha,

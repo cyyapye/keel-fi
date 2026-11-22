@@ -1,4 +1,8 @@
 import {
+  OfficialCloseSchema,
+  recordOfficialClose,
+} from "@keel/database/market-close";
+import {
   decideSourceLifecycle,
   discoverCompanyWebCandidatesFromFeed,
   discoverCompanyWebCandidatesFromHtml,
@@ -894,6 +898,12 @@ export async function handlePortfolioWatchQueue(
           delaySeconds: PLAID_HOLDINGS_QUEUE_RETRY_DELAY_SECONDS,
         });
       }
+      continue;
+    }
+    const close = OfficialCloseSchema.safeParse(queued.body);
+    if (close.success) {
+      await recordOfficialClose(env.DB, close.data);
+      queued.ack();
       continue;
     }
     const parsed = PortfolioWatchSourceJobMessageSchema.safeParse(queued.body);

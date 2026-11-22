@@ -105,6 +105,62 @@ Third-party press rooms, cross-host feeds, JavaScript-only pages, and sites that
 redirect away from the approved host are coverage gaps in this first version.
 They are not silently trusted.
 
+## IPO monitoring rollout
+
+Holdings is the primary entry point. Watch surfaces the same exposure decision
+for people who follow news. Opening an article, marking it read and choosing a
+valuation source are three independent actions.
+
+| Stage                | Source and identity                                                                                                                                                                                                                                                       | What the user sees                                                                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public filing        | Match the reviewed issuer to an SEC CIK. Ingest its public S‑1 or F‑1 from EDGAR, including the accession number and original document URL. Keep amendments in the same offering history. A company announcement of a confidential submission can appear as company news. | An Unread headline opens the original source in a new tab. Existing position values continue to use their current sources.                                                                              |
+| Listing confirmed    | Reconcile the issuer, exchange, instrument identifier, currency, security class and share-conversion or split terms against the final prospectus and exchange listing. A tentative symbol can change.                                                                     | Coverage can explain an unresolved match. A confirmed listing alone creates no valuation decision.                                                                                                      |
+| First official close | Read the regular-session official close for the confirmed instrument from an entitled end-of-day source. Preserve its venue, session date, currency, unadjusted price and revision. A delayed observation can replay the first session from history.                      | One **Review valuation** action appears under the collapsed exposure and in Watch Decisions. Its review names each eligible legal position and compares current and proposed estimates before carry.    |
+| User decides         | Record one version-checked exposure choice covering the reviewed eligible positions. Both entry points use the same decision.                                                                                                                                             | **Use closing price** clears both prompts. **Keep current sources** also resolves this proposal. The user can revisit the source from the expanded exposure.                                            |
+| Subsequent sessions  | Apply new accepted official closes only to covered shares compatible with the chosen instrument and basis. Retain the last accepted close and its date over weekends, missing sessions or source outages. Preserve corrections and superseded observations.               | Both eligible estimates advance without daily approval. Holding details show the selected close and latest GP evidence separately. Incoming GP marks retain their own source, date and carry treatment. |
+
+Run `make dev SCENARIO=closing-price` to try this in the local app. The
+synthetic portfolio starts with two Cedar Robotics positions and a first
+official close of
+$50. Choose **Review valuation** in Holdings or Portfolio Watch → Decisions,
+then **Use closing price for 2 positions**. Open `/local-feed` on the same
+local web address to deliver the next $52
+close. Holdings then shows $5,200 for
+Grove and $3,120 for Summit. The local feed
+exercises the same ingestion and valuation logic as a trusted close event.
+
+**Implementation order for live source coverage.**
+
+1. Extend the official-company discovery path to recognize filing links. Add
+   autonomous EDGAR discovery by verified CIK and deduplicate by accession.
+   First activation needs a bounded historical lookup for companies already
+   trading when monitoring starts.
+2. Confirm the listing instrument. Use authoritative identifiers and reviewed
+   conversion terms for private shares. Keep an ambiguous issuer, class,
+   currency or conversion out of price-based estimates. An SPV unit count by
+   itself does not establish the underlying share count.
+3. Connect one official-close feed and pass a synthetic first-close, next-close,
+   correction and missed-session replay before enabling a live issuer. For a
+   Nasdaq pilot, an entitled feed with an explicit official closing statistic is
+   the candidate. Price ranges, offer prices, intraday trades and security
+   values inferred from brokerage balances cannot start the policy.
+4. Fetch each tracked instrument once per completed session, with bounded replay
+   after an outage. Route its immutable evidence to interested exposures during
+   ingestion. Repeated delivery must leave one decision and one accepted
+   revision for that event. A withdrawn offering stops discovery of closes. Keep
+   financial reads projection-only and certify the request and D1 cost envelope
+   before enabling a new scheduled producer.
+
+Feed selection and deployment are separate from the approved screens. The
+existing weekly company-site scan supplies news and cannot guarantee same-day
+filing or close coverage. Measure detection lag, unmatched instruments and
+missed sessions during the pilot.
+
+Technical references:
+[SEC submissions API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
+and
+[Nasdaq official closing statistics distributed by Databento](https://databento.com/docs/datasets/xnas-itch).
+
 ## Check cadence
 
 The existing daily `0 13 * * *` Worker trigger also performs one bounded due

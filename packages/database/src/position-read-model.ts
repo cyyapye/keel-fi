@@ -66,6 +66,8 @@ type InvestmentContainerRow = {
 
 type InvestmentPositionRow = {
   manual_context_json: string | null;
+  latest_gp_json?: string | null;
+  market_quote_json?: string | null;
   purchase_receipt_json?: string | null;
   price_proxy_status_json?: string | null;
   linked_value_json: string | null;
@@ -343,7 +345,18 @@ function positionFromRow(
     purchaseReceipt:
       row.purchase_receipt_json == null
         ? null
-        : PurchaseReceiptSchema.parse(JSON.parse(row.purchase_receipt_json)),
+        : PurchaseReceiptSchema.parse({
+            ...(JSON.parse(row.purchase_receipt_json) as Record<
+              string,
+              unknown
+            >),
+            latestGpPrice: row.latest_gp_json
+              ? (JSON.parse(row.latest_gp_json) as unknown)
+              : undefined,
+            publicClose: row.market_quote_json
+              ? (JSON.parse(row.market_quote_json) as unknown)
+              : undefined,
+          }),
     acceptedValueAdjustment,
     acceptedEconomicsTerms,
     reportedEconomicsTerms,
@@ -511,6 +524,13 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
                SELECT * FROM holding_positions WHERE household_id=(SELECT household_id FROM scope) AND provider IN('angellist','sydecar','tokenfolio','wefunder','manual')
                UNION ALL SELECT p.* FROM public_holding_active_positions active CROSS JOIN holding_positions p ON p.id=active.position_id WHERE active.household_id=(SELECT household_id FROM scope)
              ) SELECT
+             (SELECT json_object('priceMicros',gp.price_micros,'priceDate',gp.price_date,'sourceLabel',gp.source_label)
+               FROM exposure_market_members member JOIN holding_price_current_quotes gp_head ON gp_head.source_position_id=member.position_id
+               JOIN holding_price_quotes gp ON gp.id=gp_head.quote_id WHERE member.position_id=position.id) latest_gp_json,
+             (SELECT json_set(price.quote_json,'$.exposureId',member.exposure_id) FROM exposure_market_members member
+               JOIN exposure_market_candidates candidate ON candidate.position_id=member.position_id AND candidate.mapping_id=member.mapping_id AND candidate.exposure_id=member.exposure_id
+               JOIN exposure_market_prices price ON price.exposure_id=member.exposure_id
+               WHERE member.position_id=position.id) AS market_quote_json,
              purchase_review.receipt_json AS purchase_receipt_json,
              CASE WHEN proxy_link.position_id IS NOT NULL THEN json_object(
                'lastObservationAt',proxy_observation.observed_at,

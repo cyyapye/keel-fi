@@ -48,9 +48,16 @@ function sourceFacts(source: string) {
   }[] = [];
   const nativeDateInputs: { component: string; line: number }[] = [];
   let navigationIndicators = 0;
+  const disclosureIndicatorCounts: number[] = [];
   function visit(node: ts.Node) {
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const component = node.tagName.getText(file);
+      if (component === "CollapsibleTrigger") {
+        const trigger = ts.isJsxOpeningElement(node) ? node.parent : node;
+        disclosureIndicatorCounts.push(
+          trigger.getText(file).match(/<DisclosureIndicator\b/gu)?.length ?? 0,
+        );
+      }
       const attributes = new Map<string, string>();
       let nativeDate = false;
       for (const attribute of node.attributes.properties) {
@@ -75,17 +82,22 @@ function sourceFacts(source: string) {
           nativeDate = true;
       }
       elements.push({ component, attributes });
-      if (component === "DisclosureIndicator" && ts.isJsxElement(node.parent)) {
-        const parent = node.parent.openingElement;
-        if (
-          parent.tagName.getText(file) === "TextLink" &&
-          parent.attributes.properties.some(
-            (attribute) =>
-              ts.isJsxAttribute(attribute) &&
-              attribute.name.getText(file) === "href",
+      if (component === "DisclosureIndicator") {
+        let container = node.parent;
+        while (container && !ts.isJsxElement(container))
+          container = container.parent;
+        if (container) {
+          const parent = container.openingElement;
+          if (
+            parent.tagName.getText(file) === "TextLink" &&
+            parent.attributes.properties.some(
+              (attribute) =>
+                ts.isJsxAttribute(attribute) &&
+                ["href", "onClick"].includes(attribute.name.getText(file)),
+            )
           )
-        )
-          navigationIndicators++;
+            navigationIndicators++;
+        }
       }
       if (inputs.has(component) && nativeDate)
         nativeDateInputs.push({
@@ -97,7 +109,12 @@ function sourceFacts(source: string) {
     ts.forEachChild(node, visit);
   }
   visit(file);
-  return { elements, nativeDateInputs, navigationIndicators };
+  return {
+    elements,
+    nativeDateInputs,
+    navigationIndicators,
+    disclosureIndicatorCounts,
+  };
 }
 
 const webSources = reactSourceFiles(webSourceDirectory).map((path) => {
@@ -176,7 +193,12 @@ describe("shared UI usage", () => {
 
   it("routes app disclosures through the shared Collapsible composition", () => {
     const violations = webSources.flatMap(
-      ({ relativePath, source, navigationIndicators }) => {
+      ({
+        relativePath,
+        source,
+        navigationIndicators,
+        disclosureIndicatorCounts,
+      }) => {
         const disclosureCount = source.match(/<Collapsible\b/gu)?.length ?? 0;
         const triggerCount =
           source.match(/<CollapsibleTrigger\b/gu)?.length ?? 0;
@@ -188,11 +210,12 @@ describe("shared UI usage", () => {
         const nativeDetailsCount = source.match(/<details\b/gu)?.length ?? 0;
         return disclosureCount === triggerCount &&
           triggerCount === contentCount &&
-          contentCount === indicatorCount &&
+          indicatorCount === triggerCount &&
+          disclosureIndicatorCounts.every((count) => count === 1) &&
           nativeDetailsCount === 0
           ? []
           : [
-              `${relativePath}: ${disclosureCount} roots, ${triggerCount} triggers, ${contentCount} panels, ${indicatorCount} indicators, ${nativeDetailsCount} native details`,
+              `${relativePath}: ${disclosureCount} roots, ${triggerCount} triggers, ${contentCount} panels, indicators per trigger [${disclosureIndicatorCounts.join(", ")}], ${nativeDetailsCount} native details`,
             ];
       },
     );

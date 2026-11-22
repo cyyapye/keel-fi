@@ -83,8 +83,8 @@ export const MigrationSafetyBaselineScenarioSchema = z
   .object({
     ...commonScenario,
     history: z.literal(24),
-    tablesPreserved: z.literal(160),
-    schemaObjectsPreserved: z.literal(813),
+    tablesPreserved: z.literal(166),
+    schemaObjectsPreserved: z.literal(837),
     validation: z.literal("applied-schema-preservation"),
     migrationMeasurement: z.literal("not-applicable-no-pending-sql"),
     inboundForeignKeyPlans: z.literal("observed-existing-index-and-scan-plans"),
@@ -216,6 +216,12 @@ export const IMPLEMENTED_BASELINE_TABLES: readonly string[] = [
   "evidence_applications",
   "evidence_claims",
   "evidence_events",
+  "exposure_market_closes",
+  "exposure_market_decisions",
+  "exposure_market_heads",
+  "exposure_market_listings",
+  "exposure_market_members",
+  "exposure_market_news_reads",
   "forecast_outputs",
   "forecast_snapshots",
   "goal_forecast_snapshots",
@@ -343,7 +349,7 @@ const digest = (value: string | Uint8Array) =>
 const same = (left: unknown, right: unknown) =>
   JSON.stringify(left) === JSON.stringify(right);
 const baselineTableNamesDigest =
-  "fa7064c121d4fd14258c0c9b959b749ef3560d6bd88cc197c8a897cc9d110e83";
+  "0988dde5656c47b75087ec3e2d0473e3ac62231fd19c2b33d1894288281d6140";
 const safetySources = [
   "package.json",
   "pnpm-lock.yaml",
@@ -445,15 +451,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "price-metadata-continuation-schema-v1" ||
-    registry.baseline.frontier !== "0097_price_metadata_continuation.sql" ||
+    registry.baseline.id !== "exposure-closing-prices-schema-v1" ||
+    registry.baseline.frontier !== "0098_exposure_closing_prices.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 8 ||
+    registry.cases.length !== 9 ||
+    registry.cases[8]?.id !== "exposure-closing-prices-v1" ||
+    registry.cases[8].frontier !== "0097_price_metadata_continuation.sql" ||
+    registry.cases[8].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[8].migrations.map((m) => m.name),
+      ["0098_exposure_closing_prices.sql"],
+    ) ||
     registry.cases[7]?.id !== "price-metadata-continuation-v1" ||
     registry.cases[7].frontier !== "0096_economics_snapshot_lookup.sql" ||
     registry.cases[7].fixture !== "public-holding-history-v1" ||
@@ -675,6 +688,7 @@ export function validateMigrationSafetyReceipt(
             review.id === "price-metadata-continuation-v1"
               ? "indexed-current-head-backfill-no-parent-rebuild"
               : review.id === "app-access-v1" ||
+                  review.id === "exposure-closing-prices-v1" ||
                   review.id === "investment-history-v1"
                 ? "indexed-new-tables-no-parent-rebuild"
                 : "not-applicable-trigger-only-no-table-dml"),

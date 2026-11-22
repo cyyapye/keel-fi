@@ -1272,6 +1272,8 @@ test("every area inventory entry links to its associated independent journeys", 
       .filter((journey) => journey.areas.includes(id))
       .map((journey) => journey.steps[0]!.id);
     if (id === "overview" || id === "holdings") expected.unshift("portfolio");
+    if (id === "holdings") expected.push("closing-price");
+    if (id === "watch") expected.push("closing-price-watch");
     expect(expected.length).toBeGreaterThan(0);
     await expect(area.getByRole("link")).toHaveCount(expected.length);
     for (const step of expected) {
@@ -1776,4 +1778,367 @@ test("specialized task routes preserve their native context and separate legal-e
   await expect(
     page.getByRole("region", { name: "Accepted source value outcome" }),
   ).toBeVisible();
+});
+
+test("one exposure decision applies each close to both SPVs", async ({
+  page,
+}) => {
+  await page.goto("/ui/#journeys/closing-price");
+  const company = page.getByRole("button", {
+    name: /Cedar Robotics.*2 positions/,
+  });
+  await expect(
+    page.getByRole("heading", { name: "Holdings", exact: true }),
+  ).toBeVisible();
+  await expect(company).toHaveAttribute("aria-expanded", "false");
+  const review = page.getByRole("link", {
+    name: /^Review valuation\b/,
+  });
+  await expect(company).toContainText("1 estimate");
+  const approve = page.getByRole("button", {
+    name: "Use closing price for 2 positions",
+  });
+  const pendingReview = page.getByRole("link", {
+    name: "Review valuation for Cedar Robotics",
+    exact: true,
+  });
+  await expect(pendingReview).toBeVisible();
+  await pendingReview.hover();
+  await expect(pendingReview).toHaveCSS("text-decoration-line", "none");
+  await company.focus();
+  await page.keyboard.press("Tab");
+  await expect(pendingReview).toBeFocused();
+  await expect(pendingReview).toHaveCSS("outline-style", "solid");
+  await page.keyboard.press("Enter");
+  await expect(approve).toBeVisible();
+  await page.getByRole("link", { name: "Back to Holdings" }).click();
+  await expect(company).toHaveAttribute("aria-expanded", "false");
+  await expect(pendingReview).toBeVisible();
+  await company.focus();
+  await page.keyboard.press("Enter");
+  const exposure = page.getByRole("region", { name: "Exposure valuation" });
+  const grove = exposure.getByRole("listitem").filter({ hasText: "Grove SPV" });
+  const summit = exposure
+    .getByRole("listitem")
+    .filter({ hasText: "Summit SPV" });
+  await expect(approve).toBeHidden();
+  for (const name of ["Grove SPV", "Summit SPV"]) {
+    await exposure.getByRole("link", { name: `Open ${name}` }).click();
+    await expect(
+      page.getByRole("heading", { name, exact: true }),
+    ).toBeVisible();
+    await expect(approve).toBeHidden();
+    await page.goBack();
+    await expect(company).toHaveAttribute("aria-expanded", "true");
+  }
+  await review.click();
+  await expect(
+    page.getByRole("heading", { name: "Use CDR’s closing price?" }),
+  ).toBeFocused();
+  await expect(exposure).toBeHidden();
+  const affected = page.getByRole("table", { name: "Position values" });
+  await expect(affected.getByRole("columnheader").nth(1)).toHaveText(
+    "Current sources",
+  );
+  await expect(affected.getByRole("columnheader").last()).toContainText(
+    "Closing price",
+  );
+  for (const [position, close] of [
+    ["Grove SPV", "$5,000"],
+    ["Summit SPV", "$3,000"],
+  ] as const) {
+    await expect(
+      affected
+        .getByRole("row", { name: new RegExp(position) })
+        .getByRole("cell")
+        .last(),
+    ).toHaveText(close);
+  }
+  await page.getByRole("link", { name: "Keep current sources" }).click();
+  await expect(company).toBeFocused();
+  await expect(pendingReview).toHaveCount(0);
+  await company.click();
+  await expect(review).toBeHidden();
+  await company.click();
+  await expect(grove).toContainText("$4,000");
+  await expect(summit).toContainText("$2,700");
+  const reopenReview = exposure.getByRole("link", {
+    name: "Review valuation",
+    exact: true,
+  });
+  await reopenReview.hover();
+  await expect(reopenReview).toHaveCSS("text-decoration-line", "none");
+  await reopenReview.click();
+  await approve.click();
+  await expect(company).toHaveAttribute("aria-expanded", "true");
+  await expect(grove).toContainText("$5,000");
+  await expect(summit).toContainText("$3,000");
+  await expect(company).toContainText("$8,000");
+  await expect(exposure.getByText("$50/share · Jun 2, 2026")).toBeVisible();
+  await expect(review).toBeHidden();
+  await grove.getByRole("link").click();
+  const valuation = page.getByRole("region", {
+    name: "Valuation",
+    exact: true,
+  });
+  const gpMark = valuation
+    .getByRole("definition")
+    .filter({ hasText: "Grove SPV" });
+  const closingPrice = valuation
+    .getByRole("definition")
+    .filter({ hasText: "$50/share" });
+  await expect(valuation).toContainText(
+    "100 Class A shares at CDR’s closing price",
+  );
+  await expect(closingPrice).toContainText("Jun 2, 2026");
+  await expect(gpMark).toContainText("$40/share");
+  await expect(gpMark).toContainText("May 29, 2026");
+  await page.getByRole("button", { name: "Preview next GP mark" }).click();
+  await expect(gpMark).toContainText("$42/share");
+  await expect(gpMark).toContainText("Jun 3, 2026");
+  await expect(closingPrice).toContainText("Jun 2, 2026");
+  await expect(valuation).toContainText("$5,000");
+  await page.getByRole("link", { name: "Back to Holdings" }).click();
+  await expect(company).toContainText("$8,000");
+  await expect(review).toBeHidden();
+  await summit.getByRole("link").click();
+  const elmMark = valuation
+    .getByRole("definition")
+    .filter({ hasText: "Elm SPV · proxy source" });
+  await expect(elmMark).toContainText("$45/share");
+  await expect(elmMark).toContainText("May 29, 2026");
+  await page.getByRole("link", { name: "Back to Holdings" }).click();
+  await page.getByRole("button", { name: "Preview next trading day" }).click();
+  await expect(grove).toContainText("$5,200");
+  await expect(summit).toContainText("$3,120");
+  await expect(company).toContainText("$8,320");
+  await expect(exposure.getByText("$52/share · Jun 3, 2026")).toBeVisible();
+  await expect(company).toContainText("2 estimates");
+  await expect(approve).toBeHidden();
+  await grove.getByRole("link").click();
+  await expect(valuation).toContainText("$5,200");
+  await expect(valuation).toContainText("$52/share");
+  await expect(gpMark).toContainText("$42/share");
+  await page.getByRole("link", { name: "Back to Holdings" }).click();
+  const changeSource = exposure.getByRole("link", {
+    name: "Change source for both Cedar Robotics positions",
+    exact: true,
+  });
+  await changeSource.click();
+  await expect(affected.getByRole("columnheader").nth(1)).toContainText(
+    "Current close",
+  );
+  await expect(affected.getByRole("columnheader").last()).toHaveText(
+    "Prior sources",
+  );
+  await expect(
+    affected.getByRole("row", { name: /Total/ }).getByRole("cell"),
+  ).toHaveText(["$8,320", "$6,700"]);
+  await page
+    .getByRole("link", { name: "Keep closing price", exact: true })
+    .click();
+  await expect(company).toContainText("$8,320");
+  await expect(exposure.getByText("$52/share · Jun 3, 2026")).toBeVisible();
+  await expect(review).toHaveCount(0);
+  await changeSource.click();
+  await page
+    .getByRole("button", { name: "Restore sources for 2 positions" })
+    .click();
+  await expect(company).toContainText("$6,700");
+  await expect(company).toContainText("1 estimate");
+  await expect(pendingReview).toHaveCount(0);
+  await expect(
+    exposure.getByRole("link", { name: "Review valuation", exact: true }),
+  ).toBeVisible();
+});
+
+test("an IPO filing is news and one Watch decision resolves both Holdings estimates", async ({
+  page,
+}) => {
+  await page.goto("/ui/#journeys");
+  await page.getByRole("link", { name: "Start from Portfolio Watch" }).click();
+  const button = (name: string) =>
+    page.getByRole("button", { name, exact: true });
+  const link = (name: string) => page.getByRole("link", { name, exact: true });
+  const chip = link("Review valuation for Cedar Robotics");
+  const company = page.getByRole("button", {
+    name: /Cedar Robotics.*2 positions/,
+  });
+  const position = (name: string) =>
+    page
+      .getByRole("list", { name: "Positions in Cedar Robotics" })
+      .getByRole("listitem")
+      .filter({ hasText: name });
+  await expect(button("Unread (1)")).toHaveAttribute("aria-pressed", "true");
+  const filing = page.getByRole("article", {
+    name: "Cedar Robotics files for an IPO",
+  });
+  const headline = filing.getByRole("link", {
+    name: "Cedar Robotics files for an IPO",
+  });
+  const [source] = await Promise.all([
+    page.waitForEvent("popup"),
+    headline.click(),
+  ]);
+  await expect(source).toHaveTitle("Cedar Robotics · Sample Form S-1");
+  await expect(
+    source.getByText("Sample filing · Fictional company"),
+  ).toBeVisible();
+  await expect(
+    source.getByRole("heading", { name: "Proposed offering" }),
+  ).toBeVisible();
+  await source.close();
+  await expect(button("Unread (1)")).toHaveAttribute("aria-pressed", "true");
+  await expect(button("Decisions (0)")).toBeVisible();
+  await expect(link("View Holdings")).toHaveCount(0);
+  await filing.getByRole("button", { name: "Mark read" }).click();
+  await expect(button("Unread (0)")).toBeVisible();
+  await button("All updates").click();
+  await expect(headline).toBeVisible();
+  await expect(link("View Holdings")).toHaveCount(0);
+  await page.goto("/ui/#journeys/closing-price");
+  await expect(company).toContainText("$6,700");
+  await expect(chip).toHaveCount(0);
+  await link("Portfolio Watch").click();
+  await button("Preview first close").click();
+  await expect(button("Decisions (1)")).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("article", { name: "First public close" }),
+  ).toContainText("Cedar Robotics’ first close is $50/share");
+  await expect(link("View Holdings")).toHaveCount(0);
+  await page.goto("/ui/#journeys/closing-price");
+  await expect(company).toContainText("$6,700");
+  await expect(chip).toBeVisible();
+  await link("Portfolio Watch").click();
+  await chip.click();
+  await expect(link("Back to Decisions")).toBeVisible();
+  await expect(
+    page
+      .getByRole("table", { name: "Position values" })
+      .locator("tbody")
+      .getByRole("row"),
+  ).toHaveCount(2);
+  await button("Use closing price for 2 positions").click();
+  await expect(button("Decisions (0)")).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByText("No decisions needed", { exact: true }),
+  ).toBeVisible();
+  await link("View Holdings").click();
+  await expect(company).toContainText("$8,000");
+  await expect(chip).toHaveCount(0);
+  await expect(position("Grove SPV")).toContainText("$5,000");
+  await expect(position("Summit SPV")).toContainText("$3,000");
+  await expect(
+    page.getByText("Closing-price estimate", { exact: true }),
+  ).toHaveCount(2);
+  await page.reload();
+  await expect(company).toContainText("$8,000");
+  await expect(chip).toHaveCount(0);
+  await button("Preview next trading day").click();
+  await expect(position("Grove SPV")).toContainText("$5,200");
+  await expect(position("Summit SPV")).toContainText("$3,120");
+  await link("Portfolio Watch").click();
+  await expect(button("Decisions (0)")).toBeVisible();
+  await button("All updates").click();
+  await expect(filing).toBeVisible();
+  await expect(
+    page.getByRole("article", { name: "First public close" }),
+  ).toContainText("Both positions follow the close");
+});
+
+test("GP marks respect the source selected for each position", async ({
+  page,
+}) => {
+  const company = page.getByRole("button", {
+    name: /Cedar Robotics.*positions/,
+  });
+  const pending = page.getByRole("link", {
+    name: "Review valuation for Cedar Robotics",
+  });
+  const position = (name: string) =>
+    page
+      .getByRole("listitem")
+      .filter({ has: page.getByRole("link", { name: "Open " + name }) });
+  const next = page.getByRole("button", { name: "Preview next GP mark" });
+  await page.goto("/ui/#journeys/gp-separate");
+  await company.click();
+  await expect(pending).toHaveCount(0);
+  await expect(position("Grove SPV")).toContainText("GP report · $40/share");
+  await expect(position("Summit SPV")).toContainText("GP report · $45/share");
+  for (const [scenario, expected] of [
+    ["Followed GP mark", "$2,520"],
+    ["One-time GP proxy", "$2,400"],
+  ]) {
+    await page.getByRole("combobox", { name: "Walkthrough scenario" }).click();
+    await page.getByRole("option", { name: scenario!, exact: true }).click();
+    await next.click();
+    await expect(pending).toHaveCount(0);
+    await expect(position("Grove SPV")).toContainText("$4,000");
+    await expect(position("Summit SPV")).toContainText(expected!);
+  }
+  await position("Summit SPV").getByRole("link").click();
+  await page.getByRole("link", { name: "Edit valuation" }).click();
+  await page
+    .getByRole("button", { name: "Save source for Summit SPV" })
+    .click();
+  await expect(position("Summit SPV")).toContainText("$2,520");
+});
+
+test("choosing a GP proxy through Holdings prices only the unvalued SPV", async ({
+  page,
+}) => {
+  await page.goto("/ui/#journeys/gp-choice");
+  const review = page.getByRole("link", {
+    name: "Review valuation for Cedar Robotics",
+  });
+  const company = page.getByRole("button", {
+    name: /Cedar Robotics.*3 positions/,
+  });
+  await expect(company).toContainText("$6,700");
+  await expect(company).toContainText("2 of 3 positions valued");
+  await expect(company).toContainText("Known value before carry");
+  await review.click();
+  const save = page.getByRole("button", { name: "Save source for Vale SPV" });
+  await expect(save).toBeDisabled();
+  await page.getByRole("link", { name: "Leave Vale unvalued" }).click();
+  await expect(review).toHaveCount(0);
+  const vale = page
+    .getByRole("listitem")
+    .filter({ hasText: "Vale SPV" })
+    .filter({ has: page.getByRole("link", { name: "Open Vale SPV" }) });
+  await expect(vale).toContainText("Value unavailable");
+  await vale.getByRole("link").click();
+  await page.getByRole("link", { name: "Edit valuation" }).click();
+  const source = page.getByRole("combobox", { name: "Source", exact: true });
+  await source.click();
+  await page.getByRole("option", { name: /Summit SPV/ }).click();
+  const preview = page
+    .getByRole("status")
+    .filter({ hasText: "Estimate before carry" });
+  await expect(preview).toContainText("$900");
+  await expect(preview).toContainText("20 shares × $45/share · May 29");
+  await page.getByRole("button", { name: "Walkthrough controls" }).click();
+  await page.getByRole("button", { name: "Preview a failed save" }).click();
+  await expect(page.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(page.getByRole("alert")).toContainText(
+    "Couldn’t save the price source",
+  );
+  await expect(source).toContainText("Summit SPV");
+  await save.click();
+  await expect(vale).toContainText("$900");
+  await expect(company).not.toContainText("2 of 3");
+  await expect(company).not.toContainText("Known value");
+  await page.getByRole("button", { name: "Preview next GP mark" }).click();
+  await expect(vale).toContainText("$940");
+  await expect(company).toContainText("$7,640");
+  await expect(review).toHaveCount(0);
+  await vale.getByRole("link").click();
+  await page.getByRole("link", { name: "Edit valuation" }).click();
+  await source.click();
+  await page.getByRole("option", { name: /Grove SPV/ }).click();
+  await expect(preview).toContainText("$800");
+  await expect(preview).toContainText("20 shares × $40/share · May 29");
+  await save.click();
+  await expect(vale).toContainText("$800");
+  await expect(company).toContainText("$7,500");
 });
