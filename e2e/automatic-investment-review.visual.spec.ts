@@ -237,7 +237,9 @@ test(
         exact: true,
       }),
     });
-    await row.getByRole("button").click();
+    await row
+      .getByRole("link", { name: "Open Synthetic Orchard 0 SPV LLC details" })
+      .click();
     const review = page.getByRole("region", {
       name: "Investment review",
       exact: true,

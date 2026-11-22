@@ -349,14 +349,16 @@ test(
     await page.reload();
     await expect(
       page
-        .locator(".legal-entity-row")
-        .filter({ hasText: "Reviewed name: Demo Climate LLC" }),
-    ).toBeVisible();
-    await expect(
-      page
         .locator(".legal-entity-candidate:visible, .entity-review")
         .filter({ hasText: "Demo Climate" }),
     ).toHaveCount(0);
+    await page
+      .getByRole("link", { name: "Open Demo Climate LLC details" })
+      .click();
+    await page.getByRole("button", { name: "Source history" }).click();
+    await expect(page.locator(".entity-review")).toContainText(
+      "Reviewed name: Demo Climate LLC",
+    );
     await noOverflow(page);
   },
 );
@@ -501,6 +503,10 @@ test(
         .getByRole("button", { name: "Back to legal entities", exact: true })
         .click();
     await page.reload();
+    await page
+      .getByRole("link", { name: "Open Demo Recognized LLC details" })
+      .click();
+    await page.getByRole("button", { name: "Source history" }).click();
     await expect(
       page.getByText(/Name entered by you: Demo Recognized LLC/),
     ).toBeVisible();

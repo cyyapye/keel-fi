@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { ProviderLegalDocumentCapture } from "../../packages/domain/src/provider-legal-documents";
 import {
   syntheticAgreementPdf,
   syntheticDocumentScan,
@@ -21,7 +22,11 @@ export async function seedAutomaticInvestments(
   accessSubject = "synthetic-access-subject",
   onAccepted?: () => void,
   capturedCount = count,
-  options: { companyName?: string | null; includeEconomics?: boolean } = {},
+  options: {
+    companyName?: string | null;
+    includeEconomics?: boolean;
+    captureProblem?: ProviderLegalDocumentCapture["problem"];
+  } = {},
 ) {
   const input: HoldingImportStageInput = {
     provider: "sydecar",
@@ -140,7 +145,7 @@ export async function seedAutomaticInvestments(
           id: `synthetic-auto-${i}`,
           association: "investment_page",
         },
-        problem: null,
+        problem: options.captureProblem ?? null,
         documents: [
           {
             documentKey: digest(`auto-document-${i}`),

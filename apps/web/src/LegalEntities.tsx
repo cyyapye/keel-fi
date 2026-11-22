@@ -45,8 +45,6 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  DataItem,
-  DataList,
   DatePicker,
   DisclosureIndicator,
   EmptyState,
@@ -56,6 +54,7 @@ import {
   InputGroup,
   Notice,
   PageHeader,
+  RecordItem,
   SearchField,
   SearchHighlight,
   SectionHeader,
@@ -64,11 +63,16 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   TextLink,
   Textarea,
 } from "@keel/ui";
 import {
   type FormEvent,
+  type MouseEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -145,10 +149,6 @@ const entityTypeLabels = Object.fromEntries(
 const relationshipLabels = Object.fromEntries(
   relationshipOptions.map((option) => [option.value, option.label]),
 ) as Readonly<Record<LegalEntityRelationship, string>>;
-
-const interestStatusLabels = Object.fromEntries(
-  interestStatusOptions.map((option) => [option.value, option.label]),
-) as Readonly<Record<LegalEntityInterestStatus, string>>;
 
 type EditorState = {
   structureReview?: boolean;
@@ -926,22 +926,15 @@ function LegalEntityEditor({
 function EntityRow({
   entity,
   onOpen,
-  searchQuery = "",
+  searchQuery,
 }: {
   entity: LegalEntityRecord;
   onOpen: () => void;
-  searchQuery?: string;
+  searchQuery: string;
 }) {
   const positions = entity.sources.filter(
     (source) => source.source.kind === "holding_position",
   );
-  const owners = [
-    ...new Set(
-      positions.flatMap((source) =>
-        source.currentOwner === null ? [] : [source.currentOwner],
-      ),
-    ),
-  ];
   const companyNames = [
     ...new Set(
       positions.map(
@@ -950,135 +943,94 @@ function EntityRow({
       ),
     ),
   ].filter((name) => name !== entity.legalName);
-  const statuses = [
-    ...new Set(positions.map((source) => sourceParticipationStatus(source))),
-  ];
-  const ownership = positions.flatMap((source) => {
-    const observations = source.investmentReview?.ownershipObservations ?? [];
-    return observations
-      .filter(
-        (item) =>
-          !observations.some(
-            (later) => later.supersedesObservationId === item.id,
-          ),
-      )
-      .map(
-        (item) =>
-          `${source.sourceDisplayName}: ${item.sourceKind === "k1" ? `K-1 ${item.taxYear} shares recorded` : `${formatOwnershipInterestPpm(item.ownershipPpm ?? 0)} · ${item.effectiveDate}`}`,
-      );
-  });
+  const statuses = positions.length
+    ? [...new Set(positions.map(sourceParticipationStatus))]
+    : [entity.interestStatus];
+  const showStatus = isHistoricalLegalEntity(entity)
+    ? statuses.includes("cancelled")
+    : statuses.some((status) => status !== "current");
+  const status = showStatus
+    ? statuses
+        .map((item) =>
+          item === "unknown"
+            ? "Status unconfirmed"
+            : `${item[0]?.toUpperCase()}${item.slice(1)}`,
+        )
+        .join(" · ")
+    : null;
+  const open = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    onOpen();
+  };
   return (
-    <article className="legal-entity-row">
-      <div className="legal-entity-row__heading">
-        <div>
-          <h3>
-            <TextLink onClick={onOpen}>
-              <span>
-                <SearchHighlight query={searchQuery}>
-                  {entity.legalName}
-                </SearchHighlight>
-              </span>
-            </TextLink>
-          </h3>
-          {companyNames.length > 0 && (
-            <p className="legal-entity-row__companies">
+    <RecordItem
+      className="legal-entity-row"
+      title={
+        <SearchHighlight query={searchQuery}>
+          {entity.legalName}
+        </SearchHighlight>
+      }
+      detail={
+        companyNames.length > 0 || status !== null ? (
+          <>
+            {companyNames.length > 0 && (
               <SearchHighlight query={searchQuery}>
                 {companyNames.join(" · ")}
               </SearchHighlight>
-            </p>
-          )}
-          <p>
-            {entityTypeLabels[entity.entityType]} ·{" "}
-            {relationshipLabels[entity.relationship]}
-          </p>
-        </div>
-        {(positions.length > 0
-          ? statuses.some((status) => status !== "current")
-          : entity.interestStatus !== "current") && (
-          <Badge tone="warning">
-            {positions.length > 0
-              ? statuses
-                  .map((status) =>
-                    status === "unknown"
-                      ? "Not confirmed"
-                      : `${status[0]?.toUpperCase()}${status.slice(1)}`,
-                  )
-                  .join(" · ")
-              : interestStatusLabels[entity.interestStatus]}
-          </Badge>
-        )}
-      </div>
-      <DataList className="legal-entity-row__facts">
-        <DataItem
-          label="Current titled owner"
-          value={
-            <SearchHighlight query={searchQuery}>
-              {owners.join("; ") || entity.currentOwner || "Not recorded"}
-            </SearchHighlight>
-          }
-        />
-        {entity.jurisdiction !== null && (
-          <DataItem
-            label="Jurisdiction"
-            value={
-              <SearchHighlight query={searchQuery}>
-                {entity.jurisdiction}
-              </SearchHighlight>
-            }
-          />
-        )}
-        {(ownership.length > 0 || entity.ownershipInterestPpm !== null) && (
-          <DataItem
-            label="Ownership interest"
-            value={
-              ownership.length > 0
-                ? ownership.join("; ")
-                : entity.ownershipInterestPpm === null
-                  ? "Not recorded"
-                  : `${formatOwnershipInterestPpm(entity.ownershipInterestPpm)}${positions.length === 0 ? "" : " · earlier entity-level entry"}`
-            }
-          />
-        )}
-      </DataList>
-      {positions.length > 0 &&
-        entity.ownershipInterestPpm !== null &&
-        ownership.length > 0 && (
-          <p>
-            Earlier entity-level entry:{" "}
-            {formatOwnershipInterestPpm(entity.ownershipInterestPpm)}. This has
-            not been assigned to a particular investment.
-          </p>
-        )}
-      {positions.length > 0 &&
-        entity.currentOwner !== null &&
-        owners.length > 0 &&
-        !owners.includes(entity.currentOwner) && (
-          <p>Earlier entity-level owner: {entity.currentOwner}.</p>
-        )}
-      {positions.length > 0 &&
-        entity.interestStatus === "historical" &&
-        !statuses.every((status) => status === "historical") && (
-          <p>
-            Earlier entity-level status: Historical. Confirm participation for
-            each investment.
-          </p>
-        )}
-      <footer>
-        <div>
-          <p>
-            <SearchHighlight query={searchQuery}>
-              {entity.sources.length === 0
-                ? "Manual record"
-                : entity.sources.map(sourceSummary).join("; ")}
-            </SearchHighlight>
-          </p>
-          <AgreementEvidence sources={entity.sources} />
-          {entity.sources
-            .filter((source) => source.nameResolution !== undefined)
-            .map((source) => {
-              const resolution = source.nameResolution;
-              return resolution === undefined ? null : (
-                <p key={candidateKey(source)}>
+            )}
+            {companyNames.length > 0 && status !== null && " · "}
+            {status}
+          </>
+        ) : undefined
+      }
+      action={
+        <TextLink
+          aria-label={`Open ${entity.legalName} details`}
+          className="legal-entity-row__open"
+          href={entityReviewUrl({ kind: "entity", id: entity.id })}
+          onClick={open}
+        >
+          <DisclosureIndicator />
+        </TextLink>
+      }
+    />
+  );
+}
+
+function EntitySourceHistory({
+  sources,
+  activeSource,
+}: {
+  sources: readonly LegalEntitySourceSummary[];
+  activeSource: LegalEntitySourceSummary | undefined;
+}) {
+  const entries = sources.filter(
+    (source) => source !== activeSource || source.nameResolution !== undefined,
+  );
+  if (entries.length === 0) return null;
+  return (
+    <Collapsible className="investment-review__record-disclosure">
+      <CollapsibleTrigger layout="inline">
+        <h3>Source history</h3>
+        <DisclosureIndicator />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        {entries.map((source) => {
+          const resolution = source.nameResolution;
+          return (
+            <div key={candidateKey(source)}>
+              {source !== activeSource && <p>{sourceSummary(source)}</p>}
+              {resolution !== undefined && (
+                <p>
                   {resolution.kind === "document_choice"
                     ? "Reviewed name"
                     : resolution.kind === "document_structure"
@@ -1086,11 +1038,8 @@ function EntityRow({
                       : resolution.kind === "document_entry"
                         ? "Name entered by you"
                         : "Your document-backed correction"}
-                  :{" "}
-                  <SearchHighlight query={searchQuery}>
-                    {resolution.legalName}
-                  </SearchHighlight>{" "}
-                  · {resolution.fileName} · page {resolution.page}
+                  : {resolution.legalName} · {resolution.fileName} · page{" "}
+                  {resolution.page}
                   {resolution.reviewedEntityType !== undefined && (
                     <>
                       <br />
@@ -1108,11 +1057,12 @@ function EntityRow({
                       </>
                     )}
                 </p>
-              );
-            })}
-        </div>
-      </footer>
-    </article>
+              )}
+            </div>
+          );
+        })}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -1215,10 +1165,11 @@ function CandidateRow({
 }
 
 export function SavedEntityProfile({ entity }: { entity: LegalEntityRecord }) {
+  const linked = entity.sources.some(
+    (source) => source.source.kind === "holding_position",
+  );
   const earlierOwnership =
-    entity.sources.some(
-      (source) => source.source.kind === "holding_position",
-    ) &&
+    linked &&
     (entity.currentOwner !== null || entity.ownershipInterestPpm !== null);
   const kind = [
     relationshipLabels[entity.relationship],
@@ -1250,7 +1201,11 @@ export function SavedEntityProfile({ entity }: { entity: LegalEntityRecord }) {
           </p>
         )}
         {entity.interestStatus === "historical" && (
-          <p className="entity-review__historical">Historical</p>
+          <p className="entity-review__historical">
+            {linked && !isHistoricalLegalEntity(entity)
+              ? "Historical in the earlier entity entry"
+              : "Historical"}
+          </p>
         )}
       </div>
       {(entity.formedOn !== null ||
@@ -1495,6 +1450,9 @@ function EntityReviewWorkspace({
           )}
         </section>
       )}
+      {entity !== undefined && !editingEntity && (
+        <EntitySourceHistory sources={entity.sources} activeSource={source} />
+      )}
       {editor !== null &&
         (entity !== undefined ? editingEntity : mode === "new") && (
           <LegalEntityEditor
@@ -1712,7 +1670,11 @@ function EntityReviewWorkspace({
       ) : (
         <div className="entity-review__panel">
           {identity}
-          {renderDocuments(() => null)}
+          {entity !== undefined && source === undefined ? (
+            <AgreementEvidence sources={entity.sources} />
+          ) : (
+            renderDocuments(() => null)
+          )}
         </div>
       )}
       {entity === undefined && source !== undefined && (
@@ -2161,7 +2123,7 @@ function ProgressiveRows<T>({
     const index = focusNewRow.current;
     if (index === null) return;
     rows.current?.children[index]
-      ?.querySelector<HTMLButtonElement>("button")
+      ?.querySelector<HTMLElement>("a[href], button")
       ?.focus();
     focusNewRow.current = null;
   }, [visible]);
@@ -2453,6 +2415,10 @@ function LegalEntitiesInventory({
     historicalEntities.length +
     visibleCandidates.length +
     excludedCandidates.length;
+  const entityGroups = [
+    { value: "current", label: "Current", entities: activeEntities },
+    { value: "historical", label: "Historical", entities: historicalEntities },
+  ] as const;
 
   const saved = async () => {
     await refresh();
@@ -2562,7 +2528,7 @@ function LegalEntitiesInventory({
             resultLabel={
               searchMatches === null
                 ? undefined
-                : `${resultCount} ${resultCount === 1 ? "result" : "results"} · Includes historical interests`
+                : `${resultCount} ${resultCount === 1 ? "result" : "results"}`
             }
           />
           {automaticWorking && searchMatches === null && (
@@ -2659,60 +2625,42 @@ function LegalEntitiesInventory({
               </Button>
             }
             headingProps={{ id: "known-legal-entities-title" }}
-            title={`Known legal entities · ${activeEntities.length}`}
+            title="Known legal entities"
           />
-          {activeEntities.length === 0 ? (
-            <EmptyState
-              compact
-              title={
-                searchMatches === null
-                  ? "No reviewed legal entities yet"
-                  : "No matching current entities"
-              }
-            >
-              {searchMatches === null
-                ? "Add an entity or review a source."
-                : "Try another name, company, or source, or clear your search."}
-            </EmptyState>
-          ) : (
-            <div className="legal-entities__list">
-              <ProgressiveRows
-                items={activeEntities}
-                key={searchQuery}
-                label="entities"
-                mode={
-                  historicalEntities.length === 0 &&
-                  excludedCandidates.length === 0
-                    ? "automatic"
-                    : "manual"
-                }
-                render={(entity) => (
-                  <EntityRow
-                    entity={entity}
-                    key={entity.id}
-                    onOpen={() => navigate({ kind: "entity", id: entity.id })}
-                    searchQuery={searchQuery}
-                  />
-                )}
-              />
-            </div>
-          )}
-          {historicalEntities.length > 0 && (
-            <Collapsible
-              className="legal-entities__history"
-              key={`history:${searchQuery}`}
-              defaultOpen={searchMatches !== null}
-            >
-              <CollapsibleTrigger>
-                <span>Historical interests · {historicalEntities.length}</span>
-                <DisclosureIndicator />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="legal-entities__list">
+          <Tabs defaultValue="current">
+            <TabsList aria-label="Legal entity inventory" variant="line">
+              {entityGroups.map(({ value, label, entities }) => (
+                <TabsTrigger key={value} value={value}>
+                  {label} · {entities.length}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {entityGroups.map(({ value, entities }) => (
+              <TabsContent key={value} value={value}>
+                {entities.length === 0 ? (
+                  <EmptyState
+                    compact
+                    headingAs="h3"
+                    icon={null}
+                    title={
+                      searchMatches !== null
+                        ? `No matching ${value} entities`
+                        : value === "current"
+                          ? "No current legal entities"
+                          : "No historical interests"
+                    }
+                  >
+                    {searchMatches === null && value === "current"
+                      ? "Add an entity or review a source."
+                      : undefined}
+                  </EmptyState>
+                ) : (
                   <ProgressiveRows
-                    items={historicalEntities}
+                    items={entities}
                     key={searchQuery}
-                    label="historical entities"
+                    label={
+                      value === "current" ? "entities" : "historical entities"
+                    }
                     mode={
                       excludedCandidates.length === 0 ? "automatic" : "manual"
                     }
@@ -2727,10 +2675,10 @@ function LegalEntitiesInventory({
                       />
                     )}
                   />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          )}
+                )}
+              </TabsContent>
+            ))}
+          </Tabs>
         </section>
         {excludedCandidates.length > 0 && (
           <Collapsible
