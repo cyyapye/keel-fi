@@ -1102,10 +1102,10 @@
       ],
       "unitCases": [],
       "browserCases": [
-        "e2e/legal-entities.visual.spec.ts :: chromium :: loads 140 entities manually before history without extra reads",
-        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: loads 140 entities automatically at the page end without extra reads"
+        "e2e/legal-entities.visual.spec.ts :: chromium :: loads 140 current entities manually before excluded sources without extra reads",
+        "e2e/legal-entities.visual.spec.ts :: mobile-chromium :: loads 140 current entities automatically at the page end without extra reads"
       ],
-      "assertions": "Desktop preserves manual loading before history and focus on the first new row. Mobile preserves automatic loading at the page end with focus on Export. Both retained journeys enforce the same 140-entity fixture, exactly one original read, bounded row count and no overflow."
+      "assertions": "Desktop preserves manual loading before excluded sources and focus on the first new row. Mobile preserves automatic loading at the page end with focus on Export. Both retained journeys check the Historical tab and the 140-current-entity fixture, exactly one original read, bounded row count and no overflow."
     },
     {
       "id": "legal-company-label-export",
