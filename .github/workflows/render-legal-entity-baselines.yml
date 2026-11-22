@@ -1,0 +1,95 @@
+name: Render legal entity baselines
+on:
+  push:
+    branches: [codex/legal-entity-linux-baselines-v1]
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    env:
+      KEEL_SCREENSHOT_MODE: canonical
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+          version: 11.9.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.13.0
+      - name: Prepare canonical browser and synthetic fixture
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = x86_64
+          . /etc/os-release
+          test "$ID-$VERSION_ID" = ubuntu-24.04
+          make bootstrap-ci
+          pnpm exec playwright install-deps chromium
+          node --version
+          pnpm --version
+          pnpm exec playwright --version
+          make build
+          python3 -I scripts/pilot_native.py migration-seed
+          python3 -I scripts/pilot_native.py browser-fixture
+      - name: Regenerate and replay affected specs on their CI lanes
+        run: |
+          set -euo pipefail
+          reset_profiles() {
+            rm -rf -- .keel-local/e2e-lanes
+            mkdir -p .keel-local/e2e-lanes/mocked
+            for lane in stateful-b stateful-source; do
+              cp -a .keel-local/pilot-browser-seed ".keel-local/e2e-lanes/$lane"
+            done
+          }
+          browser() {
+            local lane=$1
+            shift
+            if [[ "$lane" == mocked ]]; then
+              env -u KEEL_LOCAL_PERSIST_TO KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE="$lane" pnpm exec playwright test --reporter=list "$@"
+            else
+              KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE="$lane" KEEL_LOCAL_PERSIST_TO="$PWD/.keel-local/e2e-lanes/$lane" pnpm exec playwright test --reporter=list "$@"
+            fi
+          }
+          reset_profiles
+          browser stateful-source --grep 'App Access keeps scope' --update-snapshots=none e2e/ui-catalogue.visual.spec.ts
+          for mode in all none; do
+            reset_profiles
+            browser mocked --update-snapshots="$mode" e2e/automatic-investment-review.visual.spec.ts
+            browser stateful-b --update-snapshots="$mode" e2e/legal-entities.visual.spec.ts e2e/legal-name-resolution.visual.spec.ts
+            browser stateful-source --update-snapshots="$mode" e2e/agreement-security.visual.spec.ts
+          done
+          reset_profiles
+          browser stateful-b --update-snapshots=none e2e/cash-holdings.visual.spec.ts
+      - name: Emit bounded synthetic baseline patch with hashes
+        run: |
+          python3 -I - <<'PY'
+          import base64
+          import hashlib
+          import pathlib
+          import re
+          import subprocess
+          tracked = subprocess.check_output(['git', 'diff', '--name-only', '-z']).split(b'\0')
+          untracked = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z', '--', 'e2e']).split(b'\0')
+          paths = sorted({path.decode() for path in tracked + untracked if path})
+          pattern = re.compile(r'e2e/(automatic-investment-review|legal-entities|legal-name-resolution|agreement-security)\.visual\.spec\.ts-snapshots/[a-z0-9-]+-linux\.png')
+          assert paths and len(paths) <= 18, paths
+          size = 0
+          for name in paths:
+              assert pattern.fullmatch(name), name
+              path = pathlib.Path(name)
+              assert path.is_file() and not path.is_symlink(), name
+              data = path.read_bytes()
+              assert data.startswith(bytes.fromhex('89504e470d0a1a0a')), name
+              size += len(data)
+              assert size <= 3 * 1024 * 1024
+              print('KEEL_BASELINE_FILE', name, len(data), hashlib.sha256(data).hexdigest())
+              chars = base64.b64encode(data).decode()
+              for start in range(0, len(chars), 8000):
+                  print('KEEL_BASELINE_DATA', name, chars[start:start + 8000])
+          print('KEEL_BASELINE_COMPLETE', len(paths), size)
+          PY
