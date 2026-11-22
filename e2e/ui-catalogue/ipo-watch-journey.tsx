@@ -21,7 +21,7 @@ import { WatchFilingRow } from "../../apps/web/src/WatchFilingRow";
 import { formatDate } from "../../apps/web/src/format";
 
 // This is tab-local walkthrough progress for the two entrances to the synthetic IPO.
-const storeKey = "keel-catalogue-ipo-v1";
+const walkthroughStorageName = "keel-catalogue-ipo-v1";
 const Walkthrough = z.object({
   close: z.enum(["awaiting", "first", "next"]),
   decision: z.enum(["undecided", "follow", "keep"]),
@@ -41,7 +41,7 @@ export function initialIpo(close: IpoState["close"]): IpoState {
 }
 export function startIpoWalkthrough() {
   try {
-    sessionStorage.removeItem(storeKey);
+    sessionStorage.removeItem(walkthroughStorageName);
   } catch {
     /* Storage is optional in the catalogue. */
   }
@@ -51,7 +51,7 @@ export function useIpoWalkthrough(active: boolean, step: Step) {
     if (active) {
       try {
         const stored = Walkthrough.safeParse(
-          JSON.parse(sessionStorage.getItem(storeKey) ?? "null"),
+          JSON.parse(sessionStorage.getItem(walkthroughStorageName) ?? "null"),
         );
         if (stored.success) return stored.data;
       } catch {
@@ -63,7 +63,7 @@ export function useIpoWalkthrough(active: boolean, step: Step) {
   useEffect(() => {
     if (active) {
       try {
-        sessionStorage.setItem(storeKey, JSON.stringify(state));
+        sessionStorage.setItem(walkthroughStorageName, JSON.stringify(state));
       } catch {
         /* The live walkthrough still works in memory. */
       }

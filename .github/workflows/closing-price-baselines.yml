@@ -44,14 +44,12 @@ jobs:
             if [[ -d "$root" ]]; then mv "$root" "$PWD/.keel-local/prior-$mode"; fi
             mkdir -p "$root/mocked" "$root/mocked-development"
             cp -a .keel-local/pilot-browser-seed "$root/stateful-source"
-            cp -a .keel-local/pilot-browser-seed "$root/stateful-development"
+            cp -a .keel-local/pilot-browser-seed "$root/stateful-b"
             if [[ "$mode" == reference ]]; then
               KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=stateful-source KEEL_LOCAL_PERSIST_TO="$root/stateful-source" pnpm exec playwright test --reporter=list --grep 'App Access keeps scope' --update-snapshots=none e2e/ui-catalogue.visual.spec.ts
               continue
             fi
-            KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=mocked-development pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/investment-holdings.visual.spec.ts
-            KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=mocked pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/holdings-detail.visual.spec.ts
-            KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=stateful-development KEEL_LOCAL_PERSIST_TO="$root/stateful-development" pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/portfolio-watch.visual.spec.ts
+            KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=stateful-b KEEL_LOCAL_PERSIST_TO="$root/stateful-b" pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/portfolio-dashboard.visual.spec.ts
           done
       - name: Commit replayed canonical references to this verification branch
         env:
@@ -64,10 +62,10 @@ jobs:
           paths = set()
           for cmd in (["git", "diff", "--name-only", "-z"], ["git","ls-files","--others","--exclude-standard","-z","--","e2e"]):
               paths.update(x.decode() for x in subprocess.check_output(cmd).split(b"\0") if x)
-          assert len(paths) <= 48, paths
+          assert len(paths) <= 6, paths
           total = 0
           for name in sorted(paths):
-              assert re.fullmatch(r"e2e/(investment-holdings|holdings-detail|portfolio-watch)\.visual\.spec\.ts-snapshots/[a-z0-9-]+-linux\.png",name), name
+              assert re.fullmatch(r"e2e/portfolio-dashboard\.visual\.spec\.ts-snapshots/[a-z0-9-]+-linux\.png",name), name
               path = pathlib.Path(name)
               assert path.is_file() and not path.is_symlink(), name
               data = path.read_bytes()
