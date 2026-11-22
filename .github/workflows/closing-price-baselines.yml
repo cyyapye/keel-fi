@@ -40,16 +40,18 @@ jobs:
         run: |
           set -euo pipefail
           for mode in reference changed none; do
-            root="$PWD/.keel-local/render-$mode"
-            mkdir -p "$root"
-            cp -a .keel-local/pilot-browser-seed "$root/seed"
+            root="$PWD/.keel-local/e2e-lanes"
+            if [[ -d "$root" ]]; then mv "$root" "$PWD/.keel-local/prior-$mode"; fi
+            mkdir -p "$root/mocked" "$root/mocked-development"
+            cp -a .keel-local/pilot-browser-seed "$root/stateful-source"
+            cp -a .keel-local/pilot-browser-seed "$root/stateful-development"
             if [[ "$mode" == reference ]]; then
-              KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=stateful-source KEEL_LOCAL_PERSIST_TO="$root/seed" pnpm exec playwright test --reporter=list --grep 'App Access keeps scope' --update-snapshots=none e2e/ui-catalogue.visual.spec.ts
+              KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=stateful-source KEEL_LOCAL_PERSIST_TO="$root/stateful-source" pnpm exec playwright test --reporter=list --grep 'App Access keeps scope' --update-snapshots=none e2e/ui-catalogue.visual.spec.ts
               continue
             fi
             KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=mocked-development pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/investment-holdings.visual.spec.ts
             KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=mocked pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/holdings-detail.visual.spec.ts
-            KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=stateful-development KEEL_LOCAL_PERSIST_TO="$root/seed" pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/portfolio-watch.visual.spec.ts
+            KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE=stateful-development KEEL_LOCAL_PERSIST_TO="$root/stateful-development" pnpm exec playwright test --reporter=list --update-snapshots="$mode" e2e/portfolio-watch.visual.spec.ts
           done
       - name: Commit replayed canonical references to this verification branch
         env:
