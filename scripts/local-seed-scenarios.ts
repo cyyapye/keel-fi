@@ -24,6 +24,7 @@ const LocalSeedScenarioSchema = z.enum([
   "position-links",
   "purchase-refund",
   "price-proxies",
+  "closing-price",
 ]);
 export type LocalSeedScenario = z.infer<typeof LocalSeedScenarioSchema>;
 
@@ -38,6 +39,16 @@ type LocalSeedScenarioDefinition = {
 };
 
 export const LocalSeedScenarios = {
+  "closing-price": {
+    description:
+      "Two synthetic SPVs and a first official close, ready for review",
+    expectedCurrentPositionCount: 2,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
+    minimumCanonicalExposureCount: 1,
+    seedFiles: ["packages/database/seed/synthetic.sql"],
+    version: 1,
+  },
   "price-proxies": {
     description:
       "Three synthetic estimated allocations following a reviewed Tokenfolio price, with manual history and separate dates",
@@ -504,10 +515,10 @@ export function prepareLocalSeedScenario(options: {
             "Could not seed a synthetic local agreement.",
           );
       }
-      if (scenario === "price-proxies") {
+      if (scenario === "price-proxies" || scenario === "closing-price") {
         const generated = spawnSync(
           process.execPath,
-          ["--import", "tsx", "scripts/seed-price-proxies.ts", persistRoot],
+          ["--import", "tsx", `scripts/seed-${scenario}.ts`, persistRoot],
           {
             cwd: rootDir,
             env: commandEnvironment(persistRoot),
@@ -515,11 +526,9 @@ export function prepareLocalSeedScenario(options: {
           },
         );
         if (generated.status !== 0)
-          throw new Error(
-            "Could not build the synthetic price-proxy scenario.",
-          );
+          throw new Error("Could not build the synthetic valuation scenario.");
         applySeedFile(
-          join(persistRoot, "price-proxies.sql"),
+          join(persistRoot, `${scenario}.sql`),
           persistRoot,
           rootDir,
         );

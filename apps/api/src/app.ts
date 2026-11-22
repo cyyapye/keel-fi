@@ -1,3 +1,4 @@
+import { registerMarketCloseRoutes } from "./market-close";
 import { bodyLimit } from "hono/body-limit";
 import {
   D1ManualHoldingRepository,
@@ -5879,6 +5880,7 @@ fetch(location.pathname, { method: "POST", credentials: "same-origin", redirect:
 
   app.notFound((context) => context.json({ error: "Not found." }, 404));
 
+  registerMarketCloseRoutes(app);
   registerAgentRoutes(app);
   registerProviderLegalDocumentRoutes(app);
   return app;

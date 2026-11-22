@@ -52,8 +52,14 @@ const moverChartConfig = {
 
 const LIQUIDITY_OPACITY = [1, 0.68, 0.32, 0.16] as const;
 
+export type ExposureDrilldown = {
+  type: "exposure";
+  exposureId: string;
+  focusTarget?: "group" | "disclosure";
+};
+
 export type PortfolioSnapshotDrilldown =
-  | { type: "exposure"; exposureId: string }
+  | ExposureDrilldown
   | {
       type: "access";
       accessKey: PortfolioDashboardLiquiditySegment["key"];

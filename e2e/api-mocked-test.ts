@@ -17,6 +17,11 @@ export const test = base.extend({
         `Mocked browser test made an unhandled application API request: ${request.method()} ${url.pathname}${url.search}`,
       );
     });
+    await context.route("**/api/exposure-closes", (route) =>
+      route.request().method() === "GET"
+        ? route.fulfill({ json: [] })
+        : route.fallback(),
+    );
     await context.route("**/api/legal-entities", (route) =>
       route.request().method() !== "GET"
         ? route.fallback()

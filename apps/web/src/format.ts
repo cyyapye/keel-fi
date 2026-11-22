@@ -16,7 +16,7 @@ export function currencyFractionDigits(currency: string): number {
   }
 }
 
-export function formatMoney(minorUnits: number): string {
+export function formatMoney(minorUnits: number | bigint): string {
   const amount = BigInt(minorUnits);
   const sign = amount < 0 ? "-" : "";
   const absolute = amount < 0 ? -amount : amount;

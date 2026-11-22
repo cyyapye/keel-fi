@@ -1332,3 +1332,109 @@ test(
     await expect(target).toBeFocused();
   },
 );
+
+test("valuation readback lands quietly on the exposure and aligns its quote with Change", async ({
+  page,
+}) => {
+  const exposureId = "exposure_invested_amount_synthetic";
+  const quote = {
+    id: "first-close",
+    ticker: "BCN",
+    venue: "Demo Exchange",
+    shareClass: "Common",
+    shareBasis: { key: "common", unitsPerOriginal: 1 },
+    date: "2026-08-18",
+    priceMicros: 50_000_000,
+    sourceUrl: "https://example.com/first-close",
+  };
+  await page.route("**/api/exposure-closes", (route) =>
+    route.fulfill({
+      json: [
+        {
+          exposureId,
+          name: "Beacon Robotics",
+          quote,
+          firstDate: quote.date,
+          firstPriceMicros: quote.priceMicros,
+          read: true,
+          readVersion: 1,
+          version: 1,
+          choice: "follow",
+          token: "saved",
+          positions: [
+            {
+              id: "position_invested_amount_8",
+              name: "Synthetic Beacon SPV",
+              quantityMicros: 1_000_000,
+              valueMinor: 5000,
+              previousMinor: 4000,
+              enrolled: true,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  await page.goto(`/holdings?exposure=${exposureId}`);
+  const group = page.getByRole("group", {
+    name: "Beacon Robotics",
+    exact: true,
+  });
+  const disclosure = group.getByRole("button", { name: /Beacon Robotics/ });
+  await expect(group).toBeFocused();
+  await expect(group).toHaveCSS("outline-style", "none");
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true");
+  await expect(disclosure).toHaveCSS("outline-style", "none");
+  await expect(disclosure).toHaveCSS("box-shadow", "none");
+
+  await page.evaluate(() => document.fonts.ready);
+  const quoteText = group.getByText(/\$50\.00\/share/);
+  const change = group.getByRole("link", { name: /Change source/ });
+  // Measure the painted text, not the link's intentionally taller hit area.
+  const textCenter = (element: Element) => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const box = range.getBoundingClientRect();
+    return box.y + box.height / 2;
+  };
+  const quoteCenter = await quoteText.evaluate(textCenter);
+  expect(
+    Math.abs(quoteCenter - (await change.evaluate(textCenter))),
+  ).toBeLessThanOrEqual(2);
+
+  const positionRow = group.getByRole("listitem").first();
+  const name = positionRow.locator(".record-row__title");
+  const amount = positionRow.locator(".position-row__value");
+  // Compare the first painted line; either column can have wrapping source details.
+  const firstLine = (el: Element) => {
+    const text = document
+      .createTreeWalker(el, NodeFilter.SHOW_TEXT)
+      .nextNode()!;
+    const range = document.createRange();
+    range.selectNodeContents(text);
+    return {
+      top: range.getClientRects()[0]!.top,
+      size: getComputedStyle(el).fontSize,
+    };
+  };
+  const [nameLine, amountLine] = await Promise.all([
+    name.evaluate(firstLine),
+    amount.evaluate(firstLine),
+  ]);
+  expect(nameLine.size).toBe(amountLine.size);
+  expect(Math.abs(nameLine.top - amountLine.top)).toBeLessThanOrEqual(1);
+
+  const details = positionRow.getByRole("button", { name: /holding details/ });
+  const [actionBox, valueBox] = await Promise.all([
+    details.boundingBox(),
+    positionRow.locator(".record-row__value").boundingBox(),
+  ]);
+  expect(actionBox!.x).toBeGreaterThanOrEqual(valueBox!.x + valueBox!.width);
+
+  await page.keyboard.press("Tab");
+  await expect(disclosure).toBeFocused();
+  await expect(disclosure).toHaveCSS("outline-style", "solid");
+  await expect(disclosure).toHaveCSS("box-shadow", "none");
+  await page.keyboard.press("Tab");
+  await expect(change).toBeFocused();
+});

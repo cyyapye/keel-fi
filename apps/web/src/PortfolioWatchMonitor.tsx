@@ -1,3 +1,8 @@
+import type { MarketReview } from "@keel/domain/market-close";
+import { MarketReviewLink } from "./MarketCloseReview";
+import { useMarketReviews } from "./use-market-reviews";
+import { requestKeel } from "./api-request";
+import { formatDate, formatSharePrice } from "./format";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PublicSourceObservation } from "@keel/domain";
 import type {
@@ -16,6 +21,7 @@ import {
   EmptyState,
   Notice,
   PageHeader,
+  RecordItem,
   Screen,
   SearchField,
   SearchHighlight,
@@ -24,6 +30,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  TextLink,
 } from "@keel/ui";
 import { loadPortfolioWatchActivity, loadPortfolioWatchProgress } from "./api";
 import {
@@ -204,16 +211,14 @@ export function PortfolioWatchMonitor({
   onRefresh,
   observations,
   decisionIds,
-  renderSignals,
+  renderSignal,
   sourceLabel,
 }: {
   onScan: () => Promise<{ queuedCount: number }>;
   onRefresh: () => Promise<void>;
   observations: readonly PublicSourceObservation[];
   decisionIds: ReadonlySet<string>;
-  renderSignals: (
-    observations: readonly PublicSourceObservation[],
-  ) => ReactNode;
+  renderSignal: (observation: PublicSourceObservation) => ReactNode;
   sourceLabel: string;
 }) {
   const [activity, setActivity] = useState<PortfolioWatchActivity | null>(null);
@@ -226,11 +231,69 @@ export function PortfolioWatchMonitor({
   const [signalPage, setSignalPage] = useState(0);
   const [tab, setTab] = useState("updates");
   const [query, setQuery] = useState("");
-  const [updateFilter, setUpdateFilter] = useState("unread");
+  const [updateFilter, setUpdateFilter] = useState(
+    new URLSearchParams(window.location.search).get("filter") === "decisions"
+      ? "decisions"
+      : "unread",
+  );
   const [loadedPage, setLoadedPage] = useState<string | null>(null);
   const pageKey = JSON.stringify([cursor, query]);
   const pageReady = !loading && loadedPage === pageKey;
-  const updates = watchUpdatesForReview(observations, query, decisionIds);
+  const market = useMarketReviews();
+  const resolved = market.reviews?.find(
+    (r) =>
+      r.exposureId ===
+        new URLSearchParams(window.location.search).get("reviewed") &&
+      r.choice !== null,
+  );
+  async function markMarketNews(r: MarketReview) {
+    setBusy(true);
+    try {
+      const response = await requestKeel(
+        `/api/exposure-closes/${encodeURIComponent(r.exposureId)}/read`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            read: !r.read,
+            version: r.readVersion,
+          }),
+        },
+      );
+      if (!response.ok) throw new Error("Reload to check the read state.");
+      market.refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not save the read state.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  const marketUpdates = (market.reviews ?? [])
+    .filter((r) => r.name.toLowerCase().includes(query.trim().toLowerCase()))
+    .map((review) => ({
+      kind: "close" as const,
+      review,
+      needsReview: review.choice === null,
+      unread: !review.read,
+      date: review.firstDate,
+    }));
+  const news = watchUpdatesForReview(observations, query, decisionIds).map(
+    (item) => ({
+      ...item,
+      kind: "news" as const,
+      date: item.observation.retrievedAt,
+    }),
+  );
+  const updates = [...marketUpdates, ...news].sort(
+    (a, b) =>
+      Number(b.needsReview) - Number(a.needsReview) ||
+      Number(b.unread) - Number(a.unread) ||
+      b.date.localeCompare(a.date),
+  );
   const reviewCount = updates.filter((item) => item.needsReview).length;
   const unreadCount = updates.filter((item) => item.unread).length;
   const visibleUpdates = updates.filter(
@@ -555,11 +618,12 @@ export function PortfolioWatchMonitor({
               </ActionGroup>
             }
           />
+          {market.error && <Notice tone="error">{market.error}</Notice>}
           {signalCount === 0 ? (
             <EmptyState
               className="watch-updates-empty"
               compact
-              headingAs="h3"
+              headingAs="h4"
               icon={null}
               title={
                 updateFilter === "decisions"
@@ -569,18 +633,61 @@ export function PortfolioWatchMonitor({
                     : "No updates found"
               }
             >
-              {query.trim().length > 0
-                ? "Try another company or clear your search."
-                : updateFilter === "unread" && updates.length > 0
-                  ? "Previously read news is available under All updates."
-                  : "Open Coverage to see which companies Keel can monitor. A gap in coverage can mean news was missed."}
+              {updateFilter === "decisions" && resolved ? (
+                <>
+                  {resolved.name} ·{" "}
+                  {resolved.choice === "follow"
+                    ? "Following the closing price"
+                    : "Kept prior sources"}
+                  .{" "}
+                  <TextLink
+                    href={`/holdings?exposure=${encodeURIComponent(resolved.exposureId)}`}
+                  >
+                    View Holdings
+                  </TextLink>
+                </>
+              ) : query.trim().length > 0 ? (
+                "Try another company or clear your search."
+              ) : updateFilter === "unread" && updates.length > 0 ? (
+                "Read news is available in All updates."
+              ) : (
+                "Open Coverage to see which companies Keel can monitor. A gap in coverage can mean news was missed."
+              )}
             </EmptyState>
           ) : (
-            renderSignals(
-              visibleUpdates
+            <div className="watch-news-list">
+              {visibleUpdates
                 .slice(currentSignalPage * 20, currentSignalPage * 20 + 20)
-                .map((item) => item.observation),
-            )
+                .map((item) => {
+                  if (item.kind === "news")
+                    return renderSignal(item.observation);
+                  const r = item.review;
+                  return (
+                    <RecordItem
+                      key={r.exposureId}
+                      headingAs="h4"
+                      title={`${r.name}’s first close is ${formatSharePrice(r.firstPriceMicros)}/share`}
+                      metadata={`${r.quote.ticker} · ${formatDate(r.firstDate)} · ${r.positions.length} eligible positions`}
+                      action={
+                        <ActionGroup wrap>
+                          {item.needsReview && (
+                            <MarketReviewLink review={r} from="watch" />
+                          )}
+                          {updateFilter !== "decisions" && (
+                            <Button
+                              tone="quiet"
+                              disabled={busy}
+                              onClick={() => void markMarketNews(r)}
+                            >
+                              {r.read ? "Mark unread" : "Mark read"}
+                            </Button>
+                          )}
+                        </ActionGroup>
+                      }
+                    />
+                  );
+                })}
+            </div>
           )}
           {signalCount > 20 && (
             <ActionGroup className="watch-page-actions" wrap>
