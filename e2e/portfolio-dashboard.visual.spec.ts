@@ -527,7 +527,7 @@ test(
     const unknownCapitalSummary = page.locator(
       `[data-exposure-id="${exposureIdFor("Meridian Bio")}"] .exposure-group__summary`,
     );
-    await expect(unknownCapitalSummary).toContainText("$400,000");
+    await expect(unknownCapitalSummary).toContainText("$400K");
     await expect(unknownCapitalSummary).not.toContainText("%");
     await page.addStyleTag({
       content: ".topbar { visibility: hidden !important; }",

@@ -1154,6 +1154,7 @@
     "packages/evidence/src/index.test.ts :: evidence review > accepts explicit reviewer outcomes",
     "packages/evidence/src/index.test.ts :: evidence review > only maps explicit financial claim paths to direct applications",
     "packages/evidence/src/index.test.ts :: evidence review > prevents accepted evidence from being reviewed again",
+    "packages/ui/src/lib/money.test.ts :: rounds Holdings display values after scaling in their native currency",
     "packages/ui/src/lib/text-search.test.ts :: collection text search > highlights original graphemes and merges overlapping matches",
     "packages/ui/src/lib/text-search.test.ts :: collection text search > matches all query words across accents, punctuation and spacing",
     "packages/ui/src/lib/text-search.test.ts :: collection text search > treats punctuation-only input as browsing and special characters as text",

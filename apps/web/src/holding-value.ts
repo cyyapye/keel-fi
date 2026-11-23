@@ -19,6 +19,7 @@ import type { ValuationRecord } from "@keel/domain/valuation-record";
 import { formatMoney } from "./format";
 export function netInvestmentBreakdown(
   capital: ReviewedInvestment | undefined,
+  format: (minor: number) => string = formatMoney,
 ) {
   const contributed =
     capital?.cashPaidMinor != null && capital.additionalPaidFeesMinor !== null
@@ -31,7 +32,7 @@ export function netInvestmentBreakdown(
   ] as const;
   return amounts
     .flatMap(([minor, label]) =>
-      minor == null ? [] : [`${formatMoney(minor)} ${label}`],
+      minor == null ? [] : [`${format(minor)} ${label}`],
     )
     .join(" · ");
 }

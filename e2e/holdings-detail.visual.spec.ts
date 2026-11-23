@@ -60,7 +60,7 @@ async function checkOverviewAndAssignMatch(
   ).toHaveCount(0);
   await expect(
     publicExposure.locator(".exposure-group__summary"),
-  ).toContainText("Basis $183k · +30% total return");
+  ).toContainText("Basis $182.5K · +30% total return");
   await expect(publicExposure.locator(".exposure-group__quote")).toHaveText(
     "$190.4/share · Aug 10, 2026",
   );
@@ -95,7 +95,7 @@ async function checkOverviewAndAssignMatch(
   ]);
   await expect(
     northstarExposure.locator(".exposure-group__summary"),
-  ).toContainText("Basis $400k · +200% total return");
+  ).toContainText("Basis $400K · +200% total return");
 
   await expect(harborAction).toHaveAttribute("href", /^\/holdings\?position=/u);
   await expect(harborAction.locator('svg[aria-hidden="true"]')).toBeVisible();
@@ -594,7 +594,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     await page.getByRole("button", { name: /^Fees & carry/ }).click();
     await expect(page.getByText("Allocation", { exact: true })).toBeVisible();
     await expect(
-      page.locator(".position-economics__rows").getByText("$100k"),
+      page.locator(".position-economics__rows").getByText("$100,000.00"),
     ).toHaveCount(1);
     await expect(page.getByText("Source confidence")).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
@@ -630,9 +630,9 @@ test("leads with the investment and opens a truthful holding detail", async ({
     await expectNoHorizontalOverflow(page);
     await page.getByRole("button", { name: "Review terms" }).click();
     const economicsReview = page.locator(".position-economics__review");
-    await expect(economicsReview).toContainText("2.0% · $2k");
-    await expect(economicsReview).toContainText("$100k");
-    await expect(economicsReview).toContainText("$98k");
+    await expect(economicsReview).toContainText("2.0% · $2,000.00");
+    await expect(economicsReview).toContainText("$100,000.00");
+    await expect(economicsReview).toContainText("$98,000.00");
     await expect(economicsReview).toContainText("20.0%");
     await expectNoHorizontalOverflow(page);
     await expect(page.locator(".screen-stack")).toHaveScreenshot(
@@ -652,7 +652,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
       page.getByRole("button", { name: "Update fee & carry" }),
     ).toBeVisible();
     await expect(
-      page.locator(".position-economics__rows").getByText("$98k"),
+      page.locator(".position-economics__rows").getByText("$98,000.00"),
     ).toBeVisible();
     await expectNoHorizontalOverflow(page);
   } else {
@@ -690,7 +690,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
     await page.getByRole("button", { name: "Review value" }).click();
     await expect(
       page.locator(".position-value-adjustment__review"),
-    ).toContainText("$125k → $150k");
+    ).toContainText("$125,000.00 → $150,000.00");
     await expectNoHorizontalOverflow(page);
     await page.getByRole("button", { name: "Accept value" }).click();
     await expect(
@@ -703,7 +703,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
       .click();
     const reviewedMark = page.locator(".holding-reviewed-mark");
     await expect(reviewedMark).toContainText("Synthetic Health Journal");
-    await expect(reviewedMark).toContainText("$150k");
+    await expect(reviewedMark).toContainText("$150,000.00");
     await expect(
       reviewedMark.getByRole("link", { name: "Open source" }),
     ).toHaveAttribute("href", "https://news.example/harbor-mark");
@@ -714,7 +714,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   }
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(harborAction).toBeFocused();
-  await expect(harborExposure).toContainText(mobile ? "$235,000" : "$210,000");
+  await expect(harborExposure).toContainText(mobile ? "$235K" : "$210K");
   await expect(
     harborExposure.locator(".exposure-group__summary"),
   ).not.toContainText("%");

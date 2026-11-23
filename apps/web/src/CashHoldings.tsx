@@ -1,3 +1,4 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import type { AcceptedCashAccount } from "@keel/domain";
 import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-view";
 import type {
@@ -91,14 +92,17 @@ function HistoryEntries({
   currency: string;
   full?: boolean;
 }) {
-  const facts = (entry: CashBalanceHistoryEntry) => (
-    <>
-      {entry.initial
-        ? ""
-        : `${cashAmount(entry.previousValueMinor, currency)} → `}
-      {cashAmount(entry.valueMinor, currency)}
-    </>
-  );
+  const facts = (entry: CashBalanceHistoryEntry) => {
+    const display = (minor: number | null) =>
+      minor === null || full
+        ? cashAmount(minor, currency)
+        : formatHoldingsAmount(minor, currency);
+    const current = display(entry.valueMinor);
+    const previous = display(entry.previousValueMinor);
+    return entry.initial || (!full && previous === current)
+      ? current
+      : previous + " → " + current;
+  };
   return full ? (
     <RecordGroup
       aria-label="Recorded balance history"
@@ -186,13 +190,11 @@ function RecentHistory({
           )}
           <HistoryEntries entries={page.entries} currency={row.currency} />
           {page.total === 0 && <p>No recorded balance history.</p>}
-          {page.next && (
-            <TextLink data-cash-full={row.key} onClick={onFullHistory}>
-              View full history
-            </TextLink>
-          )}
         </>
       )}
+      <TextLink data-cash-full={row.key} onClick={onFullHistory}>
+        View full history
+      </TextLink>
     </div>
   );
 }
@@ -346,33 +348,36 @@ function FullHistory({
       {page && (
         <>
           <HistoryEntries full entries={page.entries} currency={row.currency} />
-          <nav
-            className="cash-history__paging"
-            aria-label="Balance history pages"
-            ref={controls}
-            aria-busy={busy}
-          >
-            <Button
-              tone="quiet"
-              data-direction="newer"
-              disabled={busy || index === 0}
-              onClick={() => navigate("newer")}
+          {page.total === 0 && <p>No recorded balance history.</p>}
+          {(index > 0 || page.next !== null) && (
+            <nav
+              className="cash-history__paging"
+              aria-label="Balance history pages"
+              ref={controls}
+              aria-busy={busy}
             >
-              Newer
-            </Button>
-            <span role="status">
-              {page.start + (page.entries.length ? 1 : 0)}–
-              {page.start + page.entries.length} of {page.total} entries
-            </span>
-            <Button
-              tone="quiet"
-              data-direction="older"
-              disabled={busy || page.next === null}
-              onClick={() => navigate("older")}
-            >
-              Older
-            </Button>
-          </nav>
+              <Button
+                tone="quiet"
+                data-direction="newer"
+                disabled={busy || index === 0}
+                onClick={() => navigate("newer")}
+              >
+                Newer
+              </Button>
+              <span role="status">
+                {page.start + (page.entries.length ? 1 : 0)}–
+                {page.start + page.entries.length} of {page.total} entries
+              </span>
+              <Button
+                tone="quiet"
+                data-direction="older"
+                disabled={busy || page.next === null}
+                onClick={() => navigate("older")}
+              >
+                Older
+              </Button>
+            </nav>
+          )}
         </>
       )}
     </>
@@ -556,7 +561,12 @@ export function CashHoldingsView({
                             <small>{cashBalanceDetail(row)}</small>
                           </span>
                           <strong>
-                            {cashAmount(row.valueMinor, row.currency)}
+                            {row.valueMinor === null
+                              ? "Unavailable"
+                              : formatHoldingsAmount(
+                                  row.valueMinor,
+                                  row.currency,
+                                )}
                           </strong>
                           <DisclosureIndicator />
                         </CollapsibleTrigger>

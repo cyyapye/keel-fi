@@ -1,3 +1,4 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import { useEffect, useRef, useState } from "react";
 import {
   ActionGroup,
@@ -28,7 +29,7 @@ import {
 import { formatMoney } from "../../apps/web/src/format";
 import { multiInstitutionInvestmentHoldingsView } from "../investment-holdings-fixtures";
 
-const money = (minor: bigint) => formatMoney(minor).replace(/\.00$/u, "");
+const money = formatMoney;
 const statements = {
   initial: "Fund value only",
   partial: "40% Cloud disclosed",
@@ -142,7 +143,7 @@ export function HoldingsTotalJourney({
         detail,
         minor,
         rows: [{ title: fund.legalVehicleName, detail: evidence, minor }],
-        note: "Fidelity brokerage reports $90,000 for the whole SYNF position.",
+        note: "Fidelity brokerage reports $90K for the whole SYNF position.",
       });
   }
   fundExposure(
@@ -175,7 +176,9 @@ export function HoldingsTotalJourney({
           rows: [
             { title: "Horizon SPV", detail: saved.name, minor: saved.minor },
           ],
-          ...(harbor === "cost" && { note: saved.detail }),
+          ...(harbor === "cost" && {
+            note: `${formatHoldingsAmount(paidIn)} paid in · ${formatHoldingsAmount(upfrontFees)} upfront fees · ${formatHoldingsAmount(receivedRefund)} refund`,
+          }),
         }
       : {
           name: "Harbor Health Systems",
@@ -331,7 +334,7 @@ export function HoldingsTotalJourney({
           trailingStat={
             <Stat
               label={saved ? "Total" : "Known total"}
-              value={money(total)}
+              value={formatHoldingsAmount(total)}
               detail={`${exposures.length} exposures · ${positions.length} positions`}
             />
           }
@@ -386,7 +389,7 @@ export function HoldingsTotalJourney({
                     >
                       {group.minor === null
                         ? "Awaiting valuation"
-                        : money(group.minor)}
+                        : formatHoldingsAmount(group.minor)}
                     </span>
                     <DisclosureIndicator className="exposure-group__indicator" />
                   </CollapsibleTrigger>
@@ -408,7 +411,7 @@ export function HoldingsTotalJourney({
                             key={row.title}
                             title={row.title}
                             detail={row.detail}
-                            value={money(row.minor)}
+                            value={formatHoldingsAmount(row.minor)}
                           />
                         ))}
                       </RecordGroup>

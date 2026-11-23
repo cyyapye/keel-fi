@@ -21,10 +21,7 @@ import {
 import { carryUnavailableReason } from "./holding-value";
 import type { TermsDraft } from "./investment-terms-draft";
 import { rateText } from "./investment-terms-draft";
-import {
-  formatPositionCurrency as formatCurrency,
-  formatCompactPositionCurrency,
-} from "./format";
+import { formatPositionCurrency as formatCurrency } from "./format";
 import {
   estimatePurchaseCapital,
   type PurchaseLot,
@@ -230,10 +227,6 @@ export function InvestmentCalculationPreview({
     reviewed.snapshotId === currentSnapshotId;
   const money = (n: number | null) =>
     n === null || !current ? "Unknown" : formatCurrency(n, "USD");
-  const summaryMoney = (n: number) =>
-    compact
-      ? formatCompactPositionCurrency(n, "USD")
-      : formatCurrency(n, "USD");
   const terms = reviewed.terms;
   const value = terms.reportedValueReview;
   const boundValue =
@@ -277,19 +270,16 @@ export function InvestmentCalculationPreview({
               {current && cashSummary.amountMinor !== null && (
                 <Stat
                   label={capitalSummaryLabel(cashSummary)}
-                  value={summaryMoney(cashSummary.amountMinor)}
+                  value={money(cashSummary.amountMinor)}
                 />
               )}
               {current && (reviewed.cashPaidMinor ?? 0) > 0 && (
-                <Stat
-                  label="Cash paid"
-                  value={summaryMoney(reviewed.cashPaidMinor!)}
-                />
+                <Stat label="Cash paid" value={money(reviewed.cashPaidMinor)} />
               )}
               {current && (reviewed.returnedCapitalMinor ?? 0) > 0 && (
                 <Stat
                   label="Refunded"
-                  value={summaryMoney(reviewed.returnedCapitalMinor!)}
+                  value={money(reviewed.returnedCapitalMinor!)}
                 />
               )}
               {current && (cashSummary.upfrontFeesMinor ?? 0) > 0 && (
@@ -299,7 +289,7 @@ export function InvestmentCalculationPreview({
                       ? "Estimated upfront fees"
                       : "Upfront fees"
                   }
-                  value={summaryMoney(cashSummary.upfrontFeesMinor!)}
+                  value={money(cashSummary.upfrontFeesMinor)}
                 />
               )}
             </StatGroup>

@@ -531,7 +531,7 @@ test(
     await expect(group).toContainText("Northstar SPV A");
     await expect(group).toContainText("Northstar SPV B");
     await expect(group).toContainText("1 value awaiting valuation");
-    await expect(group).toContainText("$36,000");
+    await expect(group).toContainText("$36K");
     await expect(
       group.getByRole("link", {
         name: /Group with company|Review company link/u,
@@ -744,7 +744,7 @@ test("keeps valued positions in the total before exposure assignment", async ({
   await expect(total.locator(".stat__detail")).toHaveText(
     "7 exposures · 7 positions",
   );
-  await expect(total.locator(".stat__value")).toHaveText("$890,000");
+  await expect(total.locator(".stat__value")).toHaveText("$890K");
   await expect(
     page.getByRole("tab", { name: "All exposures" }),
   ).toHaveAttribute("aria-selected", "true");
@@ -766,7 +766,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const exposureView = page.locator(".investment-views");
   const total = exposureView.locator(".investment-views__total");
   await expect(total.locator(".stat__label")).toHaveText("Known total");
-  await expect(total.locator(".stat__value")).toHaveText("$950,000");
+  await expect(total.locator(".stat__value")).toHaveText("$950K");
   await expect(total.locator(".stat__detail")).toHaveText(
     "4 exposures · 7 positions",
   );
@@ -866,9 +866,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   });
   await nvda.locator(".exposure-group__summary").click();
   await expect(nvda).toContainText("3 positions");
-  await expect(nvda.locator(".exposure-group__totals")).toContainText(
-    "$740,000",
-  );
+  await expect(nvda.locator(".exposure-group__totals")).toContainText("$740K");
   await expect(
     nvda.getByText("Robinhood brokerage", { exact: true }),
   ).toBeVisible();
@@ -894,20 +892,20 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     await sort.focus();
     await sort.press("Space");
     await expect(nvda.locator(".position-row__value")).toContainText([
-      "$185,000",
-      "$240,000",
-      "$315,000",
+      "$185K",
+      "$240K",
+      "$315K",
     ]);
     await sort.press("Enter");
     await expect(nvda.locator(".position-row__value")).toContainText([
-      "$315,000",
-      "$240,000",
-      "$185,000",
+      "$315K",
+      "$240K",
+      "$185K",
     ]);
     await expect(sort).toBeFocused();
   }
   await expect(page.locator(".cash-holdings")).toContainText(
-    "Total cash$28,550.00",
+    "Total cash$28.6K",
   );
   const harbor = page.locator(".exposure-group").filter({
     has: page.getByText("Harbor Health Systems", { exact: true }),
@@ -920,15 +918,15 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   const fund = page
     .locator(".exposure-group")
     .filter({ has: page.getByText("SYNF", { exact: true }) });
-  await expect(fund.locator(".exposure-group__value")).toHaveText("$90,000");
+  await expect(fund.locator(".exposure-group__value")).toHaveText("$90K");
   await fund.locator(".exposure-group__summary").click();
-  await expect(fund.locator(".position-row__value")).toHaveText("$90,000");
+  await expect(fund.locator(".position-row__value")).toHaveText("$90K");
   await expect(
     fund.getByRole("link", {
       name: "View SYNF holding details in Fidelity brokerage",
     }),
   ).toBeVisible();
-  await expect(total.locator(".stat__value")).toHaveText("$950,000");
+  await expect(total.locator(".stat__value")).toHaveText("$950K");
   await captureDesignReview(
     page,
     "review-whole-position-value.png",
@@ -938,7 +936,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     has: page.getByText("Beacon Robotics", { exact: true }),
   });
   await expect(beacon.locator(".exposure-group__summary")).toContainText(
-    "$120,000",
+    "$120K",
   );
   await expect(beacon.locator(".exposure-group__summary")).toContainText(
     "1 estimate",
@@ -946,8 +944,8 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await beacon.locator(".exposure-group__summary").click();
   await expect(beacon.getByText("Synthetic Beacon SPV")).toBeVisible();
   await expect(beacon.locator(".position-row__value")).toContainText([
-    "$60,000",
-    "$60,000",
+    "$60K",
+    "$60K",
   ]);
   const beaconEstimateRow = beacon.locator("article").filter({
     hasText: "Synthetic Beacon SPV",
@@ -1269,9 +1267,7 @@ test(
     await expect(
       group.locator(".exposure-group__positions article"),
     ).toHaveCount(1);
-    await expect(group.locator(".exposure-group__value")).toHaveText(
-      "$120,000",
-    );
+    await expect(group.locator(".exposure-group__value")).toHaveText("$120K");
     await expect(page.locator(".investment-views__total")).toHaveText(total);
     await expect(group.locator("mark").first()).toHaveText("Beacon");
     expect(requests).toEqual([]);

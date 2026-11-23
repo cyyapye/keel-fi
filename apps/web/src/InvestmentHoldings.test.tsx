@@ -89,7 +89,7 @@ test("renders a manual Fund estimate without treating contributed cash as basis 
   const rows = markup.match(/<button\b[^>]*>[\s\S]*?<\/button>/gu) ?? [];
   const matching = rows.filter((row) => row.includes(current.positionName));
   expect(matching).toHaveLength(1);
-  expect(matching[0]).toContain("$30,000");
+  expect(matching[0]).toContain("$30K");
   expect(matching[0]).not.toContain("Basis");
   expect(matching[0]).not.toContain("total return");
 });

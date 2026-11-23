@@ -1,20 +1,9 @@
+import { currencyFractionDigits } from "@keel/ui/money";
+export { currencyFractionDigits } from "@keel/ui/money";
+
 const integerFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
-
-export function currencyFractionDigits(currency: string): number {
-  try {
-    return (
-      new Intl.NumberFormat("en-US", {
-        currency,
-        style: "currency",
-      }).resolvedOptions().maximumFractionDigits ?? 2
-    );
-  } catch {
-    // Unknown ISO-style codes remain visible and use the common two-minor-unit fallback.
-    return 2;
-  }
-}
 
 export function formatMoney(minorUnits: number | bigint): string {
   const amount = BigInt(minorUnits);
@@ -209,13 +198,4 @@ export function formatPositionCurrency(
   return currency.toUpperCase() === "USD"
     ? formatMoney(minorUnits)
     : formatCurrency(minorUnits, currency);
-}
-
-export function formatCompactPositionCurrency(
-  minorUnits: number,
-  currency: string,
-): string {
-  return currency.toUpperCase() === "USD"
-    ? formatCompactMoney(minorUnits)
-    : formatRoundedCompactCurrency(minorUnits, currency, 1_000);
 }

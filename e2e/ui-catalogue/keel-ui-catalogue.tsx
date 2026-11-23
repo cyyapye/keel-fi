@@ -1,3 +1,4 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import { Journeys } from "./keel-journeys";
 import { JourneyUsage } from "./journey-usage";
 import { groups, pages, type Page } from "./catalogue-manifest";
@@ -729,7 +730,7 @@ function Display() {
           trailingStat={
             <Stat
               label="Total cash"
-              value="$42,500.00"
+              value={formatHoldingsAmount(4_250_000)}
               detail="3 accounts · USD"
             />
           }

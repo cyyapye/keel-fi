@@ -417,7 +417,7 @@ test("Journeys preserves company scope, lot uncertainty and component round trip
     .getByRole("link", { name: "Back to holdings", exact: true })
     .click();
   await expect(
-    page.getByText("$30,000 total · independent account positions"),
+    page.getByText("$30K total · independent account positions"),
   ).toBeVisible();
   await page.getByRole("link", { name: "RecordGroup", exact: true }).click();
   await expect(page).toHaveURL(/#compositions\?component=RecordGroup/);
@@ -515,7 +515,7 @@ test("Journeys portfolio exposure chevron preserves named keyboard navigation", 
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/#journeys\/company/);
   await expect(
-    page.getByText("$30,000 total · independent account positions"),
+    page.getByText("$30K total · independent account positions"),
   ).toBeVisible();
 });
 
@@ -556,8 +556,8 @@ test("Journeys company amounts share a value column without a fake action", asyn
     const rows = page.locator(".catalogue-company-positions > .record-row");
     const first = rows.nth(0).locator(".record-row__value");
     const second = rows.nth(1).locator(".record-row__value");
-    await expect(first).toHaveText("$20,000");
-    await expect(second).toHaveText("$10,000");
+    await expect(first).toHaveText("$20K");
+    await expect(second).toHaveText("$10K");
     const a = (await first.boundingBox())!;
     const b = (await second.boundingBox())!;
     expect(Math.abs(a.x + a.width - b.x - b.width)).toBeLessThanOrEqual(1);
@@ -721,7 +721,7 @@ test("catalogue record detail chevrons retain button behavior and return meaning
     .getByRole("listitem")
     .filter({ hasText: "Fidelity brokerage" });
   await expect(row.locator(".candidate-basis-return")).toContainText(
-    "Basis $3,600",
+    "Basis $3.6K",
   );
   await expect(
     row.locator(".candidate-basis-return .visually-hidden"),
@@ -743,7 +743,7 @@ test("catalogue record detail chevrons retain button behavior and return meaning
   await expect(card.locator(".candidate-basis-return")).toHaveCount(2);
   expect(
     await card.locator(".candidate-basis-return").allTextContents(),
-  ).toEqual(["Basis $20,000", "Basis $15,000"]);
+  ).toEqual(["Basis $20K", "Basis $15K"]);
 });
 
 test("catalogue history exposes source inline with its outer change", async ({
@@ -802,30 +802,26 @@ test("catalogue exposure aggregate stays visible collapsed without averaging ret
     exact: true,
   });
   const parent = card.locator(".catalogue-record-summary");
-  await expect(parent).toContainText("Basis $7,600");
+  await expect(parent).toContainText("Basis $7.6K");
   await expect(
     parent.locator('.candidate-parent-return [aria-hidden="true"]'),
   ).toHaveText("+32%");
   await parent.click();
   await expect(parent).toHaveAttribute("aria-expanded", "false");
-  await expect(
-    parent.getByText("Basis $7,600", { exact: false }),
-  ).toBeVisible();
+  await expect(parent.getByText("Basis $7.6K", { exact: false })).toBeVisible();
   await expect(
     card.getByText("Fidelity brokerage", { exact: true }),
   ).not.toBeVisible();
   await page.keyboard.press("Enter");
   await expect(parent).toHaveAttribute("aria-expanded", "true");
   await card.getByRole("button", { name: "Single", exact: true }).click();
-  await expect(parent).toContainText("Basis $3,600");
+  await expect(parent).toContainText("Basis $3.6K");
   await expect(
     parent.locator('.candidate-parent-return [aria-hidden="true"]'),
   ).toHaveText("+33%");
   await card.getByRole("button", { name: "Unavailable", exact: true }).click();
   await expect(parent).toContainText("Known value");
-  await expect(parent).toContainText(
-    "Total basis $35,000. Return unavailable.",
-  );
+  await expect(parent).toContainText("Total basis $35K. Return unavailable.");
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -845,7 +841,7 @@ test("catalogue missing-value summary stays compact and explicit when collapsed"
   const parent = card.locator(".catalogue-record-summary");
   await expect(
     parent.locator('.candidate-parent-return [aria-hidden="true"]'),
-  ).toHaveText("1 value missing · Basis $35,000");
+  ).toHaveText("1 value missing · Basis $35K");
   await expect(parent).toContainText("Known value");
   await expect(parent).toContainText("Return unavailable.");
   await parent.click();
@@ -1395,7 +1391,7 @@ test("actionable position row has one native full-row detail target", async ({
   );
   await expect(button).toBeFocused();
   await expect(button.locator("svg")).toHaveAttribute("aria-hidden", "true");
-  await expect(row.getByText("Basis $3,600", { exact: true })).toBeVisible();
+  await expect(row.getByText("Basis $3.6K", { exact: true })).toBeVisible();
   const parent = card.locator(".catalogue-record-summary");
   await parent.click();
   await expect(parent).toHaveAttribute("aria-expanded", "false");
@@ -1874,8 +1870,8 @@ test("one exposure decision applies each close to both SPVs", async ({
   await company.click();
   await expect(review).toBeHidden();
   await company.click();
-  await expect(grove).toContainText("$4,000");
-  await expect(summit).toContainText("$2,700");
+  await expect(grove).toContainText("$4K");
+  await expect(summit).toContainText("$2.7K");
   const reopenReview = exposure.getByRole("link", {
     name: "Review valuation",
     exact: true,
@@ -1885,9 +1881,9 @@ test("one exposure decision applies each close to both SPVs", async ({
   await reopenReview.click();
   await approve.click();
   await expect(company).toHaveAttribute("aria-expanded", "true");
-  await expect(grove).toContainText("$5,000");
-  await expect(summit).toContainText("$3,000");
-  await expect(company).toContainText("$8,000");
+  await expect(grove).toContainText("$5K");
+  await expect(summit).toContainText("$3K");
+  await expect(company).toContainText("$8K");
   await expect(exposure.getByText("$50/share · Jun 2, 2026")).toBeVisible();
   await expect(review).toBeHidden();
   await grove.getByRole("link").click();
@@ -1913,7 +1909,7 @@ test("one exposure decision applies each close to both SPVs", async ({
   await expect(closingPrice).toContainText("Jun 2, 2026");
   await expect(valuation).toContainText("$5,000");
   await page.getByRole("link", { name: "Back to Holdings" }).click();
-  await expect(company).toContainText("$8,000");
+  await expect(company).toContainText("$8K");
   await expect(review).toBeHidden();
   await summit.getByRole("link").click();
   const elmMark = valuation
@@ -1923,9 +1919,9 @@ test("one exposure decision applies each close to both SPVs", async ({
   await expect(elmMark).toContainText("May 29, 2026");
   await page.getByRole("link", { name: "Back to Holdings" }).click();
   await page.getByRole("button", { name: "Preview next trading day" }).click();
-  await expect(grove).toContainText("$5,200");
-  await expect(summit).toContainText("$3,120");
-  await expect(company).toContainText("$8,320");
+  await expect(grove).toContainText("$5.2K");
+  await expect(summit).toContainText("$3.1K");
+  await expect(company).toContainText("$8.3K");
   await expect(exposure.getByText("$52/share · Jun 3, 2026")).toBeVisible();
   await expect(company).toContainText("2 estimates");
   await expect(approve).toBeHidden();
@@ -1952,14 +1948,14 @@ test("one exposure decision applies each close to both SPVs", async ({
   await page
     .getByRole("link", { name: "Keep closing price", exact: true })
     .click();
-  await expect(company).toContainText("$8,320");
+  await expect(company).toContainText("$8.3K");
   await expect(exposure.getByText("$52/share · Jun 3, 2026")).toBeVisible();
   await expect(review).toHaveCount(0);
   await changeSource.click();
   await page
     .getByRole("button", { name: "Restore sources for 2 positions" })
     .click();
-  await expect(company).toContainText("$6,700");
+  await expect(company).toContainText("$6.7K");
   await expect(company).toContainText("1 estimate");
   await expect(pendingReview).toHaveCount(0);
   await expect(
@@ -2012,7 +2008,7 @@ test("an IPO filing is news and one Watch decision resolves both Holdings estima
   await expect(headline).toBeVisible();
   await expect(link("View Holdings")).toHaveCount(0);
   await page.goto("/ui/#journeys/closing-price");
-  await expect(company).toContainText("$6,700");
+  await expect(company).toContainText("$6.7K");
   await expect(chip).toHaveCount(0);
   await link("Portfolio Watch").click();
   await button("Preview first close").click();
@@ -2022,7 +2018,7 @@ test("an IPO filing is news and one Watch decision resolves both Holdings estima
   ).toContainText("Cedar Robotics’ first close is $50/share");
   await expect(link("View Holdings")).toHaveCount(0);
   await page.goto("/ui/#journeys/closing-price");
-  await expect(company).toContainText("$6,700");
+  await expect(company).toContainText("$6.7K");
   await expect(chip).toBeVisible();
   await link("Portfolio Watch").click();
   await chip.click();
@@ -2039,19 +2035,19 @@ test("an IPO filing is news and one Watch decision resolves both Holdings estima
     page.getByText("No decisions needed", { exact: true }),
   ).toBeVisible();
   await link("View Holdings").click();
-  await expect(company).toContainText("$8,000");
+  await expect(company).toContainText("$8K");
   await expect(chip).toHaveCount(0);
-  await expect(position("Grove SPV")).toContainText("$5,000");
-  await expect(position("Summit SPV")).toContainText("$3,000");
+  await expect(position("Grove SPV")).toContainText("$5K");
+  await expect(position("Summit SPV")).toContainText("$3K");
   await expect(
     page.getByText("Closing-price estimate", { exact: true }),
   ).toHaveCount(2);
   await page.reload();
-  await expect(company).toContainText("$8,000");
+  await expect(company).toContainText("$8K");
   await expect(chip).toHaveCount(0);
   await button("Preview next trading day").click();
-  await expect(position("Grove SPV")).toContainText("$5,200");
-  await expect(position("Summit SPV")).toContainText("$3,120");
+  await expect(position("Grove SPV")).toContainText("$5.2K");
+  await expect(position("Summit SPV")).toContainText("$3.1K");
   await link("Portfolio Watch").click();
   await expect(button("Decisions (0)")).toBeVisible();
   await button("All updates").click();
@@ -2081,14 +2077,14 @@ test("GP marks respect the source selected for each position", async ({
   await expect(position("Grove SPV")).toContainText("GP report · $40/share");
   await expect(position("Summit SPV")).toContainText("GP report · $45/share");
   for (const [scenario, expected] of [
-    ["Followed GP mark", "$2,520"],
-    ["One-time GP proxy", "$2,400"],
+    ["Followed GP mark", "$2.5K"],
+    ["One-time GP proxy", "$2.4K"],
   ]) {
     await page.getByRole("combobox", { name: "Walkthrough scenario" }).click();
     await page.getByRole("option", { name: scenario!, exact: true }).click();
     await next.click();
     await expect(pending).toHaveCount(0);
-    await expect(position("Grove SPV")).toContainText("$4,000");
+    await expect(position("Grove SPV")).toContainText("$4K");
     await expect(position("Summit SPV")).toContainText(expected!);
   }
   await position("Summit SPV").getByRole("link").click();
@@ -2096,7 +2092,7 @@ test("GP marks respect the source selected for each position", async ({
   await page
     .getByRole("button", { name: "Save source for Summit SPV" })
     .click();
-  await expect(position("Summit SPV")).toContainText("$2,520");
+  await expect(position("Summit SPV")).toContainText("$2.5K");
 });
 
 test("choosing a GP proxy through Holdings prices only the unvalued SPV", async ({
@@ -2109,7 +2105,7 @@ test("choosing a GP proxy through Holdings prices only the unvalued SPV", async 
   const company = page.getByRole("button", {
     name: /Cedar Robotics.*3 positions/,
   });
-  await expect(company).toContainText("$6,700");
+  await expect(company).toContainText("$6.7K");
   await expect(company).toContainText("2 of 3 positions valued");
   await expect(company).toContainText("Known value before carry");
   await review.click();
@@ -2145,7 +2141,7 @@ test("choosing a GP proxy through Holdings prices only the unvalued SPV", async 
   await expect(company).not.toContainText("Known value");
   await page.getByRole("button", { name: "Preview next GP mark" }).click();
   await expect(vale).toContainText("$940");
-  await expect(company).toContainText("$7,640");
+  await expect(company).toContainText("$7.6K");
   await expect(review).toHaveCount(0);
   await vale.getByRole("link").click();
   await page.getByRole("link", { name: "Edit valuation" }).click();
@@ -2155,7 +2151,7 @@ test("choosing a GP proxy through Holdings prices only the unvalued SPV", async 
   await expect(preview).toContainText("20 shares × $40/share · May 29");
   await save.click();
   await expect(vale).toContainText("$800");
-  await expect(company).toContainText("$7,500");
+  await expect(company).toContainText("$7.5K");
 });
 
 test("reconciles fund attribution and a missing position value independently", async ({
@@ -2191,27 +2187,27 @@ test("reconciles fund attribution and a missing position value independently", a
     await page.getByRole("option", { name: label, exact: true }).click();
   }
   await expect(total).toContainText("Known total");
-  await expect(total).toContainText("$950,000");
+  await expect(total).toContainText("$950K");
   await expect(total).toContainText("4 exposures · 7 positions");
-  await expect(summary("SYNF")).toContainText("$90,000");
+  await expect(summary("SYNF")).toContainText("$90K");
   await expect(summary("Harbor Health Systems")).toContainText("Outside total");
   await capture("initial");
   await summary("Beacon Robotics").click();
   await expect(
     journey.getByRole("list", { name: "Beacon Robotics positions" }),
   ).toContainText("Portfolio Watch estimate");
-  await expect(summary("Beacon Robotics")).toContainText("$120,000");
+  await expect(summary("Beacon Robotics")).toContainText("$120K");
   await capture("single-company");
   await summary("Beacon Robotics").click();
   await statement("40% Cloud disclosed");
-  await expect(summary("Cloud Basket")).toContainText("$36,000");
-  await expect(summary("SYNF")).toContainText("$54,000");
-  await expect(total).toContainText("$950,000");
+  await expect(summary("Cloud Basket")).toContainText("$36K");
+  await expect(summary("SYNF")).toContainText("$54K");
+  await expect(total).toContainText("$950K");
   await capture("partial");
   await statement("40% Cloud · 60% Infrastructure");
   await expect(summary("SYNF")).toHaveCount(0);
-  await expect(summary("Infrastructure Basket")).toContainText("$54,000");
-  await expect(total).toContainText("$950,000");
+  await expect(summary("Infrastructure Basket")).toContainText("$54K");
+  await expect(total).toContainText("$950K");
   await journey.getByRole("tab", { name: "Needs resolution (1)" }).click();
   const add = journey.getByRole("link", { name: "Add valuation" });
   await capture("resolution");
@@ -2232,19 +2228,19 @@ test("reconciles fund attribution and a missing position value independently", a
   for (const [evidence, button, expected, source] of [
     [
       "Reconciled capital statement",
-      "Use $18,000 at cost",
-      "$968,000",
+      "Use $18,000.00 at cost",
+      "$968K",
       "At cost · Net invested",
     ],
-    ["GP statement", "Use $25,000 GP mark", "$975,000", "GP mark"],
-    ["GP write-off", "Use $0 GP mark", "$950,000", "GP mark"],
+    ["GP statement", "Use $25,000.00 GP mark", "$975K", "GP mark"],
+    ["GP write-off", "Use $0.00 GP mark", "$950K", "GP mark"],
   ] as const) {
     await picker.click();
     await page.getByRole("option", { name: evidence, exact: true }).click();
     if (evidence === "Reconciled capital statement") {
       await expect(
         journey.getByText(
-          /Net invested is \$18,000 after \$500 in upfront fees and a \$1,500 refund/,
+          /Net invested is \$18,000\.00 after \$500\.00 in upfront fees and a \$1,500\.00 refund/,
         ),
       ).toBeVisible();
       await capture("cost-evidence");
@@ -2268,7 +2264,7 @@ test("reconciles fund attribution and a missing position value independently", a
         .click();
       await expect(journey.getByText("All positions valued")).toBeVisible();
     } else {
-      await expect(summary("Infrastructure Basket")).toContainText("$54,000");
+      await expect(summary("Infrastructure Basket")).toContainText("$54K");
       await change.click();
       await expect(picker).toHaveText(evidence);
       await journey.getByRole("button", { name: "Cancel" }).click();

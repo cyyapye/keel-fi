@@ -1,6 +1,7 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import { useEffect, useRef, useState } from "react";
 import { ClosingPriceComparison } from "../../apps/web/src/ClosingPriceComparison";
-import { formatDate } from "../../apps/web/src/format";
+import { formatDate, formatMoney } from "../../apps/web/src/format";
 import {
   ActionGroup,
   Badge,
@@ -78,7 +79,7 @@ function IpoHoldingValuation({
           <p>
             {reported ? "Reported value" : "Estimated value"} · Before carry
           </p>
-          <strong className="holding-value-amount">{money(value)}</strong>
+          <strong className="holding-value-amount">{formatMoney(value)}</strong>
           <p className="holding-metadata">
             {publicClose
               ? `${shares} Class A shares at CDR’s closing price`
@@ -323,7 +324,7 @@ export function ValuationJourney({
                 <p className="text-role text-role--primary">
                   {selected.value === null
                     ? "Value unavailable"
-                    : money(selected.value) + " before carry"}
+                    : formatMoney(selected.value) + " before carry"}
                 </p>
                 <h3>Valuation</h3>
                 <p>
@@ -520,7 +521,9 @@ export function ValuationJourney({
               </small>
             </span>
             <span className="exposure-group__totals">
-              <span className="exposure-group__value">{money(total)}</span>
+              <span className="exposure-group__value">
+                {formatHoldingsAmount(total)}
+              </span>
               <small className="exposure-group__performance exposure-group__market-meta">
                 {valued < rows.length
                   ? "Known value before carry"
@@ -598,7 +601,7 @@ export function ValuationJourney({
                     value={
                       row.value === null
                         ? "Value unavailable"
-                        : money(row.value)
+                        : formatHoldingsAmount(row.value)
                     }
                     metadata={row.source}
                     action={
