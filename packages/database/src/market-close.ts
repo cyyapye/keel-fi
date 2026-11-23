@@ -1,7 +1,9 @@
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { z } from "zod";
+import { personalDailyInstrumentPrefix } from "./personal-daily-closes";
 import {
+  GpMarkPriceSchema,
   MarketQuoteSchema,
   MarketReviewSchema,
   type MarketReview,
@@ -27,6 +29,7 @@ interface ReviewRow {
   mapping_id: string;
   legal_vehicle_name: string;
   receipt_json: string;
+  latest_gp_json: string | null;
   receipt_id: string;
   snapshot_id: string;
   unrealized_value_minor: number | null;
@@ -50,7 +53,9 @@ type Scope = {
 async function reviews(db: D1Database, subject: string, exposure?: string) {
   const selectCandidates = `SELECT e.id exposure_id,e.canonical_name,price.first_session,price.quote_json,
     first.price_micros first_price,coalesce(news.is_read,0) is_read,coalesce(news.version,0) read_version,coalesce(d.version,0) version,d.choice,c.position_id,c.mapping_id,c.legal_vehicle_name,c.receipt_json,c.receipt_id,c.snapshot_id,c.unrealized_value_minor,
-    (m.position_id IS NOT NULL) enrolled ${candidates}`;
+    (SELECT json_object('priceMicros',gp.price_micros,'priceDate',gp.price_date,'sourceLabel',gp.source_label)
+     FROM holding_price_current_quotes gp_head JOIN holding_price_quotes gp ON gp.id=gp_head.quote_id
+     WHERE gp_head.source_position_id=c.position_id) latest_gp_json, (m.position_id IS NOT NULL) enrolled ${candidates}`;
   const order = " ORDER BY e.id,c.position_id";
   const statement = exposure
     ? db
@@ -93,6 +98,12 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
         effectivePositionValuation(receipt, row.snapshot_id)?.valueMinor ??
         row.unrealized_value_minor,
       enrolled: Boolean(row.enrolled),
+      ...(!exposure &&
+        row.latest_gp_json && {
+          latestGpPrice: GpMarkPriceSchema.parse(
+            JSON.parse(row.latest_gp_json),
+          ),
+        }),
     });
     group.scope.push({
       id: row.position_id,
@@ -280,6 +291,11 @@ export const OfficialCloseSchema = z
   .strict();
 export async function recordOfficialClose(db: D1Database, raw: unknown) {
   const q = OfficialCloseSchema.parse(raw);
+  if (
+    q.instrumentId.startsWith(personalDailyInstrumentPrefix) ||
+    new URL(q.sourceUrl).hostname === "www.alphavantage.co"
+  )
+    throw new Error("A daily-price source cannot supply an official close.");
   if (Date.parse(q.observedAt) > Date.now())
     throw new Error("The closing price observation is in the future.");
   if (q.observedAt.slice(0, 10) < q.date)

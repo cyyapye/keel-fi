@@ -97,7 +97,7 @@ async function checkOverviewAndAssignMatch(
     northstarExposure.locator(".exposure-group__summary"),
   ).toContainText("Basis $400k · +200% total return");
 
-  await expect(harborAction).toHaveAttribute("data-slot", "text-link");
+  await expect(harborAction).toHaveAttribute("href", /^\/holdings\?position=/u);
   await expect(harborAction.locator('svg[aria-hidden="true"]')).toBeVisible();
   await expect(harborAction).toHaveText("");
   const actionBounds = await harborAction.boundingBox();

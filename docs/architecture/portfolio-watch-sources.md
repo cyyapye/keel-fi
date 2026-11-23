@@ -139,11 +139,16 @@ exercises the same ingestion and valuation logic as a trusted close event.
    conversion terms for private shares. Keep an ambiguous issuer, class,
    currency or conversion out of price-based estimates. An SPV unit count by
    itself does not establish the underlying share count.
-3. Connect one official-close feed and pass a synthetic first-close, next-close,
-   correction and missed-session replay before enabling a live issuer. For a
-   Nasdaq pilot, an entitled feed with an explicit official closing statistic is
-   the candidate. Price ranges, offer prices, intraday trades and security
-   values inferred from brokerage balances cannot start the policy.
+3. Use Alpha Vantage for the delayed daily-price pilot. Request the compact
+   `TIME_SERIES_DAILY` history and take the raw `4. close` for a completed
+   trading date. An offer price, intraday trade or price inferred from a
+   brokerage balance is ineligible. Record the provider, session date and price
+   as daily close evidence. The existing official-close importer accepts
+   exchange closing statistics only. The pilot needs a distinct source choice so
+   an existing approval to follow the official close cannot silently switch
+   feeds. Show **Use daily close** once for the exposure and retain each
+   position's GP mark. Verify first close, next close, correction and
+   missed-session replay with synthetic positions before enabling live updates.
 4. Fetch each tracked instrument once per completed session, with bounded replay
    after an outage. Route its immutable evidence to interested exposures during
    ingestion. Repeated delivery must leave one decision and one accepted
@@ -151,15 +156,65 @@ exercises the same ingestion and valuation logic as a trusted close event.
    financial reads projection-only and certify the request and D1 cost envelope
    before enabling a new scheduled producer.
 
-Feed selection and deployment are separate from the approved screens. The
-existing weekly company-site scan supplies news and cannot guarantee same-day
-filing or close coverage. Measure detection lag, unmatched instruments and
-missed sessions during the pilot.
+Alpha Vantage's free tier allows 25 requests per day for individual,
+non-commercial use. A shared deployment needs a separate agreement covering
+Keel's use and display. A live pilot also needs a server-side key and a
+confirmed match for the intended instrument. Keep the key out of stored source
+links.
+
+The existing weekly company-site scan supplies news and cannot guarantee
+same-day filing or close coverage. Measure detection lag, unmatched instruments
+and missed sessions during the pilot.
 
 Technical references:
-[SEC submissions API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)
-and
+[SEC submissions API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces),
+[Alpha Vantage daily prices](https://www.alphavantage.co/documentation/#daily),
+[free-tier limits](https://www.alphavantage.co/support/),
+[usage terms](https://www.alphavantage.co/terms_of_service/), and
 [Nasdaq official closing statistics distributed by Databento](https://databento.com/docs/datasets/xnas-itch).
+
+### Running the personal daily-price feed locally
+
+The personal profile attaches a confirmed USD listing to two sample SPVs in a
+separate local database. Place the public listing identity in
+`.keel-local/personal-market/listing.json`. A synthetic example follows.
+
+```json
+{
+  "company": "Cedar Robotics",
+  "issuerId": "0000000001",
+  "ticker": "CDR",
+  "venue": "Nasdaq",
+  "shareClass": "Class A",
+  "firstSession": "2026-11-19",
+  "identitySourceUrl": "https://example.test/cedar/final-prospectus"
+}
+```
+
+Use the macOS Keychain generic password named `Keel personal Alpha Vantage` with
+account `personal`, or supply `ALPHA_VANTAGE_API_KEY` through a local secret
+manager. Start the local app with `make dev SCENARIO=personal-prices`. The app
+fetches compact daily history on startup and at 10:00 UTC while running, with
+one split-history request and one price-history request per daily window.
+Restarting catches up within the last 100 trading sessions. The initial fetch
+must include the confirmed first session. The tick and its date are the
+provider's raw daily observation. Corporate actions or a change in economic
+share basis require separate confirmation. This pilot assumes a fixed reviewed
+allocation in both sample positions.
+
+For a fresh walkthrough, start with `KEEL_PERSONAL_REPLAY_FIRST=1`. Holdings and
+Portfolio Watch show one exposure decision on the first observed session. After
+the choice, the app imports the remaining available sessions from the same
+provider response. Later refreshes follow the ordinary schedule. The walkthrough
+and daily feed use the same persistent valuation and GP records. Preview runs
+the personal feed on the existing Cloudflare Worker trigger at 13:00 UTC. The
+protected Preview environment secret `KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED`
+supplies the API key, confirmed listing, household, canonical exposure, and
+reviewed share-basis key. Removing that deployment input disables the feed on
+the next deployment. A matching listing can collect prices before an eligible
+position follows it. Adoption requires an exposure decision covering positions
+with matching share terms. Additional listings require separate identity
+confirmation.
 
 ## Check cadence
 

@@ -139,6 +139,14 @@ it("one household decision follows both positions through the next official clos
       }),
     ).toBe(true);
     expect((await holdings()).map((h) => h.value)).toEqual([430000, 270000]);
+    const restored = await groveReceipt();
+    expect(restored.publicClose).toBeUndefined();
+    expect(restored.latestGpPrice).toBeUndefined();
+    const [market] = await listMarketReviews(db, subject);
+    expect(
+      market?.positions.find((p) => p.id === groveId)?.latestGpPrice
+        ?.priceMicros,
+    ).toBe(43_000_000);
   } finally {
     store.sqlite.close();
   }

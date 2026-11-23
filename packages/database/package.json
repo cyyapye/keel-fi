@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./personal-daily-closes": "./src/personal-daily-closes.ts",
     "./market-close": "./src/market-close.ts",
     ".": "./src/index.ts",
     "./exposure-read-model": "./src/exposure-read-model.ts",

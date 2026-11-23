@@ -5,7 +5,7 @@ import {
 } from "./holding-position-route";
 import type { ExposureDrilldown } from "./PortfolioSnapshot";
 import { MarketReviewLink } from "./MarketCloseReview";
-import { useMarketReviews } from "./use-market-reviews";
+import type { useMarketReviews } from "./use-market-reviews";
 import { CashHoldingsView } from "./CashHoldings";
 import {
   PublicSourceUpdate,
@@ -1156,9 +1156,15 @@ function PrivateExposureAssignmentForm({
   );
 }
 
+type HoldingsMarket = Pick<
+  ReturnType<typeof useMarketReviews>,
+  "reviews" | "error"
+>;
+
 export type ExposureTab = "all" | "resolution";
 
 function ExposureView({
+  market,
   activeTab,
   data,
   exposureReviewBatchBusy,
@@ -1189,6 +1195,7 @@ function ExposureView({
   visiblePositionCounts,
 }: {
   activeTab: ExposureTab;
+  market: HoldingsMarket;
   data: InvestmentHoldingsView;
   exposureReviewBatchBusy: boolean;
   exposureReviewBatchError: string | null;
@@ -1224,7 +1231,6 @@ function ExposureView({
   visibleExposureCount: number;
   visiblePositionCounts: ReadonlyMap<string, number>;
 }) {
-  const market = useMarketReviews();
   const marketByExposure = new Map(
     market.reviews?.map((r) => [r.exposureId, r]),
   );
@@ -2098,6 +2104,7 @@ function ExposureView({
 }
 
 export function InvestmentHoldings({
+  market,
   activeExposureTab,
   acceptedCashAccounts,
   onAddHolding,
@@ -2120,6 +2127,7 @@ export function InvestmentHoldings({
   visiblePositionCounts,
 }: {
   activeExposureTab: ExposureTab;
+  market: HoldingsMarket;
   acceptedCashAccounts: readonly AcceptedCashAccount[];
   onAddHolding?: () => void;
   data: InvestmentHoldingsView;
@@ -3027,6 +3035,7 @@ export function InvestmentHoldings({
           </Notice>
         )}
         <ExposureView
+          market={market}
           holdings={holdings}
           activeTab={activeExposureTab}
           data={data}

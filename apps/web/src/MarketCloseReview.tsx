@@ -8,7 +8,10 @@ import {
   Screen,
   TextLink,
 } from "@keel/ui";
-import type { MarketReview } from "@keel/domain/market-close";
+import {
+  dailyCloseProvider,
+  type MarketReview,
+} from "@keel/domain/market-close";
 import { useMarketReviews } from "./use-market-reviews";
 import { requestKeel } from "./api-request";
 import { decimal } from "./decimal-input";
@@ -88,6 +91,8 @@ export function MarketCloseReview({
       setBusy(false);
     }
   }
+  const provider = review && dailyCloseProvider(review.quote);
+  const closeLabel = provider ? "daily close" : "closing price";
   const following = review?.choice === "follow";
   return (
     <Screen>
@@ -103,9 +108,9 @@ export function MarketCloseReview({
       ) : (
         <>
           <ClosingPriceComparison
+            closeLabel={closeLabel}
             company={review.name}
             ticker={review.quote.ticker}
-            venue={review.quote.venue}
             shareClass={review.quote.shareClass}
             price={formatSharePrice(review.quote.priceMicros)}
             date={review.quote.date}
@@ -128,10 +133,10 @@ export function MarketCloseReview({
             >
               {busy
                 ? "Saving…"
-                : `${following ? "Restore sources" : "Use closing price"} for ${review.positions.length} ${review.positions.length === 1 ? "position" : "positions"}`}
+                : `${following ? "Restore sources" : "Use " + closeLabel} for ${review.positions.length} ${review.positions.length === 1 ? "position" : "positions"}`}
             </Button>
             {following ? (
-              <TextLink href={back}>Keep closing price</TextLink>
+              <TextLink href={back}>Keep {closeLabel}</TextLink>
             ) : (
               <Button
                 tone="quiet"

@@ -1594,7 +1594,10 @@ test("valuation readback lands quietly on the exposure and aligns its quote with
     Math.abs(quoteCenter - (await change.evaluate(textCenter))),
   ).toBeLessThanOrEqual(2);
 
-  const positionRow = group.getByRole("listitem").first();
+  const positionRow = page
+    .getByRole("list", { name: "Beacon Robotics positions" })
+    .getByRole("listitem")
+    .first();
   const name = positionRow.locator(".record-row__title");
   const amount = positionRow.locator(".position-row__value");
   // Compare the first painted line; either column can have wrapping source details.
@@ -1617,11 +1620,13 @@ test("valuation readback lands quietly on the exposure and aligns its quote with
   expect(Math.abs(nameLine.top - amountLine.top)).toBeLessThanOrEqual(1);
 
   const details = positionRow.getByRole("link", { name: /holding details/ });
-  const [actionBox, valueBox] = await Promise.all([
+  const [chevronBox, valueBox] = await Promise.all([
     details.locator("svg").boundingBox(),
     positionRow.locator(".record-row__value").boundingBox(),
   ]);
-  expect(actionBox!.x).toBeGreaterThanOrEqual(valueBox!.x + valueBox!.width);
+  expect(chevronBox!.x).toBeGreaterThanOrEqual(valueBox!.x + valueBox!.width);
+  await expect(positionRow.locator("a, button, [tabindex]")).toHaveCount(1);
+  expect(await details.boundingBox()).toEqual(await positionRow.boundingBox());
 
   await page.keyboard.press("Tab");
   await expect(disclosure).toBeFocused();
@@ -1629,4 +1634,15 @@ test("valuation readback lands quietly on the exposure and aligns its quote with
   await expect(disclosure).toHaveCSS("box-shadow", "none");
   await page.keyboard.press("Tab");
   await expect(change).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(details).toBeFocused();
+  const href = (await details.getAttribute("href"))!;
+  await details.press("Enter");
+  await expect(page).toHaveURL((url) => url.pathname + url.search === href);
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(details).toBeFocused();
+
+  // Click the row padding, outside its text and chevron.
+  await positionRow.click({ position: { x: 3, y: 3 } });
+  await expect(page).toHaveURL((url) => url.pathname + url.search === href);
 });

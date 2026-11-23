@@ -1,3 +1,4 @@
+import { refreshPreviewDailyPrices } from "./personal-price-schedule";
 import { createApp } from "./app";
 import { handleInvestmentSyncScheduled } from "./plaid-investments-schedule";
 import { handlePortfolioWatchQueue } from "./portfolio-watch";
@@ -13,6 +14,7 @@ async function handleScheduled(
   await Promise.all([
     handleInvestmentSyncScheduled(controller, env),
     handlePortfolioWatchScheduled(controller, env),
+    refreshPreviewDailyPrices(controller, env),
   ]);
 }
 

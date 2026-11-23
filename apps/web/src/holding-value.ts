@@ -1,3 +1,4 @@
+import type { MarketReview } from "@keel/domain/market-close";
 import type { Holding } from "@keel/domain";
 import type { PositionValuationEvidenceSchema } from "@keel/domain/position-purchases";
 import {
@@ -35,28 +36,54 @@ export function netInvestmentBreakdown(
     .join(" · ");
 }
 type Evidence = ReturnType<typeof PositionValuationEvidenceSchema.parse>;
+function retainedGpRecord(holding: Holding) {
+  const context = holding.purchaseContext!;
+  return context.receipt?.details.valuation?.snapshotId === context.snapshotId
+    ? context.receipt.details.valuation.records.find(
+        (r) => r.id === "gp" && r.origin === "gp",
+      )
+    : undefined;
+}
+
 export function gpRecord(
   holding: Holding,
   evidence?: Evidence | null,
 ): ValuationRecord {
-  const context = holding.purchaseContext!;
-  const retained =
-    context.receipt?.details.valuation?.snapshotId === context.snapshotId
-      ? context.receipt?.details.valuation?.records.find((r) => r.id === "gp")
-      : undefined;
-  if (retained) return retained;
-  const adjustment = holding.positionValueContext?.acceptedAdjustment;
-  const total = adjustment?.valueMinor ?? context.reportedValueMinor ?? null;
+  return (
+    retainedGpRecord(holding) ??
+    reportedRecord(
+      holding,
+      holding.positionValueContext?.acceptedAdjustment,
+      evidence,
+    )
+  );
+}
+
+function reportedValueReview(
+  context: NonNullable<Holding["purchaseContext"]>,
+  total: number | null,
+) {
   const priorReview =
     context.receipt?.details.investmentTerms?.reportedValueReview;
-  const review =
-    (context.receipt?.details.investmentSnapshotId ??
-      context.receipt?.snapshotId) === context.snapshotId &&
+  return (context.receipt?.details.investmentSnapshotId ??
+    context.receipt?.snapshotId) === context.snapshotId &&
     priorReview?.valueMinor === total &&
     priorReview.sourceSnapshotId ===
       (context.reportedValueSnapshotId ?? context.snapshotId)
-      ? priorReview
-      : undefined;
+    ? priorReview
+    : undefined;
+}
+
+function reportedRecord(
+  holding: Holding,
+  adjustment?: NonNullable<
+    Holding["positionValueContext"]
+  >["acceptedAdjustment"],
+  evidence?: Evidence | null,
+): ValuationRecord {
+  const context = holding.purchaseContext!;
+  const total = adjustment?.valueMinor ?? context.reportedValueMinor ?? null;
+  const review = reportedValueReview(context, total);
   const price = evidence?.prices.find(
     (p) =>
       p.positionId ===
@@ -92,6 +119,75 @@ export function gpRecord(
     watchEvidenceId: null,
   };
 }
+type GpPrice = NonNullable<MarketReview["positions"][number]["latestGpPrice"]>;
+type GpReference = {
+  unit: "share" | "position";
+  value: number;
+  date: string | null;
+  source: string;
+};
+
+export function latestHoldingGpMark(
+  holding: Holding,
+  exposurePrice?: GpPrice,
+): GpReference | null {
+  const candidates: GpReference[] = [];
+  const retained = retainedGpRecord(holding);
+  for (const p of [
+    holding.purchaseContext?.receipt?.latestGpPrice,
+    exposurePrice,
+  ]) {
+    if (p)
+      candidates.push({
+        unit: "share",
+        value: p.priceMicros,
+        date: p.priceDate,
+        source: p.sourceLabel,
+      });
+  }
+  if (retained?.priceMicros != null)
+    candidates.push({
+      unit: "share",
+      value: retained.priceMicros,
+      date: retained.priceDate ?? null,
+      source: retained.sourceLabel,
+    });
+  const adjustment = holding.positionValueContext?.acceptedAdjustment;
+  if (adjustment?.sourceKind === "gp_update") {
+    candidates.push({
+      unit: "position",
+      value: adjustment.valueMinor,
+      date: adjustment.effectiveDate,
+      source: adjustment.sourceLabel,
+    });
+  }
+  if (retained?.totalMinor != null) {
+    candidates.push({
+      unit: "position",
+      value: retained.totalMinor,
+      date: retained.effectiveDate || null,
+      source: retained.sourceLabel,
+    });
+  }
+  const context = holding.purchaseContext!;
+  if (context.reportedValueMinor != null) {
+    const review = reportedValueReview(context, context.reportedValueMinor);
+    candidates.push({
+      unit: "position",
+      value: context.reportedValueMinor,
+      date: review?.effectiveDate ?? null,
+      source:
+        review?.sourceLabel ??
+        context.reportedSourceLabel ??
+        holding.sourceLabel,
+    });
+  }
+  return (
+    candidates.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))[0] ??
+    null
+  );
+}
+
 export function signedReturn(ppm: number) {
   const n = BigInt(ppm);
   const absolute = n < 0n ? -n : n;

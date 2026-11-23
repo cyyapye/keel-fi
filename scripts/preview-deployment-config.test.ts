@@ -16,6 +16,21 @@ import {
 
 const temporaryDirectories: string[] = [];
 
+const syntheticDailyFeed = JSON.stringify({
+  apiKey: "synthetic-daily-feed-key",
+  householdId: "hh_demo",
+  exposureId: "8ac48cd8-9f31-40b7-8623-146960dacd8f",
+  basisKey: "reviewed-cedar-common",
+  listing: {
+    company: "Cedar Robotics",
+    issuerId: "0000000001",
+    ticker: "CDR",
+    venue: "Nasdaq",
+    shareClass: "Class A",
+    firstSession: "2026-11-19",
+    identitySourceUrl: "https://example.test/cedar/filing",
+  },
+});
 function environment(root: string): NodeJS.ProcessEnv {
   return {
     CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
@@ -39,6 +54,7 @@ function environment(root: string): NodeJS.ProcessEnv {
     KEEL_PREVIEW_PLAID_REDIRECT_URI:
       "https://keel-preview.example.com/holdings",
     KEEL_PREVIEW_PLAID_SECRET: "synthetic-plaid-secret",
+    KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED: syntheticDailyFeed,
     KEEL_PREVIEW_BRAVE_SEARCH_API_KEY: "synthetic-website-search-key",
     KEEL_PREVIEW_QUEUE: "keel-preview-ingestion",
     KEEL_PREVIEW_QUEUE_DLQ: "keel-preview-ingestion-dlq",
@@ -144,6 +160,7 @@ describe("preview deployment configuration", () => {
       preview_urls: false,
       vars: {
         ENVIRONMENT: "preview",
+        PERSONAL_DAILY_PRICES_ENABLED: "true",
         DEPLOYED_GIT_SHA: "b".repeat(40),
         INVESTMENTS_NEW_CONNECTIONS_ENABLED: "true",
         MAC_AGENT_API_ORIGIN: "https://keel-preview-agents.example.com",
@@ -159,6 +176,7 @@ describe("preview deployment configuration", () => {
           "ACCESS_AUD",
           "ACCESS_TEAM_DOMAIN",
           "DEPLOYMENT_SMOKE_TOKEN",
+          "ALPHA_VANTAGE_PERSONAL_FEED",
           "BRAVE_SEARCH_API_KEY",
           "CONNECTOR_CREDENTIAL_KEY",
           "PLAID_CLIENT_ID",
@@ -202,8 +220,12 @@ describe("preview deployment configuration", () => {
       PLAID_ENVIRONMENT: "sandbox",
       PLAID_REDIRECT_URI: "https://keel-preview.example.com/holdings",
       PLAID_SECRET: "synthetic-plaid-secret",
+      ALPHA_VANTAGE_PERSONAL_FEED: syntheticDailyFeed,
       BRAVE_SEARCH_API_KEY: "synthetic-website-search-key",
     });
+    expect(JSON.stringify([apiConfig, webConfig])).not.toContain(
+      "synthetic-daily-feed-key",
+    );
     expect(JSON.stringify(apiConfig)).not.toContain(
       "synthetic-website-search-key",
     );
@@ -212,5 +234,12 @@ describe("preview deployment configuration", () => {
     );
     expect((await stat(paths.apiSecretsPath)).mode & 0o777).toBe(0o600);
     expect((await stat(paths.backupPassphrasePath)).mode & 0o777).toBe(0o600);
+    const disabled = environment(root);
+    delete disabled.KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED;
+    await writePreviewDeploymentFiles(disabled, root);
+    expect(
+      JSON.parse(await readFile(paths.apiConfigPath, "utf8")).vars
+        .PERSONAL_DAILY_PRICES_ENABLED,
+    ).toBe("false");
   });
 });
