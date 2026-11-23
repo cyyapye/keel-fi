@@ -1188,9 +1188,9 @@ The loopback personal-prices profile checks on startup and at 10:00 UTC. The
 configured personal Preview uses its existing 13:00 UTC trigger. Each admits one
 instrument per daily window, with one split-history request followed by one
 raw-price request, up to 96 KiB and 12 seconds each. Backfill is bounded to 100
-completed dates. One local profile and one Preview together spend at most four of the
-provider's 25 requests per UTC day, leaving 21. Additional independent local
-profiles sharing the key can each spend two more. With both disabled,
+completed dates. One local profile and one Preview together spend at most four
+of the provider's 25 requests per UTC day, leaving 21. Additional independent
+local profiles sharing the key can each spend two more. With both disabled,
 idle-day D1, storage and provider costs are zero. No queue messages, retry
 timers, browser polling or authentication calls are added.
 

@@ -206,14 +206,15 @@ For a fresh walkthrough, start with `KEEL_PERSONAL_REPLAY_FIRST=1`. Holdings and
 Portfolio Watch show one exposure decision on the first observed session. After
 the choice, the app imports the remaining available sessions from the same
 provider response. Later refreshes follow the ordinary schedule. The walkthrough
-and daily feed use the same persistent valuation and GP records. Preview runs the personal feed on the existing Cloudflare Worker trigger at
-13:00 UTC. The protected Preview environment secret
-`KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED` supplies the API key, confirmed
-listing, household, canonical exposure, and reviewed share-basis key. Removing
-that deployment input disables the feed on the next deployment. A matching
-listing can collect prices before an eligible position follows it. Adoption
-requires an exposure decision covering positions with matching share terms.
-Additional listings require separate identity confirmation.
+and daily feed use the same persistent valuation and GP records. Preview runs
+the personal feed on the existing Cloudflare Worker trigger at 13:00 UTC. The
+protected Preview environment secret `KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED`
+supplies the API key, confirmed listing, household, canonical exposure, and
+reviewed share-basis key. Removing that deployment input disables the feed on
+the next deployment. A matching listing can collect prices before an eligible
+position follows it. Adoption requires an exposure decision covering positions
+with matching share terms. Additional listings require separate identity
+confirmation.
 
 ## Check cadence
 
