@@ -50,11 +50,12 @@ export const guidance: Record<string, Guidance> = {
   },
   Records: {
     useWhen:
-      "Related child records inside a disclosure: alternating RecordGroup rows. Standalone, expandable records: RecordItem.",
+      "Alternate related child records with RecordGroup rows, or use its disclosures layout for comparable expandable summaries.",
     rules: ["Alternating record rows", hierarchy],
     examples: [
       ...composition("DrillIntoDetailsExample"),
       ...composition("RecordGroupExample"),
+      ...composition("AlternatingDisclosuresExample"),
       ...composition("RecordRowsExample"),
     ],
   },
@@ -140,9 +141,12 @@ export const guidance: Record<string, Guidance> = {
   },
   Layout: {
     useWhen:
-      "Sibling section headings and content grouping. Use whitespace before adding containers.",
+      "Sibling section headings and content grouping. Use a trailing Stat for a total that summarizes the section.",
     rules: [hierarchy],
-    examples: example("Display", "Reading view"),
+    examples: [
+      ...example("Display", "Reading view"),
+      ...example("Display", "Section heading with total"),
+    ],
   },
   Values: {
     useWhen:
@@ -151,6 +155,7 @@ export const guidance: Record<string, Guidance> = {
     examples: [
       ...example("Display", "Facts when labels add meaning"),
       ...example("Display", "Statistics & metrics"),
+      ...example("Display", "Section heading with total"),
     ],
   },
   SectionNavigation: {

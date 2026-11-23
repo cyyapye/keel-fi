@@ -63,6 +63,7 @@ type SectionHeaderProps = HTMLAttributes<HTMLElement> & {
   eyebrow?: ReactNode;
   headingAs?: "h2" | "h3" | "h4";
   headingProps?: Omit<ComponentPropsWithRef<"h2">, "children">;
+  trailingStat?: ReactNode;
   title: ReactNode;
 };
 
@@ -75,6 +76,7 @@ export function SectionHeader({
   eyebrow,
   headingAs = "h2",
   headingProps,
+  trailingStat,
   title,
   ...props
 }: SectionHeaderProps) {
@@ -86,7 +88,11 @@ export function SectionHeader({
 
   return (
     <header
-      className={cn("section-heading", className)}
+      className={cn(
+        "section-heading",
+        trailingStat != null && "section-heading--with-stat",
+        className,
+      )}
       data-slot="section-header"
       {...props}
     >
@@ -96,6 +102,7 @@ export function SectionHeader({
         {descriptionPlacement === "title-group" && descriptionNode}
       </div>
       {descriptionPlacement === "after-title-group" && descriptionNode}
+      {trailingStat}
       {action}
     </header>
   );

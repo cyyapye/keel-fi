@@ -1,3 +1,4 @@
+import { HoldingsTotalJourney } from "./holdings-total-journey";
 import { startIpoWalkthrough } from "./ipo-watch-journey";
 import { ValuationJourney } from "./closing-price-journey";
 import { valuationRoute } from "./valuation-scenarios";
@@ -43,6 +44,12 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
   const [account, setAccount] = useState(false);
   const step = steps.find((item) => item.id === stepId);
   const valuation = valuationRoute(stepId);
+  if (stepId === "holdings-total")
+    return <HoldingsTotalJourney view="holdings" />;
+  if (stepId === "holdings-total-position")
+    return <HoldingsTotalJourney view="position" />;
+  if (stepId === "holdings-total-valuation")
+    return <HoldingsTotalJourney view="valuation" />;
   if (valuation)
     return <ValuationJourney key={valuation.scenario} {...valuation} />;
   if (
@@ -97,6 +104,16 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
             </TextLink>
           </ActionGroup>
         </section>
+        <section className="catalogue-example">
+          <SectionHeader title="What counts toward my holdings total?" />
+          <p>
+            Trace a fund through its underlying exposures and value a position
+            from new evidence.
+          </p>
+          <TextLink href="#journeys/holdings-total">
+            Reconcile holdings
+          </TextLink>
+        </section>
         {taskJourneys.map((journey) => (
           <section className="catalogue-example" key={journey.id}>
             <SectionHeader title={journey.title} />
@@ -143,6 +160,11 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
                 {id === "holdings" && (
                   <TextLink href="#journeys/closing-price">
                     Valuation sources
+                  </TextLink>
+                )}
+                {id === "holdings" && (
+                  <TextLink href="#journeys/holdings-total">
+                    Reconcile holdings
                   </TextLink>
                 )}
                 {id === "watch" && (

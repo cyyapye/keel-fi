@@ -49,6 +49,9 @@
   font-size: 19px;
   font-variant-numeric: tabular-nums;
 }
+.record-group--disclosures .catalogue-record-summary {
+  padding-inline: 16px;
+}
 .catalogue-record-summary small {
   display: block;
   color: var(--muted);

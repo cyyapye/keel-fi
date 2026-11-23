@@ -727,7 +727,7 @@ test(
     await page.reload();
     await expect(
       page
-        .locator(".unallocated-positions article")
+        .locator(".exposure-group__summary")
         .filter({ hasText: current.positionName }),
     ).toBeVisible();
     await page

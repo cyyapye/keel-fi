@@ -25,6 +25,7 @@ const LocalSeedScenarioSchema = z.enum([
   "purchase-refund",
   "price-proxies",
   "closing-price",
+  "holdings-total",
 ]);
 export type LocalSeedScenario = z.infer<typeof LocalSeedScenarioSchema>;
 
@@ -39,6 +40,16 @@ type LocalSeedScenarioDefinition = {
 };
 
 export const LocalSeedScenarios = {
+  "holdings-total": {
+    description:
+      "Seven synthetic holdings, a partially disclosed fund and a position awaiting valuation",
+    expectedCurrentPositionCount: 7,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
+    minimumCanonicalExposureCount: 4,
+    seedFiles: ["packages/database/seed/synthetic.sql"],
+    version: 1,
+  },
   "closing-price": {
     description:
       "Two synthetic SPVs and a first official close, ready for review",
@@ -515,7 +526,11 @@ export function prepareLocalSeedScenario(options: {
             "Could not seed a synthetic local agreement.",
           );
       }
-      if (scenario === "price-proxies" || scenario === "closing-price") {
+      if (
+        scenario === "price-proxies" ||
+        scenario === "closing-price" ||
+        scenario === "holdings-total"
+      ) {
         const generated = spawnSync(
           process.execPath,
           ["--import", "tsx", `scripts/seed-${scenario}.ts`, persistRoot],

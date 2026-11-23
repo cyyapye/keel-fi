@@ -31,7 +31,7 @@ export const groups: Record<
     page: "compositions",
     names: ["RecordItem", "RecordGroup", "RecordRow"],
     states:
-      "Wrapping title, detail, provenance and actions; alternating rows with multiple, single, unavailable and empty records",
+      "Wrapping title, detail, provenance and actions; alternating rows and disclosure summaries",
   },
   Typography: {
     page: "foundations",

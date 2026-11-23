@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { CanonicalExposure, PositionExposureMapping } from "./index";
 import {
   companyExposureGroups,
+  holdingsExposureGroups,
   createInvestmentExposureView,
 } from "./exposure-read-model";
 import type {
@@ -389,6 +390,68 @@ describe("investment exposure read model", () => {
     ]);
   });
 
+  it("conserves each fund in its own currency across absent, partial and complete disclosures down to the last cent", () => {
+    const usd = {
+      ...position("usd", 9_000_000),
+      kind: "fund_interest" as const,
+    };
+    const eur = { ...position("eur", 1), kind: "fund_interest" as const };
+    eur.snapshot.currency = "EUR";
+    eur.snapshot.fingerprint = evidenceSha256;
+    const cloud = exposure("cloud", "Cloud");
+    const infra = exposure("infra", "Infrastructure");
+    const groups = (weights: (number | null)[]) =>
+      holdingsExposureGroups(
+        createInvestmentExposureView(
+          positionView([usd, eur]),
+          [cloud, infra],
+          [usd, eur].flatMap((p) =>
+            [cloud, infra].map((e, i) =>
+              mapping(p.id + e.id, p.id, e.id, weights[i] ?? null),
+            ),
+          ),
+        ),
+      );
+    const amounts = (weights: (number | null)[]) =>
+      groups(weights)
+        .map((g) => [
+          g.exposure.id,
+          g.totals.map((t) => [t.currency, t.allocatedValueMinor]),
+        ])
+        .sort();
+    expect(amounts([null, null])).toEqual([
+      ["position:eur", [["EUR", 1]]],
+      ["position:usd", [["USD", 9_000_000]]],
+    ]);
+    expect(amounts([400_000, null])).toEqual([
+      [
+        "cloud",
+        [
+          ["EUR", 0],
+          ["USD", 3_600_000],
+        ],
+      ],
+      ["position:eur", [["EUR", 1]]],
+      ["position:usd", [["USD", 5_400_000]]],
+    ]);
+    const complete = groups([500_000, 500_000]);
+    expect(complete.map((g) => g.exposure.id).sort()).toEqual([
+      "cloud",
+      "infra",
+    ]);
+    for (const [currency, value] of [
+      ["USD", 9_000_000],
+      ["EUR", 1],
+    ] as const) {
+      expect(
+        complete
+          .flatMap((g) => g.totals)
+          .filter((t) => t.currency === currency)
+          .reduce((sum, t) => sum + BigInt(t.allocatedValueMinor), 0n),
+      ).toBe(BigInt(value));
+    }
+  });
+
   it("rolls an accepted sourced position mark into exposure totals", () => {
     const providerPosition = position("position_7", 1_000_000);
     const adjustedPosition: InvestmentPositionRecord = {
@@ -483,6 +546,87 @@ describe("investment exposure read model", () => {
         unknownValuePositionCount: 0,
       },
     ]);
+  });
+
+  it("uses recorded private capital in the absence of a mark and keeps cost basis and commitments out", () => {
+    const manual = position("position_manual_1", null, "not_reported");
+    manual.manualContext = {
+      version: 1,
+      containerId: `container_${manual.id}`,
+      containerVersion: 1,
+      companyMappingIds: [`mapping_${manual.id}`],
+      classification: "private_paper",
+    };
+    manual.snapshot.investedMinor = 125_000;
+    const costBasisOnly = position("position_basis_2", null, "not_reported");
+    costBasisOnly.snapshot.investedMinor = null;
+    costBasisOnly.snapshot.costBasisMinor = 225_000;
+    const commitmentOnly = position(
+      "position_commitment_3",
+      null,
+      "not_reported",
+    );
+    commitmentOnly.snapshot.investedMinor = null;
+    commitmentOnly.snapshot.costBasisMinor = null;
+    const privateExposure = {
+      ...exposure("exposure_private_capital", "Synthetic private company"),
+      exposureKind: "private_company" as const,
+      protectedIdentityKey: null,
+      companyId: "company_synthetic",
+      resolutionMethod: "reviewed_company" as const,
+    };
+    const positions = [manual, costBasisOnly, commitmentOnly];
+    const view = createInvestmentExposureView(
+      positionView(positions),
+      [privateExposure],
+      positions.map((record) =>
+        mapping(`mapping_${record.id}`, record.id, privateExposure.id),
+      ),
+    );
+
+    expect(
+      view.positions.map(({ valueMinor, valueSource }) => [
+        valueMinor,
+        valueSource,
+      ]),
+    ).toEqual([
+      [125_000, "invested_amount"],
+      [null, "provider"],
+      [null, "provider"],
+    ]);
+    expect(view.exposures[0]?.totals).toEqual([
+      {
+        currency: "USD",
+        allocatedValueMinor: 125_000,
+        knownValuePositionCount: 1,
+        unknownValuePositionCount: 2,
+      },
+    ]);
+  });
+
+  it("values an edited manual direct investment from its current covered capital", () => {
+    const record = position("manual_direct_1", null, "not_reported");
+    record.manualContext = {
+      version: 1,
+      containerId: "manual_container",
+      containerVersion: 1,
+      companyMappingIds: [],
+      classification: "private_paper",
+    };
+    const receipt = reviewedProviderPosition(record.id, null).purchaseReceipt!;
+    record.purchaseReceipt = receipt;
+    const read = () =>
+      createInvestmentExposureView(positionView([record]), [], []).positions[0];
+    expect(read()).toMatchObject({
+      valueMinor: 10_000,
+      valueEffectiveDate: "2026-01-15",
+      valueSourceLabel: "At cost · Net invested",
+    });
+    record.snapshot.investedMinor = null;
+    expect(read()?.valueMinor).toBe(10_000);
+    receipt.details.cashCoversPosition = false;
+    record.snapshot.investedMinor = 100_000;
+    expect(read()?.valueMinor).toBeNull();
   });
 
   it("uses a GP mark and accepted financing rounds for a tranche-aware private estimate", () => {
@@ -1036,14 +1180,14 @@ it.each(["selected", "adjustment", "share_estimate", "invested"] as const)(
     expect(
       createInvestmentExposureView(positionView([p]), [], []).positions[0],
     ).toMatchObject({
-      valueMinor: owner === "invested" ? 100_000 : 18_000,
+      valueMinor: owner === "invested" ? 10_000 : 18_000,
       valueSource:
         owner === "selected" || owner === "adjustment"
           ? "reviewed_adjustment"
           : owner === "share_estimate"
             ? "share_price_estimate"
             : "invested_amount",
-      valueEffectiveDate: owner === "invested" ? "2026-08-15" : "2026-08-13",
+      valueEffectiveDate: owner === "invested" ? "2026-01-15" : "2026-08-13",
     });
   },
 );

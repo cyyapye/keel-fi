@@ -829,6 +829,42 @@ h3 {
   font-size: 8px;
 }
 
+.section-heading--with-stat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(50%);
+  align-items: end;
+  gap: var(--space-6);
+}
+
+.section-heading--with-stat > .stat {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.section-heading--with-stat > .stat .stat__value {
+  font-size: 34px;
+  font-variant-numeric: tabular-nums;
+}
+
+.section-heading--with-stat > .stat :is(.stat__label, .stat__detail) {
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+@media (max-width: 600px) {
+  .section-heading--with-stat {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+
+  .section-heading--with-stat > .stat {
+    text-align: left;
+  }
+}
+
 .page-intro {
   display: flex;
   min-height: 156px;
@@ -2220,6 +2256,19 @@ h3 {
 }
 .record-group > .record-row:nth-child(odd) {
   background: var(--wash);
+}
+.record-group--disclosures {
+  padding-inline: 0;
+}
+.record-group--disclosures
+  > :nth-child(odd):not(:only-child)
+  > [data-slot="collapsible-trigger"] {
+  background: var(--wash);
+}
+.record-group--disclosures
+  > [role="listitem"]
+  > [data-slot="collapsible-content"] {
+  padding: var(--space-2) var(--space-4) 0;
 }
 .record-row__identity {
   min-width: 0;

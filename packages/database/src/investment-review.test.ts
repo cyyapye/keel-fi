@@ -934,7 +934,14 @@ it("reads historical closure back, excludes its value once, and preserves docume
     sha256: digest("synthetic distribution import"),
     effectiveDate: "2026-09-02",
     retrievedAt: "2026-09-02T12:00:00.000Z",
-    rows: input.rows.map((row) => ({ ...row, realizedValueMinor: 125_000 })),
+    rows: input.rows.map((row) => ({
+      ...row,
+      unrealizedValueMinor: 500_000,
+      unrealizedValueState: "reported",
+      realizedValueMinor: 125_000,
+      netValueMinor: 625_000,
+      netValueState: "reported",
+    })),
   });
   await imports.applyHoldingImport(subject, staged.preview.id, {
     currency: "USD",

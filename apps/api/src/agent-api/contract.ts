@@ -196,7 +196,7 @@ export const mark = z.object({
     .object({
       receiptId: id,
       source: text,
-      origin: z.enum(["gp", "proxy", "judgment"]),
+      origin: z.enum(["gp", "proxy", "judgment", "at_cost"]),
       amountMinor: amount,
       effectiveDate: date.nullable(),
       carry: z.enum(["before_carry", "after_carry", "unknown"]),

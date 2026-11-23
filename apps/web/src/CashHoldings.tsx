@@ -18,7 +18,14 @@ import {
   Stat,
   TextLink,
 } from "@keel/ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { loadCashBalanceHistory } from "./api";
 import type { HoldingsSearchMatches } from "./collection-search";
 import { formatDate } from "./format";
@@ -302,7 +309,7 @@ function FullHistory({
         description={row.name}
         descriptionProps={{ className: "cash-history__account-name" }}
         descriptionPlacement="title-group"
-        action={
+        trailingStat={
           <Stat
             label={row.valueBasis ? "Accepted cash value" : "Current balance"}
             value={cashAmount(row.valueMinor, row.currency)}
@@ -403,7 +410,14 @@ export function CashHoldingsView({
   const [cache] = useState<HistoryCache>(() => new Map());
   const root = useRef<HTMLElement>(null);
   const returnKey = useRef<string | null>(null);
+  const smallBalancesToggle = useRef<HTMLButtonElement>(null);
   const fullRow = rows.find((row) => row.key === fullKey);
+  useLayoutEffect(() => {
+    const toggle = smallBalancesToggle.current;
+    if (toggle && toggle === document.activeElement) {
+      toggle.scrollIntoView({ block: "nearest" });
+    }
+  }, [showSmallBalances]);
   useEffect(() => {
     if (fullKey) {
       root.current
@@ -457,7 +471,7 @@ export function CashHoldingsView({
           <SectionHeader
             title="Cash"
             headingProps={{ id: "cash-holdings-title" }}
-            action={
+            trailingStat={
               <Stat
                 className="cash-holdings__total"
                 label={
@@ -473,22 +487,6 @@ export function CashHoldingsView({
             }
           />
           {error && <FormMessage tone="error">{error}</FormMessage>}
-          {folded && (
-            <div className="cash-holdings__fold">
-              <Button
-                tone="quiet"
-                aria-expanded={showSmallBalances}
-                onClick={() => onShowSmallBalancesChange(!showSmallBalances)}
-              >
-                {showSmallBalances
-                  ? "Hide small balances"
-                  : `Show ${small.length} small balances`}{" "}
-              </Button>
-              <p className="cash-history__meta">
-                Under $100 · {cashTotal(small)} · Included in total
-              </p>
-            </div>
-          )}
           {rows.length === 0 && (
             <p className="cash-history__meta">
               No cash accounts connected. Connect a bank or brokerage in Sources
@@ -599,6 +597,24 @@ export function CashHoldingsView({
               <Button onClick={onLoadMore} tone="secondary">
                 Load more cash balances
               </Button>
+            </div>
+          )}
+          {folded && (
+            <div className="cash-holdings__fold">
+              <Button
+                ref={smallBalancesToggle}
+                tone="quiet"
+                aria-expanded={showSmallBalances}
+                aria-describedby="cash-holdings-small-balances"
+                onClick={() => onShowSmallBalancesChange(!showSmallBalances)}
+              >
+                {showSmallBalances
+                  ? "Hide small balances"
+                  : `Show ${small.length} small balances`}
+              </Button>
+              <p id="cash-holdings-small-balances">
+                Under $100 · {cashTotal(small)} · Included in total
+              </p>
             </div>
           )}
         </>

@@ -534,6 +534,50 @@ export function assessValuationFromShares(
   };
 }
 
+export function netInvestmentDate(receipt: PurchaseReceipt): string | null {
+  let latest = "";
+  for (const lot of receipt.details.lots) {
+    if (lot.purchasedOn === null) return null;
+    if (lot.purchasedOn > latest) latest = lot.purchasedOn;
+    if (lot.capitalReturn?.status === "received") {
+      const date = lot.capitalReturn.effectiveDate;
+      if (date === null) return null;
+      if (date > latest) latest = date;
+    }
+  }
+  return latest || null;
+}
+
+export function netInvestedValuation(
+  receipt: PurchaseReceipt | null | undefined,
+  snapshotId: string,
+): ValuationRecord | null {
+  const investment = reviewedInvestmentFromReceipt(receipt);
+  if (
+    !receipt ||
+    !investment ||
+    investment.snapshotId !== snapshotId ||
+    investment.netCapitalMinor === null
+  )
+    return null;
+  return {
+    id: "at-cost",
+    origin: "at_cost",
+    totalMinor: investment.netCapitalMinor,
+    priceMicros: null,
+    effectiveDate: netInvestmentDate(receipt),
+    priceDate: null,
+    shareClass: null,
+    carryStatus: "unknown",
+    sourceLabel: "At cost · Net invested",
+    sourceUrl: null,
+    sourceEvidenceId: null,
+    sourcePositionId: null,
+    sourceCapturedAt: null,
+    watchEvidenceId: null,
+  };
+}
+
 export function selectedPositionValuation(
   receipt: PurchaseReceipt | null | undefined,
   snapshotId: string,
@@ -544,6 +588,12 @@ export function selectedPositionValuation(
     (r) => r.id === selection?.recordId,
   );
   if (!selection || !record) return null;
+  const cost =
+    record.origin === "at_cost"
+      ? netInvestedValuation(receipt, snapshotId)
+      : null;
+  if (record.origin === "at_cost" && record.totalMinor !== cost?.totalMinor)
+    return null;
   // A deliberately linked quantity model remains applicable until superseded;
   // a provider's newer balance observation does not change ownership.
   if (
@@ -568,8 +618,11 @@ export function selectedPositionValuation(
   return {
     ...record,
     method: selection.method,
-    effectiveDate:
-      selection.method === "shares" ? record.priceDate : record.effectiveDate,
+    effectiveDate: cost
+      ? cost.effectiveDate
+      : selection.method === "shares"
+        ? record.priceDate
+        : record.effectiveDate,
     valueMinor,
     quantityMicros: calculated?.quantityMicros ?? null,
     estimatedShares: calculated?.estimatedShares ?? false,

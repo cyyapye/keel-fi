@@ -9,11 +9,31 @@ import {
   reconcileHistoricalProceeds,
   summarizeInvestmentCarryCapital,
   type DistributionReview,
+  type ReviewedInvestment,
   type CarryAssessment,
   type HistoricalProceedsAssessment,
 } from "@keel/domain/investment-details";
 import { calculatePositionPerformance } from "@keel/domain/position-economics";
 import type { ValuationRecord } from "@keel/domain/valuation-record";
+import { formatMoney } from "./format";
+export function netInvestmentBreakdown(
+  capital: ReviewedInvestment | undefined,
+) {
+  const contributed =
+    capital?.cashPaidMinor != null && capital.additionalPaidFeesMinor !== null
+      ? capital.cashPaidMinor - (capital.additionalPaidFeesMinor ?? 0)
+      : null;
+  const amounts = [
+    [contributed, "paid in"],
+    [capital?.upfrontDeductionsMinor, "upfront deductions"],
+    [capital?.returnedCapitalMinor, "received refund"],
+  ] as const;
+  return amounts
+    .flatMap(([minor, label]) =>
+      minor == null ? [] : [`${formatMoney(minor)} ${label}`],
+    )
+    .join(" · ");
+}
 type Evidence = ReturnType<typeof PositionValuationEvidenceSchema.parse>;
 export function gpRecord(
   holding: Holding,

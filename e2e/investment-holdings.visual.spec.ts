@@ -2,6 +2,7 @@ import { expect, test, type Page, type Request } from "./api-mocked-test";
 import type * as CollectionSearch from "../apps/web/src/collection-search";
 import type { Holding } from "../packages/domain/src/index";
 import type { InvestmentHoldingsView } from "../packages/domain/src/investment-holdings-view";
+import { createInvestmentExposureView } from "../packages/domain/src/exposure-read-model";
 
 import {
   alphaHoldingsFrom,
@@ -14,13 +15,23 @@ import { routeCollectionSearchModule } from "./collection-search-module";
 
 const captureDesignVariants = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
 
-async function captureDesignReview(page: Page, filename: string) {
+async function captureDesignReview(
+  page: Page,
+  filename: string,
+  selector?: string,
+) {
   if (captureDesignVariants) {
-    await page.screenshot({
+    const options = {
       path: test.info().outputPath(filename),
-      fullPage: true,
-      animations: "disabled",
-    });
+      animations: "disabled" as const,
+      scale: "css" as const,
+    };
+    if (selector)
+      await page.locator(selector).screenshot({
+        ...options,
+        style: ".topbar, .mobile-nav { visibility: hidden !important; }",
+      });
+    else await page.screenshot({ ...options, fullPage: true });
   }
 }
 
@@ -257,7 +268,7 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(widths.scroll).toBe(widths.client);
 }
 
-async function expectExposureSummaryLayout(page: Page) {
+async function expectExposureSummaryLayout(page: Page, mobile: boolean) {
   const geometry = await page
     .locator(".investment-views")
     .evaluate((section) => {
@@ -268,15 +279,21 @@ async function expectExposureSummaryLayout(page: Page) {
         return { top, bottom, left, right, width, height };
       };
       return {
-        heading: bounds(".investment-views__heading"),
+        heading: bounds(".investment-views__heading > div:first-child"),
+        header: bounds(".investment-views__heading"),
         total: bounds(".investment-views__total"),
         sort: bounds(".exposure-sort"),
       };
     });
-  // The aggregate belongs below the heading, with its own left-aligned reading order.
-  expect(geometry.total.top).toBeGreaterThanOrEqual(geometry.heading.bottom);
-  expect(geometry.total.left).toBe(geometry.heading.left);
-  expect(geometry.total.right).toBeLessThanOrEqual(geometry.sort.left);
+  if (mobile) {
+    expect(geometry.total.top).toBeGreaterThanOrEqual(geometry.heading.bottom);
+    expect(geometry.total.left).toBe(geometry.heading.left);
+  } else {
+    expect(geometry.total.left).toBeGreaterThanOrEqual(geometry.heading.right);
+    expect(geometry.total.top).toBeLessThan(geometry.heading.bottom);
+    expect(geometry.total.right).toBe(geometry.header.right);
+  }
+  expect(geometry.sort.top).toBeGreaterThanOrEqual(geometry.header.bottom);
   // Keep the order control compact without sacrificing a mobile touch target.
   expect(geometry.sort.width).toBeLessThanOrEqual(100);
   expect(geometry.sort.height).toBeGreaterThanOrEqual(44);
@@ -513,8 +530,8 @@ test(
     await expect(group).toContainText("NSTR");
     await expect(group).toContainText("Northstar SPV A");
     await expect(group).toContainText("Northstar SPV B");
-    await expect(group).toContainText("1 estimate");
-    await expect(group).toContainText("$56k");
+    await expect(group).toContainText("1 value awaiting valuation");
+    await expect(group).toContainText("$36,000");
     await expect(
       group.getByRole("link", {
         name: /Group with company|Review company link/u,
@@ -704,17 +721,144 @@ test(
   },
 );
 
+test("keeps valued positions in the total before exposure assignment", async ({
+  page,
+}) => {
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaFixture.holdings,
+    investmentHoldings: {
+      ...holdingsView,
+      exposureView: createInvestmentExposureView(
+        holdingsView.positionView,
+        [],
+        [],
+      ),
+    },
+    acceptedCashAccounts,
+    pendingImports: [],
+  });
+  await page.goto("/holdings");
+  const total = page.locator(".investment-views__total");
+  await expect(total.locator(".stat__label")).toHaveText("Known total");
+  await expect(total.locator(".stat__detail")).toHaveText(
+    "7 exposures · 7 positions",
+  );
+  await expect(total.locator(".stat__value")).toHaveText("$890,000");
+  await expect(
+    page.getByRole("tab", { name: "All exposures" }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".exposure-group")).toHaveCount(7);
+  await page.getByRole("tab", { name: "Needs resolution (2)" }).click();
+  await expect(page.locator(".unallocated-positions article")).toHaveCount(2);
+  await captureDesignReview(
+    page,
+    "review-exposures-no-total.png",
+    ".investment-views",
+  );
+});
+
 test("operates multiple institutions from one exposure-first holdings view", async ({
   page,
 }, testInfo) => {
   const mobile = testInfo.project.name === "mobile-chromium";
   await page.goto("/holdings");
   const exposureView = page.locator(".investment-views");
-  await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "Known portfolio exposure$860k2 position values unavailable",
+  const total = exposureView.locator(".investment-views__total");
+  await expect(total.locator(".stat__label")).toHaveText("Known total");
+  await expect(total.locator(".stat__value")).toHaveText("$950,000");
+  await expect(total.locator(".stat__detail")).toHaveText(
+    "4 exposures · 7 positions",
   );
-  await expect(exposureView.locator(".exposure-group")).toHaveCount(5);
-  await expectExposureSummaryLayout(page);
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(4);
+  await expectExposureSummaryLayout(page, mobile);
+  const rows = exposureView.getByRole("list", { name: "Company exposures" });
+  await expect(rows.locator(".exposure-group__summary").nth(0)).not.toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expect(rows.locator(".exposure-group__summary").nth(1)).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  const allTab = exposureView.getByRole("tab", { name: "All exposures" });
+  const reviewTab = exposureView.getByRole("tab", {
+    name: "Needs resolution (1)",
+  });
+  const allPanel = exposureView.getByRole("tabpanel", {
+    name: "All exposures",
+  });
+  const review = exposureView.getByRole("tabpanel", {
+    name: /^Needs resolution/u,
+  });
+  const sort = allPanel.getByRole("button", {
+    name: /^Sort exposures and positions by value/u,
+  });
+  await expect(allTab).toHaveAttribute("aria-selected", "true");
+  await expect(sort).toBeVisible();
+  await expect(review).toBeHidden();
+  await captureDesignReview(
+    page,
+    "review-exposures-closed.png",
+    ".investment-views",
+  );
+  if (!mobile) {
+    await allTab.press("ArrowRight");
+    await expect(reviewTab).toBeFocused();
+    await expect(allTab).toHaveAttribute("aria-selected", "true");
+    await reviewTab.press("Enter");
+  } else {
+    await reviewTab.click();
+  }
+  await expect(reviewTab).toHaveAttribute("aria-selected", "true");
+  await expect(rows).toBeHidden();
+  await expect(sort).toBeHidden();
+  await expect(total.locator(".stat__detail")).toHaveText(
+    "4 exposures · 7 positions",
+  );
+  const unresolvedRow = review
+    .locator("article")
+    .filter({ hasText: "Horizon" });
+  await expect(review.locator("article")).toHaveCount(1);
+  await expect(unresolvedRow).toContainText("Awaiting valuation");
+  await expect(unresolvedRow).not.toContainText(/Basis|total return|\$0/u);
+  await captureDesignReview(
+    page,
+    "review-needs-resolution.png",
+    ".investment-views",
+  );
+  const unresolvedDetail = review.getByRole("link", {
+    name: "View Synthetic Horizon SPV holding details",
+  });
+  await expect(unresolvedDetail).toHaveText("");
+  await expect(unresolvedDetail).toHaveAttribute(
+    "href",
+    "/holdings?position=position_locked_spv_5",
+  );
+  const navigationTarget = await unresolvedDetail.boundingBox();
+  const positionRow = await unresolvedDetail.locator("..").boundingBox();
+  expect(navigationTarget!.width).toBeGreaterThanOrEqual(
+    positionRow!.width - 2,
+  );
+  expect(navigationTarget!.height).toBeGreaterThanOrEqual(
+    Math.max(44, positionRow!.height - 2),
+  );
+  await unresolvedDetail.press("Enter");
+  await expect(page).toHaveURL(/\?position=position_locked_spv_5$/u);
+  await page.getByRole("button", { name: "Back to holdings" }).click();
+  await expect(unresolvedDetail).toBeFocused();
+  await expect(reviewTab).toHaveAttribute("aria-selected", "true");
+  const holdingsSearch = page.getByRole("searchbox", {
+    name: "Search holdings",
+  });
+  await holdingsSearch.fill("NVDA");
+  await expect(
+    review.getByText("No matching positions", { exact: true }),
+  ).toBeVisible();
+  await holdingsSearch.fill("Horizon");
+  await expect(unresolvedRow).toBeVisible();
+  await holdingsSearch.clear();
+  await allTab.click();
   const nvda = exposureView.locator(".exposure-group").filter({
     has: page.locator(
       '.exposure-group__summary strong[title="NVIDIA common stock"]',
@@ -722,7 +866,9 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   });
   await nvda.locator(".exposure-group__summary").click();
   await expect(nvda).toContainText("3 positions");
-  await expect(nvda.locator(".exposure-group__totals")).toContainText("$740k");
+  await expect(nvda.locator(".exposure-group__totals")).toContainText(
+    "$740,000",
+  );
   await expect(
     nvda.getByText("Robinhood brokerage", { exact: true }),
   ).toBeVisible();
@@ -732,22 +878,31 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await expect(
     nvda.getByText("Fidelity rollover IRA", { exact: true }),
   ).toBeVisible();
+  for (const account of [
+    "Fidelity rollover IRA",
+    "Fidelity brokerage",
+    "Robinhood brokerage",
+  ]) {
+    await expect(
+      nvda.getByRole("link", {
+        name: `View NVDA holding details in ${account}`,
+        exact: true,
+      }),
+    ).toBeVisible();
+  }
   if (!mobile) {
-    const sort = exposureView.getByRole("button", {
-      name: /^Sort exposures and positions by value/u,
-    });
     await sort.focus();
     await sort.press("Space");
     await expect(nvda.locator(".position-row__value")).toContainText([
-      "$185k",
-      "$240k",
-      "$315k",
+      "$185,000",
+      "$240,000",
+      "$315,000",
     ]);
     await sort.press("Enter");
     await expect(nvda.locator(".position-row__value")).toContainText([
-      "$315k",
-      "$240k",
-      "$185k",
+      "$315,000",
+      "$240,000",
+      "$185,000",
     ]);
     await expect(sort).toBeFocused();
   }
@@ -759,37 +914,31 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   });
   await harbor.locator(".exposure-group__summary").click();
   await expect(harbor.getByText("Synthetic Horizon SPV")).toBeVisible();
-  await expect(harbor.getByText("Locked", { exact: true })).toBeVisible();
-  await expect(
-    page.locator(".unallocated-positions").getByText("Allocation unknown"),
-  ).toBeVisible();
-  await expect(page.locator(".unallocated-positions")).not.toContainText(
-    "NVDA",
+  await expect(harbor.locator(".position-row__value")).toHaveText(
+    "Awaiting valuation",
   );
-  await expect(page.locator(".unallocated-positions")).not.toContainText(
-    "U S Dollar",
-  );
+  const fund = page
+    .locator(".exposure-group")
+    .filter({ has: page.getByText("SYNF", { exact: true }) });
+  await expect(fund.locator(".exposure-group__value")).toHaveText("$90,000");
+  await fund.locator(".exposure-group__summary").click();
+  await expect(fund.locator(".position-row__value")).toHaveText("$90,000");
   await expect(
-    page
-      .locator(".unallocated-positions")
-      .getByText("Company unresolved", { exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page
-      .locator(".exposure-group")
-      .filter({ hasText: "Synthetic Cloud Basket" })
-      .getByText("Value unavailable"),
+    fund.getByRole("link", {
+      name: "View SYNF holding details in Fidelity brokerage",
+    }),
   ).toBeVisible();
-  await expect(
-    page
-      .locator(".exposure-group")
-      .filter({ hasText: "Synthetic Cloud Basket" }),
-  ).not.toContainText("$0");
+  await expect(total.locator(".stat__value")).toHaveText("$950,000");
+  await captureDesignReview(
+    page,
+    "review-whole-position-value.png",
+    '[data-exposure-id="position:position_synthetic_fund_4"]',
+  );
   const beacon = page.locator(".exposure-group").filter({
     has: page.getByText("Beacon Robotics", { exact: true }),
   });
   await expect(beacon.locator(".exposure-group__summary")).toContainText(
-    "$120k",
+    "$120,000",
   );
   await expect(beacon.locator(".exposure-group__summary")).toContainText(
     "1 estimate",
@@ -797,8 +946,8 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   await beacon.locator(".exposure-group__summary").click();
   await expect(beacon.getByText("Synthetic Beacon SPV")).toBeVisible();
   await expect(beacon.locator(".position-row__value")).toContainText([
-    "$60k",
-    "$60k",
+    "$60,000",
+    "$60,000",
   ]);
   const beaconEstimateRow = beacon.locator("article").filter({
     hasText: "Synthetic Beacon SPV",
@@ -807,20 +956,39 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     beaconEstimateRow.locator(".position-row__value"),
   ).toHaveAttribute("title", "Portfolio Watch estimate as of Aug 15, 2026");
   await expect(beaconEstimateRow).not.toContainText("%");
-  await expect(beaconEstimateRow).toContainText("Portfolio Watch estimate");
+  await expect(beaconEstimateRow).toContainText("Watch estimate");
+  await expect(
+    beaconEstimateRow.getByText("Demo Family LLC", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await beaconEstimateRow
+      .locator(".record-row__title, .record-row__detail")
+      .evaluateAll((items) =>
+        items.every((item) => {
+          const identity = item.parentElement!.getBoundingClientRect();
+          const text = document.createRange();
+          text.selectNodeContents(item);
+          return [...text.getClientRects()].every(
+            (line) =>
+              line.right <= identity.right + 1 &&
+              line.bottom <= identity.bottom + 1,
+          );
+        }),
+      ),
+  ).toBe(true);
   expect(
     await beaconEstimateRow
       .locator(".position-row__value small")
       .evaluate((element) => element.getClientRects().length),
   ).toBe(1);
   await expect(beacon).not.toContainText("/sh");
-  await expect(page.locator(".unallocated-positions")).not.toContainText(
-    "Synthetic Beacon SPV",
-  );
-  await expect(
-    page.getByRole("heading", { name: "Resolve positions" }),
-  ).toBeVisible();
+  await expect(review).toBeHidden();
   await expectNoHorizontalOverflow(page);
+  await captureDesignReview(
+    page,
+    "review-exposures-open.png",
+    ".investment-views",
+  );
   await page.addStyleTag({
     content: `
       .topbar,
@@ -829,6 +997,20 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       }
     `,
   });
+  const horizonIdentity = page
+    .locator(".record-row__identity")
+    .filter({ hasText: "Synthetic Horizon SPV" });
+  await expect(horizonIdentity).toContainText("Demo Family LLC");
+  await expect
+    .poll(() =>
+      horizonIdentity.evaluate((identity) => {
+        const box = identity.getBoundingClientRect();
+        return [...identity.children].every(
+          (item) => item.getBoundingClientRect().bottom <= box.bottom + 1,
+        );
+      }),
+    )
+    .toBe(true);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "investment-holdings-exposures.png",
     {
@@ -840,9 +1022,10 @@ test("operates multiple institutions from one exposure-first holdings view", asy
   );
 
   if (!mobile) {
-    const detail = nvda
-      .getByRole("button", { name: "View NVDA holding details" })
-      .first();
+    const detail = nvda.getByRole("link", {
+      name: "View NVDA holding details in Fidelity rollover IRA",
+      exact: true,
+    });
     const selectedPositionId = (await detail.getAttribute("data-holding-id"))!;
     const publicExposure = holdingsView.exposureView.exposures.find(
       (group) =>
@@ -872,7 +1055,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     await expect(detail).toBeFocused();
     return;
   }
-  const privateEstimateDetailAction = beaconEstimateRow.getByRole("button", {
+  const privateEstimateDetailAction = beaconEstimateRow.getByRole("link", {
     name: "View Synthetic Beacon SPV holding details",
   });
   await privateEstimateDetailAction.click();
@@ -944,7 +1127,7 @@ test(
     );
 
     await page.goto("/holdings");
-    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await expect(page.locator(".exposure-group")).toHaveCount(4);
     await openHoldingSources(page);
 
     const robinhoodCard = page
@@ -958,7 +1141,7 @@ test(
       .getByRole("navigation", { name: "Holdings sections" })
       .getByRole("link", { name: "Holdings", exact: true })
       .click();
-    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await expect(page.locator(".exposure-group")).toHaveCount(4);
     await openHoldingSources(page);
     await expect(robinhoodCard).toBeVisible();
     expect(automaticRequestCount).toBe(1);
@@ -1039,9 +1222,12 @@ test(
     });
     await expect(nvda).toContainText("3 positions");
     await expect(errorState.getByRole("alert")).toHaveCount(0);
+    await errorState.getByRole("tab", { name: /^Needs resolution/u }).click();
     await expect(
-      errorState.locator(".unallocated-positions"),
-    ).not.toContainText("NVDA");
+      errorState
+        .getByRole("tabpanel", { name: /^Needs resolution/u })
+        .getByText("NVDA", { exact: true }),
+    ).toHaveCount(0);
   },
 );
 
@@ -1057,7 +1243,7 @@ test(
     await page.goto("/holdings");
     await reviewsLoaded;
     const search = page.getByRole("searchbox", { name: "Search holdings" });
-    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await expect(page.locator(".exposure-group")).toHaveCount(4);
     const total = (await page
       .locator(".investment-views__total")
       .textContent())!;
@@ -1074,12 +1260,18 @@ test(
     await search.fill("  BEACON, spv ");
     const group = page.locator(".exposure-group");
     await expect(group).toHaveCount(1);
+    await expect(group.locator(".exposure-group__summary")).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
     await expect(group).toContainText("Beacon Robotics");
     await expect(group).toContainText("1 matching position · 2 total");
     await expect(
       group.locator(".exposure-group__positions article"),
     ).toHaveCount(1);
-    await expect(group.locator(".exposure-group__value")).toHaveText("$120k");
+    await expect(group.locator(".exposure-group__value")).toHaveText(
+      "$120,000",
+    );
     await expect(page.locator(".investment-views__total")).toHaveText(total);
     await expect(group.locator("mark").first()).toHaveText("Beacon");
     expect(requests).toEqual([]);
@@ -1093,7 +1285,7 @@ test(
       fullPage: true,
     });
     await group
-      .getByRole("button", {
+      .getByRole("link", {
         name: "View Synthetic Beacon SPV holding details",
       })
       .click();
@@ -1102,7 +1294,7 @@ test(
       .click();
     await expect(search).toHaveValue("  BEACON, spv ");
     await expect(
-      group.getByRole("button", {
+      group.getByRole("link", {
         name: "View Synthetic Beacon SPV holding details",
       }),
     ).toBeFocused();
@@ -1158,7 +1350,7 @@ test(
     await search.press("Escape");
     await expect(search).toHaveValue("");
     await expect(search).toBeFocused();
-    await expect(page.locator(".exposure-group")).toHaveCount(5);
+    await expect(page.locator(".exposure-group")).toHaveCount(4);
     await expect(page.locator(".investment-views__total")).toHaveText(total);
     await expect(
       page
@@ -1319,7 +1511,7 @@ test(
     await expect(
       page.locator(".exposure-group__positions article"),
     ).toHaveCount(50);
-    const target = page.getByRole("button", {
+    const target = page.getByRole("link", {
       name: "View Demo Nebula SPV 049 holding details",
     });
     await target.click();
@@ -1376,7 +1568,7 @@ test("valuation readback lands quietly on the exposure and aligns its quote with
     }),
   );
   await page.goto(`/holdings?exposure=${exposureId}`);
-  const group = page.getByRole("group", {
+  const group = page.getByRole("listitem", {
     name: "Beacon Robotics",
     exact: true,
   });
@@ -1424,9 +1616,9 @@ test("valuation readback lands quietly on the exposure and aligns its quote with
   expect(nameLine.size).toBe(amountLine.size);
   expect(Math.abs(nameLine.top - amountLine.top)).toBeLessThanOrEqual(1);
 
-  const details = positionRow.getByRole("button", { name: /holding details/ });
+  const details = positionRow.getByRole("link", { name: /holding details/ });
   const [actionBox, valueBox] = await Promise.all([
-    details.boundingBox(),
+    details.locator("svg").boundingBox(),
     positionRow.locator(".record-row__value").boundingBox(),
   ]);
   expect(actionBox!.x).toBeGreaterThanOrEqual(valueBox!.x + valueBox!.width);

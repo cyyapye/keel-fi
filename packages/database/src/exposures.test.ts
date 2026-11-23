@@ -16,7 +16,10 @@ import { D1AlphaRepository } from "./index";
 import { D1PortfolioBaselineRepository } from "./portfolio-baseline";
 import { D1PortfolioWatchRepository } from "./portfolio-watch";
 import { D1PublicCompanyLinkRepository } from "./public-company-links";
-import { companyExposureGroups } from "@keel/domain/exposure-read-model";
+import {
+  companyExposureGroups,
+  holdingsExposureGroups,
+} from "@keel/domain/exposure-read-model";
 
 const reconciliationMigrationFile =
   "packages/database/migrations/0026_reconciled_holding_ownership.sql";
@@ -2941,6 +2944,7 @@ describe("canonical exposure resolution and aggregation", () => {
   it("reconciles and projects 120 public positions within indexed D1 budgets", async () => {
     for (let index = 0; index < 120; index += 1) {
       const id = `position_scale_${index.toString().padStart(3, "0")}`;
+      const marked = index % 2 === 0;
       seedAcceptedPosition(sqlite, {
         id,
         label: `Synthetic Scale Security ${index.toString().padStart(3, "0")}`,
@@ -2948,8 +2952,9 @@ describe("canonical exposure resolution and aggregation", () => {
         publicExposureIdentityKind: "cusip",
         protectedExposureKey: hash(`scale-exposure:${index.toString()}`),
         positionKind: "direct",
-        valueMinor: 100_000 + index,
-        valueState: "reported",
+        valueMinor: marked ? 100_000 + index : null,
+        valueState: marked ? "reported" : "not_reported",
+        investedMinor: 80_000 + index,
         containerKind: "brokerage",
       });
     }
@@ -2974,8 +2979,28 @@ describe("canonical exposure resolution and aggregation", () => {
     expect(database.roundTripCount).toBeLessThanOrEqual(4);
 
     database.resetRoundTripCount();
-    await readModel.list(accessSubject);
+    const view = await readModel.list(accessSubject);
     expect(database.roundTripCount).toBeLessThanOrEqual(8);
+    const positions = view.positions.filter((position) =>
+      position.id.startsWith("position_scale_"),
+    );
+    expect(positions).toHaveLength(120);
+    const scaleGroups = holdingsExposureGroups(view).filter((group) =>
+      group.contributions.some((c) =>
+        c.positionId.startsWith("position_scale_"),
+      ),
+    );
+    expect(scaleGroups).toHaveLength(120);
+    expect(
+      scaleGroups
+        .flatMap((g) => g.totals)
+        .reduce((sum, t) => sum + BigInt(t.allocatedValueMinor), 0n),
+    ).toBe(10_807_140n);
+    expect(
+      positions.filter(
+        (position) => position.valueSource === "invested_amount",
+      ),
+    ).toHaveLength(60);
     const exposureSql = database.preparedSql.find(
       (sql) =>
         sql.includes("FROM current_exposures current") &&

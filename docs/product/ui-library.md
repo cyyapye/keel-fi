@@ -89,6 +89,12 @@ labels in forms. RecordItem supplies a wrapping title, related detail, optional
 source metadata, trailing action and optional expanded content without a card
 border.
 
+Use `SectionHeader` with `trailingStat={<Stat ... />}` when a section has a
+leading heading and a total that summarizes its content. The total aligns to the
+right on wide screens and stacks below the heading on narrow screens. Use
+`descriptionPlacement="title-group"` when there is a heading description. Keep
+list controls such as sorting below the heading and total.
+
 Use natural phrases for simple counts, such as “2 linked sources · 1 reviewed
 change”. Reserve DataList label/value rows for relationships that need the
 label, such as previous versus accepted names. In a compact identity summary,
@@ -131,12 +137,19 @@ shaded row; each group starts its alternation again. Do not apply this treatment
 to every disclosure. Use the existing `RecordItem` for standalone records with
 richer expanded content.
 
+Use `RecordGroup layout="disclosures"` for a list of comparable disclosure
+summaries, such as company exposures. Give each `Collapsible` a list item role.
+The odd summaries are shaded when there is more than one result. Expanded
+content has its own surface. Keep headings, controls and pagination outside the
+group.
+
 Within a public exposure, promote the account name and show a shared dated price
-once. Keep legal vehicles distinct in private or combined exposures. Unavailable
-values and estimates retain their visible qualifications; label a partial total
-as known value. The application owns arithmetic, source dates, allocation
-meaning, navigation and collection limits. The catalogue covers multiple rows, a
-single row, long names, unavailable values and empty state.
+once. Keep legal vehicles distinct in private or combined exposures. Label an
+estimate by basis and a partial total as known value. When an exposure has no
+supported amount, use supporting text to show it is excluded from the total. The
+application owns arithmetic, source dates, allocation meaning, navigation and
+collection limits. The catalogue covers multiple rows, a single row, long names,
+unavailable values and empty state.
 
 ## Controls and form feedback
 
@@ -350,6 +363,17 @@ step IDs, action edges, source references and component names, separate from the
 shared component catalogue manifest. The first journey follows portfolio →
 company exposure → holding position → reported activity/tax lots → company.
 Adjacent product areas are orientation-only, not audited cross-area workflows.
+
+The Holdings total journey at `/ui/#journeys/holdings-total` counts each valued
+legal position once. It demonstrates a fund with undisclosed, partially
+disclosed and fully disclosed weights, a confirmed single-company SPV, and
+resolution from a GP mark, verified net invested after fees and refunds, or an
+explicit zero. The position can change valuation evidence while retaining the
+current fund statement. The catalogue simulates these choices in memory.
+Holdings counts each valued noncash legal position once per currency. It keeps
+the undisclosed remainder at the vehicle and shows positions awaiting a
+valuation in both views. Add valuation and Change valuation open the editor on
+the legal position’s detail page. Its chevron opens the position summary.
 
 Journey examples import `@keel/ui`; they do not call portfolio APIs or edit
 application state. Current ownership, source-reported activity and remaining

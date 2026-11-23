@@ -14,11 +14,13 @@ import { PurchaseLotSchema } from "../packages/domain/src/position-purchases";
 import { unknownInvestmentTerms } from "../packages/domain/src/investment-details";
 export const LINK_DEMO_SUBJECT = "synthetic-access-subject";
 export type LinkDemoCase = {
-  provider: "sydecar" | "tokenfolio";
+  provider: "sydecar" | "tokenfolio" | "angellist";
   name: string;
   company: string;
   amount: number;
   value: number | null;
+  locked?: boolean;
+  kind?: "fund_interest";
   date: string;
 };
 const digest = (text: string) =>
@@ -79,7 +81,7 @@ export async function seedPositionLinks(
   purchasePractice = false,
   demoCases: readonly LinkDemoCase[] = LINK_DEMO_CASES,
 ) {
-  for (const provider of ["sydecar", "tokenfolio"] as const) {
+  for (const provider of new Set(demoCases.map((c) => c.provider))) {
     const cases = demoCases.filter((c) => c.provider === provider);
     const input: HoldingImportStageInput = {
       provider,
@@ -101,11 +103,15 @@ export async function seedPositionLinks(
         investedMinor: c.amount,
         unrealizedValueMinor:
           c.value === null ? null : c.value + (revision - 1) * 100_000,
-        unrealizedValueState: c.value === null ? "not_reported" : "reported",
+        unrealizedValueState: c.locked
+          ? "locked"
+          : c.value === null
+            ? "not_reported"
+            : "reported",
         realizedValueMinor: 0,
         netValueMinor: null,
         netValueState: "not_reported",
-        positionKind: "spv_interest",
+        positionKind: c.kind ?? "spv_interest",
         dealMetadata: {
           ...(purchasePractice && provider === "tokenfolio"
             ? {
@@ -118,7 +124,8 @@ export async function seedPositionLinks(
               }
             : {}),
           allocationMinor: c.amount,
-          instrument: "SPV interest",
+          instrument:
+            c.kind === "fund_interest" ? "Fund interest" : "SPV interest",
           managementFeePpm: provider === "sydecar" ? 10_000 : null,
           carryPpm: provider === "sydecar" ? 150_000 : null,
         },
@@ -126,10 +133,14 @@ export async function seedPositionLinks(
       canonicalScope: {
         connection: {
           mode: "ensure",
-          adapterType: "manual",
+          adapterType: provider === "angellist" ? "angellist-import" : "manual",
           protectedSourceKey: digest(`demo-links-${provider}`),
           institutionKey: provider,
-          institutionLabel: provider === "sydecar" ? "Sydecar" : "Tokenfolio",
+          institutionLabel: {
+            sydecar: "Sydecar",
+            tokenfolio: "Tokenfolio",
+            angellist: "AngelList",
+          }[provider],
           lifecycleState: "pending",
           credentialReference: null,
         },
@@ -166,10 +177,16 @@ export async function seedPositionLinks(
       await new D1InvestmentPositionViewRepository(db).list(LINK_DEMO_SUBJECT)
     ).connections.flatMap((c) => c.containers.flatMap((c) => c.positions));
     const reviews = new D1InvestmentReviewRepository(db);
-    const companies = new Map<string, string>();
+    const existingCompanies = await db
+      .prepare("SELECT id,legal_name FROM companies WHERE household_id=?")
+      .bind("hh_demo")
+      .all<{ id: string; legal_name: string }>();
+    const companies = new Map(
+      existingCompanies.results.map((c) => [c.legal_name, c.id]),
+    );
     for (const position of positions) {
       const item = demoCases.find((c) => c.name === position.legalVehicleName);
-      if (!item) continue;
+      if (!item || item.kind === "fund_interest") continue;
       const context = await reviews.getContext(LINK_DEMO_SUBJECT, position.id);
       const existing = companies.get(item.company);
       const receipt = await reviews.reviewCompany(

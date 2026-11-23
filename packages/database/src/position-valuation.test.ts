@@ -13,6 +13,7 @@ import { D1HoldingsPageRepository } from "./holdings-page";
 import {
   PurchaseLotSchema,
   selectedPositionValuation,
+  netInvestedValuation,
   reviewedInvestmentFromReceipt,
   type PurchaseReceipt,
 } from "@keel/domain/position-purchases";
@@ -160,6 +161,62 @@ it("persists both valuation facts, projects the explicit choice and isolates edi
   expect(newShares.details.valuation!.selected).toBeNull();
   expect(newShares.details.valuation!.records[0]).toEqual(record());
 });
+it("accepts only the verified net cost and retains its evidence when a GP writes the holding down to zero", async () => {
+  const first = await saveInvestment(null);
+  const cost = netInvestedValuation(first, snapshotId)!;
+  expect(cost.effectiveDate).toBeNull();
+  const dated = structuredClone(first);
+  dated.details.lots[0]!.capitalReturn!.effectiveDate = "2026-01-12";
+  expect(netInvestedValuation(dated, snapshotId)?.effectiveDate).toBe(
+    "2026-01-12",
+  );
+  dated.acceptedAt = "2026-05-01T00:00:00.000Z";
+  expect(netInvestedValuation(dated, snapshotId)?.effectiveDate).toBe(
+    "2026-01-12",
+  );
+  expect(cost.totalMinor).toBe(844_000);
+  const input = {
+    expectedSnapshotId: snapshotId,
+    expectedReceiptId: first.id,
+    method: "total" as const,
+  };
+  await expect(
+    repo.acceptValuation(COST_SUBJECT, positionId, {
+      ...input,
+      record: { ...cost, totalMinor: 1_000_000 },
+    }),
+  ).rejects.toMatchObject({ code: "stale" });
+  const accepted = await repo.acceptValuation(COST_SUBJECT, positionId, {
+    ...input,
+    record: cost,
+  });
+  expect(selectedPositionValuation(accepted, snapshotId)).toMatchObject({
+    origin: "at_cost",
+    valueMinor: 844_000,
+  });
+  const corrected = structuredClone(accepted);
+  corrected.details.lots[0]!.capitalReturn!.effectiveDate = "2026-01-12";
+  expect(selectedPositionValuation(corrected, snapshotId)?.effectiveDate).toBe(
+    "2026-01-12",
+  );
+  expect(
+    corrected.details.valuation!.records.find((r) => r.id === cost.id)
+      ?.effectiveDate,
+  ).toBeNull();
+  const zero = await repo.acceptValuation(COST_SUBJECT, positionId, {
+    ...input,
+    expectedReceiptId: accepted.id,
+    record: { ...record(), totalMinor: 0 },
+  });
+  expect(selectedPositionValuation(zero, snapshotId)).toMatchObject({
+    origin: "gp",
+    valueMinor: 0,
+  });
+  expect(zero.details.valuation?.records).toContainEqual(
+    expect.objectContaining({ origin: "at_cost", totalMinor: 844_000 }),
+  );
+});
+
 it("preserves GP carry classification while adopting an attributed estimate and refuses foreign evidence", async () => {
   const context = (
     await new D1HoldingsPageRepository(db.asD1()).getPage(

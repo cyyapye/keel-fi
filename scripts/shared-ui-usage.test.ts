@@ -192,6 +192,14 @@ describe("shared UI usage", () => {
   });
 
   it("routes app disclosures through the shared Collapsible composition", () => {
+    expect(
+      sourceFacts(
+        '<><CollapsibleTrigger><DisclosureIndicator /></CollapsibleTrigger><TextLink href="/details"><DisclosureIndicator /></TextLink></>',
+      ),
+    ).toMatchObject({
+      disclosureIndicatorCounts: [1],
+      navigationIndicators: 1,
+    });
     const violations = webSources.flatMap(
       ({
         relativePath,
