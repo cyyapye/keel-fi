@@ -70,7 +70,6 @@ import {
 } from "@keel/ui";
 import {
   formatPositionCurrency as formatCurrency,
-  formatCompactPositionCurrency,
   formatDate,
   formatMoney,
 } from "./format";
@@ -802,7 +801,7 @@ function InvestmentDetailsEditor({
   };
   const reviewed = reviewedInvestmentFromReceipt(receipt);
   const purchaseSummary = receipt?.details.lots.length
-    ? `${receipt.details.lots.length} purchase${receipt.details.lots.length === 1 ? "" : "s"} · ${reviewed?.cashPaidMinor == null ? "Cash paid not confirmed" : `${formatCompactPositionCurrency(reviewed.cashPaidMinor, context.currency)} paid`}${(reviewed?.returnedCapitalMinor ?? 0) > 0 ? ` · ${formatCompactPositionCurrency(reviewed!.returnedCapitalMinor!, context.currency)} refunded` : ""}`
+    ? `${receipt.details.lots.length} purchase${receipt.details.lots.length === 1 ? "" : "s"} · ${reviewed?.cashPaidMinor == null ? "Cash paid not confirmed" : `${formatCurrency(reviewed.cashPaidMinor, context.currency)} paid`}${(reviewed?.returnedCapitalMinor ?? 0) > 0 ? ` · ${formatCurrency(reviewed!.returnedCapitalMinor!, context.currency)} refunded` : ""}`
     : "Optional · Add what you know";
 
   const purchaseContent = (

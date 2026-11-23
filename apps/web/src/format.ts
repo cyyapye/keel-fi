@@ -199,12 +199,3 @@ export function formatPositionCurrency(
     ? formatMoney(minorUnits)
     : formatCurrency(minorUnits, currency);
 }
-
-export function formatCompactPositionCurrency(
-  minorUnits: number,
-  currency: string,
-): string {
-  return currency.toUpperCase() === "USD"
-    ? formatCompactMoney(minorUnits)
-    : formatRoundedCompactCurrency(minorUnits, currency, 1_000);
-}

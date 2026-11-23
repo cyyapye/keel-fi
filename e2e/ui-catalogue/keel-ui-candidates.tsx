@@ -1,3 +1,4 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import { DetailLink } from "./detail-link";
 import { JourneyUsage } from "./journey-usage";
 import {
@@ -668,13 +669,17 @@ function AlternatingDisclosuresExample() {
   const exposures = [
     {
       name: "Northstar Robotics",
-      value: "$45K",
+      value: formatHoldingsAmount(4_500_000),
       owner: "Demo Family Trust",
     },
-    { name: "Meridian Energy", value: "$20K", owner: "Demo Brokerage" },
+    {
+      name: "Meridian Energy",
+      value: formatHoldingsAmount(2_000_000),
+      owner: "Demo Brokerage",
+    },
     {
       name: "Beacon Materials",
-      value: "$8K",
+      value: formatHoldingsAmount(800_000),
       owner: "Demo Retirement Trust",
     },
   ];
@@ -714,22 +719,22 @@ function RecordGroupExample() {
   const publicRows = [
     {
       name: "Fidelity brokerage",
-      value: "$4.8K",
-      basis: "$3.6K",
+      value: formatHoldingsAmount(480_000),
+      basis: formatHoldingsAmount(360_000),
       performance: "+33% total return",
       detail: null,
     },
     {
       name: "Robinhood Roth IRA",
-      value: "$3.2K",
-      basis: "$2.5K",
+      value: formatHoldingsAmount(320_000),
+      basis: formatHoldingsAmount(250_000),
       performance: "+28% total return",
       detail: null,
     },
     {
       name: "Robinhood brokerage",
-      value: "$2K",
-      basis: "$1.5K",
+      value: formatHoldingsAmount(200_000),
+      basis: formatHoldingsAmount(150_000),
       performance: "+33% total return",
       detail: null,
     },
@@ -741,15 +746,15 @@ function RecordGroupExample() {
         ? [
             {
               name: "Northstar Opportunity Fund I, LLC",
-              value: "$20K",
-              basis: "$20K",
+              value: formatHoldingsAmount(2_000_000),
+              basis: formatHoldingsAmount(2_000_000),
               performance: null,
               detail: "Demo Family Trust",
             },
             {
               name: "Northstar Long-Term Growth SPV II, LLC",
               value: "Unavailable",
-              basis: "$15K",
+              basis: formatHoldingsAmount(1_500_000),
               performance: null,
               detail: "Demo Retirement Trust",
             },
@@ -791,22 +796,29 @@ function RecordGroupExample() {
                 <span className="visually-hidden">Known value </span>
               )}
               {state === "Unavailable"
-                ? "$20K"
+                ? formatHoldingsAmount(2_000_000)
                 : state === "Single"
-                  ? "$4.8K"
-                  : "$10K"}
+                  ? formatHoldingsAmount(480_000)
+                  : formatHoldingsAmount(1_000_000)}
 
               <small className="candidate-parent-return">
                 {state === "Unavailable" ? (
                   <>
-                    <span aria-hidden="true">1 value missing · Basis $35K</span>
+                    <span aria-hidden="true">
+                      1 value missing · Basis {formatHoldingsAmount(3_500_000)}
+                    </span>
                     <span className="visually-hidden">
-                      1 value missing. Total basis $35K. Return unavailable.
+                      1 value missing. Total basis{" "}
+                      {formatHoldingsAmount(3_500_000)}. Return unavailable.
                     </span>
                   </>
                 ) : (
                   <>
-                    Basis {state === "Single" ? "$3.6K" : "$7.6K"} ·{" "}
+                    Basis{" "}
+                    {state === "Single"
+                      ? formatHoldingsAmount(360_000)
+                      : formatHoldingsAmount(760_000)}{" "}
+                    ·{" "}
                     <span aria-hidden="true">
                       {state === "Single" ? "+33%" : "+32%"}
                     </span>

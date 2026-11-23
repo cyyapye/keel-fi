@@ -144,6 +144,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
         unallocatedValueMinor: 38000,
       };
     let accounts = bankBalances(mode === "crowded" || mode === "unknown");
+    if (emptyHistory) accounts[0] = { ...accounts[0]!, valueMinor: 8_240_027 };
     if (mode === "unknown")
       accounts = accounts.map((a, i) =>
         i === 2
@@ -445,10 +446,11 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   await capture("minimum-full");
   emptyHistory = true;
   await page.reload();
+  await expect(first).toContainText("$82.4K");
   await first.click();
   await expect(cash).toContainText("No recorded balance history.");
   await cash.getByRole("button", { name: "View full history" }).click();
-  await expect(cash.locator(".stat__value")).toHaveText("$82,400.00");
+  await expect(cash.locator(".stat__value")).toHaveText("$82,400.27");
   await expect(cash).toContainText("No recorded balance history.");
   expect(errors).toEqual([]);
 });

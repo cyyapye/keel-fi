@@ -1687,8 +1687,6 @@ function ExposureView({
             group,
             positions,
           );
-          const isOpen =
-            searchMatches !== null || openExposureIds.has(group.exposure.id);
           const unavailableValueCount = group.totals.reduce(
             (count, total) => count + total.unknownValuePositionCount,
             0,
