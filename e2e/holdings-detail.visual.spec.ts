@@ -60,7 +60,7 @@ async function checkOverviewAndAssignMatch(
   ).toHaveCount(0);
   await expect(
     publicExposure.locator(".exposure-group__summary"),
-  ).toContainText("Basis $183K · +30% total return");
+  ).toContainText("Basis $182.5K · +30% total return");
   await expect(publicExposure.locator(".exposure-group__quote")).toHaveText(
     "$190.4/share · Aug 10, 2026",
   );

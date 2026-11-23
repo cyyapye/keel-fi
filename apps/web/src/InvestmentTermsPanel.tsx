@@ -276,7 +276,7 @@ export function InvestmentCalculationPreview({
               {current && (reviewed.cashPaidMinor ?? 0) > 0 && (
                 <Stat
                   label="Cash paid"
-                  value={money(reviewed.cashPaidMinor!)}
+                  value={money(reviewed.cashPaidMinor)}
                 />
               )}
               {current && (reviewed.returnedCapitalMinor ?? 0) > 0 && (
@@ -292,7 +292,7 @@ export function InvestmentCalculationPreview({
                       ? "Estimated upfront fees"
                       : "Upfront fees"
                   }
-                  value={money(cashSummary.upfrontFeesMinor!)}
+                  value={money(cashSummary.upfrontFeesMinor)}
                 />
               )}
             </StatGroup>
