@@ -3204,11 +3204,11 @@ h1,
   align-items: start;
 }
 
-.exposure-group__positions .record-row__identity {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+@container (max-width: 400px) {
+  .holding-position-rows .position-row__value--awaiting {
+    display: inline-block;
+    max-inline-size: 10ch;
+  }
 }
 
 .exposure-group__positions .position-row__value small {

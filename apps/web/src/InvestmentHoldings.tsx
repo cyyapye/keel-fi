@@ -1982,7 +1982,11 @@ function ExposureView({
                                 addValuation
                               ) : (
                                 <span
-                                  className="position-row__value"
+                                  className={
+                                    attributed === null
+                                      ? "position-row__value position-row__value--awaiting"
+                                      : "position-row__value"
+                                  }
                                   title={valuationTooltip}
                                 >
                                   {attributed === null

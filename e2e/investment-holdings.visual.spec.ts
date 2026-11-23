@@ -997,6 +997,20 @@ test("operates multiple institutions from one exposure-first holdings view", asy
       }
     `,
   });
+  const horizonIdentity = page
+    .locator(".record-row__identity")
+    .filter({ hasText: "Synthetic Horizon SPV" });
+  await expect(horizonIdentity).toContainText("Demo Family LLC");
+  await expect
+    .poll(() =>
+      horizonIdentity.evaluate((identity) => {
+        const box = identity.getBoundingClientRect();
+        return [...identity.children].every(
+          (item) => item.getBoundingClientRect().bottom <= box.bottom + 1,
+        );
+      }),
+    )
+    .toBe(true);
   await expect(page.locator(".screen-stack")).toHaveScreenshot(
     "investment-holdings-exposures.png",
     {
