@@ -2941,7 +2941,7 @@ describe("canonical exposure resolution and aggregation", () => {
     ).rejects.toThrow("Structured asset exposure evidence changed.");
   });
 
-  it("reconciles and projects 120 public positions with marks and investment estimates within indexed D1 budgets", async () => {
+  it("reconciles and projects 120 public positions within indexed D1 budgets", async () => {
     for (let index = 0; index < 120; index += 1) {
       const id = `position_scale_${index.toString().padStart(3, "0")}`;
       const marked = index % 2 === 0;
