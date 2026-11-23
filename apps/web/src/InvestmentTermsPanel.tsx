@@ -274,10 +274,7 @@ export function InvestmentCalculationPreview({
                 />
               )}
               {current && (reviewed.cashPaidMinor ?? 0) > 0 && (
-                <Stat
-                  label="Cash paid"
-                  value={money(reviewed.cashPaidMinor)}
-                />
+                <Stat label="Cash paid" value={money(reviewed.cashPaidMinor)} />
               )}
               {current && (reviewed.returnedCapitalMinor ?? 0) > 0 && (
                 <Stat
