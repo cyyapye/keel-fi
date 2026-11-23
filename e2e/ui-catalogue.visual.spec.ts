@@ -1272,7 +1272,7 @@ test("every area inventory entry links to its associated independent journeys", 
       .filter((journey) => journey.areas.includes(id))
       .map((journey) => journey.steps[0]!.id);
     if (id === "overview" || id === "holdings") expected.unshift("portfolio");
-    if (id === "holdings") expected.push("closing-price");
+    if (id === "holdings") expected.push("closing-price", "holdings-total");
     if (id === "watch") expected.push("closing-price-watch");
     expect(expected.length).toBeGreaterThan(0);
     await expect(area.getByRole("link")).toHaveCount(expected.length);
@@ -1791,6 +1791,14 @@ test("one exposure decision applies each close to both SPVs", async ({
     page.getByRole("heading", { name: "Holdings", exact: true }),
   ).toBeVisible();
   await expect(company).toHaveAttribute("aria-expanded", "false");
+  const companyBox = await company.boundingBox();
+  const indicator = await company
+    .locator(".exposure-group__indicator")
+    .boundingBox();
+  expect(indicator!.y).toBeGreaterThanOrEqual(companyBox!.y);
+  expect(indicator!.y + indicator!.height).toBeLessThanOrEqual(
+    companyBox!.y + companyBox!.height,
+  );
   const review = page.getByRole("link", {
     name: /^Review valuation\b/,
   });
@@ -2141,4 +2149,127 @@ test("choosing a GP proxy through Holdings prices only the unvalued SPV", async 
   await save.click();
   await expect(vale).toContainText("$800");
   await expect(company).toContainText("$7,500");
+});
+
+test("reconciles fund attribution and a missing position value independently", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/ui/#journeys");
+  await page
+    .getByRole("link", { name: "Reconcile holdings", exact: true })
+    .first()
+    .click();
+  const journey = page.getByRole("region", { name: "Holdings total journey" });
+  const total = journey.locator(".stat");
+  const summary = (name: string) =>
+    journey.getByRole("button", { name: new RegExp("^" + name + "\\b") });
+  async function capture(state: string) {
+    if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS !== "1") return;
+    await page.evaluate(() => document.fonts.ready);
+    await expect(
+      journey.locator("[data-starting-style], [data-ending-style]"),
+    ).toHaveCount(0);
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+    await page.screenshot({
+      fullPage: true,
+      path: testInfo.outputPath(state + ".png"),
+      animations: "disabled",
+      scale: "css",
+    });
+  }
+  async function statement(label: string) {
+    await journey
+      .getByRole("combobox", { name: "Simulated fund statement" })
+      .click();
+    await page.getByRole("option", { name: label, exact: true }).click();
+  }
+  await expect(total).toContainText("Known total");
+  await expect(total).toContainText("$950,000");
+  await expect(total).toContainText("4 exposures · 7 positions");
+  await expect(summary("SYNF")).toContainText("$90,000");
+  await expect(summary("Harbor Health Systems")).toContainText("Outside total");
+  await capture("initial");
+  await summary("Beacon Robotics").click();
+  await expect(
+    journey.getByRole("list", { name: "Beacon Robotics positions" }),
+  ).toContainText("Portfolio Watch estimate");
+  await expect(summary("Beacon Robotics")).toContainText("$120,000");
+  await capture("single-company");
+  await summary("Beacon Robotics").click();
+  await statement("40% Cloud disclosed");
+  await expect(summary("Cloud Basket")).toContainText("$36,000");
+  await expect(summary("SYNF")).toContainText("$54,000");
+  await expect(total).toContainText("$950,000");
+  await capture("partial");
+  await statement("40% Cloud · 60% Infrastructure");
+  await expect(summary("SYNF")).toHaveCount(0);
+  await expect(summary("Infrastructure Basket")).toContainText("$54,000");
+  await expect(total).toContainText("$950,000");
+  await journey.getByRole("tab", { name: "Needs resolution (1)" }).click();
+  const add = journey.getByRole("link", { name: "Add valuation" });
+  await capture("resolution");
+  await add.click();
+  const picker = journey.getByRole("combobox", {
+    name: "Simulated valuation evidence",
+  });
+  await expect(page).toHaveURL(/#journeys\/holdings-total-valuation$/u);
+  await expect(total).toHaveCount(0);
+  await expect(picker).toBeFocused();
+  await journey.getByRole("button", { name: "Cancel" }).click();
+  await expect(add).toBeFocused();
+  await add.click();
+  const change = journey.getByRole("link", {
+    name: "Change valuation",
+    exact: true,
+  });
+  for (const [evidence, button, expected, source] of [
+    [
+      "Reconciled capital statement",
+      "Use $18,000 at cost",
+      "$968,000",
+      "At cost · Net invested",
+    ],
+    ["GP statement", "Use $25,000 GP mark", "$975,000", "GP mark"],
+    ["GP write-off", "Use $0 GP mark", "$950,000", "GP mark"],
+  ] as const) {
+    await picker.click();
+    await page.getByRole("option", { name: evidence, exact: true }).click();
+    if (evidence === "Reconciled capital statement") {
+      await expect(
+        journey.getByText(
+          /Net invested is \$18,000 after \$500 in upfront fees and a \$1,500 refund/,
+        ),
+      ).toBeVisible();
+      await capture("cost-evidence");
+    }
+    await journey.getByRole("button", { name: button, exact: true }).click();
+    await expect(change).toBeFocused();
+    await expect(
+      journey.getByRole("region", { name: "Valuation" }),
+    ).toContainText(source);
+    await journey.getByRole("link", { name: "Back to holdings" }).click();
+    await expect(total.locator(".stat__label")).toHaveText("Total");
+    await expect(total).toContainText(expected);
+    await expect(summary("Harbor Health Systems")).toContainText(source);
+    if (evidence === "Reconciled capital statement")
+      await capture("cost-accepted");
+    if (evidence === "GP write-off") {
+      await expect(summary("Harbor Health Systems")).toContainText("$0");
+      await capture("zero");
+      await journey
+        .getByRole("tab", { name: "Needs resolution", exact: true })
+        .click();
+      await expect(journey.getByText("All positions valued")).toBeVisible();
+    } else {
+      await expect(summary("Infrastructure Basket")).toContainText("$54,000");
+      await change.click();
+      await expect(picker).toHaveText(evidence);
+      await journey.getByRole("button", { name: "Cancel" }).click();
+      await expect(change).toBeFocused();
+      await expect(
+        journey.getByRole("region", { name: "Valuation" }),
+      ).toContainText(source);
+      await change.click();
+    }
+  }
 });

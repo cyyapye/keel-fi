@@ -2,9 +2,21 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "../lib/utils";
 
 /** Alternating surfaces for related records. Disclosure and loading belong to the caller. */
-export function RecordGroup({ className, ...props }: ComponentProps<"div">) {
+export function RecordGroup({
+  className,
+  layout = "rows",
+  ...props
+}: ComponentProps<"div"> & { layout?: "rows" | "disclosures" }) {
   return (
-    <div role="list" {...props} className={cn("record-group", className)} />
+    <div
+      role="list"
+      {...props}
+      className={cn(
+        "record-group",
+        layout === "disclosures" && "record-group--disclosures",
+        className,
+      )}
+    />
   );
 }
 

@@ -93,7 +93,9 @@ async function openHolding(page: Page) {
   await page.goto("/holdings");
   const group = page.locator(".exposure-group").first();
   await group.locator(".exposure-group__summary").click();
-  await group.getByRole("button", { name: /holding details$/ }).click();
+  await group
+    .getByRole("link", { name: /holding details(?: in .+)?$/u })
+    .click();
   const feature = page.getByRole("region", {
     name: "Investment activity and tax lots",
   });

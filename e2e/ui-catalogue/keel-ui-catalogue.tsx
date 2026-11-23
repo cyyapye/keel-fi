@@ -719,6 +719,27 @@ function Display() {
         </p>
       </Example>
       <Example
+        title="Section heading with total"
+        components="SectionHeader · Stat"
+        wide
+      >
+        <SectionHeader
+          headingAs="h3"
+          title="Cash"
+          trailingStat={
+            <Stat
+              label="Total cash"
+              value="$42,500.00"
+              detail="3 accounts · USD"
+            />
+          }
+        />
+        <UI.Text variant="supporting">
+          Align the total with the heading on wide screens and below it on
+          narrow screens. Keep list controls below the header.
+        </UI.Text>
+      </Example>
+      <Example
         title="Statistics & metrics"
         components="Stat · StatGroup · MetricCard"
         wide

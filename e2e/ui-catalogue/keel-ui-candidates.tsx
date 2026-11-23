@@ -664,6 +664,50 @@ export function FieldSaveExample() {
   );
 }
 
+function AlternatingDisclosuresExample() {
+  const exposures = [
+    {
+      name: "Northstar Robotics",
+      value: "$45,000",
+      owner: "Demo Family Trust",
+    },
+    { name: "Meridian Energy", value: "$20,000", owner: "Demo Brokerage" },
+    {
+      name: "Beacon Materials",
+      value: "$8,000",
+      owner: "Demo Retirement Trust",
+    },
+  ];
+  return (
+    <Example
+      title="Alternating disclosure summaries"
+      components={["RecordGroup", "Collapsible"]}
+      description="Shade every other summary when multiple records appear together. Expanded details use their own surface."
+      wide
+    >
+      <RecordGroup aria-label="Example exposures" layout="disclosures">
+        {exposures.map(({ name, value, owner }) => (
+          <Collapsible key={name} role="listitem">
+            <CollapsibleTrigger className="catalogue-record-summary">
+              <span>
+                <strong>{name}</strong>
+                <small>1 position</small>
+              </span>
+              <span>{value}</span>
+              <DisclosureIndicator />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <RecordGroup aria-label={`Positions in ${name}`}>
+                <RecordRow title={owner} value={value} />
+              </RecordGroup>
+            </CollapsibleContent>
+          </Collapsible>
+        ))}
+      </RecordGroup>
+    </Example>
+  );
+}
+
 function RecordGroupExample() {
   const [state, setState] = useState("Multiple");
   const [selected, setSelected] = useState<string | null>(null);
@@ -1633,6 +1677,7 @@ export function Compositions() {
       <div className="catalogue-grid candidate-examples">
         <DrillIntoDetailsExample />
         <RecordGroupExample />
+        <AlternatingDisclosuresExample />
         <RecordRowsExample />
         <HistoryExample />
         <ImportExample />

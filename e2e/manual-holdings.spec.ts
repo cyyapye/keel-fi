@@ -312,13 +312,54 @@ test(
     await page
       .getByRole("button", { name: "Back to holdings", exact: true })
       .click();
+    await expect(
+      page.getByRole("tab", { name: /^Needs resolution/u }),
+    ).toHaveAttribute("aria-selected", "true");
     await page
       .getByRole("searchbox", { name: "Search holdings", exact: true })
       .fill(name);
-    const detail = page.getByRole("button", {
+    const editUrl = new RegExp(`position=${positionId}&edit=valuation$`);
+    const positionUrl = new RegExp(`position=${positionId}$`);
+    const editor = page
+      .locator(".spv-holding")
+      .getByRole("form", { name: "Edit valuation" });
+    const source = editor.getByRole("combobox", {
+      name: "Source",
+      exact: true,
+    });
+    const queueLink = page.getByRole("link", {
+      name: "Add valuation",
+      exact: true,
+    });
+    await queueLink.click();
+    await expect(page).toHaveURL(editUrl);
+    await expect(source).toBeFocused();
+    await page.goBack();
+    await expect(
+      page.getByRole("tab", { name: /^Needs resolution/u }),
+    ).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "All exposures", exact: true }).click();
+    const detail = page.getByRole("link", {
       name: `View ${name} holding details`,
       exact: true,
     });
+    const positionRow = page.locator(".record-row").filter({ has: detail });
+    const editLink = positionRow.getByRole("link", {
+      name: "Add valuation",
+      exact: true,
+    });
+    await editLink.click();
+    await expect(page).toHaveURL(editUrl);
+    await expect(source).toBeFocused();
+    await editor.getByRole("button", { name: "Cancel" }).click();
+    await expect(page).toHaveURL(positionUrl);
+    await expect(
+      page.getByRole("button", { name: "Add valuation", exact: true }),
+    ).toBeFocused();
+    await page.getByRole("button", { name: "Back to holdings" }).click();
+    await expect(editLink).toBeFocused();
+    await editLink.press("Tab");
+    await expect(detail).toBeFocused();
     await expect(detail).toBeVisible();
     await detail.click();
     await expect(page).toHaveURL(new RegExp(`position=${positionId}`));

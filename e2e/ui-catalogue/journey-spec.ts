@@ -89,6 +89,19 @@ export function stepsUsing(names: readonly string[]) {
     ...steps.filter((step) =>
       step.components.some((name) => names.includes(name)),
     ),
+    ...(names.some((name) =>
+      [
+        "SectionHeader",
+        "Stat",
+        "Tabs",
+        "RecordGroup",
+        "RecordRow",
+        "Select",
+        "Collapsible",
+      ].includes(name),
+    )
+      ? [{ id: "holdings-total", title: "Reconcile holdings" }]
+      : []),
     ...(names.some((name) => name === "RecordItem" || name === "TextLink")
       ? taskJourneys.map((journey) => ({
           id: journey.steps[0]!.id,

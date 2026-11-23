@@ -210,7 +210,7 @@ test(
       .getByRole("button", { name: /Demo Orbit Aerospace \d position/ })
       .click();
     await page
-      .getByRole("button", { name: "View Demo Orbit VII SPV holding details" })
+      .getByRole("link", { name: "View Demo Orbit VII SPV holding details" })
       .click();
     await page
       .getByRole("button", { name: /^Ownership, sources & history/ })

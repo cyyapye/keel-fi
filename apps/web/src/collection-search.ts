@@ -1,6 +1,6 @@
 import type { AcceptedCashAccount } from "@keel/domain";
 import {
-  companyExposureGroups,
+  holdingsExposureGroups,
   type InvestmentExposureGroup,
   type InvestmentExposurePosition,
 } from "@keel/domain/exposure-read-model";
@@ -80,22 +80,20 @@ export function buildHoldingsSearchIndex(
       text: prepare([account.accountLabel, account.institutionLabel]),
     })),
     positions,
-    exposures: companyExposureGroups(data.exposureView)
-      .filter((group) => !isCashExposure(group))
-      .map((group) => {
-        const name = normalizeSearchText(group.exposure.canonicalName);
-        return {
-          id: group.exposure.id,
-          positions: [
-            ...new Set(group.contributions.map((item) => item.positionId)),
-          ].flatMap((id) => {
-            const position = positionById.get(id);
-            return position === undefined
-              ? []
-              : [{ id, text: `${name} ${position.text}` }];
-          }),
-        };
-      }),
+    exposures: holdingsExposureGroups(data.exposureView).map((group) => {
+      const name = normalizeSearchText(group.exposure.canonicalName);
+      return {
+        id: group.exposure.id,
+        positions: [
+          ...new Set(group.contributions.map((item) => item.positionId)),
+        ].flatMap((id) => {
+          const position = positionById.get(id);
+          return position === undefined
+            ? []
+            : [{ id, text: `${name} ${position.text}` }];
+        }),
+      };
+    }),
   };
 }
 

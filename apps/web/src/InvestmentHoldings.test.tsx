@@ -11,19 +11,25 @@ import {
   purchaseDetailProjection,
   purchaseDetailReceipt,
 } from "../../../e2e/purchase-detail-fixtures";
-import { InvestmentHoldings } from "./InvestmentHoldings";
+import { InvestmentHoldings, type ExposureTab } from "./InvestmentHoldings";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
 import { SourceInventoryOutcome } from "./PublicSourceUpdate";
 
-function renderExposures(data: InvestmentHoldingsView, holdings: Holding[]) {
+function renderExposures(
+  data: InvestmentHoldingsView,
+  holdings: Holding[],
+  activeExposureTab: ExposureTab = "all",
+) {
   return renderToStaticMarkup(
     <InvestmentHoldings
       acceptedCashAccounts={[]}
+      activeExposureTab={activeExposureTab}
       data={data}
       holdings={holdings}
       mode="exposures"
       onExposureOpenChange={() => {}}
       onExposureResolved={() => Promise.resolve()}
+      onExposureTabChange={() => {}}
       onLoadMoreExposures={() => {}}
       onLoadMorePositions={() => {}}
       onOpenHolding={() => {}}
@@ -72,10 +78,10 @@ test("renders a manual Fund estimate without treating contributed cash as basis 
   const { current, view } = manualFundWithEstimate();
   expect(view.exposureView.positions[0]?.valueMinor).toBe(3_000_000);
   const markup = renderExposures(view, [current]);
-  const rows = markup.match(/<article\b[^>]*>[\s\S]*?<\/article>/gu) ?? [];
+  const rows = markup.match(/<button\b[^>]*>[\s\S]*?<\/button>/gu) ?? [];
   const matching = rows.filter((row) => row.includes(current.positionName));
   expect(matching).toHaveLength(1);
-  expect(matching[0]).toContain("$30k");
+  expect(matching[0]).toContain("$30,000");
   expect(matching[0]).not.toContain("Basis");
   expect(matching[0]).not.toContain("total return");
 });
@@ -96,6 +102,8 @@ test("withholds returns from holding and exposure summaries when refund inclusio
     const { holdings, investmentHoldings } = purchaseDetailProjection(receipt);
     const detail = renderToStaticMarkup(
       <SpvHoldingDetail
+        valuationRequested={false}
+        onValuationRouteClose={() => undefined}
         holding={holdings[0]!}
         onAccepted={() => Promise.resolve()}
       />,

@@ -13,9 +13,11 @@ import {
   assessValuationFromShares,
   valuationSharesKey,
   purchaseFeeSummary,
+  netInvestedValuation,
 } from "@keel/domain/position-purchases";
 import {
   AcceptValuationSchema,
+  ValuationRecordSchema,
   type AcceptValuation,
 } from "@keel/domain/valuation-record";
 import { D1PriceProxyRepository } from "./price-proxies";
@@ -256,6 +258,19 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
         "The investment changed. Reload before saving.",
       );
     const record = input.record;
+    if (record.origin === "at_cost" || record.id === "at-cost") {
+      const supported = netInvestedValuation(prior, input.expectedSnapshotId);
+      if (
+        !supported ||
+        input.method !== "total" ||
+        JSON.stringify(record) !==
+          JSON.stringify(ValuationRecordSchema.parse(supported))
+      )
+        throw new PositionPurchaseError(
+          "stale",
+          "The verified net investment changed. Reload before saving at cost.",
+        );
+    }
     if (
       [record.effectiveDate, record.priceDate].some(
         (date) => date && date > new Date().toISOString().slice(0, 10),

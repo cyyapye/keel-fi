@@ -534,6 +534,36 @@ export function assessValuationFromShares(
   };
 }
 
+export function netInvestedValuation(
+  receipt: PurchaseReceipt | null | undefined,
+  snapshotId: string,
+): ValuationRecord | null {
+  const investment = reviewedInvestmentFromReceipt(receipt);
+  if (
+    !receipt ||
+    !investment ||
+    investment.snapshotId !== snapshotId ||
+    investment.netCapitalMinor === null
+  )
+    return null;
+  return {
+    id: "at-cost",
+    origin: "at_cost",
+    totalMinor: investment.netCapitalMinor,
+    priceMicros: null,
+    effectiveDate: receipt.acceptedAt.slice(0, 10),
+    priceDate: null,
+    shareClass: null,
+    carryStatus: "unknown",
+    sourceLabel: "At cost · Net invested",
+    sourceUrl: null,
+    sourceEvidenceId: null,
+    sourcePositionId: null,
+    sourceCapturedAt: null,
+    watchEvidenceId: null,
+  };
+}
+
 export function selectedPositionValuation(
   receipt: PurchaseReceipt | null | undefined,
   snapshotId: string,
@@ -544,6 +574,11 @@ export function selectedPositionValuation(
     (r) => r.id === selection?.recordId,
   );
   if (!selection || !record) return null;
+  if (
+    record.origin === "at_cost" &&
+    record.totalMinor !== netInvestedValuation(receipt, snapshotId)?.totalMinor
+  )
+    return null;
   // A deliberately linked quantity model remains applicable until superseded;
   // a provider's newer balance observation does not change ownership.
   if (

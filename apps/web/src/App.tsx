@@ -1,3 +1,9 @@
+import { holdingsExposureGroups } from "@keel/domain/exposure-read-model";
+import {
+  holdingPositionPath,
+  parseHoldingPosition,
+  type HoldingPositionRoute,
+} from "./holding-position-route";
 import { MarketCloseReview } from "./MarketCloseReview";
 import { AppAccess } from "./AppAccess";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
@@ -57,6 +63,7 @@ import { calculatePositionPerformance } from "@keel/domain/position-economics";
 import {
   buildHoldingsSearchIndex,
   isCashExposure,
+  isCashPosition,
   searchHoldings,
   HOLDINGS_POSITION_PAGE_SIZE,
 } from "./collection-search";
@@ -179,7 +186,7 @@ import {
 import { useBoundedPolling } from "./use-bounded-polling";
 import { openPlaidLink } from "./plaid-link";
 import { PublicSourceUpdate } from "./PublicSourceUpdate";
-import { InvestmentHoldings } from "./InvestmentHoldings";
+import { InvestmentHoldings, type ExposureTab } from "./InvestmentHoldings";
 import { LegalEntities } from "./LegalEntities";
 import { PositionEconomicsEditor } from "./PositionEconomicsEditor";
 import { HoldingImportOutcome } from "./HoldingImportOutcome";
@@ -218,7 +225,7 @@ type AppRoute = {
   screen: Screen;
   holdingImportId: string | null;
   holdingManualEntry: boolean;
-  holdingPositionId: string | null;
+  holdingPosition: HoldingPositionRoute | null;
   holdingsDrilldown: PortfolioSnapshotDrilldown | null;
   holdingsView: "entities" | "overview" | "sources";
 };
@@ -261,7 +268,7 @@ function routeFromLocation(): AppRoute {
       screen: "holdings",
       holdingImportId: null,
       holdingManualEntry: true,
-      holdingPositionId: null,
+      holdingPosition: null,
       holdingsDrilldown: null,
       holdingsView: "overview",
     };
@@ -271,7 +278,7 @@ function routeFromLocation(): AppRoute {
       screen: "holdings",
       holdingImportId: null,
       holdingManualEntry: false,
-      holdingPositionId: null,
+      holdingPosition: null,
       holdingsDrilldown: null,
       holdingsView: "entities",
     };
@@ -281,7 +288,7 @@ function routeFromLocation(): AppRoute {
       screen: "holdings",
       holdingImportId: null,
       holdingManualEntry: false,
-      holdingPositionId: null,
+      holdingPosition: null,
       holdingsDrilldown: null,
       holdingsView: "sources",
     };
@@ -295,7 +302,7 @@ function routeFromLocation(): AppRoute {
         screen: "holdings",
         holdingImportId: decodeURIComponent(importMatch[1]),
         holdingManualEntry: false,
-        holdingPositionId: null,
+        holdingPosition: null,
         holdingsDrilldown: null,
         holdingsView: "overview",
       };
@@ -304,7 +311,7 @@ function routeFromLocation(): AppRoute {
         screen: "holdings",
         holdingImportId: null,
         holdingManualEntry: false,
-        holdingPositionId: null,
+        holdingPosition: null,
         holdingsDrilldown: null,
         holdingsView: "overview",
       };
@@ -321,15 +328,12 @@ function routeFromLocation(): AppRoute {
     holdingManualEntry: false,
     holdingsDrilldown:
       screen === "holdings" ? holdingsDrilldownFromLocation() : null,
-    holdingPositionId:
-      screen === "holdings" ? holdingPositionFromLocation() : null,
+    holdingPosition:
+      screen === "holdings"
+        ? parseHoldingPosition(new URLSearchParams(window.location.search))
+        : null,
     holdingsView: "overview",
   };
-}
-
-function holdingPositionFromLocation(): string | null {
-  const id = new URLSearchParams(window.location.search).get("position");
-  return id && id.trim().length > 0 && id.length <= 200 ? id : null;
 }
 
 function SourceBadge({ status }: { status: Holding["sourceStatus"] }) {
@@ -2789,12 +2793,16 @@ function PositionPerformanceSummary({
 
 function HoldingDetailWorkspace({
   holding,
+  editingValuation,
+  onValuationRouteClose,
   onManualNavigationLockChange,
   companyGroupingAction,
   onValueAccepted,
   related = [],
 }: {
   holding: Holding;
+  editingValuation: boolean;
+  onValuationRouteClose: () => void;
   onManualNavigationLockChange?: ((locked: boolean) => void) | undefined;
   companyGroupingAction?: ReactNode;
   onValueAccepted: () => Promise<void>;
@@ -2803,6 +2811,8 @@ function HoldingDetailWorkspace({
   return holding.purchaseContext ? (
     <SpvHoldingDetail
       holding={holding}
+      valuationRequested={editingValuation}
+      onValuationRouteClose={onValuationRouteClose}
       onManualNavigationLockChange={onManualNavigationLockChange}
       companyGroupingAction={companyGroupingAction}
       onAccepted={onValueAccepted}
@@ -6829,7 +6839,7 @@ function Holdings({
   onPreviewImport,
   requestedDrilldown,
   requestedImportId,
-  requestedPositionId,
+  requestedPosition,
   requestedManualEntry,
   onManualEntryChange,
   onManualNavigationLockChange,
@@ -6854,12 +6864,15 @@ function Holdings({
   ) => Promise<HoldingImportPreview>;
   requestedDrilldown: PortfolioSnapshotDrilldown | null;
   requestedImportId: string | null;
-  requestedPositionId: string | null;
+  requestedPosition: HoldingPositionRoute | null;
   requestedManualEntry: boolean;
   onManualEntryChange: (open: boolean) => void;
   onManualNavigationLockChange: (locked: boolean) => void;
   manualNavigationLocked: boolean;
-  onPositionRouteChange: (positionId: string | null) => void;
+  onPositionRouteChange: (
+    positionId: string | null,
+    editValuation?: boolean,
+  ) => void;
   requestedView: "overview" | "sources";
 }) {
   const [showImporter, setShowImporter] = useState(false);
@@ -6888,10 +6901,12 @@ function Holdings({
     importId: string;
     message: string;
   } | null>(null);
-  const selectedHoldingId = requestedPositionId;
+  const selectedHoldingId = requestedPosition?.id ?? null;
   const [openExposureIds, setOpenExposureIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [activeExposureTab, setActiveExposureTab] =
+    useState<ExposureTab>("all");
   const [showSmallCashBalances, setShowSmallCashBalances] = useState(false);
   const [cashRefreshVersion, setCashRefreshVersion] = useState(0);
   const checkedImports = useRef(new Set<string>());
@@ -6913,6 +6928,7 @@ function Holdings({
     setShowImporter(false);
     setRoutedPreview(null);
     setRoutedPreviewError(null);
+    setActiveExposureTab("all");
   }
   const selectedHolding =
     data.holdings.find((holding) => holding.id === selectedHoldingId) ?? null;
@@ -7093,11 +7109,10 @@ function Holdings({
     });
   }, []);
 
+  const valuationOrigin = useRef(false);
   const openHoldingDetail = useCallback(
-    (holdingId: string) => {
-      const action = document.querySelector<HTMLElement>(
-        `[data-holding-id="${CSS.escape(holdingId)}"]`,
-      );
+    (holdingId: string, editValuation = false, action?: HTMLElement) => {
+      valuationOrigin.current = editValuation;
       const exposureId = action
         ?.closest<HTMLElement>("[data-exposure-id]")
         ?.getAttribute("data-exposure-id");
@@ -7107,13 +7122,29 @@ function Holdings({
           ? new Set()
           : new Set([exposureId]),
       );
-      onPositionRouteChange(holdingId);
+      onPositionRouteChange(holdingId, editValuation);
     },
     [onPositionRouteChange],
   );
 
   const closeHoldingDetail = () => {
     const returnFocusId = selectedHoldingId;
+    const view = data.investmentHoldings.exposureView;
+    const position = view.positions.find((item) => item.id === returnFocusId);
+    if (position && !isCashPosition(position) && openExposureIds.size === 0) {
+      if (position.valueMinor === null) setActiveExposureTab("resolution");
+      else if (valuationOrigin.current && activeExposureTab === "resolution") {
+        const group = holdingsExposureGroups(view).find((item) =>
+          item.contributions.some(
+            (contribution) => contribution.positionId === position.id,
+          ),
+        );
+        if (group) {
+          setActiveExposureTab("all");
+          setExposureOpen(group.exposure.id, true);
+        }
+      }
+    }
     if (publicPositionExposure !== undefined) {
       setExposureOpen(
         publicCompanyLink?.companyExposureId ??
@@ -7125,9 +7156,16 @@ function Holdings({
     if (returnFocusId !== null) {
       let attempts = 0;
       const restoreFocus = () => {
-        const action = document.querySelector<HTMLButtonElement>(
-          `[data-holding-id="${CSS.escape(returnFocusId)}"]`,
-        );
+        const row = `[data-holding-id="${CSS.escape(returnFocusId)}"]:not([hidden] *)`;
+        const action =
+          (valuationOrigin.current &&
+            document.querySelector<HTMLElement>(
+              row + "[data-valuation-link]",
+            )) ||
+          document.querySelector<HTMLElement>(
+            row + ":not([data-valuation-link])",
+          ) ||
+          document.querySelector<HTMLElement>(row);
         if (action !== null) {
           action.focus();
           return;
@@ -7240,7 +7278,16 @@ function Holdings({
         </Notice>
       ) : selectedHolding !== null ? (
         <HoldingDetailWorkspace
+          key={selectedHolding.id}
           holding={selectedHolding}
+          editingValuation={requestedPosition?.editValuation ?? false}
+          onValuationRouteClose={() => {
+            const route = parseHoldingPosition(
+              new URLSearchParams(window.location.search),
+            );
+            if (route?.id === selectedHolding.id && route.editValuation)
+              onPositionRouteChange(selectedHolding.id);
+          }}
           onManualNavigationLockChange={onManualNavigationLockChange}
           companyGroupingAction={companyGroupingAction}
           related={
@@ -7356,12 +7403,14 @@ function Holdings({
           )}
           <InvestmentHoldings
             acceptedCashAccounts={data.acceptedCashAccounts}
+            activeExposureTab={activeExposureTab}
             onAddHolding={() => onManualEntryChange(true)}
             data={data.investmentHoldings}
             holdings={data.holdings}
             mode={sourcesVisible ? "sources" : "exposures"}
             onExposureOpenChange={setExposureOpen}
             onExposureResolved={onExposureResolved}
+            onExposureTabChange={setActiveExposureTab}
             onLoadMoreExposures={loadMoreExposures}
             onLoadMorePositions={(exposureId) =>
               setVisiblePositionCounts((current) => {
@@ -8852,9 +8901,10 @@ export function App() {
   const [holdingImportId, setHoldingImportId] = useState<string | null>(
     () => routeFromLocation().holdingImportId,
   );
-  const [holdingPositionId, setHoldingPositionId] = useState<string | null>(
-    () => routeFromLocation().holdingPositionId ?? null,
+  const [holdingPosition, setHoldingPosition] = useState(
+    () => routeFromLocation().holdingPosition,
   );
+  const holdingPositionId = holdingPosition?.id ?? null;
   const [holdingManualEntry, setHoldingManualEntry] = useState(
     () => routeFromLocation().holdingManualEntry,
   );
@@ -8964,7 +9014,7 @@ export function App() {
     }
     setFocusedEventId(null);
     setActiveScreen(screen);
-    setHoldingPositionId(null);
+    setHoldingPosition(null);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
@@ -8979,7 +9029,7 @@ export function App() {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("goals");
-    setHoldingPositionId(null);
+    setHoldingPosition(null);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
@@ -8997,26 +9047,38 @@ export function App() {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("holdings");
-    setHoldingPositionId(null);
+    setHoldingPosition(null);
     setHoldingImportId(importId);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
   }, []);
 
-  const navigateToHoldingPosition = useCallback((positionId: string | null) => {
-    if (manualNavigationLockRef.current) return;
-    setHoldingManualEntry(false);
-    const search = new URLSearchParams();
-    if (positionId !== null) search.set("position", positionId);
-    const path = `/holdings${positionId === null ? "" : `?${search.toString()}`}`;
-    if (`${window.location.pathname}${window.location.search}` !== path)
-      window.history.pushState(null, "", path);
-    setActiveScreen("holdings");
-    setHoldingImportId(null);
-    setHoldingsDrilldown(null);
-    setHoldingsView("overview");
-    setHoldingPositionId(positionId);
-  }, []);
+  const navigateToHoldingPosition = useCallback(
+    (positionId: string | null, editValuation = false) => {
+      if (manualNavigationLockRef.current) return;
+      setHoldingManualEntry(false);
+      const path =
+        positionId === null
+          ? "/holdings"
+          : holdingPositionPath(positionId, editValuation);
+      if (`${window.location.pathname}${window.location.search}` !== path) {
+        const current = parseHoldingPosition(
+          new URLSearchParams(window.location.search),
+        );
+        if (positionId !== null && current?.id === positionId)
+          window.history.replaceState(window.history.state, "", path);
+        else window.history.pushState(null, "", path);
+      }
+      setActiveScreen("holdings");
+      setHoldingImportId(null);
+      setHoldingsDrilldown(null);
+      setHoldingsView("overview");
+      setHoldingPosition(
+        positionId === null ? null : { id: positionId, editValuation },
+      );
+    },
+    [],
+  );
 
   const navigateToHoldingsView = useCallback((view: HoldingsView) => {
     if (manualNavigationLockRef.current) return;
@@ -9026,7 +9088,7 @@ export function App() {
       window.history.pushState(null, "", path);
     }
     setActiveScreen("holdings");
-    setHoldingPositionId(null);
+    setHoldingPosition(null);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView(view);
@@ -9050,7 +9112,7 @@ export function App() {
       }
       setActiveScreen("holdings");
       setHoldingManualEntry(false);
-      setHoldingPositionId(null);
+      setHoldingPosition(null);
       setHoldingImportId(null);
       setHoldingsDrilldown(drilldown);
       setHoldingsView("overview");
@@ -9069,7 +9131,7 @@ export function App() {
         new URLSearchParams(window.location.search).get("event"),
       );
       setActiveScreen(route.screen);
-      setHoldingPositionId(route.holdingPositionId ?? null);
+      setHoldingPosition(route.holdingPosition);
       setHoldingImportId(route.holdingImportId);
       setHoldingManualEntry(route.holdingManualEntry);
       setHoldingsDrilldown(route.holdingsDrilldown);
@@ -9085,7 +9147,7 @@ export function App() {
     const path = open ? "/holdings/new" : "/holdings";
     window.history.pushState(null, "", path);
     setActiveScreen("holdings");
-    setHoldingPositionId(null);
+    setHoldingPosition(null);
     setHoldingImportId(null);
     setHoldingsDrilldown(null);
     setHoldingsView("overview");
@@ -9117,6 +9179,11 @@ export function App() {
   }, [activeScreen, data, refreshAlphaData]);
 
   useEffect(() => {
+    if (
+      holdingPositionId &&
+      new URLSearchParams(window.location.search).get("edit") === "valuation"
+    )
+      return;
     window.scrollTo({ behavior: "auto", top: 0 });
   }, [
     activeScreen,
@@ -9216,7 +9283,7 @@ export function App() {
           onManualEntryChange={navigateToManualHolding}
           onManualNavigationLockChange={onManualNavigationLockChange}
           manualNavigationLocked={manualNavigationLocked}
-          requestedPositionId={holdingPositionId}
+          requestedPosition={holdingPosition}
           onPositionRouteChange={navigateToHoldingPosition}
           requestedImportId={holdingImportId}
           requestedDrilldown={holdingsDrilldown}
@@ -9381,7 +9448,7 @@ export function App() {
     busyEvent,
     data,
     holdingImportId,
-    holdingPositionId,
+    holdingPosition,
     holdingManualEntry,
     manualNavigationLocked,
     navigateToManualHolding,

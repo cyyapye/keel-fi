@@ -29,7 +29,10 @@ import {
   type InvestmentPositionView,
 } from "./position-read-model";
 import { includesCurrentInvestment } from "./investment-review";
-import { positionContributionBasis } from "./position-economics";
+import {
+  calculatePositionEconomics,
+  positionContributionBasis,
+} from "./position-economics";
 import {
   estimatePrivatePositionValues,
   PrivateCompanyRoundValuationSchema,
@@ -301,23 +304,117 @@ export function companyExposureGroups(
   });
 }
 
+/** Holdings shows the legal vehicle for any share without a disclosed underlying. */
+export type HoldingExposureGroup = {
+  exposure: Pick<CanonicalExposure, "id" | "canonicalName"> & {
+    exposureKind: CanonicalExposure["exposureKind"] | "position";
+  };
+  contributions: Pick<
+    InvestmentExposureContribution,
+    | "positionId"
+    | "relationshipKind"
+    | "currency"
+    | "allocationPpm"
+    | "allocatedValueMinor"
+  >[];
+  totals: InvestmentExposureGroup["totals"];
+};
+
+export function holdingsExposureGroups(
+  view: InvestmentExposureView,
+): HoldingExposureGroup[] {
+  const positions = view.positions.filter(
+    (p) => p.instrumentType.trim().toLowerCase() !== "cash",
+  );
+  const ids = new Set(positions.map((p) => p.id));
+  const groups: HoldingExposureGroup[] = companyExposureGroups({
+    ...view,
+    exposures: view.exposures.map((group) => ({
+      ...group,
+      contributions: group.contributions.filter(
+        (c) =>
+          ids.has(c.positionId) &&
+          c.allocationPpm !== null &&
+          c.allocationPpm > 0,
+      ),
+    })),
+  }).filter((group) => group.contributions.length > 0);
+  for (const p of positions) {
+    const remainderPpm = PARTS_PER_MILLION - p.knownAllocationPpm;
+    if (remainderPpm === 0) continue;
+    groups.push({
+      exposure: {
+        id: `position:${p.id}`,
+        exposureKind: "position",
+        canonicalName: p.ticker ?? p.legalVehicleName,
+      },
+      contributions: [
+        {
+          positionId: p.id,
+          relationshipKind: "direct",
+          currency: p.currency,
+          allocationPpm: remainderPpm,
+          allocatedValueMinor: p.unallocatedValueMinor,
+        },
+      ],
+      totals: [
+        {
+          currency: p.currency,
+          allocatedValueMinor: p.unallocatedValueMinor ?? 0,
+          knownValuePositionCount: p.valueMinor === null ? 0 : 1,
+          unknownValuePositionCount: p.valueMinor === null ? 1 : 0,
+        },
+      ],
+    });
+  }
+  return groups;
+}
+
 function safeMinorSum(values: readonly number[]): number {
   const total = values.reduce((sum, value) => sum + BigInt(value), 0n);
   return NonNegativeMoneyMinorSchema.parse(Number(total));
 }
 
-function usesInvestedAmountFallback(
+function investedAmountFallback(
   position: InvestmentPositionRecord,
-): boolean {
-  return (
-    position.manualContext == null &&
-    position.linkedReportedValue == null &&
-    position.snapshot.providerStatus === "live" &&
-    reportedPositionValue(position).state === "not_reported" &&
-    position.snapshot.investedMinor !== null &&
-    position.snapshot.investedMinor > 0 &&
-    position.snapshot.instrumentType.trim().toLowerCase() !== "cash"
-  );
+): number | null {
+  if (
+    position.snapshot.providerStatus !== "live" ||
+    position.linkedReportedValue != null ||
+    reportedPositionValue(position).state !== "not_reported" ||
+    position.snapshot.instrumentType.toLowerCase() === "cash"
+  )
+    return null;
+  if (position.kind === "spv_interest" || position.kind === "fund_interest") {
+    const reviewed = reviewedInvestmentFromReceipt(position.purchaseReceipt);
+    if (reviewed)
+      return reviewed.appliesUntilSuperseded ||
+        reviewed.snapshotId === position.snapshot.id
+        ? reviewed.netCapitalMinor
+        : null;
+    const committed = investmentAmount(position);
+    const funded = position.snapshot.investedMinor;
+    if (
+      committed === null ||
+      funded === null ||
+      !position.acceptedEconomicsTerms
+    )
+      return null;
+    const economics = calculatePositionEconomics({
+      snapshotId: position.snapshot.id,
+      currency: position.snapshot.currency,
+      committedMinor: committed,
+      fundedMinor: funded,
+      acceptedTerms: position.acceptedEconomicsTerms,
+      reportedTerms: position.reportedEconomicsTerms ?? null,
+    });
+    return economics &&
+      (funded === committed || funded === economics.committedMinor)
+      ? economics.positionCostBasisMinor
+      : null;
+  }
+  const invested = position.snapshot.investedMinor;
+  return invested !== null && invested > 0 ? invested : null;
 }
 
 function privatePositionCostBasis(
@@ -517,17 +614,18 @@ export function createInvestmentExposureView(
             : null;
         const useShareEstimate =
           adjustment === null && shareValueEstimate !== null;
-        const investedAmountFallback =
+        const costFallback =
           adjustment === null &&
           privateValueEstimate === null &&
-          !useShareEstimate &&
-          usesInvestedAmountFallback(position);
+          !useShareEstimate
+            ? investedAmountFallback(position)
+            : null;
         const valueState =
           selected !== null ||
           adjustment !== null ||
           useShareEstimate ||
           privateValueEstimate !== null ||
-          investedAmountFallback
+          costFallback !== null
             ? "reported"
             : reportedPositionValue(position).state;
         const valueMinor = selected
@@ -538,8 +636,8 @@ export function createInvestmentExposureView(
               ? shareValueEstimate.valueMinor
               : privateValueEstimate !== null
                 ? privateValueEstimate.valueMinor
-                : investedAmountFallback
-                  ? position.snapshot.investedMinor
+                : costFallback !== null
+                  ? costFallback
                   : reportedPositionValue(position).minor;
         const receipt = position.purchaseReceipt;
         const providerReview =
@@ -554,46 +652,54 @@ export function createInvestmentExposureView(
             ? providerReview
             : null;
         const allocatedValues: number[] = [];
-        const mappingViews = positionMappings.map((mapping) => {
-          const allocatedValueMinor =
-            valueMinor === null || mapping.allocationPpm === null
-              ? null
-              : multiplyMinorByScalePpm(valueMinor, mapping.allocationPpm);
-          if (allocatedValueMinor !== null) {
-            allocatedValues.push(allocatedValueMinor);
-          }
-          const contribution: InvestmentExposureContribution = {
-            mappingId: mapping.id,
-            positionId: position.id,
-            exposureId: mapping.exposureId,
-            relationshipKind: mapping.relationshipKind,
-            currency: position.snapshot.currency,
-            valueState,
-            positionValueMinor: valueMinor,
-            allocationPpm: mapping.allocationPpm,
-            allocatedValueMinor,
-            decisionSource: mapping.decisionSource,
-            decisionReference: mapping.decisionReference,
-            evidenceSha256: mapping.evidenceSha256,
-            effectiveAt: mapping.effectiveAt,
-            version: mapping.version,
-          };
-          const contributions =
-            contributionsByExposure.get(mapping.exposureId) ?? [];
-          contributions.push(contribution);
-          contributionsByExposure.set(mapping.exposureId, contributions);
-          return {
-            id: mapping.id,
-            exposureId: mapping.exposureId,
-            relationshipKind: mapping.relationshipKind,
-            allocationPpm: mapping.allocationPpm,
-            decisionSource: mapping.decisionSource,
-            decisionReference: mapping.decisionReference,
-            evidenceSha256: mapping.evidenceSha256,
-            effectiveAt: mapping.effectiveAt,
-            version: mapping.version,
-          };
-        });
+        // Cumulative integer rounding conserves every minor unit even for tiny positions.
+        let previousPpm = 0;
+        const mappingViews = [...positionMappings]
+          .sort((a, b) => a.exposureId.localeCompare(b.exposureId))
+          .map((mapping) => {
+            const allocatedValueMinor =
+              valueMinor === null || mapping.allocationPpm === null
+                ? null
+                : multiplyMinorByScalePpm(
+                    valueMinor,
+                    previousPpm + mapping.allocationPpm,
+                  ) - multiplyMinorByScalePpm(valueMinor, previousPpm);
+            previousPpm += mapping.allocationPpm ?? 0;
+            if (allocatedValueMinor !== null) {
+              allocatedValues.push(allocatedValueMinor);
+            }
+            const contribution: InvestmentExposureContribution = {
+              mappingId: mapping.id,
+              positionId: position.id,
+              exposureId: mapping.exposureId,
+              relationshipKind: mapping.relationshipKind,
+              currency: position.snapshot.currency,
+              valueState,
+              positionValueMinor: valueMinor,
+              allocationPpm: mapping.allocationPpm,
+              allocatedValueMinor,
+              decisionSource: mapping.decisionSource,
+              decisionReference: mapping.decisionReference,
+              evidenceSha256: mapping.evidenceSha256,
+              effectiveAt: mapping.effectiveAt,
+              version: mapping.version,
+            };
+            const contributions =
+              contributionsByExposure.get(mapping.exposureId) ?? [];
+            contributions.push(contribution);
+            contributionsByExposure.set(mapping.exposureId, contributions);
+            return {
+              id: mapping.id,
+              exposureId: mapping.exposureId,
+              relationshipKind: mapping.relationshipKind,
+              allocationPpm: mapping.allocationPpm,
+              decisionSource: mapping.decisionSource,
+              decisionReference: mapping.decisionReference,
+              evidenceSha256: mapping.evidenceSha256,
+              effectiveAt: mapping.effectiveAt,
+              version: mapping.version,
+            };
+          });
         const allocatedValueMinor =
           valueMinor === null ? null : safeMinorSum(allocatedValues);
         const unallocatedValueMinor =
@@ -644,16 +750,18 @@ export function createInvestmentExposureView(
           acceptedEconomicsTerms: position.acceptedEconomicsTerms ?? null,
           reportedEconomicsTerms: position.reportedEconomicsTerms ?? null,
           valueSource: selected
-            ? selected.method === "shares"
-              ? "share_price_estimate"
-              : "reviewed_adjustment"
+            ? selected.origin === "at_cost"
+              ? "invested_amount"
+              : selected.method === "shares"
+                ? "share_price_estimate"
+                : "reviewed_adjustment"
             : adjustment !== null
               ? "reviewed_adjustment"
               : useShareEstimate
                 ? "share_price_estimate"
                 : privateValueEstimate !== null
                   ? "portfolio_watch_estimate"
-                  : investedAmountFallback
+                  : costFallback !== null
                     ? "invested_amount"
                     : "provider",
           valueEffectiveDate:
@@ -662,28 +770,34 @@ export function createInvestmentExposureView(
             (useShareEstimate
               ? shareValueEstimate.effectiveDate
               : (privateValueEstimate?.effectiveDate ??
-                (currentProviderReview && !investedAmountFallback
+                (currentProviderReview && costFallback === null
                   ? currentProviderReview.effectiveDate
                   : (
                       position.linkedReportedValue?.observedAt ??
                       position.snapshot.observedAt
                     ).slice(0, "YYYY-MM-DD".length)))),
-          valueSourceLabel: selected
-            ? selected.origin === "proxy"
-              ? `Proxy estimate · ${selected.sourceLabel}`
-              : selected.origin === "judgment"
-                ? "My estimate"
-                : selected.sourceLabel
-            : (adjustment?.sourceLabel ??
-              (useShareEstimate
-                ? shareValueEstimate.proxy
-                  ? "Proxy share price estimate"
-                  : "Reviewed underlying share prices"
-                : null) ??
-              (privateValueEstimate === null
-                ? (position.linkedReportedValue?.sourceLabel ??
-                  position.source.label)
-                : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`)),
+          valueSourceLabel:
+            costFallback !== null && !selected
+              ? position.kind === "spv_interest" ||
+                position.kind === "fund_interest"
+                ? "At cost · Net invested"
+                : "At cost · Invested amount"
+              : selected
+                ? selected.origin === "proxy"
+                  ? `Proxy estimate · ${selected.sourceLabel}`
+                  : selected.origin === "judgment"
+                    ? "My estimate"
+                    : selected.sourceLabel
+                : (adjustment?.sourceLabel ??
+                  (useShareEstimate
+                    ? shareValueEstimate.proxy
+                      ? "Proxy share price estimate"
+                      : "Reviewed underlying share prices"
+                    : null) ??
+                  (privateValueEstimate === null
+                    ? (position.linkedReportedValue?.sourceLabel ??
+                      position.source.label)
+                    : `Portfolio Watch + ${privateValueEstimate.referenceSourceLabel}`)),
           priorValueState: position.linkedReportedValue
             ? null
             : (position.priorValue?.state ?? null),

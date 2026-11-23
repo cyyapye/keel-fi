@@ -507,7 +507,10 @@ export function ValuationJourney({
           open={expanded}
           onOpenChange={setExpanded}
         >
-          <CollapsibleTrigger ref={trigger} className="exposure-group__summary">
+          <CollapsibleTrigger
+            ref={trigger}
+            className="exposure-row exposure-group__summary"
+          >
             <span className="exposure-group__identity">
               <strong>Cedar Robotics</strong>
               <small>

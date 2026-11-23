@@ -364,6 +364,10 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   await expect(cash.locator(".cash-holdings__account")).toHaveCount(4);
   const toggle = cash.getByRole("button", { name: "Show 10 small balances" });
   await expect(toggle).toBeVisible();
+  expect(
+    (await cash.getByRole("region", { name: "Brokerage cash" }).boundingBox())!
+      .y,
+  ).toBeLessThan((await toggle.boundingBox())!.y);
   await expect(cash).toContainText("Under $100 · $65.05 · Included in total");
   await capture("folded");
   const search = page.getByRole("searchbox", { name: "Search holdings" });
@@ -379,6 +383,9 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   await expect(
     cash.getByRole("button", { name: "Hide small balances" }),
   ).toBeFocused();
+  await expect(
+    cash.getByRole("button", { name: "Hide small balances" }),
+  ).toBeInViewport();
   await expect(cash.locator(".cash-holdings__account")).toHaveCount(14);
   await capture("expanded");
   mode = "unknown";

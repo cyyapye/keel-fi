@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
-import { gpRecord } from "./holding-value";
+import {
+  netInvestedValuation,
+  reviewedInvestmentFromReceipt,
+} from "@keel/domain/position-purchases";
+import { useEffect, useRef, useState } from "react";
+import { gpRecord, netInvestmentBreakdown } from "./holding-value";
 import type { Holding } from "@keel/domain";
 import {
   AcceptValuationSchema,
@@ -74,12 +78,18 @@ function draftFor(
 export function HoldingValuationEditor({
   holding,
   onAccepted,
+  onSaved,
   onClose,
 }: {
   holding: Holding;
   onAccepted: () => Promise<void>;
-  onClose: () => void;
+  onSaved: () => void;
+  onClose: (saved?: boolean) => void;
 }) {
+  const form = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    form.current?.querySelector<HTMLElement>('[role="combobox"]')?.focus();
+  }, []);
   const context = holding.purchaseContext!;
   const receipt = context.receipt;
   const saved = receipt?.details.valuation;
@@ -91,6 +101,7 @@ export function HoldingValuationEditor({
   );
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [busy, setBusy] = useState(false);
+  const [savedPending, setSavedPending] = useState(false);
   const [stale, setStale] = useState(false);
   const [reloadingSources, setReloadingSources] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,7 +134,12 @@ export function HoldingValuationEditor({
       });
     return () => controller.abort();
   }, [holding.id, reload]);
-  const records: ValuationRecord[] = [...(saved?.records ?? [])];
+  const capital = reviewedInvestmentFromReceipt(receipt);
+  const cost = netInvestedValuation(receipt, context.snapshotId);
+  const records: ValuationRecord[] = (saved?.records ?? []).filter(
+    (r) => r.origin !== "at_cost",
+  );
+  if (cost) records.push(cost);
   if (!records.some((r) => r.id === "gp"))
     records.unshift(gpRecord(holding, evidence));
   if (!records.some((r) => r.id === "mine"))
@@ -208,44 +224,48 @@ export function HoldingValuationEditor({
       (draft.record.shareBasis
         ? String(draft.record.shareBasis.unitsPerOriginal)
         : "");
-  const candidate = {
-    ...draft.record,
-    ...(draft.basis.trim() || draft.record.shareBasis !== undefined
-      ? {
-          shareBasis: draft.basis.trim()
+  const candidate =
+    record.origin === "at_cost"
+      ? record
+      : {
+          ...draft.record,
+          ...(draft.basis.trim() || draft.record.shareBasis !== undefined
             ? {
-                key: draft.record.shareBasis?.key ?? "issuer-original",
-                unitsPerOriginal: scaled(draft.basis, 0),
+                shareBasis: draft.basis.trim()
+                  ? {
+                      key: draft.record.shareBasis?.key ?? "issuer-original",
+                      unitsPerOriginal: scaled(draft.basis, 0),
+                    }
+                  : null,
               }
-            : null,
-        }
-      : {}),
-    ...(record.origin === "proxy"
-      ? { crossClassProxy: draft.crossClass === "accepted" }
-      : {}),
-    ...(changedEvidence && draft.record.sourcePositionId
-      ? {
-          priceSourcePositionId:
-            draft.record.priceSourcePositionId ?? draft.record.sourcePositionId,
-        }
-      : {}),
-    totalMinor: total,
-    priceMicros: price,
-    effectiveDate: draft.date,
-    priceDate: price === null ? null : draft.priceDate || null,
-    shareClass: draft.shareClass || null,
-    carryStatus: draft.classification,
-    sourceLabel: draft.label,
-    sourceUrl: draft.url || null,
-    watchEvidenceId: draft.watch || null,
-    ...(changedEvidence && record.origin !== "proxy"
-      ? {
-          sourceEvidenceId: null,
-          sourcePositionId: null,
-          sourceCapturedAt: null,
-        }
-      : {}),
-  };
+            : {}),
+          ...(record.origin === "proxy"
+            ? { crossClassProxy: draft.crossClass === "accepted" }
+            : {}),
+          ...(changedEvidence && draft.record.sourcePositionId
+            ? {
+                priceSourcePositionId:
+                  draft.record.priceSourcePositionId ??
+                  draft.record.sourcePositionId,
+              }
+            : {}),
+          totalMinor: total,
+          priceMicros: price,
+          effectiveDate: draft.date,
+          priceDate: price === null ? null : draft.priceDate || null,
+          shareClass: draft.shareClass || null,
+          carryStatus: draft.classification,
+          sourceLabel: draft.label,
+          sourceUrl: draft.url || null,
+          watchEvidenceId: draft.watch || null,
+          ...(changedEvidence && record.origin !== "proxy"
+            ? {
+                sourceEvidenceId: null,
+                sourcePositionId: null,
+                sourceCapturedAt: null,
+              }
+            : {}),
+        };
   const latestPrice = evidence?.prices.find((p) =>
     record.origin === "proxy"
       ? p.positionId === record.sourcePositionId
@@ -301,10 +321,15 @@ export function HoldingValuationEditor({
     record: candidate,
     method: draft.method,
   });
-  const validationError = parsed.success
-    ? null
-    : parsed.error.issues.find(({ path }) => path.at(-1) !== "unitsPerOriginal")
-        ?.message;
+  const validationError = Number.isNaN(total)
+    ? "Enter a position total of $0 or more, with up to two decimal places."
+    : Number.isNaN(price)
+      ? "Enter a share price of $0 or more, with up to six decimal places."
+      : parsed.success
+        ? null
+        : parsed.error.issues.find(
+            ({ path }) => path.at(-1) !== "unitsPerOriginal",
+          )?.message;
   const details = receipt?.details ?? { coversPosition: false, lots: [] };
   const assessment = parsed.success
     ? assessValuationFromShares(details, parsed.data.record)
@@ -369,8 +394,10 @@ export function HoldingValuationEditor({
             : "Valuation could not be saved.",
         );
       PurchaseReceiptSchema.parse(body);
+      setSavedPending(true);
+      onSaved();
       await onAccepted();
-      onClose();
+      onClose(true);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Valuation could not be saved.",
@@ -390,8 +417,39 @@ export function HoldingValuationEditor({
       <small>{classification}</small>
     </>
   );
+  if (savedPending)
+    return (
+      <Notice>
+        Valuation saved.{" "}
+        {busy ? (
+          "Refreshing holdings…"
+        ) : (
+          <Button
+            tone="quiet"
+            onClick={() => {
+              void refreshSaved();
+            }}
+          >
+            Refresh holdings
+          </Button>
+        )}
+        {!busy && error && <p>{error}</p>}
+      </Notice>
+    );
+  async function refreshSaved() {
+    setBusy(true);
+    try {
+      await onAccepted();
+      onClose(true);
+    } catch {
+      setError("The saved valuation could not be refreshed.");
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <form
+      ref={form}
       className="holding-valuation-editor"
       aria-label="Edit valuation"
       onSubmit={(e) => {
@@ -425,18 +483,28 @@ export function HoldingValuationEditor({
             </Button>
           </Notice>
         )}
-        {updatedPrice && record.origin !== "judgment" && (
-          <p className="holding-metadata">
-            Updated price: {formatSharePrice(updatedPrice.markMicros!)}/share ·{" "}
-            {updatedPrice.markDate
-              ? formatDate(updatedPrice.markDate)
-              : "Price date unavailable"}{" "}
-            <Button tone="quiet" onClick={adoptUpdatedPrice}>
-              Use updated price
-            </Button>
-          </p>
-        )}
-        {record.origin === "proxy" ? (
+        {updatedPrice &&
+          record.origin !== "judgment" &&
+          record.origin !== "at_cost" && (
+            <p className="holding-metadata">
+              Updated price: {formatSharePrice(updatedPrice.markMicros!)}/share
+              ·{" "}
+              {updatedPrice.markDate
+                ? formatDate(updatedPrice.markDate)
+                : "Price date unavailable"}{" "}
+              <Button tone="quiet" onClick={adoptUpdatedPrice}>
+                Use updated price
+              </Button>
+            </p>
+          )}
+        {record.origin === "at_cost" ? (
+          <div className="holding-valuation-preview">
+            <strong className="holding-choice-amount">
+              {formatMoney(record.totalMinor!)}
+            </strong>
+            <p>{netInvestmentBreakdown(capital)}</p>
+          </div>
+        ) : record.origin === "proxy" ? (
           <div className="holding-valuation-preview">
             <p>
               {draft.label} ·{" "}
@@ -700,9 +768,13 @@ export function HoldingValuationEditor({
             }
           >
             {busy && <Spinner />}
-            {busy ? "Saving…" : "Save"}
+            {busy
+              ? "Saving…"
+              : record.origin === "at_cost"
+                ? "Use at cost"
+                : "Save"}
           </Button>
-          <Button tone="quiet" disabled={busy} onClick={onClose}>
+          <Button tone="quiet" disabled={busy} onClick={() => onClose()}>
             Cancel
           </Button>
         </ActionGroup>

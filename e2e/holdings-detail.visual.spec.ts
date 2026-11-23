@@ -99,6 +99,7 @@ async function checkOverviewAndAssignMatch(
 
   await expect(harborAction).toHaveAttribute("data-slot", "text-link");
   await expect(harborAction.locator('svg[aria-hidden="true"]')).toBeVisible();
+  await expect(harborAction).toHaveText("");
   const actionBounds = await harborAction.boundingBox();
   expect(actionBounds?.width).toBeGreaterThanOrEqual(44);
   expect(actionBounds?.height).toBeGreaterThanOrEqual(44);
@@ -107,7 +108,7 @@ async function checkOverviewAndAssignMatch(
   ).toBeVisible();
   await expect(harborExposure).not.toContainText("Demo Family LLC");
   await expect(
-    page.getByRole("button", {
+    page.getByRole("link", {
       name: "View Seed preferred holding details",
     }),
   ).toBeVisible();
@@ -157,6 +158,9 @@ async function checkOverviewAndAssignMatch(
       has: page.getByText("Lattice Grove Energy", { exact: true }),
     }),
   ).toHaveCount(0);
+  const resolutionTab = page.getByRole("tab", { name: "Needs resolution (1)" });
+  const resolution = page.getByRole("tabpanel", { name: /^Needs resolution/u });
+  await resolutionTab.click();
   await expect(
     page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
   ).toBeVisible();
@@ -175,13 +179,27 @@ async function checkOverviewAndAssignMatch(
     ),
   ).toBeVisible();
   await expect(
+    resolution.getByText("Awaiting valuation", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    resolution.getByRole("button", {
+      name: "Choose company for Ridge Demo SPV",
+    }),
+  ).toHaveCount(0);
+  if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
+    await page.locator(".investment-views").screenshot({
+      path: test.info().outputPath("review-resolution-complete.png"),
+      animations: "disabled",
+      scale: "css",
+      style: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+  }
+  await page.getByRole("tab", { name: "All exposures" }).click();
+  await expect(
     page.locator(".exposure-group").filter({
       has: page.getByText("Lattice Grove Energy", { exact: true }),
     }),
   ).toHaveCount(1);
-  await expect(
-    page.locator(".unallocated-positions").getByText("Ridge Demo SPV"),
-  ).toHaveCount(0);
   await expect
     .poll(async () => {
       if (await harborAction.isVisible()) {
@@ -486,17 +504,52 @@ test("leads with the investment and opens a truthful holding detail", async ({
   await navigateToScreen(page, mobile, /Holdings/);
 
   const exposureView = page.locator(".investment-views");
-  await expect(exposureView.getByRole("tab")).toHaveCount(0);
-  await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "3 exposures",
-  );
-  await expect(exposureView.locator(".investment-views__total")).toContainText(
-    "5 legal positions",
-  );
+  const allTab = exposureView.getByRole("tab", { name: "All exposures" });
+  const resolutionTab = exposureView.getByRole("tab", {
+    name: "Needs resolution (1)",
+  });
+  await expect(allTab).toHaveAttribute("aria-selected", "true");
+  await expect(exposureView.locator(".exposure-group")).toHaveCount(4);
+  await resolutionTab.click();
+  const review = exposureView.getByRole("tabpanel", {
+    name: /^Needs resolution/u,
+  });
+  const chooseCompany = review.getByRole("button", {
+    name: "Choose company for Ridge Demo SPV",
+  });
+  await expect(chooseCompany).toBeVisible();
+  await expect(
+    review.getByRole("link", { name: "View Ridge Demo SPV holding details" }),
+  ).toBeVisible();
+  if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
+    await exposureView.screenshot({
+      path: testInfo.outputPath("review-positions-with-assignment.png"),
+      animations: "disabled",
+      scale: "css",
+      style: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+  }
+  await chooseCompany.click();
+  const assignment = review.getByRole("form", {
+    name: "Assign Ridge Demo SPV exposure",
+  });
+  await expect(assignment).toBeVisible();
+  await assignment
+    .getByRole("radio", { name: "Create a reviewed company" })
+    .check();
+  const companyName = assignment.getByRole("textbox", { name: "Company name" });
+  await companyName.fill("Synthetic Cedar Labs");
+  await allTab.click();
+  await expect(assignment).toBeHidden();
+  await resolutionTab.click();
+  await expect(companyName).toHaveValue("Synthetic Cedar Labs");
+  await assignment.getByRole("button", { name: "Cancel" }).click();
+  await expect(chooseCompany).toBeVisible();
+  await allTab.click();
   const harborExposure = page.locator(".exposure-group").filter({
     has: page.getByText("Harbor Health Systems", { exact: true }),
   });
-  const harborAction = page.getByRole("button", {
+  const harborAction = page.getByRole("link", {
     name: "View Beacon Demo SPV holding details",
   });
   await harborExposure.locator(".exposure-group__summary").click();
@@ -646,7 +699,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   }
   await page.getByRole("button", { name: "Back to holdings" }).click();
   await expect(harborAction).toBeFocused();
-  await expect(harborExposure).toContainText(mobile ? "$240k" : "$210k");
+  await expect(harborExposure).toContainText(mobile ? "$235,000" : "$210,000");
   await expect(
     harborExposure.locator(".exposure-group__summary"),
   ).not.toContainText("%");

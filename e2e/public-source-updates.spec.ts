@@ -618,11 +618,14 @@ for (const failurePhase of ["planning", "sources"] as const) {
             document.documentElement.clientWidth,
         ),
       ).toBe(true);
+      await page.getByRole("tab", { name: /^Needs resolution/u }).click();
       await expect(
         page
-          .locator(".unallocated-positions")
+          .getByRole("tabpanel", { name: /^Needs resolution/u })
           .getByText("PHOT", { exact: true }),
       ).toHaveCount(0);
+      await page.getByRole("tab", { name: "All exposures" }).click();
+      await visibleGroup.scrollIntoViewIfNeeded();
       const root = process.env.KEEL_SOURCE_REVIEW_DIR;
       if (root)
         await visibleGroup.screenshot({

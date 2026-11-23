@@ -15,10 +15,11 @@ Known cash. An evidenced zero remains zero. Missing balances are not zero.
 
 Show all balances in a short list. Fold eligible USD balances under $100 only
 when the list exceeds ten rows and at least five balances can be folded. Unknown
-or explicitly stale balances stay visible. The control precedes both groups,
-shows the folded count and amount, and states that the amount is included in the
-total. Expanding it preserves focus. Search includes the folded balances without
-changing portfolio totals. Large lists retain manual collection limits.
+or explicitly stale balances stay visible. The quiet control follows the cash
+groups, shows the folded count and amount, and states that the amount is
+included in the total. Expanding it preserves focus. Search includes folded
+balances without changing portfolio totals. Large lists retain manual collection
+limits.
 
 An expanded account shows its latest five recorded balance-history entries. View
 full history opens the account's read-only history, ten entries per page, with

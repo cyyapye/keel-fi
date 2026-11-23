@@ -30,6 +30,7 @@ describe("catalogue journey reference contract", () => {
     expect(stepsUsing(["Tabs"]).map((step) => step.id)).toEqual([
       "activity",
       "lots",
+      "holdings-total",
     ]);
   });
   it("keeps the area inventory unique and source-based", () => {

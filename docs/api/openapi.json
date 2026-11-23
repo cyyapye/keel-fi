@@ -771,7 +771,7 @@
                         "source": { "type": "string" },
                         "origin": {
                           "type": "string",
-                          "enum": ["gp", "proxy", "judgment"]
+                          "enum": ["gp", "proxy", "judgment", "at_cost"]
                         },
                         "amountMinor": {
                           "type": "integer",

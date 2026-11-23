@@ -35,7 +35,7 @@ export const ValuationRecordSchema = z
     crossClassProxy: z.boolean().optional(),
     sourceContinuation: PriceMetadataSchema.optional(),
     id: z.string().min(1).max(200),
-    origin: z.enum(["gp", "proxy", "judgment"]),
+    origin: z.enum(["gp", "proxy", "judgment", "at_cost"]),
     totalMinor: money.nullable(),
     priceMicros: z
       .number()

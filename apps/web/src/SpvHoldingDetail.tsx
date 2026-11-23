@@ -50,19 +50,24 @@ const ManualHoldingEditor = lazy(async () => {
 
 export function SpvHoldingDetail({
   holding,
+  valuationRequested,
+  onValuationRouteClose,
   onManualNavigationLockChange,
   companyGroupingAction,
   onAccepted,
   related = [],
 }: {
   holding: Holding;
+  valuationRequested: boolean;
+  onValuationRouteClose: () => void;
   onManualNavigationLockChange?: ((locked: boolean) => void) | undefined;
   companyGroupingAction?: ReactNode;
   onAccepted: () => Promise<void>;
   related?: Holding[];
 }) {
+  const [editingHere, setEditingHere] = useState(false);
+  const editing = valuationRequested || editingHere;
   const [payment, setPayment] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
   const [identityEditing, setIdentityEditing] = useState(false);
   const [investmentEditing, setInvestmentEditing] = useState(false);
   const [distributionReadbackPending, setDistributionReadbackPending] =
@@ -156,30 +161,34 @@ export function SpvHoldingDetail({
     ) : null;
   const addValuationAction = (
     <Button
+      ref={edit}
       tone="quiet"
       disabled={investmentEditing}
-      onClick={() => setEditing(true)}
+      onClick={() => setEditingHere(true)}
     >
       Add valuation
     </Button>
   );
   useEffect(() => {
-    heading.current?.focus();
-  }, [holding.id]);
+    if (!editing) heading.current?.focus();
+  }, [holding.id, editing]);
   const close = () => {
-    setEditing(false);
+    setEditingHere(false);
+    if (valuationRequested) onValuationRouteClose();
     requestAnimationFrame(() => edit.current?.focus());
   };
   const label =
-    record?.origin === "judgment"
-      ? holding.manualContext
-        ? "Your estimate"
-        : "My estimate"
-      : record?.origin === "proxy"
-        ? `${record.sourceLabel} price proxy`
-        : record?.method === "shares"
-          ? "Estimated value"
-          : "Reported value";
+    record?.origin === "at_cost"
+      ? "At cost"
+      : record?.origin === "judgment"
+        ? holding.manualContext
+          ? "Your estimate"
+          : "My estimate"
+        : record?.origin === "proxy"
+          ? `${record.sourceLabel} price proxy`
+          : record?.method === "shares"
+            ? "Estimated value"
+            : "Reported value";
   const closeQuote = holding.purchaseContext?.receipt?.publicClose;
   const gpPrice = holding.purchaseContext?.receipt?.latestGpPrice;
   const gp = closeQuote ? gpRecord(holding) : null;
@@ -213,15 +222,17 @@ export function SpvHoldingDetail({
     </p>
   );
   const remainingLabel =
-    record?.origin === "judgment"
-      ? holding.manualContext
-        ? "Your estimate of remaining value"
-        : "My estimate of remaining value"
-      : record?.origin === "proxy"
-        ? `${record.sourceLabel} proxy remaining value`
-        : record?.method === "shares"
-          ? "Estimated remaining value"
-          : "Reported remaining value";
+    record?.origin === "at_cost"
+      ? "Remaining value at cost"
+      : record?.origin === "judgment"
+        ? holding.manualContext
+          ? "Your estimate of remaining value"
+          : "My estimate of remaining value"
+        : record?.origin === "proxy"
+          ? `${record.sourceLabel} proxy remaining value`
+          : record?.method === "shares"
+            ? "Estimated remaining value"
+            : "Reported remaining value";
   const editButton =
     closeQuote && record?.origin === "public_close" ? (
       <TextLink
@@ -237,12 +248,27 @@ export function SpvHoldingDetail({
           tone="quiet"
           aria-label="Edit valuation"
           disabled={investmentEditing}
-          onClick={() => setEditing(true)}
+          onClick={() => setEditingHere(true)}
         >
           Edit
         </Button>
       )
     );
+  const valuationEditor = editing && (
+    <HoldingValuationEditor
+      key={holding.id}
+      holding={holding}
+      onAccepted={acceptedChange}
+      onSaved={() => {
+        if (valuationRequested) {
+          // Keep the refresh/retry notice mounted. Reloads should now open the saved position.
+          setEditingHere(true);
+          onValuationRouteClose();
+        }
+      }}
+      onClose={close}
+    />
+  );
   const value = (
     amount: number,
     title: string,
@@ -582,18 +608,20 @@ export function SpvHoldingDetail({
                 {carryUnavailableReason(historical.reason)}
               </p>
             )}
-          {editing ? (
-            <HoldingValuationEditor
-              key={holding.id}
-              holding={holding}
-              onAccepted={acceptedChange}
-              onClose={close}
-            />
-          ) : !record ? (
-            needsAddInvestment ? null : (
-              addValuationAction
-            )
-          ) : (
+          {!record && !needsAddInvestment ? (
+            <section
+              className="holding-valuation-section"
+              aria-labelledby="holding-valuation-heading"
+            >
+              <div className="holding-section-heading">
+                <h3 id="holding-valuation-heading">Valuation</h3>
+                {!editing && addValuationAction}
+              </div>
+              {valuationEditor}
+            </section>
+          ) : editing ? (
+            valuationEditor
+          ) : record ? (
             <Collapsible className="holding-calculation">
               <CollapsibleTrigger layout="inline">
                 Calculation
@@ -661,7 +689,7 @@ export function SpvHoldingDetail({
                 )}
               </CollapsibleContent>
             </Collapsible>
-          )}
+          ) : null}
         </>
       )}
       {unpaid.map((f) => (
