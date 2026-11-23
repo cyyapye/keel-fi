@@ -32,7 +32,12 @@ export const nextCedarClose = {
   observedAt: "2026-11-20T21:15:00.000Z",
   sourceUrl: "https://exchange.example/cedar/2026-11-20",
 };
-export async function seedClosingPrice(db: D1Database) {
+export async function seedSamplePricePositions(
+  db: D1Database,
+  company: string,
+  shareBasis: { key: string; unitsPerOriginal: number },
+  shareClass = "Class A",
+) {
   const cases = [
     {
       name: "Grove SPV",
@@ -53,7 +58,7 @@ export async function seedClosingPrice(db: D1Database) {
     false,
     cases.map((c) => ({
       ...c,
-      company: "Cedar Robotics",
+      company,
       amount: 100_000,
       date: "2025-03-12",
     })),
@@ -73,7 +78,7 @@ export async function seedClosingPrice(db: D1Database) {
           PurchaseLotSchema.parse({
             id: "subscription",
             purchasedOn: "2025-03-12",
-            shareClass: "Class A",
+            shareClass,
             priceMicros: null,
             referencePriceMicros: null,
             grossCashMinor: 100_000,
@@ -92,7 +97,7 @@ export async function seedClosingPrice(db: D1Database) {
               status: "confirmed",
               derivation: "Economic shares allocated by the vehicle.",
               evidence: "Synthetic subscription schedule",
-              shareBasis: firstCedarClose.shareBasis,
+              shareBasis,
             },
           }),
         ],
@@ -110,8 +115,8 @@ export async function seedClosingPrice(db: D1Database) {
         priceMicros,
         priceDate: "2026-11-17",
         effectiveDate: "2026-11-17",
-        shareClass: "Class A",
-        shareBasis: firstCedarClose.shareBasis,
+        shareClass,
+        shareBasis,
         carryStatus: "before_carry",
         sourceLabel: c.name + " GP",
         sourceUrl: null,
@@ -126,13 +131,21 @@ export async function seedClosingPrice(db: D1Database) {
     .prepare(
       "SELECT id FROM canonical_exposures WHERE canonical_name=? AND household_id='hh_demo' AND exposure_kind='private_company'",
     )
-    .bind("Cedar Robotics")
+    .bind(company)
     .first<{ id: string }>();
-  if (!exposure) throw new Error("Synthetic Cedar exposure missing.");
+  if (!exposure) throw new Error("Synthetic exposure missing.");
+  return exposure.id;
+}
+export async function seedClosingPrice(db: D1Database) {
+  const id = await seedSamplePricePositions(
+    db,
+    "Cedar Robotics",
+    firstCedarClose.shareBasis,
+  );
   await db
     .prepare("INSERT INTO exposure_market_listings VALUES(?,?,?,?,?,?,?,?,?)")
     .bind(
-      exposure.id,
+      id,
       firstCedarClose.instrumentId,
       "CDR",
       "Demo Exchange",
@@ -145,9 +158,9 @@ export async function seedClosingPrice(db: D1Database) {
     .run();
   await recordOfficialClose(db, {
     ...firstCedarClose,
-    exposureId: exposure.id,
+    exposureId: id,
   });
-  return exposure.id;
+  return id;
 }
 if (
   process.argv[1] &&

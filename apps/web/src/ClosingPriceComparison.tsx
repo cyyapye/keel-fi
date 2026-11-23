@@ -19,8 +19,8 @@ function money(value: number | bigint | null) {
 
 export function ClosingPriceComparison({
   company,
+  closeLabel = "closing price",
   ticker,
-  venue,
   shareClass,
   price,
   date,
@@ -29,8 +29,8 @@ export function ClosingPriceComparison({
   headingProps = {},
 }: {
   company: string;
+  closeLabel?: "closing price" | "daily close";
   ticker: string;
-  venue: string;
   shareClass: string;
   price: string;
   date: string;
@@ -49,7 +49,7 @@ export function ClosingPriceComparison({
   );
   const closeHeader = (
     <th scope="col">
-      {following ? "Current close" : "Closing price"}
+      Value at close
       <small>Before carry</small>
     </th>
   );
@@ -64,7 +64,7 @@ export function ClosingPriceComparison({
           title={
             following
               ? "Restore prior valuation sources?"
-              : `Use ${ticker}’s closing price?`
+              : `Use ${ticker}’s ${closeLabel}?`
           }
           headingProps={headingProps}
         />
@@ -73,7 +73,7 @@ export function ClosingPriceComparison({
             {price}/share · <time dateTime={date}>{formatDate(date)}</time>
           </Text>
           <Text as="span" variant="supporting">
-            {ticker} · {shareClass} · {venue}
+            {ticker} · {shareClass}
           </Text>
         </div>
       </div>

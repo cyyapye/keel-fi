@@ -4,6 +4,8 @@ import {
   parseHoldingPosition,
   type HoldingPositionRoute,
 } from "./holding-position-route";
+import { useMarketReviews } from "./use-market-reviews";
+import type { MarketReview } from "@keel/domain/market-close";
 import { MarketCloseReview } from "./MarketCloseReview";
 import { AppAccess } from "./AppAccess";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
@@ -2795,6 +2797,7 @@ function HoldingDetailWorkspace({
   holding,
   editingValuation,
   onValuationRouteClose,
+  marketReview,
   onManualNavigationLockChange,
   companyGroupingAction,
   onValueAccepted,
@@ -2803,6 +2806,7 @@ function HoldingDetailWorkspace({
   holding: Holding;
   editingValuation: boolean;
   onValuationRouteClose: () => void;
+  marketReview: MarketReview | undefined;
   onManualNavigationLockChange?: ((locked: boolean) => void) | undefined;
   companyGroupingAction?: ReactNode;
   onValueAccepted: () => Promise<void>;
@@ -2813,6 +2817,7 @@ function HoldingDetailWorkspace({
       holding={holding}
       valuationRequested={editingValuation}
       onValuationRouteClose={onValuationRouteClose}
+      marketReview={marketReview}
       onManualNavigationLockChange={onManualNavigationLockChange}
       companyGroupingAction={companyGroupingAction}
       onAccepted={onValueAccepted}
@@ -6976,6 +6981,13 @@ function Holdings({
   const importerVisible = showImporter || requestedImportId !== null;
   const sourcesVisible =
     selectedHolding === null && !importerVisible && requestedView === "sources";
+  const market = useMarketReviews(
+    !importerVisible &&
+      !sourcesVisible &&
+      (!selectedHoldingId || selectedHolding?.purchaseContext)
+      ? undefined
+      : null,
+  );
   const activeRoutedPreview =
     routedPreview?.id === requestedImportId ? routedPreview : null;
   const activeRoutedError =
@@ -7288,6 +7300,9 @@ function Holdings({
             if (route?.id === selectedHolding.id && route.editValuation)
               onPositionRouteChange(selectedHolding.id);
           }}
+          marketReview={market.reviews?.find((review) =>
+            review.positions.some((p) => p.id === selectedHolding.id),
+          )}
           onManualNavigationLockChange={onManualNavigationLockChange}
           companyGroupingAction={companyGroupingAction}
           related={
@@ -7402,6 +7417,7 @@ function Holdings({
             </div>
           )}
           <InvestmentHoldings
+            market={market}
             acceptedCashAccounts={data.acceptedCashAccounts}
             activeExposureTab={activeExposureTab}
             onAddHolding={() => onManualEntryChange(true)}

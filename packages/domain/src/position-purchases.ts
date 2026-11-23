@@ -1,4 +1,8 @@
-import { MarketQuoteSchema, type MarketQuote } from "./market-close";
+import {
+  GpMarkPriceSchema,
+  MarketQuoteSchema,
+  type MarketQuote,
+} from "./market-close";
 import { z } from "zod";
 import { PositionLinkReceiptSchema } from "./position-link-receipt";
 import { InvestmentFeeSchema, investmentFeeAmount } from "./investment-fees";
@@ -234,13 +238,7 @@ export const PurchaseReceiptSchema = z.object({
   publicClose: MarketQuoteSchema.extend({
     exposureId: z.string().min(1),
   }).optional(),
-  latestGpPrice: z
-    .object({
-      priceMicros: positive,
-      priceDate: z.iso.date().nullable(),
-      sourceLabel: text,
-    })
-    .optional(),
+  latestGpPrice: GpMarkPriceSchema.optional(),
   supersedesEconomicsTermsId: z.string().min(1).nullable().optional(),
   id: z.string().min(1),
   positionId: z.string().min(1),

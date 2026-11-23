@@ -1811,6 +1811,7 @@ test("one exposure decision applies each close to both SPVs", async ({
     exact: true,
   });
   await expect(pendingReview).toBeVisible();
+  const holdingsBounds = (await company.boundingBox())!;
   await pendingReview.hover();
   await expect(pendingReview).toHaveCSS("text-decoration-line", "none");
   await company.focus();
@@ -1844,12 +1845,17 @@ test("one exposure decision applies each close to both SPVs", async ({
     page.getByRole("heading", { name: "Use CDR’s closing price?" }),
   ).toBeFocused();
   await expect(exposure).toBeHidden();
+  const security = page.getByText("CDR · Class A", { exact: true });
+  await expect(security).toBeVisible();
   const affected = page.getByRole("table", { name: "Position values" });
+  const tableBounds = (await affected.boundingBox())!;
+  expect(tableBounds.x).toBeCloseTo(holdingsBounds.x, 0);
+  expect(tableBounds.width).toBeCloseTo(holdingsBounds.width, 0);
   await expect(affected.getByRole("columnheader").nth(1)).toHaveText(
     "Current sources",
   );
   await expect(affected.getByRole("columnheader").last()).toContainText(
-    "Closing price",
+    "Value at close",
   );
   for (const [position, close] of [
     ["Grove SPV", "$5,000"],
@@ -1898,7 +1904,7 @@ test("one exposure decision applies each close to both SPVs", async ({
   await expect(valuation).toContainText(
     "100 Class A shares at CDR’s closing price",
   );
-  await expect(closingPrice).toContainText("Jun 2, 2026");
+  await expect(closingPrice).toContainText("Jun 2, 2026 · Demo Exchange");
   await expect(gpMark).toContainText("$40/share");
   await expect(gpMark).toContainText("May 29, 2026");
   await page.getByRole("button", { name: "Preview next GP mark" }).click();
@@ -1933,8 +1939,9 @@ test("one exposure decision applies each close to both SPVs", async ({
     exact: true,
   });
   await changeSource.click();
+  await expect(security).toBeVisible();
   await expect(affected.getByRole("columnheader").nth(1)).toContainText(
-    "Current close",
+    "Value at close",
   );
   await expect(affected.getByRole("columnheader").last()).toHaveText(
     "Prior sources",

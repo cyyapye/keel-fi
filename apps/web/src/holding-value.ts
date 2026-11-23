@@ -38,6 +38,7 @@ type Evidence = ReturnType<typeof PositionValuationEvidenceSchema.parse>;
 export function gpRecord(
   holding: Holding,
   evidence?: Evidence | null,
+  adjustmentScope: "all" | "gp_updates" = "all",
 ): ValuationRecord {
   const context = holding.purchaseContext!;
   const retained =
@@ -45,7 +46,11 @@ export function gpRecord(
       ? context.receipt?.details.valuation?.records.find((r) => r.id === "gp")
       : undefined;
   if (retained) return retained;
-  const adjustment = holding.positionValueContext?.acceptedAdjustment;
+  const accepted = holding.positionValueContext?.acceptedAdjustment;
+  const adjustment =
+    adjustmentScope === "all" || accepted?.sourceKind === "gp_update"
+      ? accepted
+      : null;
   const total = adjustment?.valueMinor ?? context.reportedValueMinor ?? null;
   const priorReview =
     context.receipt?.details.investmentTerms?.reportedValueReview;

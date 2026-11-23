@@ -4,11 +4,12 @@ import {
   type MarketReview,
 } from "@keel/domain/market-close";
 import { requestKeel } from "./api-request";
-export function useMarketReviews(id?: string) {
+export function useMarketReviews(id?: string | null) {
   const [reviews, setReviews] = useState<MarketReview[] | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   useEffect(() => {
+    if (id === null) return;
     const controller = new AbortController();
     async function read() {
       try {

@@ -1,4 +1,8 @@
 import {
+  dailyCloseProvider,
+  type MarketReview,
+} from "@keel/domain/market-close";
+import {
   lazy,
   Suspense,
   useEffect,
@@ -53,6 +57,7 @@ export function SpvHoldingDetail({
   holding,
   valuationRequested,
   onValuationRouteClose,
+  marketReview,
   onManualNavigationLockChange,
   companyGroupingAction,
   onAccepted,
@@ -61,6 +66,7 @@ export function SpvHoldingDetail({
   holding: Holding;
   valuationRequested: boolean;
   onValuationRouteClose: () => void;
+  marketReview?: MarketReview | undefined;
   onManualNavigationLockChange?: ((locked: boolean) => void) | undefined;
   companyGroupingAction?: ReactNode;
   onAccepted: () => Promise<void>;
@@ -196,9 +202,16 @@ export function SpvHoldingDetail({
           : record?.method === "shares"
             ? "Estimated value"
             : "Reported value";
-  const closeQuote = holding.purchaseContext?.receipt?.publicClose;
-  const gpPrice = holding.purchaseContext?.receipt?.latestGpPrice;
-  const gp = closeQuote ? gpRecord(holding) : null;
+  const acceptedClose = holding.purchaseContext?.receipt?.publicClose;
+  const closeQuote = acceptedClose ?? marketReview?.quote;
+  const followsClose = Boolean(
+    acceptedClose && record?.origin === "public_close",
+  );
+  const closeProvider = closeQuote && dailyCloseProvider(closeQuote);
+  const gpPrice =
+    holding.purchaseContext?.receipt?.latestGpPrice ??
+    marketReview?.positions.find((p) => p.id === holding.id)?.latestGpPrice;
+  const gp = closeQuote ? gpRecord(holding, undefined, "gp_updates") : null;
   const source = record && (
     <p className="holding-metadata">
       {record.effectiveDate
@@ -303,33 +316,11 @@ export function SpvHoldingDetail({
         </strong>
       )}
       {provenance && record?.origin !== "public_close" && source}
-      {provenance && closeQuote && record?.origin === "public_close" && (
-        <div className="holding-metadata">
-          <p>
-            {closeQuote.ticker} · {formatSharePrice(closeQuote.priceMicros)}
-            /share · {formatDate(closeQuote.date)}
-          </p>
-          {gpPrice ? (
-            <p>
-              Latest GP mark · {formatSharePrice(gpPrice.priceMicros)}/share ·{" "}
-              {gpPrice.priceDate
-                ? formatDate(gpPrice.priceDate)
-                : "Date unavailable"}{" "}
-              · {gpPrice.sourceLabel}
-            </p>
-          ) : (
-            gp && (
-              <p>
-                Latest GP mark ·{" "}
-                {gp.totalMinor !== null
-                  ? formatMoney(gp.totalMinor)
-                  : "Value unavailable"}
-                {gp.effectiveDate && ` · ${formatDate(gp.effectiveDate)}`} ·{" "}
-                {gp.sourceLabel}
-              </p>
-            )
-          )}
-        </div>
+      {provenance && followsClose && closeQuote && (
+        <p className="holding-metadata">
+          Based on {closeQuote.ticker}’s{" "}
+          {closeProvider ? "daily close" : "closing price"}
+        </p>
       )}
       {title.includes("After carry") &&
         after?.method === "legacy_remaining_only" && (
@@ -578,6 +569,53 @@ export function SpvHoldingDetail({
                 </div>
               ) : null}
             </section>
+          )}
+          {closeQuote && (
+            <DataList
+              layout="rows"
+              aria-label="Valuation sources"
+              className="holding-price-sources"
+            >
+              <DataItem
+                label={`${closeQuote.ticker} ${closeProvider ? "daily close" : "closing price"}${followsClose ? "" : " (reference)"}`}
+                value={
+                  <>
+                    {formatSharePrice(closeQuote.priceMicros)}/share
+                    <small className="holding-metadata">
+                      {formatDate(closeQuote.date)} · {closeQuote.venue}
+                      {closeProvider && ` via ${closeProvider}`}
+                    </small>
+                  </>
+                }
+              />
+              <DataItem
+                label="Latest GP mark"
+                value={
+                  gpPrice ? (
+                    <>
+                      {formatSharePrice(gpPrice.priceMicros)}/share
+                      <small className="holding-metadata">
+                        {gpPrice.priceDate
+                          ? formatDate(gpPrice.priceDate)
+                          : "Date unavailable"}{" "}
+                        · {gpPrice.sourceLabel}
+                      </small>
+                    </>
+                  ) : gp?.totalMinor != null ? (
+                    <>
+                      {formatMoney(gp.totalMinor)}
+                      <small className="holding-metadata">
+                        {gp.effectiveDate &&
+                          `${formatDate(gp.effectiveDate)} · `}
+                        {gp.sourceLabel}
+                      </small>
+                    </>
+                  ) : (
+                    "Unavailable"
+                  )
+                }
+              />
+            </DataList>
           )}
           {needsAddInvestment && !editing && !investmentEditing && (
             <ActionGroup className="holding-detail-actions">

@@ -12,7 +12,7 @@ import {
   purchaseDetailReceipt,
 } from "../../../e2e/purchase-detail-fixtures";
 import { InvestmentHoldings, type ExposureTab } from "./InvestmentHoldings";
-import { netInvestmentBreakdown } from "./holding-value";
+import { gpRecord, netInvestmentBreakdown } from "./holding-value";
 import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
 import { followedCloseReviewPath } from "./holding-position-route";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
@@ -25,6 +25,7 @@ function renderExposures(
 ) {
   return renderToStaticMarkup(
     <InvestmentHoldings
+      market={{ reviews: null, error: "" }}
       acceptedCashAccounts={[]}
       activeExposureTab={activeExposureTab}
       data={data}
@@ -150,6 +151,34 @@ test("an edit link for a followed close opens the exposure's source choice", () 
   );
   expect(markup).toContain('href="/holdings?valuation=cedar"');
   expect(markup).not.toContain("Position total · $");
+});
+
+test("keeps a news valuation out of the latest GP mark", () => {
+  const receipt = purchaseDetailReceipt();
+  delete receipt.details.valuation;
+  const holding = purchaseDetailProjection(receipt).holdings[0]!;
+  holding.positionValueContext!.acceptedAdjustment = {
+    id: "adjustment",
+    positionId: holding.id,
+    snapshotId: "snapshot",
+    priorValueState: "reported",
+    priorValueMinor: 1688000,
+    valueMinor: 2000000,
+    currency: "USD",
+    effectiveDate: "2026-10-03",
+    sourceKind: "news_article",
+    sourceLabel: "Synthetic news",
+    sourceUrl: null,
+    commentary: "Updated estimate",
+    acceptedAt: "2026-10-04T00:00:00Z",
+  };
+  expect(gpRecord(holding).sourceLabel).toBe("Synthetic news");
+  expect(gpRecord(holding, undefined, "gp_updates")).toMatchObject({
+    totalMinor: 1688000,
+    sourceLabel: "Synthetic GP",
+  });
+  holding.purchaseContext!.reportedValueMinor = null;
+  expect(gpRecord(holding, undefined, "gp_updates").totalMinor).toBeNull();
 });
 
 test("withholds returns from holding and exposure summaries when refund inclusion is unknown", () => {

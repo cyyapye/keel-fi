@@ -98,6 +98,7 @@ function IpoHoldingValuation({
                     <time dateTime={closingDate(next)}>
                       {formatDate(closingDate(next))}
                     </time>
+                    {" · Demo Exchange"}
                   </small>
                 </>
               }
@@ -341,7 +342,6 @@ export function ValuationJourney({
             <ClosingPriceComparison
               company="Cedar Robotics"
               ticker="CDR"
-              venue="Demo Exchange"
               shareClass="Class A"
               price={money(close(next))}
               date={closeDate}

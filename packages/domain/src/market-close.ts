@@ -12,6 +12,27 @@ export const MarketQuoteSchema = z.object({
   priceMicros: z.number().int().positive().max(1_000_000_000_000),
   sourceUrl: HttpsSourceUrlSchema,
 });
+export const GpMarkPriceSchema = z.object({
+  priceMicros: MarketQuoteSchema.shape.priceMicros,
+  priceDate: z.iso.date().nullable(),
+  sourceLabel: z.string().trim().min(1).max(500),
+});
+
+export const DailyPriceSchema = MarketQuoteSchema.pick({
+  date: true,
+  priceMicros: true,
+});
+export type DailyPrice = z.infer<typeof DailyPriceSchema>;
+
+export function easternTradingDate(now: Date) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
 export type MarketQuote = z.infer<typeof MarketQuoteSchema>;
 export const MarketReviewSchema = z.object({
   exposureId: z.string(),
@@ -31,6 +52,7 @@ export const MarketReviewSchema = z.object({
       valueMinor: z.number().int().safe(),
       quantityMicros: z.number().int().safe(),
       previousSource: z.string().optional(),
+      latestGpPrice: GpMarkPriceSchema.optional(),
       previousMinor: z.number().int().safe().nullable(),
       enrolled: z.boolean(),
     }),
@@ -44,3 +66,43 @@ export const MarketDecisionInput = z
     choice: z.enum(["follow", "keep"]),
   })
   .strict();
+
+export const PersonalListingSchema = z
+  .object({
+    company: z.string().trim().min(1).max(120),
+    ticker: z.string().regex(/^[A-Z][A-Z0-9.-]{0,11}$/u),
+    issuerId: z.string().regex(/^\d{10}$/u),
+    venue: z.enum(["Nasdaq", "NYSE"]),
+    shareClass: z.string().trim().min(1).max(80),
+    firstSession: z.iso.date(),
+    identitySourceUrl: HttpsSourceUrlSchema,
+  })
+  .strict();
+export type PersonalListing = z.infer<typeof PersonalListingSchema>;
+
+export const PreviewPersonalFeedSchema = z
+  .object({
+    apiKey: z.string().trim().min(1).max(256),
+    exposureId: z.uuid(),
+    householdId: z.string().min(1).max(256),
+    basisKey: ShareBasisSchema.shape.key,
+    listing: PersonalListingSchema,
+  })
+  .strict();
+
+export function alphaVantageDailyUrl(ticker: string): string {
+  const url = new URL("https://www.alphavantage.co/query");
+  url.search = new URLSearchParams({
+    function: "TIME_SERIES_DAILY",
+    symbol: ticker,
+  }).toString();
+  return url.toString();
+}
+
+export function dailyCloseProvider(
+  quote: Pick<MarketQuote, "ticker" | "sourceUrl">,
+) {
+  return quote.sourceUrl === alphaVantageDailyUrl(quote.ticker)
+    ? "Alpha Vantage"
+    : undefined;
+}

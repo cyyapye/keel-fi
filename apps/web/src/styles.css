@@ -2983,8 +2983,12 @@ h1,
 .valuation-comparison {
   display: grid;
   gap: var(--space-6);
-  width: min(100%, 48rem);
+  width: 100%;
   min-width: 0;
+}
+.valuation-comparison__intro,
+.valuation-comparison > [data-slot="text"] {
+  max-width: 48rem;
 }
 .valuation-comparison__intro {
   display: grid;
@@ -3055,6 +3059,21 @@ h1,
 
 .position-row__action .disclosure-indicator {
   transform: rotate(-90deg);
+}
+
+@media (max-width: 600px) {
+  .valuation-comparison table {
+    table-layout: auto;
+  }
+  .valuation-comparison th:first-child {
+    width: auto;
+  }
+  .valuation-comparison td {
+    overflow-wrap: normal;
+  }
+  .valuation-comparison td small {
+    overflow-wrap: anywhere;
+  }
 }
 
 .exposure-groups .position-row--detail:has(.position-row__action) {
@@ -9707,6 +9726,13 @@ h1,
   color: var(--muted);
   font-size: 13px;
   line-height: 1.5;
+}
+.holding-price-sources {
+  max-width: 38rem;
+  margin-top: var(--space-6);
+}
+.holding-price-sources .holding-metadata {
+  display: block;
 }
 .holding-metadata .holding-source-link {
   max-width: 100%;

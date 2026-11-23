@@ -26,6 +26,7 @@ const LocalSeedScenarioSchema = z.enum([
   "price-proxies",
   "closing-price",
   "holdings-total",
+  "personal-prices",
 ]);
 export type LocalSeedScenario = z.infer<typeof LocalSeedScenarioSchema>;
 
@@ -47,6 +48,15 @@ export const LocalSeedScenarios = {
     minimumAcceptedValueDecreaseCount: 0,
     minimumAcceptedValueIncreaseCount: 0,
     minimumCanonicalExposureCount: 4,
+    seedFiles: ["packages/database/seed/synthetic.sql"],
+    version: 1,
+  },
+  "personal-prices": {
+    description: "Personal daily-price feed with two synthetic SPVs",
+    expectedCurrentPositionCount: 2,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
+    minimumCanonicalExposureCount: 1,
     seedFiles: ["packages/database/seed/synthetic.sql"],
     version: 1,
   },
@@ -529,7 +539,8 @@ export function prepareLocalSeedScenario(options: {
       if (
         scenario === "price-proxies" ||
         scenario === "closing-price" ||
-        scenario === "holdings-total"
+        scenario === "holdings-total" ||
+        scenario === "personal-prices"
       ) {
         const generated = spawnSync(
           process.execPath,

@@ -1181,3 +1181,35 @@ household and repeated full-date ties reads 495 D1 rows at both 12 and 24
 captures per item. Each read is revision-bound; stale pagination or related
 reads return 409. Filters and paging are user initiated and no frontend polling
 is added.
+
+## Personal daily prices
+
+The loopback personal-prices profile checks on startup and at 10:00 UTC. The
+configured personal Preview uses its existing 13:00 UTC trigger. Each admits one
+instrument per daily window, with one split-history request followed by one
+raw-price request, up to 96 KiB and 12 seconds each. Backfill is bounded to 100
+completed dates. One local profile and one Preview together spend at most four of the
+provider's 25 requests per UTC day, leaving 21. Additional independent local
+profiles sharing the key can each spend two more. With both disabled,
+idle-day D1, storage and provider costs are zero. No queue messages, retry
+timers, browser polling or authentication calls are added.
+
+The local walkthrough replays the cached response after a decision without
+another provider call. Preview checks a single rolling R2 object and writes its
+UTC day conditionally before looking up a household or calling the provider. A
+duplicate scheduled delivery reads the slot once. A race may attempt a losing
+conditional write, but cannot admit another fetch. A failed or interrupted
+attempt consumes its slot. On an ordinary active day Preview makes one R2 head
+and one conditional put, one indexed target lookup, and two ingestion round
+trips. First registration adds one indexed insert. A missing target spends the
+slot and one indexed D1 lookup with zero provider calls. A split withholds
+prices at and after its effective date. An empty or repeated price response
+writes no financial rows.
+
+The real D1 cost case in `scripts/market-close-d1-cost.test.ts` bounds a
+100-session append at two round trips, under 2,500 rows read and under 1,200
+rows written, with existing unrelated history. Duplicate history writes zero
+rows. These are ingestion measurements, separate from account-wide quota. The
+Preview scheduler regression covers concurrent delivery, an unrelated household,
+provider failure, next-day recovery, and a split. Production has no personal
+feed producer.

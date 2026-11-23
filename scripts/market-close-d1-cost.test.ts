@@ -1,3 +1,7 @@
+import {
+  personalInstrument,
+  recordPersonalDailyCloses,
+} from "../packages/database/src/personal-daily-closes";
 import { expect, it } from "vitest";
 import { createCostFixtureDatabase } from "./test-support/cost-database";
 import { measureD1 } from "./test-support/d1-cost";
@@ -132,6 +136,77 @@ it("bounds the close review projection for 120 exposures across same-session rev
       saved.choice,
       saved.positions.every((p) => p.enrolled),
     ]).toEqual([1, "follow", true]);
+
+    // Personal daily observations must stay isolated from official-close enrollment.
+    const listing = {
+      company: "Test company",
+      issuerId: "0000000001",
+      ticker: "CDR",
+      venue: "Nasdaq" as const,
+      shareClass: "Class A",
+      firstSession: "2025-01-01",
+      identitySourceUrl: "https://example.test/filing",
+    };
+    const instrument = personalInstrument(listing);
+    const exposure = "personal-price-test";
+    await db
+      .prepare(
+        `INSERT INTO canonical_exposures(id,household_id,exposure_kind,canonical_name,resolution_method,evidence_sha256,created_by_user_id,created_at,immutable)
+      SELECT ?,'hh_demo','unresolved','Test company','unresolved',lower(hex(randomblob(32))),'usr_demo',?,1`,
+      )
+      .bind(exposure, q.observedAt)
+      .run();
+    await db
+      .prepare("INSERT INTO exposure_market_listings VALUES(?,?,?,?,?,?,?,?,?)")
+      .bind(
+        exposure,
+        instrument,
+        listing.ticker,
+        listing.venue,
+        listing.shareClass,
+        instrument,
+        listing.firstSession,
+        listing.identitySourceUrl,
+        "USD",
+      )
+      .run();
+    const days = Array.from({ length: 100 }, (_, i) => ({
+      date: new Date(Date.UTC(2025, 0, i + 1)).toISOString().slice(0, 10),
+      priceMicros: 45_000_000 + i,
+    }));
+    const importPrices = (prices: typeof days, at: string, id = exposure) =>
+      recordPersonalDailyCloses(measured.database, id, listing, prices, at);
+    await expect(
+      importPrices(days, "2025-06-01T13:00:00Z", revised.exposureId),
+    ).rejects.toThrow("matching confirmed listing");
+    await expect(
+      recordOfficialClose(db, {
+        ...q,
+        exposureId: exposure,
+        instrumentId: instrument,
+      }),
+    ).rejects.toThrow();
+    for (const repeat of [false, true]) {
+      measured.reset();
+      expect(await importPrices(days, "2025-05-01T13:00:00Z")).toBe(!repeat);
+      expect(measured.cost.roundTrips).toBe(2);
+      expect(measured.cost.rowsRead).toBeLessThan(2500);
+      expect(measured.cost.rowsWritten).toBeLessThan(1200);
+      if (repeat) expect(measured.cost.rowsWritten).toBe(0);
+    }
+    const last = days.at(-1)!;
+    const corrected = [{ ...last, priceMicros: 51_000_000 }];
+    expect(await importPrices(corrected, "2025-05-03T13:00:00Z")).toBe(true);
+    expect(await importPrices([last], "2025-05-02T13:00:00Z")).toBe(false);
+    expect(
+      await db
+        .prepare(
+          "SELECT price_micros FROM exposure_market_closes WHERE exposure_id=? AND session_date=? ORDER BY revision",
+        )
+        .bind(exposure, last.date)
+        .all()
+        .then((r) => r.results.map((d) => d.price_micros)),
+    ).toEqual([last.priceMicros, corrected[0]!.priceMicros]);
   } finally {
     await fixture.close();
   }

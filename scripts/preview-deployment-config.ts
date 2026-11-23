@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { z } from "zod";
+import { PreviewPersonalFeedSchema } from "../packages/domain/src/market-close";
 
 import { PLAID_INVESTMENTS_DAILY_SYNC_CRON } from "../packages/connectors/src/plaid-investments-schedule";
 
@@ -49,6 +50,18 @@ const OptionalEnvironmentValue = <T extends z.ZodTypeAny>(schema: T) =>
     schema.optional(),
   );
 const OptionalWatchEnvironmentShape = {
+  KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED: OptionalEnvironmentValue(
+    z
+      .string()
+      .max(4096)
+      .refine((raw) => {
+        try {
+          return PreviewPersonalFeedSchema.safeParse(JSON.parse(raw)).success;
+        } catch {
+          return false;
+        }
+      }, "Personal price feed requires one confirmed private target and a key."),
+  ),
   KEEL_PREVIEW_BRAVE_SEARCH_API_KEY: OptionalEnvironmentValue(
     z.string().trim().min(1).max(512),
   ),
@@ -229,6 +242,9 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
     preview_urls: false,
     vars: {
       ENVIRONMENT: "preview",
+      PERSONAL_DAILY_PRICES_ENABLED: String(
+        Boolean(configuration.KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED),
+      ),
       DEPLOYED_GIT_SHA: configuration.GITHUB_SHA,
       ...(configuration.KEEL_PREVIEW_AGENT_READ_SERVICE_SUBJECT
         ? {
@@ -259,6 +275,9 @@ function apiConfiguration(configuration: PreviewDeploymentEnvironment) {
         "ACCESS_AUD",
         "ACCESS_TEAM_DOMAIN",
         "DEPLOYMENT_SMOKE_TOKEN",
+        ...(configuration.KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED === undefined
+          ? []
+          : ["ALPHA_VANTAGE_PERSONAL_FEED"]),
         ...(configuration.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY === undefined
           ? []
           : ["BRAVE_SEARCH_API_KEY"]),
@@ -442,6 +461,12 @@ export async function writePreviewApiSecrets(
         ACCESS_TEAM_DOMAIN: configuration.KEEL_PREVIEW_ACCESS_TEAM_DOMAIN,
         DEPLOYMENT_SMOKE_TOKEN:
           configuration.KEEL_PREVIEW_DEPLOYMENT_SMOKE_TOKEN,
+        ...(configuration.KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED === undefined
+          ? {}
+          : {
+              ALPHA_VANTAGE_PERSONAL_FEED:
+                configuration.KEEL_PREVIEW_ALPHA_VANTAGE_PERSONAL_FEED,
+            }),
         ...(configuration.KEEL_PREVIEW_BRAVE_SEARCH_API_KEY === undefined
           ? {}
           : {

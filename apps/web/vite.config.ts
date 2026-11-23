@@ -1,3 +1,4 @@
+import { personalPriceServer } from "../../scripts/personal-price-server";
 import { localClosingPriceFeed } from "../../scripts/local-closing-price-feed";
 import { uiCataloguePlugin } from "../../scripts/ui-catalogue-plugin";
 import react from "@vitejs/plugin-react";
@@ -15,6 +16,9 @@ export default defineConfig({
     react(),
     ...(process.env.KEEL_LOCAL_SCENARIO === "closing-price"
       ? [localClosingPriceFeed()]
+      : []),
+    ...(process.env.KEEL_LOCAL_SCENARIO === "personal-prices"
+      ? [personalPriceServer()]
       : []),
     uiCataloguePlugin(),
     ...(browserReadinessEnabled ? [browserTestReadinessPlugin()] : []),
