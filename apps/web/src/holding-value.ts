@@ -65,12 +65,11 @@ function reportedValueReview(
 ) {
   const priorReview =
     context.receipt?.details.investmentTerms?.reportedValueReview;
-  return;
-  (context.receipt?.details.investmentSnapshotId ??
+  return (context.receipt?.details.investmentSnapshotId ??
     context.receipt?.snapshotId) === context.snapshotId &&
-  priorReview?.valueMinor === total &&
-  priorReview.sourceSnapshotId ===
-    (context.reportedValueSnapshotId ?? context.snapshotId)
+    priorReview?.valueMinor === total &&
+    priorReview.sourceSnapshotId ===
+      (context.reportedValueSnapshotId ?? context.snapshotId)
     ? priorReview
     : undefined;
 }

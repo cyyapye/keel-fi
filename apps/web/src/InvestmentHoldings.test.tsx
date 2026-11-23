@@ -206,6 +206,27 @@ test("keeps a news valuation out of the latest GP mark", () => {
     value: 2000000,
     date: "2026-10-03",
   });
+  current.receipt!.details.investmentTerms = {
+    importedAmountBasis: "unknown",
+    annualManagementFeePpm: null,
+    annualManagementBasis: "unknown",
+    carryPpm: null,
+    carryBasis: "unknown",
+    note: "",
+    reportedValueReview: {
+      sourceSnapshotId: current.snapshotId,
+      valueMinor: 3000000,
+      sourceLabel: "Reviewed GP",
+      effectiveDate: "2026-10-15",
+      carryStatus: "after_carry",
+    },
+  };
+  expect(latestHoldingGpMark(holding)).toMatchObject({
+    unit: "position",
+    value: 3000000,
+    date: "2026-10-15",
+    source: "Reviewed GP",
+  });
 });
 
 test("withholds returns from holding and exposure summaries when refund inclusion is unknown", () => {
