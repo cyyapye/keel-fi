@@ -39,7 +39,9 @@ type Evidence = ReturnType<typeof PositionValuationEvidenceSchema.parse>;
 function retainedGpRecord(holding: Holding) {
   const context = holding.purchaseContext!;
   return context.receipt?.details.valuation?.snapshotId === context.snapshotId
-    ? context.receipt.details.valuation.records.find((r) => r.id === "gp")
+    ? context.receipt.details.valuation.records.find(
+        (r) => r.id === "gp" && r.origin === "gp",
+      )
     : undefined;
 }
 
@@ -57,6 +59,22 @@ export function gpRecord(
   );
 }
 
+function reportedValueReview(
+  context: NonNullable<Holding["purchaseContext"]>,
+  total: number | null,
+) {
+  const priorReview =
+    context.receipt?.details.investmentTerms?.reportedValueReview;
+  return;
+  (context.receipt?.details.investmentSnapshotId ??
+    context.receipt?.snapshotId) === context.snapshotId &&
+  priorReview?.valueMinor === total &&
+  priorReview.sourceSnapshotId ===
+    (context.reportedValueSnapshotId ?? context.snapshotId)
+    ? priorReview
+    : undefined;
+}
+
 function reportedRecord(
   holding: Holding,
   adjustment?: NonNullable<
@@ -66,16 +84,7 @@ function reportedRecord(
 ): ValuationRecord {
   const context = holding.purchaseContext!;
   const total = adjustment?.valueMinor ?? context.reportedValueMinor ?? null;
-  const priorReview =
-    context.receipt?.details.investmentTerms?.reportedValueReview;
-  const review =
-    (context.receipt?.details.investmentSnapshotId ??
-      context.receipt?.snapshotId) === context.snapshotId &&
-    priorReview?.valueMinor === total &&
-    priorReview.sourceSnapshotId ===
-      (context.reportedValueSnapshotId ?? context.snapshotId)
-      ? priorReview
-      : undefined;
+  const review = reportedValueReview(context, total);
   const price = evidence?.prices.find(
     (p) =>
       p.positionId ===
@@ -153,14 +162,26 @@ export function latestHoldingGpMark(
       source: adjustment.sourceLabel,
     });
   }
-  for (const r of [retained, reportedRecord(holding)]) {
-    if (r?.totalMinor != null)
-      candidates.push({
-        unit: "position",
-        value: r.totalMinor,
-        date: r.effectiveDate || null,
-        source: r.sourceLabel,
-      });
+  if (retained?.totalMinor != null) {
+    candidates.push({
+      unit: "position",
+      value: retained.totalMinor,
+      date: retained.effectiveDate || null,
+      source: retained.sourceLabel,
+    });
+  }
+  const context = holding.purchaseContext!;
+  if (context.reportedValueMinor != null) {
+    const review = reportedValueReview(context, context.reportedValueMinor);
+    candidates.push({
+      unit: "position",
+      value: context.reportedValueMinor,
+      date: review?.effectiveDate ?? null,
+      source:
+        review?.sourceLabel ??
+        context.reportedSourceLabel ??
+        holding.sourceLabel,
+    });
   }
   return (
     candidates.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""))[0] ??

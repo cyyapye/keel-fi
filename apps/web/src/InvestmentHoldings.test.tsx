@@ -195,6 +195,17 @@ test("keeps a news valuation out of the latest GP mark", () => {
       sourceLabel: "Synthetic price",
     }),
   ).toMatchObject({ unit: "position", value: 2000000, date: "2026-10-03" });
+  const current = holding.purchaseContext!;
+  current.sourceObservedOn = "2026-10-20";
+  current.reportedValueMinor = 3000000;
+  const savedRecord = current.receipt!.details.valuation!.records[0]!;
+  savedRecord.origin = "judgment";
+  savedRecord.effectiveDate = "2026-10-21";
+  savedRecord.priceDate = "2026-10-21";
+  expect(latestHoldingGpMark(holding)).toMatchObject({
+    value: 2000000,
+    date: "2026-10-03",
+  });
 });
 
 test("withholds returns from holding and exposure summaries when refund inclusion is unknown", () => {

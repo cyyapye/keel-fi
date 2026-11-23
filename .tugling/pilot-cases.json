@@ -252,6 +252,7 @@
     "apps/web/src/AgreementEvidence.test.tsx :: explains each blocked agreement without exposing a download or an assignment",
     "apps/web/src/InvestmentHoldings.test.tsx :: an edit link for a followed close opens the exposure's source choice",
     "apps/web/src/InvestmentHoldings.test.tsx :: distinguishes removed holdings from unreported holdings still counted in source outcomes",
+    "apps/web/src/InvestmentHoldings.test.tsx :: keeps a news valuation out of the latest GP mark",
     "apps/web/src/InvestmentHoldings.test.tsx :: keeps fees paid separately out of the contributed capital breakdown",
     "apps/web/src/InvestmentHoldings.test.tsx :: renders a manual Fund estimate without treating contributed cash as basis or return",
     "apps/web/src/InvestmentHoldings.test.tsx :: renders the singular position count and legal holding action for one reviewed investment",
