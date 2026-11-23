@@ -309,7 +309,7 @@ function FullHistory({
         description={row.name}
         descriptionProps={{ className: "cash-history__account-name" }}
         descriptionPlacement="title-group"
-        action={
+        trailingStat={
           <Stat
             label={row.valueBasis ? "Accepted cash value" : "Current balance"}
             value={cashAmount(row.valueMinor, row.currency)}
