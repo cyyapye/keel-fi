@@ -50,6 +50,7 @@ export async function buildUiCatalogue(returnUrl = "/"): Promise<string> {
       CATALOGUE_TOKENS: JSON.stringify(tokens),
     },
     alias: {
+      "@keel/ui/money": join(repository, "packages/ui/src/lib/money.ts"),
       "@keel/ui": join(repository, "packages/ui/src/index.tsx"),
       react: dirname(webRequire.resolve("react/package.json")),
       "react-dom": dirname(webRequire.resolve("react-dom/package.json")),

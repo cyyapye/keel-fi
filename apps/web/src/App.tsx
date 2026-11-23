@@ -1740,8 +1740,13 @@ function Goals({
   );
 }
 
-function holdingValueLabel(value: number | null): string {
-  return value === null ? "Not set" : formatCompactMoney(value);
+function holdingCurrency(holding: Holding): string {
+  return (
+    holding.positionValueContext?.currency ??
+    holding.purchaseContext?.currency ??
+    holding.positionEconomicsContext?.currency ??
+    "USD"
+  );
 }
 
 function administratorValueLabel(holding: Holding): string {
@@ -1758,7 +1763,9 @@ function administratorValueLabel(holding: Holding): string {
   ) {
     return "Not reported";
   }
-  return holdingValueLabel(holding.administratorNavMinor);
+  return holding.administratorNavMinor === null
+    ? "Not set"
+    : formatCurrency(holding.administratorNavMinor, holdingCurrency(holding));
 }
 
 function isPlaidInvestmentsHolding(holding: Holding): boolean {
@@ -2323,17 +2330,11 @@ function PositionValueAdjustmentEditor({
       ? context.providerValueState === "locked"
         ? "Locked"
         : "Not reported"
-      : formatCompactCurrency(currentValueMinor, context.currency).replace(
-          /^USD /u,
-          "$",
-        );
+      : formatCurrency(currentValueMinor, context.currency);
   const proposedValueLabel =
     valueMinor === null
       ? "Not set"
-      : formatCompactCurrency(valueMinor, context.currency).replace(
-          /^USD /u,
-          "$",
-        );
+      : formatCurrency(valueMinor, context.currency);
 
   const reset = () => {
     setOpen(false);
@@ -2762,13 +2763,19 @@ function PositionPerformanceSummary({
             {showInvested && (
               <Stat
                 label={capitalSummaryLabel(invested)}
-                value={formatCompactMoney(invested.amountMinor!)}
+                value={formatCurrency(
+                  invested.amountMinor!,
+                  holdingCurrency(holding),
+                )}
               />
             )}
             {showBasis && (
               <Stat
                 label={basisLabel}
-                value={formatCompactMoney(performance.costBasisMinor!)}
+                value={formatCurrency(
+                  performance.costBasisMinor!,
+                  holdingCurrency(holding),
+                )}
               />
             )}
             {performance.totalReturnPpm !== null && (
@@ -2782,7 +2789,7 @@ function PositionPerformanceSummary({
                 detail={
                   performance.totalGainMinor === null
                     ? undefined
-                    : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCompactMoney(performance.totalGainMinor)} total gain / loss`
+                    : `${performance.totalGainMinor > 0 ? "+" : ""}${formatCurrency(performance.totalGainMinor, holdingCurrency(holding))} total gain / loss`
                 }
               />
             )}
@@ -2876,6 +2883,9 @@ function LegacyHoldingDetailWorkspace({
       : holding.externalMarkMinor === null
         ? "Administrator source"
         : "External mark source";
+  const currency = holdingCurrency(holding);
+  const holdingValueLabel = (value: number | null) =>
+    value === null ? "Not set" : formatCurrency(value, currency);
   const valueLenses = [
     {
       label: isPlaidInvestmentsHolding(holding)
@@ -3019,7 +3029,7 @@ function LegacyHoldingDetailWorkspace({
                 }
                 value={
                   noValue
-                    ? formatCompactMoney(fallbackCapital!)
+                    ? formatCurrency(fallbackCapital!, currency)
                     : acceptedAdjustment
                       ? holdingValueLabel(acceptedAdjustment.valueMinor)
                       : holding.shareValueEstimate

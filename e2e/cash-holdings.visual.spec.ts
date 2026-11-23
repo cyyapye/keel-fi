@@ -100,6 +100,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   let mode: "normal" | "crowded" | "unknown" | "zero" | "empty" | "reviewed" =
     "normal";
   let historyRequests = 0;
+  let emptyHistory = false;
   let failOlder = false;
   let failRecent = false;
   let releaseInitialHistory: (() => void) | undefined;
@@ -230,15 +231,17 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
     }
     await route.fulfill({
       json: cashBalanceHistoryPage(
-        params.get("kind") === "brokerage"
-          ? observations.map((entry, i) => ({
-              ...entry,
-              valueMinor: [
-                14000, 15000, 16000, 20000, 21000, 22000, 23000, 26000, 28000,
-                30000, 34000, 36000,
-              ][Math.floor(i / 2)]!,
-            }))
-          : observations,
+        emptyHistory
+          ? []
+          : params.get("kind") === "brokerage"
+            ? observations.map((entry, i) => ({
+                ...entry,
+                valueMinor: [
+                  14000, 15000, 16000, 20000, 21000, 22000, 23000, 26000, 28000,
+                  30000, 34000, 36000,
+                ][Math.floor(i / 2)]!,
+              }))
+            : observations,
         Number(params.get("limit")),
         params.get("after") ?? undefined,
       ),
@@ -296,7 +299,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   };
   await page.goto("/holdings");
   await expect(cash.locator(".cash-holdings__total")).toContainText(
-    "Total cash$84,612.75",
+    "Total cash$84.6K",
   );
   await expect(cash.locator(".cash-holdings__account")).toHaveCount(8);
   await expect(
@@ -328,6 +331,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   await expect(cash.locator(".cash-history__paging")).toContainText(
     "1–10 of 12 entries",
   );
+  await expect(cash.locator(".record-row").first()).toContainText("$82,400.00");
   await capture("full", true);
   await page.keyboard.press("Tab");
   await expect(
@@ -356,9 +360,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   await expect(
     cash.getByRole("button", { name: "View full history" }),
   ).toBeFocused();
-  await expect(cash.locator(".cash-holdings__total")).toContainText(
-    "$84,612.75",
-  );
+  await expect(cash.locator(".cash-holdings__total")).toContainText("$84.6K");
   mode = "crowded";
   await page.reload();
   await expect(cash.locator(".cash-holdings__account")).toHaveCount(4);
@@ -368,15 +370,13 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
     (await cash.getByRole("region", { name: "Brokerage cash" }).boundingBox())!
       .y,
   ).toBeLessThan((await toggle.boundingBox())!.y);
-  await expect(cash).toContainText("Under $100 · $65.05 · Included in total");
+  await expect(cash).toContainText("Under $100 · $65 · Included in total");
   await capture("folded");
   const search = page.getByRole("searchbox", { name: "Search holdings" });
   await search.fill("Demo reserve 4");
   await expect(cash.locator(".cash-holdings__account")).toHaveCount(1);
   await expect(cash).toContainText("Demo reserve 4");
-  await expect(cash.locator(".cash-holdings__total")).toContainText(
-    "$84,625.05",
-  );
+  await expect(cash.locator(".cash-holdings__total")).toContainText("$84.6K");
   await search.press("Escape");
   await expect(cash.locator(".cash-holdings__account")).toHaveCount(4);
   await toggle.click();
@@ -391,7 +391,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   mode = "unknown";
   await page.reload();
   await expect(cash.locator(".cash-holdings__total")).toContainText(
-    "Known cash$84,600.05",
+    "Known cash$84.6K",
   );
   await expect(cash).toContainText("Balance unavailable · Excluded from total");
   await expect(cash).toContainText("Last reported Nov 8, 2026 · Still counted");
@@ -400,7 +400,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   mode = "zero";
   await page.reload();
   await expect(cash.locator(".cash-holdings__total")).toContainText(
-    "Total cash$0.00",
+    "Total cash$0",
   );
   await expect(cash.locator(".cash-holdings__account")).toHaveCount(8);
   await capture("zero");
@@ -414,7 +414,7 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   mode = "reviewed";
   await page.reload();
   await expect(cash.locator(".cash-holdings__total")).toContainText(
-    "Cash including reviewed values$84,632.75",
+    "Cash including reviewed values$84.6K",
   );
   const reviewed = cash
     .locator(".cash-holdings__account")
@@ -443,5 +443,12 @@ test("cash accounts keep totals, bounded history and small-balance visibility un
   await cash.getByRole("button", { name: "View full history" }).click();
   await expect(cash.locator(".record-row")).toHaveCount(10);
   await capture("minimum-full");
+  emptyHistory = true;
+  await page.reload();
+  await first.click();
+  await expect(cash).toContainText("No recorded balance history.");
+  await cash.getByRole("button", { name: "View full history" }).click();
+  await expect(cash.locator(".stat__value")).toHaveText("$82,400.00");
+  await expect(cash).toContainText("No recorded balance history.");
   expect(errors).toEqual([]);
 });

@@ -1,3 +1,4 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import { addMinorUnits, type AcceptedCashAccount } from "@keel/domain";
 import type { InvestmentHoldingsView } from "@keel/domain/investment-holdings-view";
 import { isCashPosition } from "./collection-search";
@@ -114,7 +115,10 @@ export const shouldFoldCashBalances = (rows: readonly CashBalanceDisplay[]) =>
   rows.length > 10 && rows.filter(foldableCashBalance).length >= 5;
 export const cashAccountCount = (rows: readonly CashBalanceDisplay[]) =>
   new Set(rows.map((row) => row.accountKey)).size;
-export function cashTotal(rows: readonly CashBalanceDisplay[]) {
+export function cashTotal(
+  rows: readonly CashBalanceDisplay[],
+  format: (minor: number, currency: string) => string = formatHoldingsAmount,
+) {
   const currencies = new Map<string, number>();
   for (const row of rows)
     if (row.valueMinor !== null)
@@ -125,7 +129,7 @@ export function cashTotal(rows: readonly CashBalanceDisplay[]) {
   return currencies.size
     ? [...currencies]
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([currency, minor]) => cashAmount(minor, currency))
+        .map(([currency, minor]) => format(minor, currency))
         .join(" · ")
     : "Not available";
 }

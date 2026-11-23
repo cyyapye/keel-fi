@@ -95,6 +95,12 @@ right on wide screens and stacks below the heading on narrow screens. Use
 `descriptionPlacement="title-group"` when there is a heading description. Keep
 list controls such as sorting below the heading and total.
 
+On Holdings, format totals and row values with `formatHoldingsAmount` from
+`@keel/ui/money`. Use whole currency units below one thousand and up to one
+decimal with K or M above it. A positive balance below one unit reads `<$1` in
+USD, and parentheses indicate a negative sub-unit balance. Sum and sort the
+original minor units. Position and full cash-history details show exact amounts.
+
 Use natural phrases for simple counts, such as “2 linked sources · 1 reviewed
 change”. Reserve DataList label/value rows for relationships that need the
 label, such as previous versus accepted names. In a compact identity summary,

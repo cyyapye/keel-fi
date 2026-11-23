@@ -25,11 +25,7 @@ import {
 } from "@keel/ui";
 import { useId, useState, type ReactNode, type ComponentProps } from "react";
 import { acceptPositionEconomics } from "./api";
-import {
-  formatCompactCurrency,
-  formatCurrency,
-  formatProbability,
-} from "./format";
+import { formatPositionCurrency, formatProbability } from "./format";
 
 const capitalBasisChoices = [
   { value: "gross_commitment", label: "Before fees · gross commitment" },
@@ -217,10 +213,7 @@ export function PositionEconomicsEditor({
   }
 
   const money = (minor: number) =>
-    (presentation === "review"
-      ? formatCurrency(minor, context.currency)
-      : formatCompactCurrency(minor, context.currency)
-    ).replace(/^USD /u, "$");
+    formatPositionCurrency(minor, context.currency);
   const annualAdminFeePpm = parsePercentageInput(annualFee);
   const setupFeePpm = parsePercentageInput(setupFee);
   const adminFeeYears = /^\d+$/u.test(feeYears.trim())

@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import {
   cashTotal,
+  cashAmount,
   foldableCashBalance,
   shouldFoldCashBalances,
   type CashBalanceDisplay,
@@ -32,8 +33,9 @@ it("folds only a crowded list with five eligible small balances and keeps its to
   crowded[0] = balance(101, true);
   crowded[1] = balance(null);
   expect(crowded.filter(foldableCashBalance)).toHaveLength(117);
-  expect(cashTotal(crowded)).toBe("$219.18");
-  expect(cashTotal([balance(0)])).toBe("$0.00");
+  expect(cashTotal(crowded, cashAmount)).toBe("$219.18");
+  expect(cashTotal(crowded)).toBe("$219");
+  expect(cashTotal([balance(0)])).toBe("$0");
   expect(cashTotal([balance(null)])).toBe("Not available");
   expect(foldableCashBalance({ ...balance(99), currency: "EUR" })).toBe(false);
 });

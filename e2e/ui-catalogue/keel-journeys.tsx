@@ -1,3 +1,4 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import { HoldingsTotalJourney } from "./holdings-total-journey";
 import { startIpoWalkthrough } from "./ipo-watch-journey";
 import { ValuationJourney } from "./closing-price-journey";
@@ -242,12 +243,15 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
           <>
             <SectionHeader title="Portfolio" />
             <StatGroup>
-              <Stat label="Synthetic reviewed value · USD" value="$120,000" />
+              <Stat
+                label="Synthetic reviewed value · USD"
+                value={formatHoldingsAmount(12_000_000)}
+              />
             </StatGroup>
             <RecordItem
               className="catalogue-drill-in-row"
               title="Northstar Robotics"
-              detail="$30,000 across 2 positions"
+              detail={`${formatHoldingsAmount(3_000_000)} across 2 positions`}
               action={
                 <DetailLink
                   href={href("company")}
@@ -260,12 +264,15 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
         {step.id === "company" && (
           <>
             <SectionHeader title="Northstar Robotics" />
-            <p>$30,000 total · independent account positions</p>
+            <p>
+              {formatHoldingsAmount(3_000_000)} total · independent account
+              positions
+            </p>
             <RecordGroup className="catalogue-company-positions">
               <RecordRow
                 title="Brokerage A"
                 detail="100 shares"
-                value="$20,000"
+                value={formatHoldingsAmount(2_000_000)}
                 action={
                   <DetailLink href={href("position")} label="Open position" />
                 }
@@ -273,7 +280,7 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
               <RecordRow
                 title="Brokerage B"
                 detail="50 shares"
-                value="$10,000"
+                value={formatHoldingsAmount(1_000_000)}
                 metadata="Context only"
               />
             </RecordGroup>
@@ -291,7 +298,7 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
             <StatGroup>
               <Stat
                 label="Reported market value"
-                value="$20,000"
+                value="$20,000.00"
                 detail="100 shares"
               />
             </StatGroup>

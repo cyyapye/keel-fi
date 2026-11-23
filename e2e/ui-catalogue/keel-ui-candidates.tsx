@@ -668,13 +668,13 @@ function AlternatingDisclosuresExample() {
   const exposures = [
     {
       name: "Northstar Robotics",
-      value: "$45,000",
+      value: "$45K",
       owner: "Demo Family Trust",
     },
-    { name: "Meridian Energy", value: "$20,000", owner: "Demo Brokerage" },
+    { name: "Meridian Energy", value: "$20K", owner: "Demo Brokerage" },
     {
       name: "Beacon Materials",
-      value: "$8,000",
+      value: "$8K",
       owner: "Demo Retirement Trust",
     },
   ];
@@ -714,22 +714,22 @@ function RecordGroupExample() {
   const publicRows = [
     {
       name: "Fidelity brokerage",
-      value: "$4,800",
-      basis: "$3,600",
+      value: "$4.8K",
+      basis: "$3.6K",
       performance: "+33% total return",
       detail: null,
     },
     {
       name: "Robinhood Roth IRA",
-      value: "$3,200",
-      basis: "$2,500",
+      value: "$3.2K",
+      basis: "$2.5K",
       performance: "+28% total return",
       detail: null,
     },
     {
       name: "Robinhood brokerage",
-      value: "$2,000",
-      basis: "$1,500",
+      value: "$2K",
+      basis: "$1.5K",
       performance: "+33% total return",
       detail: null,
     },
@@ -741,15 +741,15 @@ function RecordGroupExample() {
         ? [
             {
               name: "Northstar Opportunity Fund I, LLC",
-              value: "$20,000",
-              basis: "$20,000",
+              value: "$20K",
+              basis: "$20K",
               performance: null,
               detail: "Demo Family Trust",
             },
             {
               name: "Northstar Long-Term Growth SPV II, LLC",
               value: "Unavailable",
-              basis: "$15,000",
+              basis: "$15K",
               performance: null,
               detail: "Demo Retirement Trust",
             },
@@ -791,24 +791,22 @@ function RecordGroupExample() {
                 <span className="visually-hidden">Known value </span>
               )}
               {state === "Unavailable"
-                ? "$20,000"
+                ? "$20K"
                 : state === "Single"
-                  ? "$4,800"
-                  : "$10,000"}
+                  ? "$4.8K"
+                  : "$10K"}
 
               <small className="candidate-parent-return">
                 {state === "Unavailable" ? (
                   <>
-                    <span aria-hidden="true">
-                      1 value missing · Basis $35,000
-                    </span>
+                    <span aria-hidden="true">1 value missing · Basis $35K</span>
                     <span className="visually-hidden">
-                      1 value missing. Total basis $35,000. Return unavailable.
+                      1 value missing. Total basis $35K. Return unavailable.
                     </span>
                   </>
                 ) : (
                   <>
-                    Basis {state === "Single" ? "$3,600" : "$7,600"} ·{" "}
+                    Basis {state === "Single" ? "$3.6K" : "$7.6K"} ·{" "}
                     <span aria-hidden="true">
                       {state === "Single" ? "+33%" : "+32%"}
                     </span>

@@ -1,3 +1,4 @@
+import { formatHoldingsAmount } from "@keel/ui/money";
 import { netInvestmentBreakdown } from "./holding-value";
 import {
   followedCloseReviewPath,
@@ -91,7 +92,6 @@ import {
   formatMoney,
   formatCurrency,
   formatDate,
-  formatRoundedCompactCurrency,
 } from "./format";
 import { useBoundedPolling } from "./use-bounded-polling";
 import { openPlaidLink } from "./plaid-link";
@@ -224,21 +224,6 @@ function latestCompleteObservation(
 
 function formatHoldingCurrency(minorUnits: number, currency: string): string {
   const formatted = formatCompactCurrency(minorUnits, currency);
-  return currency.toUpperCase() === "USD"
-    ? formatted.replace(/^USD /u, "$")
-    : formatted;
-}
-
-function formatRoundedHoldingCurrency(
-  minorUnits: number,
-  currency: string,
-  roundingMajorUnits: number,
-): string {
-  const formatted = formatRoundedCompactCurrency(
-    minorUnits,
-    currency,
-    roundingMajorUnits,
-  );
   return currency.toUpperCase() === "USD"
     ? formatted.replace(/^USD /u, "$")
     : formatted;
@@ -549,10 +534,9 @@ function signedRoundedReturnLabel(valuePpm: number): string {
 function exposurePerformanceLabel(
   group: HoldingExposureGroup,
   positions: readonly InvestmentExposurePosition[],
-  sharePriceLabel: string | null,
 ): string | null {
   if (group.contributions.length === 0) {
-    return sharePriceLabel;
+    return null;
   }
   const positionById = new Map(
     positions.map((position) => [position.id, position]),
@@ -568,11 +552,11 @@ function exposurePerformanceLabel(
       position === undefined ||
       contribution.allocationPpm !== PARTS_PER_MILLION
     ) {
-      return sharePriceLabel;
+      return null;
     }
     const performance = exposurePositionPerformance(position);
     if (performance.costBasisMinor === null) {
-      return sharePriceLabel;
+      return null;
     }
     currencies.add(position.currency);
     allocatedBases.push(performance.costBasisMinor);
@@ -586,39 +570,31 @@ function exposurePerformanceLabel(
     }
   }
   if (currencies.size !== 1) {
-    return sharePriceLabel;
+    return null;
   }
   const currency = [...currencies][0]!;
   const basisMinor = allocatedBases.reduce(
     (total, value) => addMinorUnits(total, value),
     0,
   );
-  const basisLabel = formatRoundedHoldingCurrency(basisMinor, currency, 1_000);
-  const basisAndPriceLabel = [`Basis\u00a0${basisLabel}`, sharePriceLabel]
-    .filter((label): label is string => label !== null)
-    .join(" · ");
+  const basisLabel = formatHoldingsAmount(basisMinor, currency);
+  const basis = `Basis\u00a0${basisLabel}`;
   if (!returnAvailable || allocatedValues.length !== allocatedBases.length) {
-    return basisAndPriceLabel;
+    return basis;
   }
   const totalValueMinor = allocatedValues.reduce(
     (total, value) => addMinorUnits(total, value),
     0,
   );
   if (basisMinor === 0) {
-    return basisAndPriceLabel;
+    return basis;
   }
   const gainMinor = BigInt(totalValueMinor) - BigInt(basisMinor);
   const returnPpm = Number((gainMinor * 1_000_000n) / BigInt(basisMinor));
   if (!Number.isSafeInteger(returnPpm)) {
-    return basisAndPriceLabel;
+    return basis;
   }
-  return `${basisAndPriceLabel} · ${signedRoundedReturnLabel(returnPpm)}\u00a0total return`;
-}
-
-function exactHoldingCurrency(value: number, currency: string) {
-  return (
-    currency === "USD" ? formatMoney(value) : formatCurrency(value, currency)
-  ).replace(/\.00$/u, "");
+  return `${basis} · ${signedRoundedReturnLabel(returnPpm)}\u00a0total return`;
 }
 
 function exposureTotalsLabel(
@@ -635,7 +611,7 @@ function exposureTotalsLabel(
   const reported = [...reportedByCurrency.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([currency, valueMinor]) =>
-      exactHoldingCurrency(valueMinor, currency),
+      formatHoldingsAmount(valueMinor, currency),
     );
   return reported.join(" · ");
 }
@@ -660,7 +636,7 @@ function exposureGrandTotal(data: InvestmentHoldingsView) {
   const value =
     [...reportedByCurrency]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([currency, minor]) => exactHoldingCurrency(minor, currency))
+      .map(([currency, minor]) => formatHoldingsAmount(minor, currency))
       .join(" · ") || (hasIncompleteCoverage ? null : "$0");
   const exposureCount = groups.length;
   const positionCount = positions.length;
@@ -1561,7 +1537,7 @@ function ExposureView({
                   hidden={valuingPosition}
                 >
                   {position.valueMinor !== null &&
-                    exactHoldingCurrency(
+                    formatHoldingsAmount(
                       position.valueMinor,
                       position.currency,
                     )}
@@ -1745,11 +1721,7 @@ function ExposureView({
               : heldAtVehicle && onlyPosition?.ticker
                 ? onlyPosition.legalVehicleName
                 : null;
-          const performanceLabel = exposurePerformanceLabel(
-            group,
-            positions,
-            isOpen ? null : (currentSharePrice?.label ?? null),
-          );
+          const performanceLabel = exposurePerformanceLabel(group, positions);
           const singleMatch =
             matchingPositions.length === 1 ? matchingPositions[0] : undefined;
           const changeValuation =
@@ -1858,11 +1830,6 @@ function ExposureView({
                             ? " exposure-group__market-meta"
                             : ""
                         }`}
-                        title={
-                          currentSharePrice === null
-                            ? undefined
-                            : `Share price as of ${formatDate(currentSharePrice.observedAt)}`
-                        }
                       >
                         {summaryMetaLabel}
                       </small>
@@ -1997,7 +1964,7 @@ function ExposureView({
                                 >
                                   {attributed === null
                                     ? "Awaiting valuation"
-                                    : exactHoldingCurrency(
+                                    : formatHoldingsAmount(
                                         attributed,
                                         position.currency,
                                       )}
@@ -2017,7 +1984,7 @@ function ExposureView({
                   {fractional && onlyPosition?.valueMinor != null && (
                     <p className="holding-metadata">
                       {fraction / 10_000}% of the{" "}
-                      {exactHoldingCurrency(
+                      {formatHoldingsAmount(
                         onlyPosition.valueMinor,
                         onlyPosition.currency,
                       )}{" "}
@@ -2030,6 +1997,8 @@ function ExposureView({
                       <p className="holding-metadata">
                         {netInvestmentBreakdown(
                           onlyPosition.reviewedInvestment,
+                          (minor) =>
+                            formatHoldingsAmount(minor, onlyPosition.currency),
                         )}
                       </p>
                     )}
