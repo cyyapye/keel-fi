@@ -28,7 +28,7 @@ import { investmentFeeAmount } from "@keel/domain/investment-fees";
 import {
   carryUnavailableReason,
   holdingValueSummary,
-  gpRecord,
+  latestHoldingGpMark,
   signedReturn,
 } from "./holding-value";
 import { holdingInvestmentHasReadbackFacts } from "./holding-investment-readback";
@@ -208,10 +208,12 @@ export function SpvHoldingDetail({
     acceptedClose && record?.origin === "public_close",
   );
   const closeProvider = closeQuote && dailyCloseProvider(closeQuote);
-  const gpPrice =
-    holding.purchaseContext?.receipt?.latestGpPrice ??
-    marketReview?.positions.find((p) => p.id === holding.id)?.latestGpPrice;
-  const gp = closeQuote ? gpRecord(holding, undefined, "gp_updates") : null;
+  const gp = closeQuote
+    ? latestHoldingGpMark(
+        holding,
+        marketReview?.positions.find((p) => p.id === holding.id)?.latestGpPrice,
+      )
+    : null;
   const source = record && (
     <p className="holding-metadata">
       {record.effectiveDate
@@ -591,23 +593,14 @@ export function SpvHoldingDetail({
               <DataItem
                 label="Latest GP mark"
                 value={
-                  gpPrice ? (
+                  gp ? (
                     <>
-                      {formatSharePrice(gpPrice.priceMicros)}/share
+                      {gp.unit === "share"
+                        ? formatSharePrice(gp.value) + "/share"
+                        : formatMoney(gp.value)}
                       <small className="holding-metadata">
-                        {gpPrice.priceDate
-                          ? formatDate(gpPrice.priceDate)
-                          : "Date unavailable"}{" "}
-                        · {gpPrice.sourceLabel}
-                      </small>
-                    </>
-                  ) : gp?.totalMinor != null ? (
-                    <>
-                      {formatMoney(gp.totalMinor)}
-                      <small className="holding-metadata">
-                        {gp.effectiveDate &&
-                          `${formatDate(gp.effectiveDate)} · `}
-                        {gp.sourceLabel}
+                        {gp.date ? formatDate(gp.date) : "Date unavailable"} ·{" "}
+                        {gp.source}
                       </small>
                     </>
                   ) : (

@@ -12,7 +12,11 @@ import {
   purchaseDetailReceipt,
 } from "../../../e2e/purchase-detail-fixtures";
 import { InvestmentHoldings, type ExposureTab } from "./InvestmentHoldings";
-import { gpRecord, netInvestmentBreakdown } from "./holding-value";
+import {
+  gpRecord,
+  latestHoldingGpMark,
+  netInvestmentBreakdown,
+} from "./holding-value";
 import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
 import { followedCloseReviewPath } from "./holding-position-route";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
@@ -173,12 +177,24 @@ test("keeps a news valuation out of the latest GP mark", () => {
     acceptedAt: "2026-10-04T00:00:00Z",
   };
   expect(gpRecord(holding).sourceLabel).toBe("Synthetic news");
-  expect(gpRecord(holding, undefined, "gp_updates")).toMatchObject({
-    totalMinor: 1688000,
-    sourceLabel: "Synthetic GP",
+  expect(latestHoldingGpMark(holding)).toMatchObject({
+    unit: "position",
+    value: 1688000,
+    source: "Synthetic GP",
   });
   holding.purchaseContext!.reportedValueMinor = null;
-  expect(gpRecord(holding, undefined, "gp_updates").totalMinor).toBeNull();
+  expect(latestHoldingGpMark(holding)).toBeNull();
+  receipt.details.valuation = purchaseDetailReceipt().details.valuation;
+  holding.purchaseContext!.receipt!.details.valuation =
+    receipt.details.valuation;
+  holding.positionValueContext!.acceptedAdjustment.sourceKind = "gp_update";
+  expect(
+    latestHoldingGpMark(holding, {
+      priceDate: "2026-10-01",
+      priceMicros: 50000000,
+      sourceLabel: "Synthetic price",
+    }),
+  ).toMatchObject({ unit: "position", value: 2000000, date: "2026-10-03" });
 });
 
 test("withholds returns from holding and exposure summaries when refund inclusion is unknown", () => {
