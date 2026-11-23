@@ -194,6 +194,15 @@ it("accepts only the verified net cost and retains its evidence when a GP writes
     origin: "at_cost",
     valueMinor: 844_000,
   });
+  const corrected = structuredClone(accepted);
+  corrected.details.lots[0]!.capitalReturn!.effectiveDate = "2026-01-12";
+  expect(selectedPositionValuation(corrected, snapshotId)?.effectiveDate).toBe(
+    "2026-01-12",
+  );
+  expect(
+    corrected.details.valuation!.records.find((r) => r.id === cost.id)
+      ?.effectiveDate,
+  ).toBeNull();
   const zero = await repo.acceptValuation(COST_SUBJECT, positionId, {
     ...input,
     expectedReceiptId: accepted.id,

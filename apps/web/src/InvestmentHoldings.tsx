@@ -1954,15 +1954,9 @@ function ExposureView({
                         const valuationTooltip =
                           valueSourceLabel === null
                             ? undefined
-                            : position.valueSource === "share_price_estimate" &&
-                                position.shareValueEstimate?.proxy &&
-                                position.shareValueEstimate.effectiveDate ===
-                                  null
+                            : position.valueEffectiveDate === null
                               ? `${valueSourceLabel} · Mark date unknown`
-                              : position.valueEffectiveDate == null &&
-                                  position.valueSource === "invested_amount"
-                                ? valueSourceLabel
-                                : `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`;
+                              : `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`;
                         return (
                           <RecordRow
                             key={position.id}

@@ -588,10 +588,11 @@ export function selectedPositionValuation(
     (r) => r.id === selection?.recordId,
   );
   if (!selection || !record) return null;
-  if (
-    record.origin === "at_cost" &&
-    record.totalMinor !== netInvestedValuation(receipt, snapshotId)?.totalMinor
-  )
+  const cost =
+    record.origin === "at_cost"
+      ? netInvestedValuation(receipt, snapshotId)
+      : null;
+  if (record.origin === "at_cost" && record.totalMinor !== cost?.totalMinor)
     return null;
   // A deliberately linked quantity model remains applicable until superseded;
   // a provider's newer balance observation does not change ownership.
@@ -617,8 +618,11 @@ export function selectedPositionValuation(
   return {
     ...record,
     method: selection.method,
-    effectiveDate:
-      selection.method === "shares" ? record.priceDate : record.effectiveDate,
+    effectiveDate: cost
+      ? cost.effectiveDate
+      : selection.method === "shares"
+        ? record.priceDate
+        : record.effectiveDate,
     valueMinor,
     quantityMicros: calculated?.quantityMicros ?? null,
     estimatedShares: calculated?.estimatedShares ?? false,
