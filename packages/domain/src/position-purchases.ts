@@ -534,6 +534,20 @@ export function assessValuationFromShares(
   };
 }
 
+export function netInvestmentDate(receipt: PurchaseReceipt): string | null {
+  let latest = "";
+  for (const lot of receipt.details.lots) {
+    if (lot.purchasedOn === null) return null;
+    if (lot.purchasedOn > latest) latest = lot.purchasedOn;
+    if (lot.capitalReturn?.status === "received") {
+      const date = lot.capitalReturn.effectiveDate;
+      if (date === null) return null;
+      if (date > latest) latest = date;
+    }
+  }
+  return latest || null;
+}
+
 export function netInvestedValuation(
   receipt: PurchaseReceipt | null | undefined,
   snapshotId: string,
@@ -551,7 +565,7 @@ export function netInvestedValuation(
     origin: "at_cost",
     totalMinor: investment.netCapitalMinor,
     priceMicros: null,
-    effectiveDate: receipt.acceptedAt.slice(0, 10),
+    effectiveDate: netInvestmentDate(receipt),
     priceDate: null,
     shareClass: null,
     carryStatus: "unknown",

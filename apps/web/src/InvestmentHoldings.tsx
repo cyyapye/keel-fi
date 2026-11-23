@@ -1,5 +1,8 @@
 import { netInvestmentBreakdown } from "./holding-value";
-import { holdingPositionPath } from "./holding-position-route";
+import {
+  followedCloseReviewPath,
+  holdingPositionPath,
+} from "./holding-position-route";
 import type { ExposureDrilldown } from "./PortfolioSnapshot";
 import { MarketReviewLink } from "./MarketCloseReview";
 import { useMarketReviews } from "./use-market-reviews";
@@ -714,14 +717,6 @@ function exposureSortValue(group: HoldingExposureGroup): SortableValue | null {
     : null;
 }
 
-function positionSortValue(
-  position: InvestmentExposurePosition,
-): SortableValue | null {
-  return position.valueState === "reported" && position.valueMinor !== null
-    ? { currency: position.currency, valueMinor: position.valueMinor }
-    : null;
-}
-
 function compareSortableValues(
   left: SortableValue | null,
   right: SortableValue | null,
@@ -755,21 +750,6 @@ function compareExposureGroups(
   return valueOrder !== 0
     ? valueOrder
     : left.exposure.canonicalName.localeCompare(right.exposure.canonicalName);
-}
-
-function compareExposurePositions(
-  left: InvestmentExposurePosition,
-  right: InvestmentExposurePosition,
-  direction: ExposureSortDirection,
-): number {
-  const valueOrder = compareSortableValues(
-    positionSortValue(left),
-    positionSortValue(right),
-    direction,
-  );
-  return valueOrder !== 0
-    ? valueOrder
-    : left.legalVehicleName.localeCompare(right.legalVehicleName);
 }
 
 function accountKindLabel(kind: InvestmentPositionContainer["kind"]): string {
@@ -1323,7 +1303,15 @@ function ExposureView({
     [data.exposureView, sortDirection],
   );
   function valuationLink(position: InvestmentExposurePosition) {
-    if (!holdingById.get(position.id)?.purchaseContext) return null;
+    const holding = holdingById.get(position.id);
+    if (!holding?.purchaseContext) return null;
+    const closePath = followedCloseReviewPath(holding);
+    if (closePath)
+      return (
+        <ButtonLink tone="quiet" href={closePath}>
+          Change source
+        </ButtonLink>
+      );
     return (
       <ButtonLink
         tone="quiet"
@@ -1625,7 +1613,7 @@ function ExposureView({
           </div>
         )}
       </div>
-    ) : (
+    ) : exposureReviewState === null ? null : (
       <EmptyState
         className="investment-views__empty"
         compact
@@ -1672,11 +1660,32 @@ function ExposureView({
                 contribution,
               ]);
           }
+          const rowValues = new Map<string, SortableValue | null>();
+          for (const [id, slices] of contributionsByPosition) {
+            const amount = slices.some((c) => c.allocatedValueMinor === null)
+              ? null
+              : slices.reduce(
+                  (sum, c) => addMinorUnits(sum, c.allocatedValueMinor!),
+                  0,
+                );
+            rowValues.set(
+              id,
+              amount === null
+                ? null
+                : { currency: slices[0]!.currency, valueMinor: amount },
+            );
+          }
           const positions = [...contributionsByPosition.keys()]
             .map((id) => positionById.get(id))
             .filter((p): p is InvestmentExposurePosition => p !== undefined)
-            .sort((left, right) =>
-              compareExposurePositions(left, right, sortDirection),
+            .sort(
+              (left, right) =>
+                compareSortableValues(
+                  rowValues.get(left.id) ?? null,
+                  rowValues.get(right.id) ?? null,
+                  sortDirection,
+                ) ||
+                left.legalVehicleName.localeCompare(right.legalVehicleName),
             );
           const positionCount = positions.length;
           const matchingPositions =
@@ -1738,7 +1747,10 @@ function ExposureView({
           const singleMatch =
             matchingPositions.length === 1 ? matchingPositions[0] : undefined;
           const changeValuation =
-            singleMatch?.valueMinor != null ? valuationLink(singleMatch) : null;
+            singleMatch?.valueMinor != null &&
+            !(marketReview?.choice === "follow" && followsClosingPrice)
+              ? valuationLink(singleMatch)
+              : null;
           const singleSource =
             onlyPosition &&
             exposureValueSourceLabel(
@@ -1920,15 +1932,8 @@ function ExposureView({
                         const slices = contributionsByPosition.get(
                           position.id,
                         )!;
-                        const attributed = slices.some(
-                          (c) => c.allocatedValueMinor === null,
-                        )
-                          ? null
-                          : slices.reduce(
-                              (n, c) =>
-                                addMinorUnits(n, c.allocatedValueMinor!),
-                              0,
-                            );
+                        const attributed =
+                          rowValues.get(position.id)?.valueMinor ?? null;
                         const allShares = slices.reduce(
                           (n, c) => n + (c.allocationPpm ?? 0),
                           0,
@@ -1954,7 +1959,10 @@ function ExposureView({
                                 position.shareValueEstimate.effectiveDate ===
                                   null
                               ? `${valueSourceLabel} · Mark date unknown`
-                              : `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`;
+                              : position.valueEffectiveDate == null &&
+                                  position.valueSource === "invested_amount"
+                                ? valueSourceLabel
+                                : `${valueSourceLabel} as of ${formatDate(position.valueEffectiveDate ?? position.observedAt)}`;
                         return (
                           <RecordRow
                             key={position.id}
@@ -2071,7 +2079,7 @@ function ExposureView({
         <TabsTrigger value="all">All exposures</TabsTrigger>
         <TabsTrigger value="resolution">
           Needs resolution
-          {canonicalUnallocated.length > 0
+          {exposureReviewState !== null && canonicalUnallocated.length > 0
             ? ` (${canonicalUnallocated.length})`
             : ""}
         </TabsTrigger>
@@ -2215,6 +2223,7 @@ export function InvestmentHoldings({
       setExposureReviewState(await loadPrivateExposureReviews());
       setExposureReviewLoadError(null);
     } catch {
+      setExposureReviewState(null);
       setExposureReviewLoadError(
         "Keel could not load company choices for unresolved exposures.",
       );
@@ -3058,6 +3067,10 @@ export function InvestmentHoldings({
                   {exposureReviewNotice}
                 </FormMessage>
               )}
+              {exposureReviewState === null &&
+                exposureReviewLoadError === null && (
+                  <p role="status">Loading positions needing resolution…</p>
+                )}
               {exposureReviewLoadError !== null && (
                 <Notice className="investment-views__error" tone="error">
                   <p>

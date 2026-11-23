@@ -604,6 +604,31 @@ describe("investment exposure read model", () => {
     ]);
   });
 
+  it("values an edited manual direct investment from its current covered capital", () => {
+    const record = position("manual_direct_1", null, "not_reported");
+    record.manualContext = {
+      version: 1,
+      containerId: "manual_container",
+      containerVersion: 1,
+      companyMappingIds: [],
+      classification: "private_paper",
+    };
+    const receipt = reviewedProviderPosition(record.id, null).purchaseReceipt!;
+    record.purchaseReceipt = receipt;
+    const read = () =>
+      createInvestmentExposureView(positionView([record]), [], []).positions[0];
+    expect(read()).toMatchObject({
+      valueMinor: 10_000,
+      valueEffectiveDate: "2026-01-15",
+      valueSourceLabel: "At cost · Net invested",
+    });
+    record.snapshot.investedMinor = null;
+    expect(read()?.valueMinor).toBe(10_000);
+    receipt.details.cashCoversPosition = false;
+    record.snapshot.investedMinor = 100_000;
+    expect(read()?.valueMinor).toBeNull();
+  });
+
   it("uses a GP mark and accepted financing rounds for a tranche-aware private estimate", () => {
     const reference = {
       ...position("position_reference", 6_000_000),
@@ -1162,7 +1187,7 @@ it.each(["selected", "adjustment", "share_estimate", "invested"] as const)(
           : owner === "share_estimate"
             ? "share_price_estimate"
             : "invested_amount",
-      valueEffectiveDate: owner === "invested" ? "2026-08-15" : "2026-08-13",
+      valueEffectiveDate: owner === "invested" ? "2026-01-15" : "2026-08-13",
     });
   },
 );

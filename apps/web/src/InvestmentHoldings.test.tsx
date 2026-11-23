@@ -12,6 +12,9 @@ import {
   purchaseDetailReceipt,
 } from "../../../e2e/purchase-detail-fixtures";
 import { InvestmentHoldings, type ExposureTab } from "./InvestmentHoldings";
+import { netInvestmentBreakdown } from "./holding-value";
+import { reviewedInvestmentFromReceipt } from "@keel/domain/position-purchases";
+import { followedCloseReviewPath } from "./holding-position-route";
 import { SpvHoldingDetail } from "./SpvHoldingDetail";
 import { SourceInventoryOutcome } from "./PublicSourceUpdate";
 
@@ -93,6 +96,60 @@ test("renders the singular position count and legal holding action for one revie
   expect(markup).toContain(
     'aria-label="View Demo Pharmacy SPV 01 holding details"',
   );
+});
+
+test("waits for company reviews before declaring the resolution queue empty", () => {
+  const data = reconciledReviewedHistoryInvestmentHoldingsView(1);
+  const markup = renderExposures(data, alphaHoldingsFrom(data), "resolution");
+  expect(markup).toContain("Loading positions needing resolution");
+  expect(markup).not.toContain("No positions need resolution");
+});
+
+test("keeps fees paid separately out of the contributed capital breakdown", () => {
+  const capital = reviewedInvestmentFromReceipt(purchaseDetailReceipt())!;
+  const text = netInvestmentBreakdown({
+    ...capital,
+    cashPaidMinor: 105_000,
+    additionalPaidFeesMinor: 5_000,
+    upfrontDeductionsMinor: 10_000,
+    returnedCapitalMinor: undefined,
+  });
+  expect(text).toBe("$1,000.00 paid in · $100.00 upfront deductions");
+});
+
+test("an edit link for a followed close opens the exposure's source choice", () => {
+  const receipt = purchaseDetailReceipt();
+  const basis = { key: "issuer-original", unitsPerOriginal: 1 };
+  receipt.details.lots[0]!.quantityDetails = {
+    status: "confirmed",
+    derivation: "Synthetic statement",
+    evidence: null,
+    shareBasis: basis,
+  };
+  receipt.publicClose = {
+    id: "synthetic-close",
+    exposureId: "cedar",
+    ticker: "CEDR",
+    venue: "XNAS",
+    shareClass: "Preferred",
+    shareBasis: basis,
+    date: "2026-10-04",
+    priceMicros: 50_000_000,
+    sourceUrl: "https://example.test/close",
+  };
+  const { holdings } = purchaseDetailProjection(receipt);
+  const holding = holdings[0]!;
+  expect(followedCloseReviewPath(holding)).toBe("/holdings?valuation=cedar");
+  const markup = renderToStaticMarkup(
+    <SpvHoldingDetail
+      holding={holding}
+      valuationRequested
+      onValuationRouteClose={() => {}}
+      onAccepted={() => Promise.resolve()}
+    />,
+  );
+  expect(markup).toContain('href="/holdings?valuation=cedar"');
+  expect(markup).not.toContain("Position total · $");
 });
 
 test("withholds returns from holding and exposure summaries when refund inclusion is unknown", () => {

@@ -34,6 +34,7 @@ import {
   HoldingInvestment,
   type HoldingInvestmentHandle,
 } from "./HoldingInvestment";
+import { followedCloseReviewPath } from "./holding-position-route";
 import { HoldingValuationEditor } from "./HoldingValuation";
 import { PositionLinksEditor } from "./PositionLinksEditor";
 import {
@@ -66,7 +67,13 @@ export function SpvHoldingDetail({
   related?: Holding[];
 }) {
   const [editingHere, setEditingHere] = useState(false);
-  const editing = valuationRequested || editingHere;
+  const closeReviewPath = followedCloseReviewPath(holding);
+  const editing =
+    closeReviewPath === null && (valuationRequested || editingHere);
+  useEffect(() => {
+    if (valuationRequested && closeReviewPath)
+      window.location.replace(closeReviewPath);
+  }, [valuationRequested, closeReviewPath]);
   const [payment, setPayment] = useState<string | null>(null);
   const [identityEditing, setIdentityEditing] = useState(false);
   const [investmentEditing, setInvestmentEditing] = useState(false);
@@ -233,27 +240,26 @@ export function SpvHoldingDetail({
           : record?.method === "shares"
             ? "Estimated remaining value"
             : "Reported remaining value";
-  const editButton =
-    closeQuote && record?.origin === "public_close" ? (
-      <TextLink
-        href={`/holdings?valuation=${encodeURIComponent(closeQuote.exposureId)}`}
-        aria-label="Change exposure valuation source"
+  const editButton = closeReviewPath ? (
+    <TextLink
+      href={closeReviewPath}
+      aria-label="Change exposure valuation source"
+    >
+      Change
+    </TextLink>
+  ) : (
+    !editing && (
+      <Button
+        ref={edit}
+        tone="quiet"
+        aria-label="Edit valuation"
+        disabled={investmentEditing}
+        onClick={() => setEditingHere(true)}
       >
-        Change
-      </TextLink>
-    ) : (
-      !editing && (
-        <Button
-          ref={edit}
-          tone="quiet"
-          aria-label="Edit valuation"
-          disabled={investmentEditing}
-          onClick={() => setEditingHere(true)}
-        >
-          Edit
-        </Button>
-      )
-    );
+        Edit
+      </Button>
+    )
+  );
   const valuationEditor = editing && (
     <HoldingValuationEditor
       key={holding.id}

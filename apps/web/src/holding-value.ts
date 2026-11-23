@@ -19,8 +19,12 @@ import { formatMoney } from "./format";
 export function netInvestmentBreakdown(
   capital: ReviewedInvestment | undefined,
 ) {
+  const contributed =
+    capital?.cashPaidMinor != null && capital.additionalPaidFeesMinor !== null
+      ? capital.cashPaidMinor - (capital.additionalPaidFeesMinor ?? 0)
+      : null;
   const amounts = [
-    [capital?.cashPaidMinor, "paid in"],
+    [contributed, "paid in"],
     [capital?.upfrontDeductionsMinor, "upfront deductions"],
     [capital?.returnedCapitalMinor, "received refund"],
   ] as const;

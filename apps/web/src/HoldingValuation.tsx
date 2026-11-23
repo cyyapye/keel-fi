@@ -63,10 +63,10 @@ function draftFor(
     crossClass: record.crossClassProxy ? "accepted" : "",
     total: decimal(record.totalMinor, 2),
     price: decimal(record.priceMicros, 6),
-    date: record.effectiveDate,
+    date: record.effectiveDate ?? "",
     priceDate:
       record.priceDate ??
-      (record.priceMicros === null ? record.effectiveDate : ""),
+      (record.priceMicros === null ? (record.effectiveDate ?? "") : ""),
     classification: record.carryStatus,
     shareClass: record.shareClass ?? "",
     label: record.sourceLabel,

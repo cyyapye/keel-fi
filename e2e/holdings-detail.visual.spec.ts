@@ -223,6 +223,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
 }, testInfo) => {
   test.setTimeout(60_000);
   let exposureResolved = false;
+  let firstCompanyReview = true;
   let acceptedValueAdjustment: PositionValueAdjustment | null = null;
   let acceptedEconomicsTerms: PositionEconomicsTerms | null = null;
   const currentHoldings = () =>
@@ -392,6 +393,14 @@ test("leads with the investment and opens a truthful holding detail", async ({
     },
   );
   await page.route("**/api/private-exposure-reviews", async (route) => {
+    if (firstCompanyReview) {
+      firstCompanyReview = false;
+      await route.fulfill({
+        status: 503,
+        json: { error: "Company choices are unavailable." },
+      });
+      return;
+    }
     await route.fulfill({
       json: {
         version: 2,
@@ -506,7 +515,7 @@ test("leads with the investment and opens a truthful holding detail", async ({
   const exposureView = page.locator(".investment-views");
   const allTab = exposureView.getByRole("tab", { name: "All exposures" });
   const resolutionTab = exposureView.getByRole("tab", {
-    name: "Needs resolution (1)",
+    name: /^Needs resolution/u,
   });
   await expect(allTab).toHaveAttribute("aria-selected", "true");
   await expect(exposureView.locator(".exposure-group")).toHaveCount(4);
@@ -514,6 +523,12 @@ test("leads with the investment and opens a truthful holding detail", async ({
   const review = exposureView.getByRole("tabpanel", {
     name: /^Needs resolution/u,
   });
+  await expect(review.getByRole("alert")).toContainText(
+    "could not load company choices",
+  );
+  await expect(review.getByText("No positions need resolution")).toHaveCount(0);
+  await review.getByRole("button", { name: "Try again" }).click();
+  await expect(resolutionTab).toHaveAccessibleName("Needs resolution (1)");
   const chooseCompany = review.getByRole("button", {
     name: "Choose company for Ridge Demo SPV",
   });

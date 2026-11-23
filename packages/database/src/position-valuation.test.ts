@@ -164,6 +164,16 @@ it("persists both valuation facts, projects the explicit choice and isolates edi
 it("accepts only the verified net cost and retains its evidence when a GP writes the holding down to zero", async () => {
   const first = await saveInvestment(null);
   const cost = netInvestedValuation(first, snapshotId)!;
+  expect(cost.effectiveDate).toBeNull();
+  const dated = structuredClone(first);
+  dated.details.lots[0]!.capitalReturn!.effectiveDate = "2026-01-12";
+  expect(netInvestedValuation(dated, snapshotId)?.effectiveDate).toBe(
+    "2026-01-12",
+  );
+  dated.acceptedAt = "2026-05-01T00:00:00.000Z";
+  expect(netInvestedValuation(dated, snapshotId)?.effectiveDate).toBe(
+    "2026-01-12",
+  );
   expect(cost.totalMinor).toBe(844_000);
   const input = {
     expectedSnapshotId: snapshotId,

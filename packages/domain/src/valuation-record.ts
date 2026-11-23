@@ -44,7 +44,7 @@ export const ValuationRecordSchema = z
       .positive()
       .max(1_000_000_000_000)
       .nullable(),
-    effectiveDate: z.iso.date(),
+    effectiveDate: z.iso.date().nullable(),
     priceDate: z.iso.date().nullable(),
     shareClass: text.nullable(),
     carryStatus: z.enum(["before_carry", "after_carry", "unknown"]),
@@ -57,6 +57,12 @@ export const ValuationRecordSchema = z
   })
   .strict()
   .superRefine((record, ctx) => {
+    if (record.effectiveDate === null && record.origin !== "at_cost")
+      ctx.addIssue({
+        code: "custom",
+        path: ["effectiveDate"],
+        message: "Enter the valuation date.",
+      });
     if (record.sourceContinuation && !record.followSource)
       ctx.addIssue({
         code: "custom",

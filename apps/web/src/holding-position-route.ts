@@ -1,3 +1,14 @@
+import type { Holding } from "@keel/domain";
+import { publicClosingValuation } from "@keel/domain/position-purchases";
+
+export function followedCloseReviewPath(holding: Holding): string | null {
+  const receipt = holding.purchaseContext?.receipt;
+  const quote = receipt?.publicClose;
+  return receipt && quote && publicClosingValuation(receipt, quote)
+    ? `/holdings?valuation=${encodeURIComponent(quote.exposureId)}`
+    : null;
+}
+
 export type HoldingPositionRoute = { id: string; editValuation: boolean };
 
 export function holdingPositionPath(id: string, editValuation = false) {

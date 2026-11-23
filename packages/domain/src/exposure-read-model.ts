@@ -1,5 +1,8 @@
 import { ReviewedInvestmentSchema } from "./investment-details";
-import { reviewedInvestmentFromReceipt } from "./position-purchases";
+import {
+  netInvestmentDate,
+  reviewedInvestmentFromReceipt,
+} from "./position-purchases";
 import { reportedPositionValue } from "./position-read-model";
 import {
   estimatePurchaseValue,
@@ -377,7 +380,7 @@ function safeMinorSum(values: readonly number[]): number {
 
 function investedAmountFallback(
   position: InvestmentPositionRecord,
-): number | null {
+): { amount: number; label: string; date: string | null } | null {
   if (
     position.snapshot.providerStatus !== "live" ||
     position.linkedReportedValue != null ||
@@ -385,13 +388,25 @@ function investedAmountFallback(
     position.snapshot.instrumentType.toLowerCase() === "cash"
   )
     return null;
-  if (position.kind === "spv_interest" || position.kind === "fund_interest") {
-    const reviewed = reviewedInvestmentFromReceipt(position.purchaseReceipt);
-    if (reviewed)
-      return reviewed.appliesUntilSuperseded ||
-        reviewed.snapshotId === position.snapshot.id
-        ? reviewed.netCapitalMinor
-        : null;
+  const vehicle =
+    position.kind === "spv_interest" || position.kind === "fund_interest";
+  const receipt = position.purchaseReceipt;
+  const reviewed = reviewedInvestmentFromReceipt(receipt);
+  if ((vehicle || position.manualContext) && receipt && reviewed) {
+    if (
+      (!reviewed.appliesUntilSuperseded &&
+        reviewed.snapshotId !== position.snapshot.id) ||
+      reviewed.netCapitalMinor === null
+    )
+      return null;
+    return {
+      amount: reviewed.netCapitalMinor,
+      label: "At cost · Net invested",
+      date: netInvestmentDate(receipt),
+    };
+  }
+  const observed = position.snapshot.observedAt.slice(0, 10);
+  if (vehicle) {
     const committed = investmentAmount(position);
     const funded = position.snapshot.investedMinor;
     if (
@@ -409,12 +424,19 @@ function investedAmountFallback(
       reportedTerms: position.reportedEconomicsTerms ?? null,
     });
     return economics &&
-      (funded === committed || funded === economics.committedMinor)
-      ? economics.positionCostBasisMinor
+      (funded === committed || funded === economics.committedMinor) &&
+      economics.positionCostBasisMinor !== null
+      ? {
+          amount: economics.positionCostBasisMinor,
+          label: "At cost · Net invested",
+          date: observed,
+        }
       : null;
   }
   const invested = position.snapshot.investedMinor;
-  return invested !== null && invested > 0 ? invested : null;
+  return invested !== null && invested > 0
+    ? { amount: invested, label: "At cost · Invested amount", date: observed }
+    : null;
 }
 
 function privatePositionCostBasis(
@@ -637,7 +659,7 @@ export function createInvestmentExposureView(
               : privateValueEstimate !== null
                 ? privateValueEstimate.valueMinor
                 : costFallback !== null
-                  ? costFallback
+                  ? costFallback.amount
                   : reportedPositionValue(position).minor;
         const receipt = position.purchaseReceipt;
         const providerReview =
@@ -764,24 +786,23 @@ export function createInvestmentExposureView(
                   : costFallback !== null
                     ? "invested_amount"
                     : "provider",
-          valueEffectiveDate:
-            selected?.effectiveDate ??
-            adjustment?.effectiveDate ??
-            (useShareEstimate
-              ? shareValueEstimate.effectiveDate
-              : (privateValueEstimate?.effectiveDate ??
-                (currentProviderReview && costFallback === null
-                  ? currentProviderReview.effectiveDate
-                  : (
-                      position.linkedReportedValue?.observedAt ??
-                      position.snapshot.observedAt
-                    ).slice(0, "YYYY-MM-DD".length)))),
+          valueEffectiveDate: selected
+            ? selected.effectiveDate
+            : costFallback
+              ? costFallback.date
+              : (adjustment?.effectiveDate ??
+                (useShareEstimate
+                  ? shareValueEstimate.effectiveDate
+                  : (privateValueEstimate?.effectiveDate ??
+                    (currentProviderReview && costFallback === null
+                      ? currentProviderReview.effectiveDate
+                      : (
+                          position.linkedReportedValue?.observedAt ??
+                          position.snapshot.observedAt
+                        ).slice(0, "YYYY-MM-DD".length))))),
           valueSourceLabel:
             costFallback !== null && !selected
-              ? position.kind === "spv_interest" ||
-                position.kind === "fund_interest"
-                ? "At cost · Net invested"
-                : "At cost · Invested amount"
+              ? costFallback.label
               : selected
                 ? selected.origin === "proxy"
                   ? `Proxy estimate · ${selected.sourceLabel}`
