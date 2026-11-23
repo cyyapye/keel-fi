@@ -8,10 +8,12 @@ establishes that two balances belong to the same account. Names and equal
 amounts are not matching evidence. Do not invent account masks that the source
 does not provide.
 
-Show exact minor-unit amounts. Sum each accepted balance once in its own
-currency; do not combine currencies through an implicit exchange rate. Unknown
-balances are excluded with a visible qualification and the total is labeled
-Known cash. An evidenced zero remains zero. Missing balances are not zero.
+Show compact amounts on Holdings and exact amounts in full account history.
+Calculate each currency total from the original minor units before rounding for
+display. Count each accepted balance once in its own currency and keep different
+currencies separate. Unknown balances are excluded with a visible qualification
+and the total is labeled Known cash. An evidenced zero remains zero. Missing
+balances are not zero.
 
 Show all balances in a short list. Fold eligible USD balances under $100 only
 when the list exceeds ten rows and at least five balances can be folded. Unknown
