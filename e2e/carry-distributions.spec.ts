@@ -104,7 +104,7 @@ async function fillReview(
   } = {},
 ) {
   await page
-    .getByRole("button", { name: "Record distributions", exact: true })
+    .getByRole("button", { name: "Add distributions", exact: true })
     .click();
   if (
     (await page
@@ -676,13 +676,14 @@ test("stock distribution recalculates carry and persists correction, other edits
   ).toEqual(first);
   await page.reload();
   await afterValue(page, "$36,200");
-  await expect(workspace(page)).toContainText("Before remaining carry");
-  await expect(workspace(page)).toContainText("Total return · After carry");
+  await expect(
+    workspace(page).getByLabel(/^Return before remaining carry /u),
+  ).toBeVisible();
   await expect(
     workspace(page).getByRole("group", { name: /value.*after carry/i }),
   ).not.toContainText("remaining value only");
   await expect(
-    workspace(page).getByRole("group", { name: /value.*after carry/i }),
+    workspace(page).getByLabel(/^Return after carry /u),
   ).toContainText(/\+67\.4/);
   await capture(page, "distribution-readback");
   await page
@@ -836,6 +837,13 @@ test("pending writes lock controls and real receipt conflicts retain drafts with
     name: "Sources & history",
     exact: true,
   });
+  const linkedRecords = page.getByRole("button", {
+    name: "Add linked investment record",
+    exact: true,
+  });
+  await expect(historyAction).toHaveAttribute("aria-expanded", "false");
+  await expect(linkedRecords).toBeVisible();
+  await expect(linkedRecords).toBeDisabled();
   await expect(historyAction).toBeEnabled();
   await historyAction.click();
   await expect(
@@ -843,12 +851,6 @@ test("pending writes lock controls and real receipt conflicts retain drafts with
       .locator(".holding-receipt-history [data-slot='collapsible-trigger']")
       .first(),
   ).toBeEnabled();
-  await expect(
-    page.getByRole("button", {
-      name: "Linked investment records",
-      exact: true,
-    }),
-  ).toBeDisabled();
   await capture(page, "distribution-saving");
   release();
   const response = await pending;
@@ -1007,8 +1009,11 @@ test("cash receipts preserve unknown amounts and keep mixed-inclusion returns un
   );
   await afterValue(page, "$36,200");
   await expect(workspace(page).locator(".holding-value-return")).toHaveCount(0);
-  await expect(workspace(page)).toContainText(
-    "Total return unavailable. Provider-reported distributions include only some recorded distributions.",
+  await workspace(page)
+    .getByRole("button", { name: "Calculation", exact: true })
+    .click();
+  await expect(workspace(page).locator(".holding-calculation")).toContainText(
+    "Provider-reported distributions include only some recorded distributions.",
   );
   await capture(page, "distribution-mixed");
   await page
@@ -1117,9 +1122,8 @@ test("an explicitly undated provider review stays undated in detail and collecti
       .effectiveDate,
   ).toBeNull();
   await openHolding(page, prepared.positionId);
-  await expect(workspace(page)).toContainText(
-    "Value date unknown · Synthetic undated GP review",
-  );
+  await expect(workspace(page)).toContainText("Synthetic undated GP review");
+  await expect(workspace(page)).not.toContainText("Value date unknown");
   await fillReview(page, { inclusion: "Not included" });
   const accepted = await saveReview(page, prepared.positionId);
   expectPreserved(accepted, prepared.receipt);
@@ -1128,7 +1132,6 @@ test("an explicitly undated provider review stays undated in detail and collecti
     workspace(page).getByRole("group", { name: /value.*after carry/i }),
   ).toHaveCount(0);
   await expect(workspace(page).locator(".holding-value-return")).toHaveCount(0);
-  await expect(workspace(page)).toContainText(/valuation date.*unknown/i);
   const response = await page.request.get("/api/holdings-page");
   expect(response.status(), await response.text()).toBe(200);
   const model = HoldingsPageSchema.parse(await response.json());
@@ -1198,8 +1201,11 @@ for (const carryStatus of ["unknown", "after_carry"] as const)
     await expect(workspace(page).locator(".holding-value-return")).toHaveCount(
       0,
     );
-    await expect(workspace(page)).toContainText(
-      "Total return unavailable. A historical distribution value is unknown.",
+    await workspace(page)
+      .getByRole("button", { name: "Calculation", exact: true })
+      .click();
+    await expect(workspace(page).locator(".holding-calculation")).toContainText(
+      "A historical distribution value is unknown.",
     );
     await capture(page, `distribution-source-${carryStatus}`);
   });

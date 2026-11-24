@@ -4,6 +4,7 @@ import {
 } from "@keel/domain/position-purchases";
 import { decimal } from "./decimal-input";
 import { formatMoney, formatSharePrice } from "./format";
+import type { holdingHistoryChanges } from "./holding-history-changes";
 
 const differs = (a: unknown, b: unknown) =>
   JSON.stringify(a) !== JSON.stringify(b);
@@ -12,6 +13,7 @@ const differs = (a: unknown, b: unknown) =>
 export function holdingHistorySummary(
   receipt: PurchaseReceipt,
   previous: PurchaseReceipt | null,
+  factsChanged?: ReturnType<typeof holdingHistoryChanges>,
 ) {
   const changes: string[] = [];
   for (const [i, lot] of receipt.details.lots.entries()) {
@@ -170,6 +172,20 @@ export function holdingHistorySummary(
   const value = valuationChanged
     ? effectivePositionValuation(receipt, receipt.snapshotId)
     : null;
+  if (
+    value?.origin === "proxy" &&
+    previous &&
+    changes.length === 0 &&
+    factsChanged?.every(
+      ({ key }) =>
+        key.startsWith("value:") &&
+        [":captured", ":date", ":priceDate"].some((suffix) =>
+          key.endsWith(suffix),
+        ),
+    )
+  ) {
+    return `Price refreshed · ${value.sourceLabel}`;
+  }
   const kind =
     [
       changes.length ? "Investment" : null,

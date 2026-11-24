@@ -362,6 +362,18 @@ export function HoldingValuationEditor({
     JSON.stringify(candidate) !== JSON.stringify(original) ||
     saved?.selected?.recordId !== source ||
     saved.selected.method !== draft.method;
+  const showSharePreview =
+    record.origin !== "proxy" ||
+    saved?.selected?.recordId !== source ||
+    saved?.calculation?.valueMinor !== calculation?.valueMinor;
+  const proxyPriceDescription = [
+    price !== null && Number.isSafeInteger(price)
+      ? `${formatSharePrice(price)}/share`
+      : null,
+    draft.shareClass,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const save = async () => {
     if (
       !valid ||
@@ -470,8 +482,8 @@ export function HoldingValuationEditor({
             label:
               r.origin === "judgment"
                 ? "My estimate"
-                : r.origin === "proxy"
-                  ? `${r.sourceLabel} · Other SPV`
+                : r.origin === "proxy" && r.followSource
+                  ? `Follow ${r.sourceLabel} price`
                   : r.sourceLabel,
           }))}
         />
@@ -488,10 +500,8 @@ export function HoldingValuationEditor({
           record.origin !== "at_cost" && (
             <p className="holding-metadata">
               Updated price: {formatSharePrice(updatedPrice.markMicros!)}/share
-              ·{" "}
-              {updatedPrice.markDate
-                ? formatDate(updatedPrice.markDate)
-                : "Price date unavailable"}{" "}
+              {updatedPrice.markDate &&
+                ` · ${formatDate(updatedPrice.markDate)}`}{" "}
               <Button tone="quiet" onClick={adoptUpdatedPrice}>
                 Use updated price
               </Button>
@@ -506,23 +516,20 @@ export function HoldingValuationEditor({
           </div>
         ) : record.origin === "proxy" ? (
           <div className="holding-valuation-preview">
-            <p>
-              {draft.label} ·{" "}
-              {price !== null && Number.isSafeInteger(price)
-                ? `${formatSharePrice(price)}/share`
-                : "Price unavailable"}{" "}
-              · {draft.shareClass || "Share class unreported"}
-            </p>
-            <p className="holding-metadata">
-              {draft.priceDate
-                ? formatDate(draft.priceDate)
-                : "Price date unavailable"}{" "}
-              {draft.basis &&
-                ` · ${draft.basis === "1" ? "Before split" : `${draft.basis} shares per original share`}`}
-            </p>
-            <p className="holding-metadata">
-              Follows future accepted prices from this source.
-            </p>
+            {proxyPriceDescription && <p>{proxyPriceDescription}</p>}
+            {(draft.priceDate || draft.basis) && (
+              <p className="holding-metadata">
+                {[
+                  draft.priceDate && formatDate(draft.priceDate),
+                  draft.basis &&
+                    (draft.basis === "1"
+                      ? "Before split"
+                      : `${draft.basis} shares per original share`),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
             {crossClass && (
               <HoldingSelect
                 label="Different share class"
@@ -536,16 +543,6 @@ export function HoldingValuationEditor({
                   },
                 ]}
               />
-            )}
-            {crossClass && (
-              <p className="holding-metadata">
-                {draft.shareClass} price for{" "}
-                {details.lots
-                  .map((l) => l.shareClass)
-                  .filter((v, i, a) => a.indexOf(v) === i)
-                  .join(" / ")}{" "}
-                shares. Security rights may differ.
-              </p>
             )}
           </div>
         ) : (
@@ -697,24 +694,27 @@ export function HoldingValuationEditor({
             />
           </>
         )}
-        {!choices && draft.method === "shares" && calculation && (
-          <div className="holding-valuation-preview">
-            <p className="holding-metadata">
-              {record.origin === "proxy"
-                ? `${record.sourceLabel} price proxy`
-                : "Estimated value"}{" "}
-              · Before carry
-            </p>
-            <strong className="holding-choice-amount">
-              {formatMoney(calculation.valueMinor)}
-            </strong>
-            <p className="holding-metadata">
-              {calculation.estimatedShares ? "Estimated shares · " : ""}
-              {decimal(calculation.quantityMicros, 6)} shares ×{" "}
-              {formatSharePrice(price!)}/share
-            </p>
-          </div>
-        )}
+        {!choices &&
+          draft.method === "shares" &&
+          calculation &&
+          showSharePreview && (
+            <div className="holding-valuation-preview">
+              <p className="holding-metadata">
+                {record.origin === "proxy"
+                  ? `${record.sourceLabel} price proxy`
+                  : "Estimated value"}{" "}
+                · Before carry
+              </p>
+              <strong className="holding-choice-amount">
+                {formatMoney(calculation.valueMinor)}
+              </strong>
+              <p className="holding-metadata">
+                {calculation.estimatedShares ? "Estimated shares · " : ""}
+                {decimal(calculation.quantityMicros, 6)} shares ×{" "}
+                {formatSharePrice(price!)}/share
+              </p>
+            </div>
+          )}
         {draft.method === "shares" &&
           draft.price.trim() &&
           !calculation &&

@@ -727,7 +727,7 @@ test(
       "Oct 15, 2026",
     );
     await expect(
-      detail.getByRole("button", { name: "Record distributions", exact: true }),
+      detail.getByRole("button", { name: "Add distributions", exact: true }),
     ).toBeDisabled();
     await expect(
       detail.getByText(

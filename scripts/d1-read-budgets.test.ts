@@ -426,4 +426,132 @@ describe("real D1 reads at collection scale", () => {
     );
     expect(measured.cost.rowsRead - before.rowsRead).toBeLessThanOrEqual(1_000);
   }, 60_000);
+
+  it("reads accepted legal names for 120 SPVs independently of decision history and other households", async () => {
+    const reader = new D1InvestmentPositionViewRepository(measured.database);
+    const read = async (household = "hh_demo") =>
+      (await reader.listForHousehold(household)).connections.flatMap(
+        (connection) =>
+          connection.containers.flatMap((container) => container.positions),
+      );
+    const imported = await readWithin(
+      "SPVs with no legal decisions",
+      () => read(),
+      3,
+      20_000,
+    );
+    expect(imported).toHaveLength(120);
+    expect(
+      imported.every((position) => position.acceptedLegalName === undefined),
+    ).toBe(true);
+    const unlinkedRows = measured.cost.rowsRead;
+    await fixture.database
+      .prepare(
+        `
+      INSERT INTO legal_entities (id, household_id, created_by_user_id, created_at, immutable)
+      SELECT 'cost-legal:' || p.id, p.household_id, h.owner_user_id, '${COST_TIME}', 1
+      FROM holding_positions p JOIN households h ON h.id = p.household_id
+      JOIN json_each(?) chosen ON chosen.value = p.id
+      WHERE p.household_id = 'hh_demo';
+    `,
+      )
+      .bind(JSON.stringify(imported.map(({ id }) => id)))
+      .run();
+    await fixture.execute(`
+      INSERT INTO legal_entity_versions (
+        id, household_id, legal_entity_id, version, legal_name, entity_type, relationship,
+        interest_status, recorded_by_user_id, recorded_at, immutable
+      )
+      SELECT id || ':1', household_id, id, 1, 'Synthetic Reviewed SPV ' || row_number() OVER (ORDER BY id) || ', LLC',
+        'llc', 'investment_vehicle', 'current', created_by_user_id, created_at, 1
+      FROM legal_entities WHERE household_id = 'hh_demo' AND id LIKE 'cost-legal:%';
+      INSERT INTO legal_entity_source_decisions (
+        id, household_id, source_kind, source_reference, source_name, source_label, source_as_of,
+        relationship, interest_status, decision, legal_entity_id, version, decided_by_user_id, decided_at, immutable
+      )
+      SELECT e.id || ':decision:1', p.household_id, 'holding_position', p.id, p.legal_vehicle_name,
+        'Synthetic agreement', substr(e.created_at, 1, 10), 'investment_vehicle', 'current', 'linked',
+        e.id, 1, e.created_by_user_id, e.created_at, 1
+      FROM legal_entities e JOIN holding_positions p ON e.id = 'cost-legal:' || p.id
+      WHERE p.household_id = 'hh_demo';
+    `);
+    const linked = await readWithin(
+      "SPVs with accepted legal names",
+      () => read(),
+      3,
+      unlinkedRows + 600,
+    );
+    expect(linked).toHaveLength(120);
+    expect(
+      linked.every((position) =>
+        position.acceptedLegalName?.startsWith("Synthetic Reviewed SPV "),
+      ),
+    ).toBe(true);
+    const linkedRows = measured.cost.rowsRead;
+
+    for (let version = 2; version <= 9; version++) {
+      await fixture.execute(`
+        INSERT INTO legal_entity_source_decisions (
+          id, household_id, source_kind, source_reference, source_name, source_label, source_as_of,
+          relationship, interest_status, decision, legal_entity_id, version, supersedes_decision_id,
+          decided_by_user_id, decided_at, immutable
+        )
+        SELECT legal_entity_id || ':decision:${version}', household_id, source_kind, source_reference,
+          source_name, source_label, source_as_of, relationship, interest_status, decision, legal_entity_id,
+          ${version}, id, decided_by_user_id, decided_at, 1
+        FROM legal_entity_source_decisions WHERE household_id = 'hh_demo' AND version = ${version - 1}
+          AND legal_entity_id LIKE 'cost-legal:%';
+      `);
+    }
+    await fixture.execute(`
+      INSERT INTO users VALUES ('legal-cost-other-user', 'legal-cost-other-subject', 'legal-cost@example.invalid', 'Synthetic cost user', '${COST_TIME}');
+      INSERT INTO households VALUES ('legal-cost-other-household', 'legal-cost-other-user', 'Synthetic legal cost household', 'USD', '${COST_TIME}');
+    `);
+    await fixture.setup({
+      operation: "holdings",
+      subject: "legal-cost-other-subject",
+    });
+    const grown = await readWithin(
+      "SPVs after 960 additional decisions and unrelated positions",
+      () => read(),
+      3,
+      linkedRows + 10,
+    );
+    expect(grown).toEqual(linked);
+    await fixture.database
+      .prepare(
+        `
+      INSERT INTO legal_entity_source_decisions (
+        id, household_id, source_kind, source_reference, source_name, source_label, source_as_of,
+        relationship, interest_status, decision, legal_entity_id, version, supersedes_decision_id,
+        decided_by_user_id, decided_at, immutable
+      )
+      SELECT id || ':excluded', household_id, source_kind, source_reference, source_name, source_label,
+        source_as_of, relationship, interest_status, 'not_llc', NULL, version + 1, id,
+        decided_by_user_id, decided_at, 1
+      FROM legal_entity_source_decisions WHERE household_id = 'hh_demo' AND version = 9
+        AND source_kind = 'holding_position' AND source_reference = ?;
+    `,
+      )
+      .bind(grown[0]!.id)
+      .run();
+    const reviewed = await readWithin(
+      "SPVs with a superseding same-time decision",
+      () => read(),
+      3,
+      linkedRows + 10,
+    );
+    expect(reviewed).toHaveLength(120);
+    expect(
+      reviewed.filter((position) => position.acceptedLegalName === undefined),
+    ).toEqual([{ ...grown[0], acceptedLegalName: undefined }]);
+    expect(
+      await readWithin(
+        "SPVs in a missing household",
+        () => read("missing-household"),
+        3,
+        10,
+      ),
+    ).toEqual([]);
+  }, 60_000);
 });

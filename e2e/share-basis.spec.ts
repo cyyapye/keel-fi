@@ -33,17 +33,17 @@ type PreparedSpv = {
 async function prepareSyntheticSpv(
   page: Page,
   scenario: "quantity" | "price",
-  company?: string,
+  identity?: { company: string; position: string; owner: string },
 ): Promise<PreparedSpv> {
   const suffix = `${scenario}-${test.info().project.name}-${test.info().retry}-${randomUUID()}`;
-  const positionName = `Synthetic basis SPV ${suffix}`;
+  const positionName = identity?.position ?? `Synthetic basis SPV ${suffix}`;
   const csv =
     providerHoldingsTemplateCsv("wefunder") +
     [
-      company ?? `Synthetic basis company ${suffix}`,
+      identity?.company ?? `Synthetic basis company ${suffix}`,
       positionName,
       "SPV",
-      `Synthetic basis trust ${suffix}`,
+      identity?.owner ?? `Synthetic basis trust ${suffix}`,
       "Live",
       "2025-06-10",
       "2026-09-30",
@@ -393,8 +393,12 @@ test("new undated GP prices propagate to followed positions with immutable metad
   page,
 }, testInfo) => {
   const suffix = randomUUID();
-  const company = `Synthetic continuation company ${suffix}`;
-  const sourceName = `Synthetic continuation source ${suffix}`;
+  const companyName =
+    testInfo.project.name === "chromium" ? "Alder Grid" : "Juniper Grid";
+  const company = testInfo.retry
+    ? `${companyName} ${["Systems", "Energy"][testInfo.retry - 1] ?? testInfo.retry}`
+    : companyName;
+  const sourceName = `${company} SPV II LLC`;
   const prices = (markMicros: number, dated: boolean) => ({
     costMicros: null,
     markMicros,
@@ -407,7 +411,7 @@ test("new undated GP prices propagate to followed positions with immutable metad
       company,
       sourceName,
       "SPV",
-      `Synthetic continuation trust ${suffix}`,
+      "Willow Creek Trust",
       "Live",
       "2025-06-10",
       new Date().toISOString().slice(0, 10),
@@ -439,7 +443,11 @@ test("new undated GP prices propagate to followed positions with immutable metad
     );
   };
   await capture(200_000_000, true);
-  const prepared = await prepareSyntheticSpv(page, "quantity", company);
+  const prepared = await prepareSyntheticSpv(page, "quantity", {
+    company,
+    position: `${company} SPV I LLC`,
+    owner: "Cedar Ridge Trust",
+  });
   // Establish comparability through recorded company decisions, never names.
   const unresolved = PrivateExposureReviewStateSchema.parse(
     await (await page.request.get("/api/private-exposure-reviews")).json(),
@@ -490,7 +498,7 @@ test("new undated GP prices propagate to followed positions with immutable metad
     .click();
   await page.getByRole("combobox", { name: "Source", exact: true }).click();
   await page
-    .getByRole("option", { name: "Tokenfolio · Other SPV", exact: true })
+    .getByRole("option", { name: "Follow Tokenfolio price", exact: true })
     .click();
   await page
     .getByRole("combobox", { name: "Different share class", exact: true })
@@ -530,19 +538,54 @@ test("new undated GP prices propagate to followed positions with immutable metad
     selectedPositionValuation(propagated, propagated.snapshotId),
   ).toMatchObject({ valueMinor: 1_266_000, effectiveDate: null });
   await page.reload();
-  const value = page.getByRole("group", {
-    name: "Tokenfolio proxy remaining value · Before carry",
+  const summary = page.getByRole("region", { name: "Position summary" });
+  const value = summary.getByRole("group", {
+    name: "Before carry",
     exact: true,
   });
   await expect(value).toContainText("$12,660.00");
-  await expect(value).toContainText("Value date unknown");
-  await expect(value).toContainText(
-    "Source share class unreported · Assumes Common shares.",
+  await expect(value).not.toContainText(
+    /Tokenfolio|Estimated value|Estimated shares|Total return/u,
   );
-  await expect(value).toContainText(
-    "Source split basis unreported · Uses the previously reviewed split basis.",
+  const info = value.getByRole("button", {
+    name: "Estimated value",
+    exact: true,
+  });
+  if (testInfo.project.name === "mobile-chromium") await info.click();
+  else await info.hover();
+  const popup = page.getByRole("dialog", {
+    name: "Estimated value",
+    exact: true,
+  });
+  await expect(popup).toHaveText("Estimated value");
+  await page.keyboard.press("Escape");
+  await expect(popup).toBeHidden();
+  await expect(summary.getByRole("group")).toHaveCount(2);
+  await expect
+    .poll(() =>
+      summary.evaluate((summary) => {
+        const [first, last] = Array.from(summary.children, (metric) =>
+          metric.getBoundingClientRect(),
+        );
+        return (
+          first &&
+          last &&
+          Math.abs(first.width - last.width) <= 1 &&
+          Math.abs(summary.getBoundingClientRect().right - last.right) <= 1
+        );
+      }),
+    )
+    .toBe(true);
+  await expect(value).not.toContainText(
+    /unknown|unreported|Using last valid price/u,
   );
-  await expect(value).not.toContainText("Stale source");
+  await page.getByRole("button", { name: "Calculation", exact: true }).click();
+  const calculation = page.locator(".holding-calculation");
+  await expect(calculation).toContainText("Tokenfolio · Cross-class proxy");
+  await expect(calculation).toContainText("Assumed share class");
+  await expect(calculation).toContainText("Common");
+  await expect(calculation).toContainText("Assumed shares per original share");
+  await page.getByRole("button", { name: "Calculation", exact: true }).click();
   await expect
     .poll(() =>
       page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -556,13 +599,48 @@ test("new undated GP prices propagate to followed positions with immutable metad
       "utf8",
     ),
   });
+  const links = page.getByRole("region", { name: "Linked investment records" });
+  const addLink = links.getByRole("button", {
+    name: "Add linked investment record",
+  });
+  const viewLinks = links.getByRole("button", { name: "View records" });
+  const picker = links.getByRole("combobox", { name: "Source to link" });
+  await expect(picker).toHaveCount(0);
+  await expect(viewLinks).toHaveCount(0);
+  await addLink.click();
+  await expect(picker).toBeFocused();
+  await expect(picker).toHaveCSS("border-bottom-width", "1px");
+  await page.locator(".spv-holding").screenshot({
+    path: testInfo.outputPath("add-linked-record.png"),
+    animations: "disabled",
+    scale: "css",
+  });
+  await picker.press("Enter");
+  const search = page.getByRole("combobox", {
+    name: "Search investment or source",
+  });
+  await expect(search).toBeFocused();
+  await search.press("Escape");
+  await links.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(addLink).toBeFocused();
   // Reopening and saving the existing source must retain its reviewed anchor.
   await page
     .getByRole("button", { name: "Edit valuation", exact: true })
     .click();
-  await expect(
-    page.getByRole("form", { name: "Edit valuation" }),
-  ).toContainText("$12,660.00");
+  const editor = page.getByRole("form", { name: "Edit valuation" });
+  await expect(editor).toContainText("$150.00/share");
+  await expect(editor).not.toContainText(
+    /\$12,660\.00|unreported|unavailable|Security rights may differ/u,
+  );
+  await page.locator(".spv-holding").screenshot({
+    path: testInfo.outputPath("continued-price-editor.png"),
+    animations: "disabled",
+    scale: "css",
+    style: readFileSync(
+      new URL("./purchase-details.capture.css", import.meta.url),
+      "utf8",
+    ),
+  });
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Edit valuation", exact: true }),
@@ -578,4 +656,32 @@ test("new undated GP prices propagate to followed positions with immutable metad
     propagated,
     saved,
   ]);
+
+  await addLink.click();
+  await picker.click();
+  await page.getByRole("option", { name: new RegExp(sourceName) }).click();
+  await links.getByRole("button", { name: "Apply link" }).click();
+  await expect(viewLinks).toHaveAttribute("aria-expanded", "true");
+  await expect(links.getByText(sourceName, { exact: true })).toBeVisible();
+  await addLink.click();
+  await expect(
+    links.getByRole("combobox", { name: "Link another source" }),
+  ).toBeFocused();
+  await expect(
+    links.getByRole("button", { name: "Unlink record" }),
+  ).toHaveCount(0);
+  await links.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(addLink).toBeFocused();
+  await expect(links.getByText(sourceName, { exact: true })).toBeVisible();
+
+  await page.reload();
+  await expect(viewLinks).toHaveAttribute("aria-expanded", "false");
+  await viewLinks.click();
+  await expect(links.getByText(sourceName, { exact: true })).toBeVisible();
+  await links.getByRole("button", { name: "Unlink record" }).click();
+  await expect(viewLinks).toHaveCount(0);
+  await expect(addLink).toBeFocused();
+  await page.reload();
+  await expect(addLink).toBeVisible();
+  await expect(viewLinks).toHaveCount(0);
 });

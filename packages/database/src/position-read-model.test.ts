@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { D1InvestmentPositionViewRepository } from "./position-read-model";
 import { D1HoldingsPageRepository } from "./holdings-page";
+import { D1LegalEntityRepository } from "./legal-entities";
 import { D1PositionEconomicsRepository } from "./position-economics";
 import { D1PositionValueAdjustmentRepository } from "./position-value-adjustments";
 import { D1ProviderPortfolioAgentRepository } from "./provider-portfolio-agent";
@@ -836,6 +837,41 @@ describe("canonical investment position view", () => {
         ),
     ).toBe(true);
 
+    // The agreement's vehicle name differs from the imported position label.
+    // An observed agreement alone must not establish the accepted name.
+    const source = {
+      kind: "holding_position",
+      id: "position_scale_000",
+    } as const;
+    const agreementName = "Synthetic Atlas SPV LLC";
+    const imported = view.connections
+      .flatMap((connection) =>
+        connection.containers.flatMap((container) => container.positions),
+      )
+      .find((position) => position.id === source.id)!;
+    expect(imported.legalVehicleName).not.toBe(agreementName);
+    expect(imported.acceptedLegalName).toBeUndefined();
+    await new D1LegalEntityRepository(documentD1).create(
+      "synthetic-access-subject",
+      {
+        profile: {
+          legalName: agreementName,
+          entityType: "llc",
+          relationship: "investment_vehicle",
+          currentOwner: null,
+          jurisdiction: null,
+          formedOn: null,
+          einLastFour: null,
+          ownershipInterestPpm: null,
+          interestStatus: "current",
+          taxClassification: null,
+          notes: null,
+        },
+        source: { reference: source, expectedDecisionId: null },
+      },
+      view,
+    );
+
     const positionSql = database.preparedSql.find(
       (sql) =>
         sql.includes("FROM current_positions position") &&
@@ -851,6 +887,9 @@ describe("canonical investment position view", () => {
     );
     expect(plan.map((row) => row.detail).join("\n")).toMatch(
       /SEARCH legal_observation USING INDEX/u,
+    );
+    expect(plan.map((row) => row.detail).join("\n")).toMatch(
+      /SEARCH latest USING INDEX legal_entity_source_decisions_household_source_idx/u,
     );
     expect(
       plan.filter((row) =>
@@ -874,6 +913,16 @@ describe("canonical investment position view", () => {
         holding.id.startsWith("position_scale_"),
       ),
     ).toHaveLength(120);
+    expect(
+      page.holdings.find((holding) => holding.id === source.id),
+    ).toMatchObject({
+      positionName: imported.legalVehicleName,
+      acceptedLegalName: agreementName,
+    });
+    expect(
+      page.holdings.find((holding) => holding.id === "position_scale_001")
+        ?.acceptedLegalName,
+    ).toBeUndefined();
     expect(pageSql).toHaveLength(12);
     expect(
       pageSql.filter((sql) =>

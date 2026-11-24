@@ -109,13 +109,15 @@ and link decisions. Identify the change and its timestamp in the closed entry,
 using the viewer’s local time zone with minute precision and no zone suffix
 (calendar-only source dates retain their date); expansion shows changed fields
 with their previous and new values, rather than repeating an unchanged snapshot.
-An initial record may show its recorded facts. Link management uses the standard
-disclosure header. Reversible unlinking is one activation; explain its effect on
-investment visibility and value sourcing in an adjacent accessible info popup.
-Preserve records/history and support relinking. Do not add a confirmation to a
-reversible action merely to display its explanation; reserve confirmations for
-irreversible or trust-sensitive changes. Label the selector as adding another
-source when links already exist.
+An initial record may show its recorded facts. On an SPV holding, Linked
+investment records uses a heading with an Add action and a separate disclosure
+for saved links. Other link management views use the standard disclosure header.
+Reversible unlinking is one activation; explain its effect on investment
+visibility and value sourcing in an adjacent accessible info popup. Preserve
+records/history and support relinking. Do not add a confirmation to a reversible
+action merely to display its explanation; reserve confirmations for irreversible
+or trust-sensitive changes. Label the selector as adding another source when
+links already exist.
 
 For a new concept or changed information architecture, make a concise concept
 map before a mockup. Cover the affected user task and adjacent concepts that

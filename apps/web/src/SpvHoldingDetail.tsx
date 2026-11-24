@@ -21,6 +21,7 @@ import {
   DataItem,
   DataList,
   DisclosureIndicator,
+  InfoTip,
   LoadingStatus,
   TextLink,
 } from "@keel/ui";
@@ -214,33 +215,33 @@ export function SpvHoldingDetail({
         marketReview?.positions.find((p) => p.id === holding.id)?.latestGpPrice,
       )
     : null;
-  const source = record && (
+  const sourceDate = record?.effectiveDate;
+  const sourceName =
+    record &&
+    record.origin !== "proxy" &&
+    (record.origin !== "judgment" || record.sourceUrl)
+      ? record.sourceLabel
+      : null;
+  const source = record && (sourceDate || sourceName) && (
     <p className="holding-metadata">
-      {record.effectiveDate
-        ? formatDate(record.effectiveDate)
-        : "Value date unknown"}
-      {record.sourceUrl ? (
+      {sourceDate && formatDate(sourceDate)}
+      {sourceName && (
         <>
-          {" · "}
-          <TextLink
-            className="holding-source-link"
-            href={record.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            {record.sourceLabel}
-          </TextLink>
+          {sourceDate && " · "}
+          {record.sourceUrl ? (
+            <TextLink
+              className="holding-source-link"
+              href={record.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {sourceName}
+            </TextLink>
+          ) : (
+            sourceName
+          )}
         </>
-      ) : record.origin !== "judgment" && record.origin !== "proxy" ? (
-        ` · ${record.sourceLabel}`
-      ) : (
-        ""
       )}
-      {record.origin === "proxy" &&
-      "estimatedShares" in record &&
-      record.estimatedShares
-        ? " · Estimated shares"
-        : ""}
     </p>
   );
   const remainingLabel =
@@ -251,7 +252,7 @@ export function SpvHoldingDetail({
           ? "Your estimate of remaining value"
           : "My estimate of remaining value"
         : record?.origin === "proxy"
-          ? `${record.sourceLabel} proxy remaining value`
+          ? "Estimated value"
           : record?.method === "shares"
             ? "Estimated remaining value"
             : "Reported remaining value";
@@ -296,10 +297,18 @@ export function SpvHoldingDetail({
     performance: ReturnType<typeof calculatePositionPerformance> | null,
     editable: boolean,
     provenance: boolean,
+    info?: string,
   ) => (
     <div className="holding-value-metric" role="group" aria-label={title}>
       <div className="holding-metric-heading">
-        <p>{title}</p>
+        {info ? (
+          <div className="holding-metric-label">
+            <p>{title}</p>
+            <InfoTip label={info}>{info}</InfoTip>
+          </div>
+        ) : (
+          <p>{title}</p>
+        )}
         {editable && editButton}
       </div>
       <strong className="holding-value-amount">{formatMoney(amount)}</strong>
@@ -309,12 +318,6 @@ export function SpvHoldingDetail({
           aria-label={`Return ${title.toLowerCase().includes("before") ? "before remaining" : "after"} carry ${signedReturn(performance.totalReturnPpm)}`}
         >
           {signedReturn(performance.totalReturnPpm)}
-          <small className="holding-return-treatment">
-            Total return ·{" "}
-            {title.toLowerCase().includes("before")
-              ? "Before remaining carry"
-              : "After carry"}
-          </small>
         </strong>
       )}
       {provenance && record?.origin !== "public_close" && source}
@@ -326,48 +329,12 @@ export function SpvHoldingDetail({
       )}
       {title.includes("After carry") &&
         after?.method === "legacy_remaining_only" && (
-          <p className="holding-metadata">
-            Illustration based on remaining value only. Distribution history has
-            not been reviewed.
-          </p>
-        )}
-      {provenance && record?.origin === "proxy" && record.crossClassProxy && (
-        <p className="holding-metadata">
-          Indicative cross-class proxy · Security rights may differ
-        </p>
-      )}
-      {provenance &&
-        record &&
-        "sourceContinuation" in record &&
-        record.sourceContinuation &&
-        (!record.shareClass || !record.shareBasis) && (
-          <p className="holding-metadata">
-            {!record.shareClass
-              ? `Source share class unreported · Assumes ${record.sourceContinuation.shareClass} shares. `
-              : ""}
-            {!record.shareBasis
-              ? "Source split basis unreported · Uses the previously reviewed split basis."
-              : ""}
-          </p>
+          <p className="holding-metadata">Based on remaining value only.</p>
         )}
       {provenance &&
         record?.origin === "proxy" &&
-        holding.purchaseContext?.priceProxyStatus && (
-          <p className="holding-metadata">
-            {holding.purchaseContext.priceProxyStatus.stale
-              ? "Stale source · Last valid estimate retained. "
-              : ""}
-            Observed{" "}
-            {formatDate(
-              holding.purchaseContext.priceProxyStatus.lastObservationAt.slice(
-                0,
-                10,
-              ),
-            )}
-            {holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt
-              ? ` · Last sync ${formatDate(holding.purchaseContext.priceProxyStatus.lastSuccessfulSyncAt.slice(0, 10))}`
-              : ""}
-          </p>
+        holding.purchaseContext?.priceProxyStatus?.stale && (
+          <p className="holding-metadata">Using last valid price</p>
         )}
       {title.includes("After carry") &&
         unpaid.map((f) => (
@@ -440,7 +407,9 @@ export function SpvHoldingDetail({
           <h2 id="holding-detail-title" ref={heading} tabIndex={-1}>
             {holding.manualContext
               ? holding.positionName
-              : (holding.exposureName ?? holding.positionName)}
+              : (holding.exposureName ??
+                holding.acceptedLegalName ??
+                holding.positionName)}
           </h2>
           <HoldingLinkButton kind="position" id={holding.id} icon />
         </div>
@@ -451,7 +420,7 @@ export function SpvHoldingDetail({
               : holding.positionKind === "fund_interest"
                 ? "Fund"
                 : "SPV"
-            : holding.positionName}{" "}
+            : (holding.acceptedLegalName ?? holding.positionName)}{" "}
           · {holding.ownerLabel}
         </p>
         {holding.manualContext && (
@@ -473,7 +442,7 @@ export function SpvHoldingDetail({
             <TextLink
               href={`/holdings?position=${encodeURIComponent(related[0]!.id)}`}
             >
-              {related[0]!.positionName}
+              {related[0]!.acceptedLegalName ?? related[0]!.positionName}
             </TextLink>
           </p>
         )}
@@ -486,7 +455,7 @@ export function SpvHoldingDetail({
                   <TextLink
                     href={`/holdings?position=${encodeURIComponent(item.id)}`}
                   >
-                    {item.positionName}
+                    {item.acceptedLegalName ?? item.positionName}
                   </TextLink>
                 </li>
               ))}
@@ -511,10 +480,13 @@ export function SpvHoldingDetail({
               {record?.carryStatus === "before_carry" &&
                 value(
                   record.valueMinor,
-                  `${remainingLabel} · Before carry`,
+                  record.origin === "proxy"
+                    ? "Before carry"
+                    : `${remainingLabel} · Before carry`,
                   beforeReturn,
                   true,
                   true,
+                  record.origin === "proxy" ? "Estimated value" : undefined,
                 )}
               {after &&
                 value(
@@ -622,29 +594,6 @@ export function SpvHoldingDetail({
               {!record && addValuationAction}
             </ActionGroup>
           )}
-          {!editing &&
-            !investmentEditing &&
-            carry.status === "unavailable" &&
-            record && (
-              <p className="distribution-result-limit">
-                No after-carry estimate
-                {historical.status === "unavailable" &&
-                historical.reason === carry.reason
-                  ? " or total return"
-                  : ""}
-                . {carryUnavailableReason(carry.reason)}
-              </p>
-            )}
-          {!editing &&
-            !investmentEditing &&
-            historical.status === "unavailable" &&
-            (carry.status !== "unavailable" ||
-              historical.reason !== carry.reason) && (
-              <p className="distribution-result-limit">
-                Total return unavailable.{" "}
-                {carryUnavailableReason(historical.reason)}
-              </p>
-            )}
           {!record && !needsAddInvestment ? (
             <section
               className="holding-valuation-section"
@@ -676,12 +625,62 @@ export function SpvHoldingDetail({
                       value={`${decimal(record.quantityMicros, 6)} × ${formatSharePrice(record.priceMicros!)}`}
                     />
                   )}
+                  {record.origin === "proxy" && (
+                    <DataItem
+                      label="Price source"
+                      value={
+                        <>
+                          {record.sourceUrl ? (
+                            <TextLink
+                              href={record.sourceUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {record.sourceLabel}
+                            </TextLink>
+                          ) : (
+                            record.sourceLabel
+                          )}
+                          {record.crossClassProxy
+                            ? " · Cross-class proxy"
+                            : " · Price proxy"}
+                        </>
+                      }
+                    />
+                  )}
+                  {record.origin === "proxy" && record.sourceContinuation && (
+                    <>
+                      {!record.shareClass && (
+                        <DataItem
+                          label="Assumed share class"
+                          value={record.sourceContinuation.shareClass}
+                        />
+                      )}
+                      {!record.shareBasis && (
+                        <DataItem
+                          label="Assumed shares per original share"
+                          value={
+                            record.sourceContinuation.shareBasis
+                              .unitsPerOriginal
+                          }
+                        />
+                      )}
+                    </>
+                  )}
                   {after?.carryMinor != null && (
                     <DataItem
                       label="Estimated carry"
                       value={formatMoney(after.carryMinor)}
                     />
                   )}
+                  {carry.status === "unavailable" &&
+                    (historical.status !== "unavailable" ||
+                      carry.reason !== historical.reason) && (
+                      <DataItem
+                        label="Carry estimate"
+                        value={carryUnavailableReason(carry.reason)}
+                      />
+                    )}
                   {(beforeReturn?.costBasisMinor ??
                     afterReturn?.costBasisMinor) != null && (
                     <DataItem
@@ -722,7 +721,10 @@ export function SpvHoldingDetail({
                   </p>
                 )}
                 {historical.status === "unavailable" && (
-                  <p>{carryUnavailableReason(historical.reason)}</p>
+                  <p>
+                    Total return unavailable.{" "}
+                    {carryUnavailableReason(historical.reason)}
+                  </p>
                 )}
               </CollapsibleContent>
             </Collapsible>
@@ -762,6 +764,17 @@ export function SpvHoldingDetail({
             requestAnimationFrame(() => investmentAction.current?.focus());
         }}
       />
+      <fieldset
+        className="holding-form-fieldset holding-linked-records"
+        disabled={editing || investmentEditing}
+      >
+        <PositionLinksEditor
+          positionId={holding.id}
+          hasLinkedRecords={holding.hasLinkedRecords ?? false}
+          onAccepted={acceptedChange}
+          presentation="section"
+        />
+      </fieldset>
       <Collapsible className="holding-history">
         <CollapsibleTrigger layout="inline">
           <h3>Sources &amp; history</h3>
@@ -780,15 +793,6 @@ export function SpvHoldingDetail({
             key={`${holding.id}:${historyRevision}`}
             positionId={holding.id}
           />
-          <fieldset
-            className="holding-form-fieldset"
-            disabled={editing || investmentEditing}
-          >
-            <PositionLinksEditor
-              positionId={holding.id}
-              onAccepted={acceptedChange}
-            />
-          </fieldset>
         </CollapsibleContent>
       </Collapsible>
     </section>

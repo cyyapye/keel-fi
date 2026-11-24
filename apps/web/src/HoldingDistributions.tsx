@@ -109,6 +109,12 @@ export function HoldingDistributions({
   };
   const parsed = editor ? parseDistributionDraft(editor.draft) : null;
   const current = holdingValueSummary(holding);
+  const hasCarryDetails =
+    current.capital.capitalBasisMinor !== null ||
+    current.capital.investorDistributionsMinor !== null ||
+    current.capital.capitalRemainingMinor !== null ||
+    review?.priorCarry.status === "known" ||
+    current.after?.carryMinor != null;
   const preview = parsed?.success
     ? holdingValueSummary(holding, parsed.data.distributionReview)
     : null;
@@ -198,10 +204,11 @@ export function HoldingDistributions({
           <Button
             ref={edit}
             tone="quiet"
+            aria-label={review ? undefined : "Add distributions"}
             disabled={disabled || holding.realizedValueMinor == null}
             onClick={start}
           >
-            {review ? "Edit distributions" : "Record distributions"}
+            {review ? "Edit distributions" : "Add"}
           </Button>
         )}
       </div>
@@ -529,71 +536,64 @@ export function HoldingDistributions({
                 through {formatDate(review.coverage.throughDate)}.
               </p>
             </>
-          ) : (
+          ) : (holding.realizedValueMinor ?? 0) > 0 ? (
             <p className="holding-metadata">
-              Distribution history has not been reviewed.
+              Provider-reported total ·{" "}
+              {formatMoney(holding.realizedValueMinor!)}
             </p>
+          ) : null}
+          {hasCarryDetails && (
+            <Collapsible className="carry-details">
+              <CollapsibleTrigger layout="inline">
+                Carry details <DisclosureIndicator />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <DataList layout="rows">
+                  {current.capital.capitalBasisMinor !== null && (
+                    <DataItem
+                      label="Contributed-capital hurdle"
+                      value={formatMoney(current.capital.capitalBasisMinor)}
+                    />
+                  )}
+                  {current.capital.investorDistributionsMinor !== null && (
+                    <DataItem
+                      label="Received distributions at historical value"
+                      value={formatMoney(
+                        current.capital.investorDistributionsMinor,
+                      )}
+                    />
+                  )}
+                  {current.capital.capitalRemainingMinor !== null && (
+                    <DataItem
+                      label="Capital still to return"
+                      value={formatMoney(current.capital.capitalRemainingMinor)}
+                    />
+                  )}
+                  {review?.priorCarry.status === "known" && (
+                    <DataItem
+                      label="Carry already charged"
+                      value={formatMoney(review.priorCarry.amountMinor)}
+                    />
+                  )}
+                  {current.after?.carryMinor != null && (
+                    <DataItem
+                      label="Estimated remaining carry"
+                      value={formatMoney(current.after.carryMinor)}
+                    />
+                  )}
+                </DataList>
+                {current.after?.method === "cumulative" && (
+                  <p className="holding-metadata">
+                    Only investor distributions reduce capital still to return.
+                    Carry is calculated on cumulative gains across received
+                    investor value, carry already charged and remaining value,
+                    less carry already charged. Paid upfront fees reduce net
+                    invested and do not reduce this capital hurdle.
+                  </p>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
           )}
-          <Collapsible className="carry-details">
-            <CollapsibleTrigger layout="inline">
-              Carry details <DisclosureIndicator />
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <DataList layout="rows">
-                {current.capital.capitalBasisMinor !== null && (
-                  <DataItem
-                    label="Contributed-capital hurdle"
-                    value={formatMoney(current.capital.capitalBasisMinor)}
-                  />
-                )}
-                {current.capital.investorDistributionsMinor !== null && (
-                  <DataItem
-                    label="Received distributions at historical value"
-                    value={formatMoney(
-                      current.capital.investorDistributionsMinor,
-                    )}
-                  />
-                )}
-                {current.capital.capitalRemainingMinor !== null && (
-                  <DataItem
-                    label="Capital still to return"
-                    value={formatMoney(current.capital.capitalRemainingMinor)}
-                  />
-                )}
-                {review && (
-                  <DataItem
-                    label="Carry already charged"
-                    value={
-                      review.priorCarry.status === "known"
-                        ? formatMoney(review.priorCarry.amountMinor)
-                        : "Unknown"
-                    }
-                  />
-                )}
-                {current.after?.carryMinor != null && (
-                  <DataItem
-                    label="Estimated remaining carry"
-                    value={formatMoney(current.after.carryMinor)}
-                  />
-                )}
-              </DataList>
-              {current.after?.method === "cumulative" && (
-                <p className="holding-metadata">
-                  Only investor distributions reduce capital still to return.
-                  Carry is calculated on cumulative gains across received
-                  investor value, carry already charged and remaining value,
-                  less carry already charged. Paid upfront fees reduce net
-                  invested and do not reduce this capital hurdle.
-                </p>
-              )}
-              {current.after?.method === "legacy_remaining_only" && (
-                <p className="holding-metadata">
-                  This illustration uses remaining value only. Record
-                  distribution history for a cumulative carry estimate.
-                </p>
-              )}
-            </CollapsibleContent>
-          </Collapsible>
         </>
       )}
     </div>

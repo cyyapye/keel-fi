@@ -152,6 +152,7 @@ export const InvestmentPositionRecordSchema = z.object({
   manualContext: ManualHoldingContextSchema.nullable().optional(),
   id: z.string().min(1),
   legalVehicleName: z.string().trim().min(1).max(1_000),
+  acceptedLegalName: z.string().trim().min(1).max(1_000).optional(),
   legalEntityNameEvidence: LegalEntityNameEvidenceSchema,
   ownerLabel: z.string().trim().min(1).max(1_000).optional(),
   reportedExposureName: z.string().trim().min(1).max(1_000).nullable(),
@@ -177,6 +178,7 @@ export const InvestmentPositionRecordSchema = z.object({
   investmentReview: InvestmentReviewStateSchema.nullable().optional(),
   companyReview: InvestmentCompanyReceiptSchema.nullable().optional(),
   automaticReview: AutomaticInvestmentReviewSchema.nullable().optional(),
+  hasLinkedRecords: z.boolean().optional(),
   linkedReportedValue: LinkedReportedValueSchema.nullable().optional(),
   renamedCompany: z
     .object({ name: z.string(), formerName: z.string(), reviewId: z.string() })

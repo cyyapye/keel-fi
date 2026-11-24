@@ -932,7 +932,9 @@ function InvestmentFacts({
           value={
             <>
               {decimal(shares.quantityMicros, 6)}
-              {lot.sharesAsOf && <small>{formatDate(lot.sharesAsOf)}</small>}
+              {lot.sharesAsOf && (
+                <small>As of {formatDate(lot.sharesAsOf)}</small>
+              )}
             </>
           }
         />
