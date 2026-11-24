@@ -83,14 +83,24 @@ export function PositionLinksEditor({
   onAccepted,
   reviewEntry = false,
   initialOpen = false,
+  presentation = "disclosure",
+  hasLinkedRecords = false,
 }: {
   positionId: string;
   reviewEntry?: boolean;
   initialOpen?: boolean;
+  presentation?: "disclosure" | "section";
+  hasLinkedRecords?: boolean;
   onAccepted: () => Promise<void>;
 }) {
   const headingId = useId();
+  const panelId = useId();
   const disclosure = useRef<HTMLButtonElement>(null);
+  const addAction = useRef<HTMLButtonElement>(null);
+  const emptyDraftCancel = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const inlineSection = presentation === "section";
+  const [adding, setAdding] = useState(false);
   const [historyRevision, setHistoryRevision] = useState(0);
   const [workspace, setWorkspace] = useState<PositionLinkWorkspace | null>(
     null,
@@ -105,6 +115,7 @@ export function PositionLinksEditor({
   const [useSourceValue, setUseSourceValue] = useState(false);
   const [targetId, setTargetId] = useState(positionId);
   const initializedPositionId = useRef<string | null>(null);
+  const returnFocus = useRef<typeof addAction | null>(null);
   const target = workspace?.positions.find((p) => p.id === targetId);
   const source = workspace?.positions.find((p) => p.id === sourceId);
   const newerName =
@@ -117,6 +128,9 @@ export function PositionLinksEditor({
     workspace?.links.filter(
       (l) => l.targetPositionId === targetId && l.state === "linked",
     ) ?? [];
+  const canViewRecords =
+    !inlineSection ||
+    (workspace === null ? hasLinkedRecords : activeLinks.length > 0);
   const candidates =
     workspace?.positions.filter(
       (p) =>
@@ -201,7 +215,6 @@ export function PositionLinksEditor({
   const load = useCallback(async () => {
     setBusy(true);
     setError(null);
-    setOpen(true);
     try {
       receiveWorkspace(await loadPositionLinks());
     } catch (e) {
@@ -210,6 +223,30 @@ export function PositionLinksEditor({
       setBusy(false);
     }
   }, [receiveWorkspace]);
+  useEffect(() => {
+    if (!adding || sourceId) return;
+    const picker = busy
+      ? null
+      : panel.current?.querySelector<HTMLButtonElement>(
+          'button[role="combobox"]',
+        );
+    (picker ?? emptyDraftCancel.current)?.focus();
+  }, [adding, busy, sourceId]);
+  useEffect(() => {
+    if (!busy && !adding && returnFocus.current) {
+      returnFocus.current.current?.focus();
+      returnFocus.current = null;
+    }
+  }, [adding, busy]);
+  function cancelAdd() {
+    setAdding(false);
+    setSourceId("");
+    setUseSourceValue(false);
+    if (inlineSection) {
+      setError(null);
+      returnFocus.current = addAction;
+    }
+  }
   useEffect(() => {
     if (!initialOpen) return;
     let active = true;
@@ -266,12 +303,25 @@ export function PositionLinksEditor({
           (source?.sourceProvider === "manual" ? false : useSourceValue),
         note: "",
       });
-      setWorkspace(await loadPositionLinks());
+      const updated = await loadPositionLinks();
+      setWorkspace(updated);
       setSourceId("");
       setUseSourceValue(false);
       await onAccepted();
       setHistoryRevision((n) => n + 1);
-      if (remove) requestAnimationFrame(() => disclosure.current?.focus());
+      if (inlineSection && !remove) {
+        setOpen(true);
+        setAdding(false);
+        returnFocus.current = addAction;
+      }
+      if (remove) {
+        const hasRemaining = updated.links.some(
+          (link) =>
+            link.targetPositionId === target.id && link.state === "linked",
+        );
+        returnFocus.current =
+          inlineSection && !hasRemaining ? addAction : disclosure;
+      }
       try {
         await refreshPortfolioBaseline();
       } catch {
@@ -286,23 +336,57 @@ export function PositionLinksEditor({
     }
   }
   return (
-    <section className="position-links" aria-labelledby={headingId}>
+    <section
+      className={
+        inlineSection
+          ? "position-links position-links--section"
+          : "position-links"
+      }
+      aria-labelledby={headingId}
+    >
+      {inlineSection && (
+        <div className="holding-section-heading position-links-heading">
+          <h3 id={headingId}>Linked investment records</h3>
+          {!adding && (
+            <Button
+              ref={addAction}
+              tone="quiet"
+              aria-label="Add linked investment record"
+              aria-controls={panelId}
+              disabled={busy}
+              onClick={() => {
+                setAdding(true);
+                setRelationship("same_investment");
+                if (workspace === null) void load();
+              }}
+            >
+              Add
+            </Button>
+          )}
+        </div>
+      )}
       <Collapsible
-        open={open}
+        open={adding || (open && (canViewRecords || error !== null))}
         onOpenChange={(value) => {
           setOpen(value);
           if (value && workspace === null) void load();
         }}
       >
-        <CollapsibleTrigger
-          ref={disclosure}
-          layout="inline"
-          disabled={busy && workspace !== null}
-        >
-          <h3 id={headingId}>Linked investment records</h3>
-          <DisclosureIndicator />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
+        {!adding && canViewRecords && (
+          <CollapsibleTrigger
+            ref={disclosure}
+            layout="inline"
+            disabled={busy && (inlineSection || workspace !== null)}
+          >
+            {inlineSection ? (
+              "View records"
+            ) : (
+              <h3 id={headingId}>Linked investment records</h3>
+            )}
+            <DisclosureIndicator />
+          </CollapsibleTrigger>
+        )}
+        <CollapsibleContent ref={panel} id={panelId}>
           {error && (
             <Notice tone="error">
               {error}
@@ -348,7 +432,7 @@ export function PositionLinksEditor({
                   />
                 </Field>
               )}
-              {activeLinks.map((link) => {
+              {(inlineSection && adding ? [] : activeLinks).map((link) => {
                 const member = workspace?.positions.find(
                   (p) => p.id === link.sourcePositionId,
                 );
@@ -448,34 +532,38 @@ export function PositionLinksEditor({
                   </div>
                 );
               })}
-              <Field
-                label={
-                  activeLinks.length ? "Link another source" : "Source to link"
-                }
-              >
-                <SearchSelect
+              {(!inlineSection || (adding && candidates.length > 0)) && (
+                <Field
                   label={
                     activeLinks.length
                       ? "Link another source"
                       : "Source to link"
                   }
-                  searchLabel="Search investment or source"
-                  placeholder="Choose a source record"
-                  emptyMessage="No matching investment records."
-                  items={candidates.map((p) => ({
-                    value: p.id,
-                    label: `${p.legalVehicleName} · ${p.source.label} · ${formatDate(p.snapshot.observedAt)}`,
-                    searchText: p.reportedExposureName ?? "",
-                  }))}
-                  disabled={busy}
-                  value={sourceId}
-                  onChange={(value) => {
-                    setSourceId(value);
-                    setUseSourceValue(false);
-                  }}
-                />
-              </Field>
-              {source && (
+                >
+                  <SearchSelect
+                    label={
+                      activeLinks.length
+                        ? "Link another source"
+                        : "Source to link"
+                    }
+                    searchLabel="Search investment or source"
+                    placeholder="Choose a source record"
+                    emptyMessage="No matching investment records."
+                    items={candidates.map((p) => ({
+                      value: p.id,
+                      label: `${p.legalVehicleName} · ${p.source.label} · ${formatDate(p.snapshot.observedAt)}`,
+                      searchText: p.reportedExposureName ?? "",
+                    }))}
+                    disabled={busy}
+                    value={sourceId}
+                    onChange={(value) => {
+                      setSourceId(value);
+                      setUseSourceValue(false);
+                    }}
+                  />
+                </Field>
+              )}
+              {source && (!inlineSection || adding) && (
                 <>
                   <Field label="Relationship">
                     <Select
@@ -677,20 +765,16 @@ export function PositionLinksEditor({
                     >
                       {busy ? "Saving…" : "Apply link"}
                     </Button>
-                    <Button
-                      disabled={busy}
-                      onClick={() => {
-                        setSourceId("");
-                      }}
-                    >
+                    <Button disabled={busy} onClick={cancelAdd}>
                       Cancel
                     </Button>
                   </ActionGroup>
                 </>
               )}
-              {activeLinks.length === 0 && candidates.length === 0 && (
-                <p>No other private investment records are available.</p>
-              )}
+              {(inlineSection ? adding : activeLinks.length === 0) &&
+                candidates.length === 0 && (
+                  <p>No other private investment records are available.</p>
+                )}
               {reviewEntry && (
                 <Collapsible>
                   <CollapsibleTrigger layout="inline">
@@ -706,6 +790,11 @@ export function PositionLinksEditor({
                 </Collapsible>
               )}
             </>
+          )}
+          {adding && !source && (
+            <Button ref={emptyDraftCancel} tone="quiet" onClick={cancelAdd}>
+              Cancel
+            </Button>
           )}
         </CollapsibleContent>
       </Collapsible>

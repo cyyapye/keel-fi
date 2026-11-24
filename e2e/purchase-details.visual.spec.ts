@@ -471,7 +471,7 @@ test(
       "Common",
     );
     await page.getByRole("button", { name: "Edit valuation" }).click();
-    await select(page, "Source", "Tokenfolio · Other SPV");
+    await select(page, "Source", "Follow Tokenfolio price");
     const save = page.getByRole("button", { name: "Save", exact: true });
     await expect(save).toBeDisabled();
     await select(
@@ -611,7 +611,7 @@ test("custom quantity share bases save, reload and preserve equivalent proxy val
   await expect(shares).toHaveValue("844");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("button", { name: "Edit valuation" }).click();
-  await select(page, "Source", "Tokenfolio · Other SPV");
+  await select(page, "Source", "Follow Tokenfolio price");
   const preview = page.getByRole("form", { name: "Edit valuation" });
   await expect(preview).toContainText("$17,724.00");
   await expect(preview).toContainText("Estimated shares");
@@ -622,7 +622,7 @@ test("custom quantity share bases save, reload and preserve equivalent proxy val
   await page.reload();
   await expect(
     page.getByRole("group", {
-      name: "Tokenfolio proxy remaining value · Before carry",
+      name: "Before carry",
       exact: true,
     }),
   ).toContainText("$17,724.00");

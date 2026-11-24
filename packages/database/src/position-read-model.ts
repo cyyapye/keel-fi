@@ -70,11 +70,13 @@ type InvestmentPositionRow = {
   market_quote_json?: string | null;
   purchase_receipt_json?: string | null;
   price_proxy_status_json?: string | null;
+  has_linked_records: number;
   linked_value_json: string | null;
   renamed_company_json: string | null;
   container_id: string;
   position_id: string;
   legal_vehicle_name: string;
+  accepted_legal_name: string | null;
   imported_legal_vehicle_name: string;
   owner_label: string;
   reported_exposure_name: string | null;
@@ -244,12 +246,16 @@ function positionFromRow(
         : InvestmentPositionRecordSchema.shape.manualContext.parse(
             JSON.parse(row.manual_context_json),
           ),
+    hasLinkedRecords: row.has_linked_records === 1,
     linkedReportedValue:
       row.linked_value_json == null
         ? null
         : LinkedReportedValueSchema.parse(JSON.parse(row.linked_value_json)),
     id: row.position_id,
     legalVehicleName: row.legal_vehicle_name,
+    ...(row.accepted_legal_name === null
+      ? {}
+      : { acceptedLegalName: row.accepted_legal_name }),
     ...(row.automatic_review_json == null
       ? {}
       : {
@@ -546,8 +552,15 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              ownership.container_id,
              position.id AS position_id,
              COALESCE(manual_identity.legal_vehicle_name,position.legal_vehicle_name) AS legal_vehicle_name,
+             entity_name.legal_name AS accepted_legal_name,
              COALESCE(manual_identity.owner_label,position.owner_label) AS owner_label,
              accepted_row.exposure_label AS reported_exposure_name,
+             EXISTS (
+               SELECT 1 FROM holding_position_link_heads link_presence
+               WHERE link_presence.household_id=position.household_id
+                 AND link_presence.target_position_id=position.id
+                 AND link_presence.state='linked'
+             ) AS has_linked_records,
              (SELECT json_object('reviewId',link.review_id,'sourcePositionId',link.source_position_id,
                'snapshotId',ls.id,'sourceLabel',CASE lp.provider WHEN 'tokenfolio' THEN 'Tokenfolio' WHEN 'sydecar' THEN 'Sydecar' WHEN 'wefunder' THEN 'Wefunder' ELSE 'AngelList' END,'observedAt',ls.observed_at,
                'state',CASE WHEN ls.provider_status='live' AND COALESCE(json_extract(lr.state_json,'$.participationStatus'),'current') NOT IN ('historical','cancelled') THEN ls.unrealized_value_state ELSE 'not_reported' END,
@@ -649,6 +662,17 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
            FROM current_positions position
            LEFT JOIN manual_holding_identity_heads manual_head ON manual_head.position_id=position.id AND manual_head.household_id=position.household_id
            LEFT JOIN manual_holding_identity_versions manual_identity ON manual_identity.id=manual_head.version_id
+           LEFT JOIN legal_entity_source_decisions entity_decision ON entity_decision.id = (
+             SELECT latest.id FROM legal_entity_source_decisions latest
+             WHERE position.position_kind = 'spv_interest'
+               AND latest.household_id = position.household_id
+               AND latest.source_kind = 'holding_position'
+               AND latest.source_reference = position.id
+             ORDER BY latest.version DESC LIMIT 1
+           )
+           LEFT JOIN legal_entity_name_heads entity_name ON entity_name.legal_entity_id = entity_decision.legal_entity_id
+             AND entity_name.household_id = position.household_id
+             AND entity_decision.decision = 'linked'
            LEFT JOIN holding_purchase_heads purchase_head ON purchase_head.position_id=position.id AND purchase_head.household_id=position.household_id
            LEFT JOIN holding_purchase_reviews purchase_review ON purchase_review.id=purchase_head.review_id
            LEFT JOIN holding_price_proxy_links proxy_link ON proxy_link.position_id=position.id

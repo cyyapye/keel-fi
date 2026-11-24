@@ -1,6 +1,11 @@
 import type { PurchaseReceipt } from "@keel/domain/position-purchases";
 import { decimal } from "./decimal-input";
-import { formatDate, formatMoney, formatSharePrice } from "./format";
+import {
+  formatDate,
+  formatMoney,
+  formatSavedAt,
+  formatSharePrice,
+} from "./format";
 
 type Fact = { label: string; value: string };
 const words = (value: string) =>
@@ -367,7 +372,7 @@ function facts(
     put(
       key + "date",
       label + "Valuation date",
-      record.origin === "proxy" ? record.priceDate : record.effectiveDate,
+      record.origin === "proxy" ? null : record.effectiveDate,
       formatDate,
     );
     put(
@@ -390,7 +395,12 @@ function facts(
     );
     put(key + "carry", label + "Carry", record.carryStatus);
     put(key + "url", label + "Source link", record.sourceUrl);
-    put(key + "captured", label + "Source captured", record.sourceCapturedAt);
+    put(
+      key + "captured",
+      label + "Source captured",
+      record.sourceCapturedAt,
+      formatSavedAt,
+    );
     if (record.sourceContinuation) {
       put(
         key + "metadataQuote",

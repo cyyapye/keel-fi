@@ -397,12 +397,14 @@ export function createGoalPreview(
 
 export const HoldingSchema = z.object({
   manualContext: ManualHoldingContextSchema.nullable().optional(),
+  hasLinkedRecords: z.boolean().optional(),
   linkedReportedValue: LinkedReportedValueSchema.nullable().optional(),
   purchaseContext: PurchaseContextSchema.nullable().optional(),
   shareValueEstimate: ShareValueEstimateSchema.nullable().optional(),
   id: z.string().min(1),
   companyId: z.string().min(1).nullable(),
   positionName: z.string().min(1),
+  acceptedLegalName: z.string().trim().min(1).max(1_000).optional(),
   exposureName: z.string().min(1).nullable(),
   ownerLabel: z.string().min(1),
   positionKind: z.enum(["direct", "spv_interest", "fund_interest"]),

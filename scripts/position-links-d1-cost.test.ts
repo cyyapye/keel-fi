@@ -88,6 +88,9 @@ it("bounds 120-record link projections, positive matches, growing history, empty
       );
     const positions = await flatten();
     expect(positions).toHaveLength(120);
+    expect(
+      positions.every((position) => position.hasLinkedRecords === false),
+    ).toBe(true);
     expect(meter.cost.roundTrips).toBe(3);
     expect(meter.cost.rowsWritten).toBe(0);
     const first = positions[0]!;
@@ -124,7 +127,11 @@ it("bounds 120-record link projections, positive matches, growing history, empty
         ),
       });
       meter.reset();
-      expect(await flatten()).toHaveLength(60);
+      const targets = await flatten();
+      expect(targets).toHaveLength(60);
+      expect(targets.every((target) => target.hasLinkedRecords === true)).toBe(
+        true,
+      );
       expect(meter.cost.roundTrips).toBe(3);
       expect(meter.cost.rowsWritten).toBe(0);
       expect(meter.cost.rowsRead).toBeLessThanOrEqual(12_000);
@@ -165,6 +172,9 @@ it("bounds 120-record link projections, positive matches, growing history, empty
       expect(
         plan.filter((r) => /SCAN (link|lp|la|ls|lr|a|ss)\b/u.test(r.detail)),
       ).toEqual([]);
+      expect(plan.map((r) => r.detail)).toContain(
+        "SEARCH link_presence USING COVERING INDEX holding_position_link_heads_target (household_id=? AND target_position_id=? AND state=?)",
+      );
     }
     meter.reset();
     await reader.listForHousehold("missing-household");

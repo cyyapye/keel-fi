@@ -117,6 +117,7 @@ function importedHoldingFrom(
 
   return HoldingSchema.parse({
     manualContext: position.manualContext ?? null,
+    hasLinkedRecords: position.hasLinkedRecords,
     linkedReportedValue: position.linkedReportedValue ?? null,
     purchaseContext:
       (position.kind === "spv_interest" || position.manualContext != null) &&
@@ -143,6 +144,7 @@ function importedHoldingFrom(
     id: position.id,
     companyId,
     positionName: position.legalVehicleName,
+    acceptedLegalName: position.acceptedLegalName,
     exposureName: position.renamedCompany
       ? `${position.renamedCompany.name} (formerly ${position.renamedCompany.formerName})`
       : (canonicalCompanyNames.at(-1) ?? position.reportedExposureName),

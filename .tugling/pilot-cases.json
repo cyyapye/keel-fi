@@ -1268,6 +1268,7 @@
     "scripts/d1-read-budgets.test.ts :: real D1 reads at collection scale > keeps history and unrelated households out of the dashboard and continuity read cost",
     "scripts/d1-read-budgets.test.ts :: real D1 reads at collection scale > keeps the 50-source limit when two discovery batches race after reading the same capacity",
     "scripts/d1-read-budgets.test.ts :: real D1 reads at collection scale > loads the maximum 50 brokerage statuses in three requests",
+    "scripts/d1-read-budgets.test.ts :: real D1 reads at collection scale > reads accepted legal names for 120 SPVs independently of decision history and other households",
     "scripts/d1-read-budgets.test.ts :: real D1 reads at collection scale > selects at most 40 jobs from 120 watch targets without bootstrap writes",
     "scripts/dev-ports.test.ts :: resolveDevPorts > accepts explicit ports and rejects invalid pairs",
     "scripts/dev-ports.test.ts :: resolveDevPorts > assigns stable alternate ports to linked worktrees",
