@@ -2,6 +2,7 @@ import type { MarketReview } from "@keel/domain/market-close";
 import type { Holding } from "@keel/domain";
 import type { PositionValuationEvidenceSchema } from "@keel/domain/position-purchases";
 import {
+  currentReportedValueReview,
   reviewedInvestmentFromReceipt,
   effectivePositionValuation,
 } from "@keel/domain/position-purchases";
@@ -64,15 +65,12 @@ function reportedValueReview(
   context: NonNullable<Holding["purchaseContext"]>,
   total: number | null,
 ) {
-  const priorReview =
-    context.receipt?.details.investmentTerms?.reportedValueReview;
-  return (context.receipt?.details.investmentSnapshotId ??
-    context.receipt?.snapshotId) === context.snapshotId &&
-    priorReview?.valueMinor === total &&
-    priorReview.sourceSnapshotId ===
-      (context.reportedValueSnapshotId ?? context.snapshotId)
-    ? priorReview
-    : undefined;
+  return currentReportedValueReview(
+    context.receipt,
+    context.snapshotId,
+    total,
+    context.reportedValueSnapshotId ?? context.snapshotId,
+  );
 }
 
 function reportedRecord(

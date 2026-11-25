@@ -649,6 +649,7 @@ function publicCloseDebits(
 ) {
   const history = details.distributionReview;
   let debits = 0n;
+  let effectiveDate = quote.date;
   for (const event of history?.events ?? []) {
     if (
       event.kind !== "in_kind" ||
@@ -659,7 +660,6 @@ function publicCloseDebits(
     if (
       openingDates.some((d) => d >= event.receivedOn) ||
       history?.coverage.status !== "complete" ||
-      event.receivedOn > quote.date ||
       !debit ||
       debit.ticker !== quote.ticker ||
       debit.shareBasis.key !== quote.shareBasis.key
@@ -670,8 +670,9 @@ function publicCloseDebits(
     const divisor = BigInt(debit.shareBasis.unitsPerOriginal);
     if (scaled % divisor !== 0n) return null;
     debits += scaled / divisor;
+    if (event.receivedOn > effectiveDate) effectiveDate = event.receivedOn;
   }
-  return debits;
+  return { debits, effectiveDate };
 }
 
 export function publicClosingValuation(
@@ -681,6 +682,12 @@ export function publicClosingValuation(
   const basis = quote.proxyBasis;
   const details = receipt.details;
   if (basis && basis.sharesKey !== valuationSharesKey(details)) return null;
+  const indexed = basis?.method === "price_change";
+  const dates = indexed
+    ? [basis.valueDate]
+    : details.lots.map((lot) => lot.sharesAsOf ?? "");
+  const releases = publicCloseDebits(details, quote, dates);
+  if (!releases) return null;
   const record = {
     id: quote.id,
     origin: "public_close" as const,
@@ -688,7 +695,7 @@ export function publicClosingValuation(
     totalMinor: null,
     priceMicros: quote.priceMicros,
     priceDate: quote.date,
-    effectiveDate: quote.date,
+    effectiveDate: releases.effectiveDate,
     shareClass: quote.shareClass,
     shareBasis: quote.shareBasis,
     sourceLabel: basis ? "Closing-price proxy" : "Closing-price estimate",
@@ -700,12 +707,6 @@ export function publicClosingValuation(
     watchEvidenceId: null,
     followSource: true,
   };
-  const indexed = basis?.method === "price_change";
-  const dates = indexed
-    ? [basis.valueDate]
-    : details.lots.map((lot) => lot.sharesAsOf ?? "");
-  const debits = publicCloseDebits(details, quote, dates);
-  if (debits === null) return null;
   if (indexed) {
     if (
       quote.date < basis.startDate ||
@@ -723,7 +724,7 @@ export function publicClosingValuation(
       BigInt(basis.startMinor) *
       BigInt(quote.shareBasis.unitsPerOriginal) *
       10_000_000_000n;
-    const remaining = opening - debits * openingPrice;
+    const remaining = opening - releases.debits * openingPrice;
     if (remaining < 0n) return null;
     const value =
       (remaining * BigInt(quote.priceMicros) + denominator / 2n) / denominator;
@@ -744,9 +745,25 @@ export function publicClosingValuation(
     basis?.method === "indicative_shares"
       ? { ...record, origin: "proxy", crossClassProxy: true }
       : record,
-    debits,
+    releases.debits,
   );
   return assessment.ok ? { ...record, ...assessment.calculation } : null;
+}
+
+export function currentReportedValueReview(
+  receipt: PurchaseReceipt | null | undefined,
+  snapshotId: string,
+  valueMinor: number | null,
+  sourceSnapshotId: string = snapshotId,
+) {
+  const review = receipt?.details.investmentTerms?.reportedValueReview;
+  return review &&
+    (receipt?.details.investmentSnapshotId ?? receipt?.snapshotId) ===
+      snapshotId &&
+    review.sourceSnapshotId === sourceSnapshotId &&
+    review.valueMinor === valueMinor
+    ? review
+    : undefined;
 }
 
 /** Proposals never change an existing enrollment. Its accepted basis is carried with the quote. */
@@ -754,18 +771,28 @@ export function proposedCloseProxyBasis(
   receipt: PurchaseReceipt,
   snapshotId: string,
   quote: MarketQuote,
+  reportedValueMinor: number | null,
+  reportedSnapshotId: string,
 ): CloseProxyBasis | null {
   const sharesKey = valuationSharesKey(receipt.details);
   const indicative = { method: "indicative_shares" as const, sharesKey };
   if (publicClosingValuation(receipt, { ...quote, proxyBasis: indicative }))
     return indicative;
-  const prior = effectivePositionValuation(
+  const selected = effectivePositionValuation(
     { ...receipt, publicClose: undefined },
     snapshotId,
   );
+  if (selected?.origin === "at_cost") return null;
+  const prior =
+    selected ??
+    currentReportedValueReview(
+      receipt,
+      snapshotId,
+      reportedValueMinor,
+      reportedSnapshotId,
+    );
   if (
     !prior ||
-    prior.origin === "at_cost" ||
     prior.carryStatus !== "before_carry" ||
     !prior.effectiveDate ||
     prior.effectiveDate > quote.date ||

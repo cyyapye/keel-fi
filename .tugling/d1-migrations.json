@@ -520,7 +520,7 @@
       "migrations": [
         {
           "name": "0099_market_proxy_basis.sql",
-          "sha256": "17036463c028639d4fae85a74470361fbdff4aee880aa5a29c3ce0d4fe033eae"
+          "sha256": "1704ada3fafac975daeebbf68b9dc1ce60e17bcd403869e4f4cf760af7c4f775"
         }
       ],
       "fixture": "public-holding-history-v1",
