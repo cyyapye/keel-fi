@@ -201,6 +201,14 @@ test("inspects source-backed activity, remaining lots and account-only events wi
     name: "Calculation",
     exact: true,
   });
+  const expectCalculationBelowMetrics = async () => {
+    const summaryBox = await market.boundingBox();
+    const controlBox = await calculation.boundingBox();
+    expect(controlBox!.y).toBeGreaterThanOrEqual(
+      summaryBox!.y + summaryBox!.height - 1,
+    );
+  };
+  await expectCalculationBelowMetrics();
   await calculation.click();
   await expect(
     page.getByText("Unrealized return", { exact: true }),
@@ -210,6 +218,7 @@ test("inspects source-backed activity, remaining lots and account-only events wi
       exact: true,
     }),
   ).toBeVisible();
+  await expectCalculationBelowMetrics();
   await calculation.click();
   await expect(
     page.getByRole("button", { name: "Add value evidence" }),

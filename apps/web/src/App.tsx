@@ -2326,7 +2326,11 @@ function PositionValueAdjustmentEditor({
   ]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
   if (context === null) {
-    return renderSummary?.(null) ?? null;
+    return renderSummary ? (
+      <section aria-label="Position valuation" className="brokerage-valuation">
+        {renderSummary(null)}
+      </section>
+    ) : null;
   }
 
   const valueMinor = parseMoneyInput(value);
