@@ -431,6 +431,12 @@ describe("Plaid Investments connection state", () => {
           },
         ],
       });
+      input.inventoryEvidence = {
+        sourceUpdatedAt: input.retrievedAt,
+        objectKey: "synthetic/inventory/status.json",
+        sha256: "e".repeat(64),
+        byteSize: 512,
+      };
       input.rows[0]!.issues = ["Synthetic invalid source observation."];
       const report = await holdings.stagePlaidInvestmentsHoldingImport(
         accessSubject,
@@ -484,6 +490,13 @@ describe("Plaid Investments connection state", () => {
       );
       expect(next?.created).toBe(true);
       await repository.failSync(accessSubject, next!.id, "unexpected_failure");
+      await expect(
+        repository.getConnectionStatus(accessSubject, connection.id),
+      ).resolves.toMatchObject({
+        latestRunStatus: "failed",
+        latestAdjudication: null,
+        cashMissingContainerIds: [report.preview.coverage[0]!.containerId],
+      });
       expect(
         await repository.beginAutomaticSync(
           accessSubject,

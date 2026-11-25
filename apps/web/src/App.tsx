@@ -2778,20 +2778,27 @@ function BrokerageSummary({
         : null));
   const date =
     reviewed?.effectiveDate ??
-    (estimate ? estimate.effectiveDate : holding.effectiveDate);
+    (estimate
+      ? estimate.effectiveDate
+      : (holding.reportedValueObservedOn ?? holding.effectiveDate));
   const label = reviewed
     ? "Reviewed value"
     : estimate
       ? "Estimated value"
       : "Market value";
-  const performance = holdingPerformance(holding);
+  // Only the shares still held and their basis enter the unrealized return.
+  const performance = calculatePositionPerformance({
+    currentValueMinor: value?.valueMinor ?? null,
+    currentValueReported: value !== null,
+    realizedValueMinor: 0,
+    providerCostBasisMinor: holding.costBasisMinor,
+    fundedMinor: null,
+    economicsContext: null,
+    allowFundedAmountEstimate: false,
+  });
   const money = (amount: number) =>
     formatCurrency(amount, holdingCurrency(holding));
-  const reportedReturn =
-    performance.costBasisSource === "provider" &&
-    holding.realizedValueMinor != null
-      ? performance.totalReturnPpm
-      : null;
+  const reportedReturn = performance.totalReturnPpm;
   return (
     <>
       <section aria-label="Position summary" className="holding-value-summary">
@@ -2806,6 +2813,7 @@ function BrokerageSummary({
           {reportedReturn !== null && (
             <HoldingReturn
               percent={formatSignedProbability(reportedReturn)}
+              accessiblePercent={`Unrealized return ${formatSignedProbability(reportedReturn)}`}
               performance={performance}
               estimated={Boolean(estimate)}
               date={date}
@@ -2846,7 +2854,7 @@ function BrokerageSummary({
               holding.costBasisMinor !== null && (
                 <DataList layout="rows">
                   <DataItem
-                    label="Total return"
+                    label="Unrealized return"
                     value={
                       money(performance.totalGainMinor) +
                       (performance.totalGainMinor < 0
@@ -3151,7 +3159,7 @@ function LegacyHoldingDetailWorkspace({
         ? {
             label: "Broker-reported value",
             value: valueLenses[0].value,
-            helper: `${holding.sourceLabel} · ${formatDate(holding.effectiveDate)}`,
+            helper: `${holding.sourceLabel} · ${formatDate(holding.reportedValueObservedOn ?? holding.effectiveDate)}`,
           }
         : valueLenses[1]
       : undefined;

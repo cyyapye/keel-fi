@@ -7,7 +7,7 @@ import {
   type InvestmentSyncErrorCode,
 } from "@keel/domain";
 import { z } from "zod";
-import { publicSourceState } from "./public-source-state";
+import { publicSourceState, reportMissingCashSql } from "./public-source-state";
 
 const CONNECTOR_TYPE = "plaid-investments";
 const INVESTMENT_SYNC_STALE_AFTER_MS = 5 * 60 * 1_000;
@@ -393,8 +393,6 @@ export class D1InvestmentConnectionsRepository
     connections: readonly ConnectionRow[],
   ): Promise<Map<string, ConnectionStatusRow>> {
     const ids = connections.flatMap((connection) =>
-      connection.status === "active" &&
-      connection.investment_lifecycle_state === "active" &&
       connection.investment_connection_id !== null
         ? [connection.investment_connection_id]
         : [],
@@ -428,13 +426,7 @@ export class D1InvestmentConnectionsRepository
          AND NOT EXISTS(SELECT 1 FROM public_holding_source_heads h WHERE h.review_key='report:'||r.id AND h.decision='ignore')),0) unresolved,
         (SELECT json_group_array(q.position_id) FROM holding_import_quarantines q WHERE q.import_id=head.import_id AND q.position_id IS NOT NULL) omitted,
         (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported,
-        (SELECT json_group_array(missing.container_id) FROM (
-          SELECT scope.container_id FROM holding_import_rows r
-          JOIN holding_import_row_containers scope ON scope.import_row_id=r.id
-          JOIN holding_import_coverages covered ON covered.import_id=r.import_id AND covered.container_id=scope.container_id
-          WHERE r.import_id=head.import_id AND evidence.source_updated_at IS NOT NULL AND covered.completeness='complete'
-          GROUP BY scope.container_id HAVING MAX(r.instrument_type='cash')=0
-        ) missing) missing_cash
+        (SELECT json_group_array(container_id) FROM (${reportMissingCashSql("head.import_id")})) missing_cash
       FROM investment_connections connection
       LEFT JOIN public_holding_import_heads head ON head.connection_id=connection.id AND head.household_id=connection.household_id
       LEFT JOIN public_holding_inventory_evidence evidence ON evidence.import_id=head.import_id
@@ -545,6 +537,20 @@ export class D1InvestmentConnectionsRepository
     connection: ConnectionRow,
     row: ConnectionStatusRow | undefined,
   ): InvestmentConnectionStatus {
+    const inventoryCoverage = {
+      ...(row && row.missing_cash !== "[]"
+        ? {
+            cashMissingContainerIds: z
+              .array(z.string())
+              .max(100)
+              .parse(JSON.parse(row.missing_cash)),
+          }
+        : {}),
+      ...(row?.accepted_inventory_at
+        ? { acceptedInventoryAt: row.accepted_inventory_at }
+        : {}),
+      acceptedInventoryEmpty: row?.accepted_inventory_empty === 1,
+    };
     if (
       connection.status === "revoked" ||
       connection.investment_connection_id === null ||
@@ -560,6 +566,7 @@ export class D1InvestmentConnectionsRepository
           connection.institution_label ?? connection.display_label,
         status: "disconnected",
         lastSyncedAt: connection.last_synced_at,
+        ...inventoryCoverage,
         automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
@@ -579,6 +586,7 @@ export class D1InvestmentConnectionsRepository
         institutionLabel: connection.institution_label,
         status: "paused",
         lastSyncedAt: connection.last_synced_at,
+        ...inventoryCoverage,
         automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
@@ -636,14 +644,6 @@ export class D1InvestmentConnectionsRepository
                 }
               : {}),
             autoAppliedCount: latestRun.auto_applied_count,
-            ...(latestRun.missing_cash !== "[]"
-              ? {
-                  cashMissingContainerIds: z
-                    .array(z.string())
-                    .max(100)
-                    .parse(JSON.parse(latestRun.missing_cash)),
-                }
-              : {}),
             ...(latestRun.report_reused === 1 ? { reportReused: true } : {}),
             ...(latestRun.preserved_observed_at
               ? { preservedObservedAt: latestRun.preserved_observed_at }
@@ -665,10 +665,7 @@ export class D1InvestmentConnectionsRepository
             ? "needs_attention"
             : "ready",
       lastSyncedAt: connection.last_synced_at,
-      ...(latestRun?.accepted_inventory_at
-        ? { acceptedInventoryAt: latestRun.accepted_inventory_at }
-        : {}),
-      acceptedInventoryEmpty: latestRun?.accepted_inventory_empty === 1,
+      ...inventoryCoverage,
       automaticUpdatesEnabled: connection.provider_account_key !== null,
       latestImportId:
         latestAdjudication !== null && latestAdjudication.quarantinedCount > 0

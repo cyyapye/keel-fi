@@ -58,6 +58,8 @@ async function openHolding(page: Page) {
     {
       ...original,
       administratorNavMinor: 1980000,
+      realizedValueMinor: 90000,
+      reportedValueObservedOn: "2026-11-09",
       quantityMicros: 110_000_000,
       costBasisMinor: 1300000,
       effectiveDate: "2026-11-10",
@@ -183,7 +185,32 @@ test("inspects source-backed activity, remaining lots and account-only events wi
   await page
     .getByRole("button", { name: "Sources & history", exact: true })
     .click();
-  await expect(page.locator(".holding-brokerage-report time")).toBeVisible();
+  await expect(page.locator(".holding-brokerage-report time")).toHaveAttribute(
+    "datetime",
+    "2026-11-10",
+  );
+  const market = page.getByRole("region", { name: "Position summary" });
+  await expect(
+    market.getByLabel("Unrealized return +52.3%", { exact: true }),
+  ).toBeVisible();
+  await expect(market.locator("time")).toHaveAttribute(
+    "datetime",
+    "2026-11-09",
+  );
+  const calculation = page.getByRole("button", {
+    name: "Calculation",
+    exact: true,
+  });
+  await calculation.click();
+  await expect(
+    page.getByText("Unrealized return", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("$6,800.00 gain ÷ $13,000.00 cost basis = +52.3%", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await calculation.click();
   await expect(
     page.getByRole("button", { name: "Add value evidence" }),
   ).toHaveCount(0);
@@ -193,6 +220,9 @@ test("inspects source-backed activity, remaining lots and account-only events wi
   await page
     .getByRole("button", { name: "Sources & history", exact: true })
     .click();
+  await expect(
+    page.getByText("Unrealized return", { exact: true }),
+  ).toHaveCount(0);
   const initialSummary = await page.locator(".holding-summary").textContent();
   await expect(
     feature.getByText("Buy 40 shares", { exact: true }),

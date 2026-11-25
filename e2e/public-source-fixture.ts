@@ -130,7 +130,12 @@ export const test = base.extend<
               ...(result.hasNext
                 ? {
                     next: async (
-                      mode: "returned" | "empty" | "partial" | "cash-missing",
+                      mode:
+                        | "returned"
+                        | "empty"
+                        | "partial"
+                        | "cash-missing"
+                        | "prior-value",
                     ) =>
                       nextReport.parse(
                         await dispatch({

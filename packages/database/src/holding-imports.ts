@@ -37,6 +37,7 @@ import {
   buildPublicSourceState,
   type PublicSourcePosition,
   type PublicSourceState,
+  reportMissingCashSql,
 } from "./public-source-state";
 
 const MAX_IMPORT_BYTES = 1_048_576;
@@ -334,6 +335,7 @@ type DecisionContext = {
   readonly policyVersion: string | null;
   readonly allowPartial: boolean;
   readonly reasonCodesByRow: ReadonlyMap<string, readonly string[]>;
+  readonly expectedCashlessSourceVersion?: number;
   readonly rowObservedAtById?: ReadonlyMap<string, string>;
   readonly afterApplications?: (
     applications: readonly {
@@ -375,6 +377,7 @@ type ImportIdentityRow = {
 };
 
 type ImportCoveragePreviewRow = {
+  cash_missing: number;
   container_id: string;
   display_label: string;
   completeness:
@@ -2308,6 +2311,9 @@ export class D1HoldingImportRepository {
             policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
             allowPartial: true,
             reasonCodesByRow: reasons,
+            ...(atomicQuarantines
+              ? { expectedCashlessSourceVersion: state.version }
+              : {}),
             rowObservedAtById: new Map(
               rows.flatMap((row) =>
                 row.public_observed_on
@@ -2969,10 +2975,11 @@ export class D1HoldingImportRepository {
       all<Omit<ImportCoveragePreviewRow, "reported_row_count">>(
         this.db
           .prepare(
-            `SELECT
-             coverage.container_id,
+            `WITH report_scope(import_id) AS (VALUES (?))
+           SELECT coverage.container_id,
              version.display_label,
-             coverage.completeness
+             coverage.completeness,
+             ${provider.data === PLAID_INVESTMENTS_PROVIDER ? `coverage.container_id IN (${reportMissingCashSql("(SELECT import_id FROM report_scope)")})` : "0"} AS cash_missing
            FROM holding_import_coverages coverage
            JOIN ownership_container_versions version
              ON version.container_id = coverage.container_id
@@ -2981,7 +2988,7 @@ export class D1HoldingImportRepository {
               FROM ownership_container_versions later
               WHERE later.supersedes_version_id = version.id
             )
-           WHERE coverage.import_id = ? AND coverage.household_id = ?
+           WHERE coverage.import_id = (SELECT import_id FROM report_scope) AND coverage.household_id = ?
            ORDER BY version.display_label, coverage.container_id`,
           )
           .bind(importId, identity.household_id),
@@ -3028,14 +3035,11 @@ export class D1HoldingImportRepository {
       ),
     ]);
     const reportedRowsByContainer = new Map<string, number>();
-    const reportedCashContainers = new Set<string>();
     for (const row of rows) {
       reportedRowsByContainer.set(
         row.container_id,
         (reportedRowsByContainer.get(row.container_id) ?? 0) + 1,
       );
-      if (row.instrument_type === "cash")
-        reportedCashContainers.add(row.container_id);
     }
     const exposureNamesByRowId = new Map<string, string[]>();
     currentExposures.forEach((record) => {
@@ -3239,12 +3243,7 @@ export class D1HoldingImportRepository {
         displayLabel: record.display_label,
         completeness: record.completeness,
         reportedRowCount: reportedRowsByContainer.get(record.container_id) ?? 0,
-        ...(inventory?.sourceUpdatedAt &&
-        record.completeness === "complete" &&
-        reportedRowsByContainer.has(record.container_id) &&
-        !reportedCashContainers.has(record.container_id)
-          ? { cashMissing: true as const }
-          : {}),
+        ...(record.cash_missing === 1 ? { cashMissing: true as const } : {}),
       })),
       rows: previewRows,
       ...(sourceState
@@ -3558,6 +3557,12 @@ export class D1HoldingImportRepository {
       }
 
       const decisionId = crypto.randomUUID();
+      const reasonCodes = decisionContext.reasonCodesByRow.get(row.id) ?? [];
+      const guarded =
+        decisionContext.expectedCashlessSourceVersion !== undefined &&
+        reasonCodes.includes("account_cash_missing");
+      // An application requires its decision. A concurrent ignore or graph edit
+      // suppresses the decision below, which rolls the application batch back.
       statements.push(
         this.db
           .prepare(
@@ -3566,7 +3571,13 @@ export class D1HoldingImportRepository {
                matched_position_id, currency, reviewed_snapshot_fingerprint,
                rationale, decision_source, policy_version, reason_codes_json,
                decided_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+             ${
+               guarded
+                 ? `WHERE COALESCE((SELECT version FROM public_holding_source_versions WHERE household_id=?),0)=?
+               AND NOT EXISTS(SELECT 1 FROM public_holding_source_heads WHERE review_key='report:'||? AND decision='ignore')`
+                 : ""
+             }`,
           )
           .bind(
             decisionId,
@@ -3580,8 +3591,15 @@ export class D1HoldingImportRepository {
             decision.rationale,
             decisionContext.source,
             decisionContext.policyVersion,
-            JSON.stringify(decisionContext.reasonCodesByRow.get(row.id) ?? []),
+            JSON.stringify(reasonCodes),
             createdAt,
+            ...(guarded
+              ? [
+                  identity.household_id,
+                  decisionContext.expectedCashlessSourceVersion,
+                  row.id,
+                ]
+              : []),
           ),
       );
 

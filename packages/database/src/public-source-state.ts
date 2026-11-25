@@ -26,6 +26,20 @@ export type PublicSourcePosition = {
   account_cash_unconfirmed?: number;
 };
 
+// A certified empty account needs affirmative zero-cash evidence.
+export function reportMissingCashSql(
+  importId: "head.import_id" | "(SELECT import_id FROM report_scope)",
+) {
+  return `SELECT covered.container_id FROM holding_import_coverages covered
+    JOIN public_holding_inventory_evidence evidence ON evidence.import_id=covered.import_id
+    WHERE covered.import_id=${importId} AND covered.completeness='complete' AND evidence.source_updated_at IS NOT NULL
+    EXCEPT SELECT scope.container_id FROM holding_import_rows r
+    CROSS JOIN holding_import_row_containers scope ON scope.import_row_id=r.id
+    WHERE r.import_id=${importId} AND r.instrument_type='cash'
+    EXCEPT SELECT zero.value FROM public_holding_inventory_evidence evidence,
+      json_each(evidence.zero_cash_containers_json) zero WHERE evidence.import_id=${importId}`;
+}
+
 const CURRENT_SOURCE_SEEDS_SQL = `
   SELECT active.position_id FROM public_holding_active_positions active
   WHERE active.household_id=(SELECT household_id FROM scope)`;

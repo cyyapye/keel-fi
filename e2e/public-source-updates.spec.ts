@@ -689,6 +689,25 @@ test("shows which positions updated when an account report omits cash", async ({
     await page.locator("body").evaluate((element) => element.clientWidth),
   );
   await captureSource(source, "cash-missing", true);
+  // The latest certified account quantity can reuse a previously seen quote.
+  const priorValue = await fixture.next("prior-value");
+  const applied = await page.request.post(
+    `/api/holding-imports/${priorValue}/reconcile`,
+    {
+      headers: { Origin: origin },
+    },
+  );
+  expect(applied.ok(), await applied.text()).toBe(true);
+  await page.reload();
+  await source.locator(".investment-institution__trigger").click();
+  await source
+    .getByRole("button", { name: "View activity", exact: true })
+    .click();
+  await expect(
+    source
+      .getByRole("listitem")
+      .filter({ hasText: /CORE.*Accepted automatically/ }),
+  ).toContainText("$2,000.00");
 });
 
 test("reconciles a complete brokerage inventory automatically and keeps historical reports read-only", async ({

@@ -2714,9 +2714,7 @@ export function InvestmentHoldings({
                 status?.institutionLabel ??
                 connection?.institutionLabel ??
                 "Investment source";
-              const missingCash = new Set(
-                status?.latestAdjudication?.cashMissingContainerIds,
-              );
+              const missingCash = new Set(status?.cashMissingContainerIds);
               const lastComplete =
                 status?.acceptedInventoryAt ??
                 (missingCash.size > 0
@@ -2724,7 +2722,7 @@ export function InvestmentHoldings({
                   : latestCompleteObservation(connection));
               const reportLabel =
                 missingCash.size > 0
-                  ? "Last complete report"
+                  ? "Latest accepted account inventory"
                   : status?.latestAdjudication?.inventoryAccepted === false
                     ? "Last accepted report"
                     : "Latest report";

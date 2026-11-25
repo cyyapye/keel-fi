@@ -61,10 +61,13 @@ function activityLabel(
   if (returned) return "Holding returned";
   if (row.sourceReview) return decisionLabel(row.sourceReview.decision);
   if (row.adjudicationStatus === "ignored") return "Older observation ignored";
-  if (row.action === "no_change" || unchanged) return "No change";
+  if (unchanged) return "No change";
   if (row.adjudicationStatus !== "auto_applied") return "Reported";
   if (row.action === "create_position") return "Added automatically";
-  return sharesChanged ? "Shares updated" : "Updated automatically";
+  if (sharesChanged) return "Shares updated";
+  return row.action === "no_change"
+    ? "Accepted automatically"
+    : "Updated automatically";
 }
 
 export function SourceInventoryOutcome({

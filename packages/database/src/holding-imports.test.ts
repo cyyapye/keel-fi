@@ -3081,6 +3081,7 @@ describe("AngelList holding import persistence", () => {
     ];
     const zero = await capture(zeroInventory);
     expect(zero.summary.rowCount).toBe(0);
+    expect(zero.coverage[0]?.cashMissing).toBeUndefined();
     expect(zero.inventory).toMatchObject({
       complete: true,
       closedPositions: [expect.objectContaining({ instrumentType: "cash" })],
@@ -3293,7 +3294,11 @@ describe("AngelList holding import persistence", () => {
         .autoAppliedCount,
     ).toBe(1);
 
-    const complete = await capture(13, [
+    const noBalances = await capture(13, []);
+    expect(noBalances.coverage[0]?.cashMissing).toBe(true);
+    expect(noBalances.inventory?.acceptedAt).toBeNull();
+
+    const complete = await capture(14, [
       updated,
       newSecurity,
       { ...cash, value: 0, quantity: 0 },
@@ -3307,6 +3312,71 @@ describe("AngelList holding import persistence", () => {
     expect(
       (await planning.getState(subject)).summary?.publicMarketValueMinor,
     ).toBe(550000);
+  });
+
+  it("preserves a manual ignore committed while a cashless update is being applied", async () => {
+    const subject = "synthetic-access-subject";
+    const stock = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const initial = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      authoritativeInventoryInput(11, [
+        stock,
+        {
+          key: "b",
+          name: "USD",
+          type: "cash",
+          quantity: 1_000_000,
+          value: 100,
+        },
+      ]),
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      initial.preview.id,
+    );
+    const next = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      authoritativeInventoryInput(12, [
+        { ...stock, quantity: 30_000_000, value: 300000 },
+      ]),
+    );
+    const row = next.preview.rows[0]!;
+    const batch = database.batch.bind(database);
+    vi.spyOn(database, "batch").mockImplementationOnce(async (statements) => {
+      await repository.reviewPublicHoldingImport(
+        subject,
+        next.preview.id,
+        row.id,
+        {
+          decision: "ignore",
+          expectedReviewId: row.identityReviewId ?? null,
+          expectedSourceSnapshotId: row.currentSnapshotId ?? null,
+          priorPositionId: null,
+          expectedPriorSnapshotId: null,
+        },
+      );
+      return batch(statements);
+    });
+    await expect(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        next.preview.id,
+      ),
+    ).rejects.toThrow();
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      next.preview.id,
+    );
+    const saved = await repository.getHoldingImport(subject, next.preview.id);
+    expect(saved.rows[0]?.sourceReview?.decision).toBe("ignore");
+    expect(saved.summary.autoAppliedCount).toBe(0);
+    expect(saved.rows[0]?.currentValueMinor).toBe(200000);
   });
 
   it("refuses older certified ownership and ambiguous account replacements before financial acceptance", async () => {

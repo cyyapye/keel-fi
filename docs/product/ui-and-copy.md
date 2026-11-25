@@ -442,19 +442,19 @@ contract.
 ## Brokerage source decisions
 
 Public securities use the SPV position header and value-summary layout. Pair the
-dated market or reviewed value with its supported return and gain, and the
-broker's cost basis with shares. Keep value evidence available for missing
-values, estimates and existing reviewed marks. A broker-reported market value
-needs only its date beside the return. Both position headers disclose how many
-other entities hold the exposure and link to the individual positions. Place the
-company grouping action and its scope below this disclosure. Keep Activity and
-Tax lots together and use the catalogue's alternating disclosure summaries for
-trades and reported lots. Keep coverage, sorting and filters outside the shaded
-rows. Sources & history holds the dated report. The Sources tab opens the
-directory. Use directional chevrons for navigation between trade or lot details
-and their source. Keep the navigation control anchored as the row changes
-height. Respect reduced motion and keep the page aligned when the scrollbar
-appears.
+dated market or reviewed value with the unrealized return and gain on shares
+still held, and the broker's cost basis with shares. Keep value evidence
+available for missing values, estimates and existing reviewed marks. A
+broker-reported market value needs only its date beside the return. Both
+position headers disclose how many other entities hold the exposure and link to
+the individual positions. Place the company grouping action and its scope below
+this disclosure. Keep Activity and Tax lots together and use the catalogue's
+alternating disclosure summaries for trades and reported lots. Keep coverage,
+sorting and filters outside the shaded rows. Sources & history holds the dated
+report. The Sources tab opens the directory. Use directional chevrons for
+navigation between trade or lot details and their source. Keep the navigation
+control anchored as the row changes height. Respect reduced motion and keep the
+page aligned when the scrollbar appears.
 
 Investment activity leads with compact transaction rows: shares and reported
 cash stay together, with posting date and price below. Keep type and date
