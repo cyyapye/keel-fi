@@ -144,7 +144,9 @@ test("an edit link for a followed close opens the exposure's source choice", () 
   };
   const { holdings } = purchaseDetailProjection(receipt);
   const holding = holdings[0]!;
-  expect(followedCloseReviewPath(holding)).toBe("/holdings?valuation=cedar");
+  expect(followedCloseReviewPath(holding)).toBe(
+    "/holdings?valuation=cedar&scope=active",
+  );
   const markup = renderToStaticMarkup(
     <SpvHoldingDetail
       holding={holding}
@@ -153,7 +155,7 @@ test("an edit link for a followed close opens the exposure's source choice", () 
       onAccepted={() => Promise.resolve()}
     />,
   );
-  expect(markup).toContain('href="/holdings?valuation=cedar"');
+  expect(markup).toContain('href="/holdings?valuation=cedar&amp;scope=active"');
   expect(markup).not.toContain("Position total · $");
 });
 

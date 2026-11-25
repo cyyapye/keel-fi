@@ -531,11 +531,12 @@ it("uses the investment editor's reviewed GP value and reopens a corrected basis
       valueDate: "2026-09-23",
       sourceLabel: "Summit statement",
     });
-    const save = (token: string, choice: "follow" | "keep") =>
+    const save = (token: string, choice: "follow" | "keep", scope?: "active") =>
       decideMarketSource(db, subject, exposure, {
         requestId: crypto.randomUUID(),
         token,
         choice,
+        ...(scope && { scope }),
         acceptProxyBasis: true,
       });
     expect(await save(initial.token, "follow")).toBe(true);
@@ -560,6 +561,31 @@ it("uses the investment editor's reviewed GP value and reopens a corrected basis
       expect(reopened.positions).toMatchObject([
         { id: grove.id, enrolled: false, valueMinor: shares * 5000 },
       ]);
+      const [summary] = await listMarketReviews(db, subject);
+      expect(summary?.renewalCount).toBe(1);
+      const managing = (await marketReviewDetail(
+        db,
+        subject,
+        exposure,
+        "active",
+      ))!;
+      expect(managing.positions).toMatchObject([
+        { id: summit.id, enrolled: true },
+      ]);
+      expect(managing.choice).toBe("follow");
+      expect(await save(managing.token, "keep")).toBe(false);
+      if (choice === "keep") {
+        // Restoring an active holding has its own comparison and cannot dismiss a sibling's renewal.
+        store.sqlite.exec("SAVEPOINT active_source");
+        expect(await save(managing.token, "keep", "active")).toBe(true);
+        expect((await read()).positions).toMatchObject([
+          { id: grove.id, enrolled: false },
+        ]);
+        expect(
+          await marketReviewDetail(db, subject, exposure, "active"),
+        ).toBeNull();
+        store.sqlite.exec("ROLLBACK TO active_source; RELEASE active_source");
+      }
       expect(await save(reopened.token, choice)).toBe(true);
       const active = await read();
       expect(active.choice).toBe("follow");

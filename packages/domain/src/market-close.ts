@@ -62,6 +62,7 @@ export const MarketReviewSchema = z.object({
   version: z.number().int(),
   choice: z.enum(["follow", "keep"]).nullable(),
   token: z.string(),
+  renewalCount: z.number().int().positive().optional(),
   positions: z.array(
     z.object({
       id: z.string(),
@@ -84,6 +85,7 @@ export const MarketDecisionInput = z
     token: z.string().min(1).max(128),
     choice: z.enum(["follow", "keep"]),
     acceptProxyBasis: z.literal(true).optional(),
+    scope: z.literal("active").optional(),
   })
   .strict();
 

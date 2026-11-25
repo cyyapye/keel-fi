@@ -662,12 +662,17 @@ export function PortfolioWatchMonitor({
                   if (item.kind === "news")
                     return renderSignal(item.observation);
                   const r = item.review;
+                  const count = r.renewalCount ?? r.positions.length;
                   return (
                     <RecordItem
                       key={r.exposureId}
                       headingAs="h4"
-                      title={`${r.name}’s first close is ${formatSharePrice(r.firstPriceMicros)}/share`}
-                      metadata={`${r.quote.ticker} · ${formatDate(r.firstDate)} · ${r.positions.length} eligible positions`}
+                      title={
+                        r.renewalCount
+                          ? `Review ${r.name}’s updated valuation basis`
+                          : `${r.name}’s first close is ${formatSharePrice(r.firstPriceMicros)}/share`
+                      }
+                      metadata={`${r.quote.ticker} · ${formatDate(r.renewalCount ? r.quote.date : r.firstDate)} · ${count} eligible ${count === 1 ? "position" : "positions"}`}
                       action={
                         <ActionGroup wrap>
                           {item.needsReview && (

@@ -159,7 +159,9 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
     });
   }
   for (const { review, scope } of groups.values()) {
-    if (scope.some((p) => p.renewal)) {
+    const renewalCount = scope.filter((p) => p.renewal).length;
+    if (renewalCount) {
+      review.renewalCount = renewalCount;
       review.choice = null;
     } else if (review.positions.some((p) => p.enrolled)) {
       review.choice = "follow";
@@ -175,10 +177,16 @@ export async function listMarketReviews(db: D1Database, subject: string) {
   );
 }
 // The review compares against the same accepted GP, proxy and adjustment precedence as Holdings.
-async function comparison(db: D1Database, subject: string, exposure: string) {
+async function comparison(
+  db: D1Database,
+  subject: string,
+  exposure: string,
+  scopeChoice?: "active",
+) {
   const group = (await reviews(db, subject, exposure)).get(exposure);
   if (!group) return null;
   const current = group.review;
+  if (scopeChoice === "active") current.choice = "follow";
   const previous = await new D1InvestmentPositionViewRepository(db).list(
     subject,
   );
@@ -207,9 +215,9 @@ async function comparison(db: D1Database, subject: string, exposure: string) {
     .filter(
       (p) =>
         byId.has(p.id) &&
-        (renewals.size
-          ? renewals.has(p.id)
-          : current.choice !== "follow" || p.enrolled),
+        (current.choice === "follow"
+          ? p.enrolled
+          : !renewals.size || renewals.has(p.id)),
     )
     .map((p) => {
       const prior = byId.get(p.id)!;
@@ -226,6 +234,7 @@ async function comparison(db: D1Database, subject: string, exposure: string) {
     .filter((p) => visible.has(p.id))
     .map((p) => ({
       ...p,
+      ...(renewals.size ? { renewal: true as const } : {}),
       priorSourceRevisions: valuationRevisions.get(p.id),
       priorEstimate: byId.get(p.id)?.privateValueEstimate ?? null,
     }));
@@ -251,8 +260,9 @@ export async function marketReviewDetail(
   db: D1Database,
   subject: string,
   exposure: string,
+  scope?: "active",
 ) {
-  return (await comparison(db, subject, exposure))?.review ?? null;
+  return (await comparison(db, subject, exposure, scope))?.review ?? null;
 }
 // Read these append-only tails before rebuilding the comparison, then match them
 // in the INSERT. Each MAX(rowid) is a last-row seek. The guard covers only the
@@ -295,7 +305,7 @@ export async function decideMarketSource(
   const fence = await db
     .prepare(`SELECT ${comparisonWriteFence} AS revision`)
     .first<{ revision: string }>();
-  const group = await comparison(db, subject, exposure);
+  const group = await comparison(db, subject, exposure, input.scope);
   if (!fence || !group || group.review.token !== input.token) return false;
   const { review, scope } = group;
   if (

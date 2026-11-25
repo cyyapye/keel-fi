@@ -16,10 +16,17 @@ export function registerMarketCloseRoutes(app: Hono<AppEnvironment>) {
   });
   app.get("/api/exposure-closes/:id", async (c) => {
     c.header("Cache-Control", "private, no-store");
+    const scope = z
+      .literal("active")
+      .optional()
+      .safeParse(c.req.query("scope"));
+    if (!scope.success)
+      return c.json({ error: "Invalid valuation scope." }, 400);
     const review = await marketReviewDetail(
       c.env.DB,
       c.get("identity").subject,
       c.req.param("id"),
+      scope.data,
     );
     return c.json(review ? [review] : []);
   });

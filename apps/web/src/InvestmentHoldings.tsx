@@ -1872,9 +1872,14 @@ function ExposureView({
                 <ActionGroup wrap>
                   <MarketReviewLink review={marketReview} />
                   <small>
-                    First public close · {marketReview.positions.length}{" "}
+                    {marketReview.renewalCount
+                      ? "Updated valuation basis"
+                      : "First public close"}{" "}
+                    ·{" "}
+                    {marketReview.renewalCount ?? marketReview.positions.length}{" "}
                     eligible{" "}
-                    {marketReview.positions.length === 1
+                    {(marketReview.renewalCount ??
+                      marketReview.positions.length) === 1
                       ? "position"
                       : "positions"}
                   </small>

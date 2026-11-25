@@ -48,7 +48,11 @@ export function MarketCloseReview({
   id: string;
   from: "watch" | "holdings";
 }) {
-  const { reviews, error: readError } = useMarketReviews(id);
+  const scope =
+    new URLSearchParams(window.location.search).get("scope") === "active"
+      ? "active"
+      : undefined;
+  const { reviews, error: readError } = useMarketReviews(id, scope);
   const review = reviews?.find((r) => r.exposureId === id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -66,6 +70,7 @@ export function MarketCloseReview({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             choice,
+            scope,
             ...(choice === "follow" &&
               review.positions.some((p) => p.proxyBasis) && {
                 acceptProxyBasis: true,
