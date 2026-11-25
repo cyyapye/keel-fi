@@ -1229,6 +1229,79 @@ test(
   },
 );
 
+test("uses the accepted legal name for a Holdings position and finds it by either name", async ({
+  page,
+}) => {
+  const acceptedName = "Synthetic Beacon Growth, a Series of Demo Ventures LLC";
+  const formerVehicleName = "Synthetic Former Beacon Vehicle LLC";
+  const acceptedNames = new Map([
+    ["position_invested_amount_8", acceptedName],
+    ["position_gp_marked_9", formerVehicleName],
+  ]);
+  const positionView = {
+    ...holdingsView.positionView,
+    connections: holdingsView.positionView.connections.map((connection) => ({
+      ...connection,
+      containers: connection.containers.map((container) => ({
+        ...container,
+        positions: container.positions.map((position) => {
+          const acceptedLegalName = acceptedNames.get(position.id);
+          return acceptedLegalName === undefined
+            ? position
+            : { ...position, acceptedLegalName };
+        }),
+      })),
+    })),
+  };
+  const investmentHoldings = { ...holdingsView, positionView };
+  await routeHoldingsPage(page, {
+    householdName: alphaFixture.dashboard.householdName,
+    holdings: alphaHoldingsFrom(investmentHoldings),
+    investmentHoldings,
+    acceptedCashAccounts,
+    pendingImports: [],
+  });
+
+  if (captureDesignVariants)
+    await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/holdings");
+  await page.getByRole("button", { name: /^Beacon Robotics/u }).click();
+  const positions = page.getByRole("list", {
+    name: "Beacon Robotics positions",
+  });
+  await expect(positions).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expect(
+    positions.getByText(acceptedName, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    positions.getByText("Synthetic Beacon Direct", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    positions.getByText("Synthetic Beacon SPV", { exact: true }),
+  ).toHaveCount(0);
+  await captureDesignReview(
+    page,
+    "review-position-name.png",
+    ".investment-views",
+  );
+
+  const search = page.getByRole("searchbox", { name: "Search holdings" });
+  const detail = positions.getByRole("link", {
+    name: `View ${acceptedName} holding details`,
+  });
+  await search.fill("Ventures");
+  await expect(positions.locator("mark")).toHaveText("Ventures");
+  await expect(detail).toHaveAttribute(
+    "href",
+    "/holdings?position=position_invested_amount_8",
+  );
+  await search.fill("Synthetic Beacon SPV");
+  await expect(detail).toBeVisible();
+  await search.fill(formerVehicleName);
+  await expect(page.getByText("0 results", { exact: true })).toBeVisible();
+});
+
 test(
   "searches holdings by SPV and hidden cash while preserving totals and return navigation",
   { tag: "@desktop-only" },

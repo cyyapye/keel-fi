@@ -49,28 +49,31 @@ export function buildHoldingsSearchIndex(
   data: InvestmentHoldingsView,
   accounts: readonly AcceptedCashAccount[],
 ): HoldingsSearchIndex {
-  const owners = new Map(
+  const positionRecords = new Map(
     data.positionView.connections.flatMap((connection) =>
       connection.containers.flatMap((container) =>
-        container.positions.map((position) => [
-          position.id,
-          position.ownerLabel,
-        ]),
+        container.positions.map((position) => [position.id, position] as const),
       ),
     ),
   );
-  const positions = data.exposureView.positions.map((position) => ({
-    id: position.id,
-    text: prepare([
-      position.legalVehicleName,
-      position.reportedExposureName,
-      position.ticker,
-      position.institutionLabel,
-      position.containerLabel,
-      position.sourceLabel,
-      owners.get(position.id),
-    ]),
-  }));
+  const positions = data.exposureView.positions.map((position) => {
+    const record = positionRecords.get(position.id);
+    return {
+      id: position.id,
+      text: prepare([
+        position.positionKind === "spv_interest"
+          ? record?.acceptedLegalName
+          : undefined,
+        position.legalVehicleName,
+        position.reportedExposureName,
+        position.ticker,
+        position.institutionLabel,
+        position.containerLabel,
+        position.sourceLabel,
+        record?.ownerLabel,
+      ]),
+    };
+  });
   const positionById = new Map(
     positions.map((position) => [position.id, position]),
   );
