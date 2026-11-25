@@ -7,7 +7,7 @@ import {
   type InvestmentSyncErrorCode,
 } from "@keel/domain";
 import { z } from "zod";
-import { publicSourceState, reportMissingCashSql } from "./public-source-state";
+import { publicSourceState } from "./public-source-state";
 
 const CONNECTOR_TYPE = "plaid-investments";
 const INVESTMENT_SYNC_STALE_AFTER_MS = 5 * 60 * 1_000;
@@ -426,7 +426,16 @@ export class D1InvestmentConnectionsRepository
          AND NOT EXISTS(SELECT 1 FROM public_holding_source_heads h WHERE h.review_key='report:'||r.id AND h.decision='ignore')),0) unresolved,
         (SELECT json_group_array(q.position_id) FROM holding_import_quarantines q WHERE q.import_id=head.import_id AND q.position_id IS NOT NULL) omitted,
         (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported,
-        (SELECT json_group_array(container_id) FROM (${reportMissingCashSql("head.import_id")})) missing_cash
+        (SELECT json_group_array(container_id) FROM (
+          SELECT covered.container_id FROM holding_import_coverages covered
+          JOIN public_holding_inventory_evidence evidence ON evidence.import_id=covered.import_id
+          WHERE covered.import_id=head.import_id AND covered.completeness='complete' AND evidence.source_updated_at IS NOT NULL
+          EXCEPT SELECT scope.container_id FROM holding_import_rows r
+          CROSS JOIN holding_import_row_containers scope ON scope.import_row_id=r.id
+          WHERE r.import_id=head.import_id AND r.instrument_type='cash'
+          EXCEPT SELECT zero.value FROM public_holding_inventory_evidence evidence,
+            json_each(evidence.zero_cash_containers_json) zero WHERE evidence.import_id=head.import_id
+        )) missing_cash
       FROM investment_connections connection
       LEFT JOIN public_holding_import_heads head ON head.connection_id=connection.id AND head.household_id=connection.household_id
       LEFT JOIN public_holding_inventory_evidence evidence ON evidence.import_id=head.import_id

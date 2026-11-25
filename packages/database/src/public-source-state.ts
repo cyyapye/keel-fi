@@ -26,20 +26,6 @@ export type PublicSourcePosition = {
   account_cash_unconfirmed?: number;
 };
 
-// A certified empty account needs affirmative zero-cash evidence.
-export function reportMissingCashSql(
-  importId: "head.import_id" | "(SELECT import_id FROM report_scope)",
-) {
-  return `SELECT covered.container_id FROM holding_import_coverages covered
-    JOIN public_holding_inventory_evidence evidence ON evidence.import_id=covered.import_id
-    WHERE covered.import_id=${importId} AND covered.completeness='complete' AND evidence.source_updated_at IS NOT NULL
-    EXCEPT SELECT scope.container_id FROM holding_import_rows r
-    CROSS JOIN holding_import_row_containers scope ON scope.import_row_id=r.id
-    WHERE r.import_id=${importId} AND r.instrument_type='cash'
-    EXCEPT SELECT zero.value FROM public_holding_inventory_evidence evidence,
-      json_each(evidence.zero_cash_containers_json) zero WHERE evidence.import_id=${importId}`;
-}
-
 const CURRENT_SOURCE_SEEDS_SQL = `
   SELECT active.position_id FROM public_holding_active_positions active
   WHERE active.household_id=(SELECT household_id FROM scope)`;
@@ -66,6 +52,7 @@ const REPORT_INVENTORY_DETAILS_SQL = `
         WHERE link.import_id=report.id AND account.id NOT IN(SELECT value FROM json_each(inventory.container_ids_json))
           AND (EXISTS(SELECT 1 FROM public_holding_active_positions active WHERE active.household_id=report.household_id AND active.container_id=account.id)
             OR EXISTS(SELECT 1 FROM public_holding_account_inventory_heads head WHERE head.container_id=account.id))) THEN 'true' ELSE 'false' END),
+    'zeroCashContainerIds',json(COALESCE(evidence.zero_cash_containers_json,'[]')),
     'returnedPositionIds',json(COALESCE(inventory.returned_position_ids_json,'[]')),
     'currentContainerIds',json((SELECT json_group_array(head.container_id) FROM public_holding_account_inventory_heads head WHERE head.inventory_id=report.id)),
     'priorQuantities',json((SELECT json_group_array(json_object('rowId',json_extract(prior.value,'$.rowId'),
