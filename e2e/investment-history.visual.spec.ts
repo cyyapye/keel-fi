@@ -622,6 +622,8 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
       exact: true,
     }),
   ).toBeVisible();
+  await feature.scrollIntoViewIfNeeded();
+  await page.mouse.move(0, 0);
   await expect(feature).toHaveScreenshot("investment-history-empty.png", {
     stylePath: "e2e/purchase-details.capture.css",
   });
