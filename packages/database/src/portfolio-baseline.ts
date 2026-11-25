@@ -603,57 +603,80 @@ function selectPlanningSources(
   };
 }
 
-function sourcePositionRows(view: InvestmentExposureView): SourcePositionRow[] {
-  return view.positions
-    .flatMap((position): SourcePositionRow[] => {
-      const provider =
-        position.adapterType === "plaid-investments"
-          ? "plaid_investments"
-          : position.adapterType === "angellist-import"
-            ? "angellist"
-            : position.institutionKey === "tokenfolio"
-              ? "tokenfolio"
-              : position.institutionKey === "wefunder"
-                ? "wefunder"
-                : position.institutionKey === "sydecar"
-                  ? "sydecar"
-                  : position.institutionKey === "manual" &&
-                      position.manualContext?.classification === "private_paper"
-                    ? "manual"
-                    : null;
-      if (
-        provider === null ||
-        (provider === "plaid_investments" &&
-          !isPlaidInvestmentsFiPlanningSecurityType(position.instrumentType))
-      ) {
-        return [];
-      }
-      return [
-        {
-          position_id: position.id,
-          container_id: position.containerId,
-          snapshot_id: position.snapshotId,
-          snapshot_fingerprint: position.snapshotFingerprint,
-          provider,
-          ...(provider === "manual"
-            ? { classification: position.manualContext!.classification }
-            : {}),
-          legal_vehicle_name: position.legalVehicleName,
-          owner_label: position.containerLabel,
-          exposure_label: position.reportedExposureName,
-          unrealized_value_minor: position.valueMinor,
-          unrealized_value_state: position.valueState,
-          observed_at: position.observedAt,
-          ticker: position.ticker,
-          instrument_type: position.instrumentType,
-        },
-      ];
-    })
-    .sort(
-      (left, right) =>
-        left.provider.localeCompare(right.provider) ||
-        left.position_id.localeCompare(right.position_id),
-    );
+function sourcePositionRows(
+  view: InvestmentExposureView,
+  prior: readonly BaselinePositionItemRow[],
+): SourcePositionRow[] {
+  const state = publicSourceStateFor(view);
+  const heldAccounts = new Set(
+    state?.positions
+      .filter(
+        (position) =>
+          position.account_cash_unconfirmed === 1 &&
+          !state.hiddenIds.has(position.id),
+      )
+      .map((position) => position.container_id),
+  );
+  const observed = view.positions.flatMap((position): SourcePositionRow[] => {
+    const provider =
+      position.adapterType === "plaid-investments"
+        ? "plaid_investments"
+        : position.adapterType === "angellist-import"
+          ? "angellist"
+          : position.institutionKey === "tokenfolio"
+            ? "tokenfolio"
+            : position.institutionKey === "wefunder"
+              ? "wefunder"
+              : position.institutionKey === "sydecar"
+                ? "sydecar"
+                : position.institutionKey === "manual" &&
+                    position.manualContext?.classification === "private_paper"
+                  ? "manual"
+                  : null;
+    if (
+      provider === null ||
+      (provider === "plaid_investments" &&
+        (heldAccounts.has(position.containerId) ||
+          !isPlaidInvestmentsFiPlanningSecurityType(position.instrumentType)))
+    ) {
+      return [];
+    }
+    return [
+      {
+        position_id: position.id,
+        container_id: position.containerId,
+        snapshot_id: position.snapshotId,
+        snapshot_fingerprint: position.snapshotFingerprint,
+        provider,
+        ...(provider === "manual"
+          ? { classification: position.manualContext!.classification }
+          : {}),
+        legal_vehicle_name: position.legalVehicleName,
+        owner_label: position.containerLabel,
+        exposure_label: position.reportedExposureName,
+        unrealized_value_minor: position.valueMinor,
+        unrealized_value_state: position.valueState,
+        observed_at: position.observedAt,
+        ticker: position.ticker,
+        instrument_type: position.instrumentType,
+      },
+    ];
+  });
+  for (const item of prior) {
+    if (
+      item.source.provider === "plaid_investments" &&
+      heldAccounts.has(item.source.container_id) &&
+      state?.visibleById.has(item.position_id) &&
+      !state.ignoredIds.has(item.position_id)
+    ) {
+      observed.push(item.source);
+    }
+  }
+  return observed.sort(
+    (left, right) =>
+      left.provider.localeCompare(right.provider) ||
+      left.position_id.localeCompare(right.position_id),
+  );
 }
 
 function summarizePositions(
@@ -848,8 +871,6 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
         this.getPlanningRow(identity.household_id),
         this.getLatestBaseline(identity.household_id),
       ]);
-    const rows = sourcePositionRows(exposureView);
-    const positions = sourcePositions(rows);
     const cashAccounts = sourceCashAccounts(cashRows);
     const planningContext = {
       currentFiEligibleLiquidMinor: planning.fi_eligible_liquid_minor,
@@ -875,6 +896,11 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             identity.household_id,
             latestBaseline.id,
           );
+    const rows = sourcePositionRows(
+      exposureView,
+      originalBaselineSources.positions,
+    );
+    const positions = sourcePositions(rows);
     const publicContext = await this.publicSources(
       identity.household_id,
       rows,
@@ -1119,7 +1145,6 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
       ),
       this.getFinancialIndependenceGoal(identity.household_id),
     ]);
-    const observedRows = sourcePositionRows(exposureView);
     const originalPriorSources =
       state.latestBaseline === null
         ? { positions: [], cashAccounts: [] }
@@ -1127,6 +1152,10 @@ export class D1PortfolioBaselineRepository implements PortfolioBaselineRepositor
             identity.household_id,
             state.latestBaseline.id,
           );
+    const observedRows = sourcePositionRows(
+      exposureView,
+      originalPriorSources.positions,
+    );
     const publicContext = await this.publicSources(
       identity.household_id,
       observedRows,

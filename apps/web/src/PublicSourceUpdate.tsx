@@ -49,6 +49,27 @@ const decisionLabel = (decision: PublicHoldingReviewInput["decision"]) =>
     ignore: "Reported position ignored",
   })[decision];
 
+function activityLabel(
+  row: HoldingImportRowPreview,
+  cashMissing: boolean,
+  returned: boolean,
+  unchanged: boolean,
+  sharesChanged: boolean,
+): string {
+  if (row.adjudicationStatus === "pending_review")
+    return cashMissing ? "Reported · cash missing" : "Reported · pending";
+  if (returned) return "Holding returned";
+  if (row.sourceReview) return decisionLabel(row.sourceReview.decision);
+  if (row.adjudicationStatus === "ignored") return "Older observation ignored";
+  if (unchanged) return "No change";
+  if (row.adjudicationStatus !== "auto_applied") return "Reported";
+  if (row.action === "create_position") return "Added automatically";
+  if (sharesChanged) return "Shares updated";
+  return row.action === "no_change"
+    ? "Accepted automatically"
+    : "Updated automatically";
+}
+
 export function SourceInventoryOutcome({
   removedCount = 0,
   preservedCount,
@@ -112,6 +133,11 @@ function SourceInventoryActivity({
       .filter((prior) => prior.factsUnchanged)
       .map((prior) => prior.rowId) ?? [],
   );
+  const missingCash = new Set(
+    preview.coverage
+      .filter((account) => account.cashMissing)
+      .map((account) => account.containerId),
+  );
   const rows = preview.rows.filter(
     (row) => row.adjudicationStatus !== "quarantined",
   );
@@ -150,23 +176,42 @@ function SourceInventoryActivity({
       details: `Last reported value: ${amount(position.valueMinor)} on ${formatDate(position.observedAt)}. Its history is retained. This holdings report does not establish sale price, proceeds or realized return.`,
       row: null,
     })),
-    ...kept.map((position) => ({
-      key: position.positionId,
-      title: `${position.name} · value kept`,
-      detail: accountDetail(
-        position.accountLabel,
-        shares(position.quantityMicros),
-      ),
-      value: amount(position.valueMinor),
-      metadata: `Not reported in this update · Last accepted ${formatDate(position.observedAt)}`,
-      details: null,
-      row: null,
-    })),
+    ...kept.map((position) => {
+      const priorCash =
+        position.instrumentType === "cash" &&
+        missingCash.has(position.containerId);
+      return {
+        key: position.positionId,
+        title: priorCash
+          ? "Cash · last reported balance"
+          : `${position.name} · value kept`,
+        detail: accountDetail(
+          position.accountLabel,
+          position.instrumentType === "cash"
+            ? ""
+            : shares(position.quantityMicros),
+        ),
+        value: amount(position.valueMinor),
+        metadata: `${priorCash ? "Excluded from account total" : "Not reported in this update"} · Last accepted ${formatDate(position.observedAt)}`,
+        details: null,
+        row: null,
+      };
+    }),
     ...rows.map((row) => ({
       key: row.id,
       title: readOnly
         ? row.exposureName
-        : `${row.exposureName} · ${preview.inventory?.returnedPositionIds.includes(row.positionId ?? "") ? "Holding returned" : row.sourceReview ? decisionLabel(row.sourceReview.decision) : row.adjudicationStatus === "ignored" ? "Older observation ignored" : row.action === "no_change" || unchangedRows.has(row.id) ? "No change" : row.action === "create_position" ? "Added automatically" : row.instrumentType === "cash" ? "Updated automatically" : priorQuantities.has(row.id) && priorQuantities.get(row.id) !== row.quantityMicros ? "Shares updated" : "Updated automatically"}`,
+        : `${row.exposureName} · ${activityLabel(
+            row,
+            missingCash.has(row.containerId ?? ""),
+            preview.inventory?.returnedPositionIds.includes(
+              row.positionId ?? "",
+            ) ?? false,
+            unchangedRows.has(row.id),
+            row.instrumentType !== "cash" &&
+              priorQuantities.has(row.id) &&
+              priorQuantities.get(row.id) !== row.quantityMicros,
+          )}`,
       detail: accountDetail(
         row.ownerLabel,
         row.instrumentType === "cash"
@@ -174,7 +219,7 @@ function SourceInventoryActivity({
           : `${priorQuantities.has(row.id) && priorQuantities.get(row.id) !== row.quantityMicros ? `${shares(priorQuantities.get(row.id))} → ` : ""}${shares(row.quantityMicros)}`,
       ),
       value: amount(row.administratorNavMinor),
-      metadata: `Reported ${formatDate(preview.inventory?.sourceUpdatedAt ?? preview.observedAt)}${!readOnly && row.sourceReview ? ` · ${row.sourceReview.decisionSource === "manual" ? "Your decision" : "Verified identity match"}` : ""}`,
+      metadata: `${!readOnly && row.adjudicationStatus === "pending_review" ? "Reported value excluded from accepted holdings · " : "Reported "}${formatDate(preview.inventory?.sourceUpdatedAt ?? preview.observedAt)}${!readOnly && row.sourceReview ? ` · ${row.sourceReview.decisionSource === "manual" ? "Your decision" : "Verified identity match"}` : ""}`,
       details: preview.inventory?.returnedPositionIds.includes(
         row.positionId ?? "",
       )

@@ -1034,7 +1034,7 @@ test("operates multiple institutions from one exposure-first holdings view", asy
     )!;
     await detail.click();
     await expect(
-      page.getByRole("heading", { level: 2, name: "NVIDIA common stock" }),
+      page.getByRole("heading", { level: 2, name: "NVIDIA" }),
     ).toBeFocused();
     const grouping = page.getByRole("group", {
       name: "Company grouping",

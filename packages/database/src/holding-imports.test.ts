@@ -3081,6 +3081,7 @@ describe("AngelList holding import persistence", () => {
     ];
     const zero = await capture(zeroInventory);
     expect(zero.summary.rowCount).toBe(0);
+    expect(zero.coverage[0]?.cashMissing).toBeUndefined();
     expect(zero.inventory).toMatchObject({
       complete: true,
       closedPositions: [expect.objectContaining({ instrumentType: "cash" })],
@@ -3208,6 +3209,174 @@ describe("AngelList holding import persistence", () => {
         .prepare("SELECT COUNT(*) count FROM public_holding_active_positions")
         .get(),
     ).toEqual({ count: 3 });
+  });
+
+  it("updates only known positions without cash and holds the account's planning inputs until cash returns", async () => {
+    const subject = "synthetic-access-subject";
+    const etf = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const omitted = { ...etf, key: "b", name: "OMITTED" };
+    const cash = {
+      key: "c",
+      name: "USD",
+      type: "cash",
+      quantity: 1000_000_000,
+      value: 100000,
+    };
+    const capture = async (
+      day: number,
+      entries: Parameters<typeof authoritativeInventoryInput>[1],
+    ) => {
+      const staged = await repository.stagePlaidInvestmentsHoldingImport(
+        subject,
+        authoritativeInventoryInput(day, entries),
+      );
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+      return repository.getHoldingImport(subject, staged.preview.id);
+    };
+    const first = await capture(11, [etf, omitted, cash]);
+    const planning = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
+    const initial = await planning.getState(subject);
+    await planning.confirm(subject, {
+      sourceRevision: initial.sourceRevision!,
+      baseForecastSnapshotId: initial.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: initial.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: true,
+      cashOverlapReviewConfirmed: true,
+      changeNote: "Accepted synthetic starting inventory.",
+    });
+
+    const updated = { ...etf, quantity: 30_000_000, value: 300000 };
+    const newSecurity = { ...etf, key: "d", name: "NEW", value: 250000 };
+    const partial = await capture(12, [updated, newSecurity]);
+    expect(partial.coverage).toEqual([
+      expect.objectContaining({ cashMissing: true }),
+    ]);
+    expect(partial.inventory).toMatchObject({
+      acceptedAt: null,
+      closedPositions: [],
+    });
+    expect(partial.rows.find((row) => row.ticker === "CORE")).toMatchObject({
+      positionId: first.rows.find((row) => row.ticker === "CORE")?.positionId,
+      adjudicationStatus: "auto_applied",
+      reasonCodes: ["existing_position_matched", "account_cash_missing"],
+      currentValueMinor: 300000,
+      currentQuantityMicros: 30_000_000,
+    });
+    expect(partial.rows.find((row) => row.ticker === "NEW")).toMatchObject({
+      adjudicationStatus: "pending_review",
+      positionId: null,
+    });
+    expect(partial.preservedPositions?.map((row) => row.ticker).sort()).toEqual(
+      ["OMITTED", "USD"],
+    );
+    expect(
+      (await planning.getState(subject)).summary?.publicMarketValueMinor,
+    ).toBe(initial.summary?.publicMarketValueMinor);
+
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      partial.id,
+    );
+    expect(
+      (await repository.getHoldingImport(subject, partial.id)).summary
+        .autoAppliedCount,
+    ).toBe(1);
+
+    const noBalances = await capture(13, []);
+    expect(noBalances.coverage[0]?.cashMissing).toBe(true);
+    expect(noBalances.inventory?.acceptedAt).toBeNull();
+
+    const complete = await capture(14, [
+      updated,
+      newSecurity,
+      { ...cash, value: 0, quantity: 0 },
+    ]);
+    expect(complete.inventory?.closedPositions).toMatchObject([
+      { ticker: "OMITTED" },
+    ]);
+    expect(
+      complete.rows.find((row) => row.ticker === "NEW")?.adjudicationStatus,
+    ).toBe("auto_applied");
+    expect(
+      (await planning.getState(subject)).summary?.publicMarketValueMinor,
+    ).toBe(550000);
+  });
+
+  it("preserves a manual ignore committed while a cashless update is being applied", async () => {
+    const subject = "synthetic-access-subject";
+    const stock = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const initial = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      authoritativeInventoryInput(11, [
+        stock,
+        {
+          key: "b",
+          name: "USD",
+          type: "cash",
+          quantity: 1_000_000,
+          value: 100,
+        },
+      ]),
+    );
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      initial.preview.id,
+    );
+    const next = await repository.stagePlaidInvestmentsHoldingImport(
+      subject,
+      authoritativeInventoryInput(12, [
+        { ...stock, quantity: 30_000_000, value: 300000 },
+      ]),
+    );
+    const row = next.preview.rows[0]!;
+    const batch = database.batch.bind(database);
+    vi.spyOn(database, "batch").mockImplementationOnce(async (statements) => {
+      await repository.reviewPublicHoldingImport(
+        subject,
+        next.preview.id,
+        row.id,
+        {
+          decision: "ignore",
+          expectedReviewId: row.identityReviewId ?? null,
+          expectedSourceSnapshotId: row.currentSnapshotId ?? null,
+          priorPositionId: null,
+          expectedPriorSnapshotId: null,
+        },
+      );
+      return batch(statements);
+    });
+    await expect(
+      repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        next.preview.id,
+      ),
+    ).rejects.toThrow();
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      next.preview.id,
+    );
+    const saved = await repository.getHoldingImport(subject, next.preview.id);
+    expect(saved.rows[0]?.sourceReview?.decision).toBe("ignore");
+    expect(saved.summary.autoAppliedCount).toBe(0);
+    expect(saved.rows[0]?.currentValueMinor).toBe(200000);
   });
 
   it("refuses older certified ownership and ambiguous account replacements before financial acceptance", async () => {

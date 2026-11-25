@@ -169,6 +169,9 @@ function importedHoldingFrom(
           : "verified",
     sourceLabel: position.source.label,
     effectiveDate: position.source.effectiveDate,
+    ...(exposurePosition.adapterType === "plaid-investments"
+      ? { reportedValueObservedOn: position.snapshot.observedAt.slice(0, 10) }
+      : {}),
     retrievedAt: position.source.retrievedAt,
     confidencePpm: null,
     ticker: position.snapshot.ticker,

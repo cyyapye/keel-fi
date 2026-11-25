@@ -28,7 +28,9 @@ export async function createPublicSourceFixture(
   connectionId: string;
   importId: string;
   nonce: string;
-  next?: (mode: "returned" | "empty" | "partial") => Promise<string>;
+  next?: (
+    mode: "returned" | "empty" | "partial" | "cash-missing" | "prior-value",
+  ) => Promise<string>;
 }> {
   if (inventory) return createInventoryFixture(env, label);
   if (addition) return createAdditionFixture(env, label);
@@ -401,6 +403,7 @@ async function createInventoryFixture(env: Env, label: string) {
     day: number,
     rows: readonly (typeof entries)[keyof typeof entries][],
     partial = false,
+    observedOn?: string,
   ) => {
     const date = `2026-11-${String(day).padStart(2, "0")}`;
     const retrievedAt = `${date}T12:00:00.000Z`;
@@ -423,7 +426,7 @@ async function createInventoryFixture(env: Env, label: string) {
         institution_value: row.value,
         cost_basis: row.type === "cash" ? null : row.value,
         quantity: row.quantity,
-        institution_price_as_of: date,
+        institution_price_as_of: observedOn ?? date,
         iso_currency_code: "USD",
         unofficial_currency_code: null,
       })),
@@ -531,7 +534,9 @@ async function createInventoryFixture(env: Env, label: string) {
     connectionId: connection.id,
     importId,
     nonce,
-    next: async (mode: "returned" | "empty" | "partial") =>
+    next: async (
+      mode: "returned" | "empty" | "partial" | "cash-missing" | "prior-value",
+    ) =>
       mode === "returned"
         ? capture(6, [
             { ...entries.core, quantity: "5", value: "500" },
@@ -541,7 +546,14 @@ async function createInventoryFixture(env: Env, label: string) {
           ])
         : mode === "empty"
           ? capture(7, [])
-          : capture(8, [entries.nova, entries.cash], true),
+          : mode === "cash-missing"
+            ? capture(8, [
+                { ...entries.core, quantity: "30", value: "3000" },
+                entries.nova,
+              ])
+            : mode === "prior-value"
+              ? capture(9, [entries.core], false, "2026-11-04")
+              : capture(8, [entries.nova, entries.cash], true),
   };
 }
 
@@ -559,7 +571,13 @@ const operation = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("next"),
       nonce: z.uuid(),
-      mode: z.enum(["returned", "empty", "partial"]),
+      mode: z.enum([
+        "returned",
+        "empty",
+        "partial",
+        "cash-missing",
+        "prior-value",
+      ]),
     })
     .strict(),
 ]);

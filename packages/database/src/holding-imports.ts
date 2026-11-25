@@ -334,6 +334,7 @@ type DecisionContext = {
   readonly policyVersion: string | null;
   readonly allowPartial: boolean;
   readonly reasonCodesByRow: ReadonlyMap<string, readonly string[]>;
+  readonly expectedCashlessSourceVersion?: number;
   readonly rowObservedAtById?: ReadonlyMap<string, string>;
   readonly afterApplications?: (
     applications: readonly {
@@ -1853,12 +1854,25 @@ export class D1HoldingImportRepository {
     );
     const incomplete = record.coverage_count !== record.complete_coverage_count;
     const certified = record.source_updated_at !== null;
+    const cashContainers = new Set(
+      rows
+        .filter((row) => row.instrument_type === "cash")
+        .map((row) => row.container_id),
+    );
+    const missingCash = new Set(
+      [...complete].filter(
+        (container) =>
+          !cashContainers.has(container) && !zeroCashContainers.has(container),
+      ),
+    );
     const staleInventory =
       certified &&
       record.last_inventory_source_at !== null &&
-      record.source_updated_at! <= record.last_inventory_source_at;
+      (record.source_updated_at! < record.last_inventory_source_at ||
+        (!record.inventory_accepted &&
+          record.source_updated_at === record.last_inventory_source_at));
     if (
-      record.inventory_accepted ||
+      (record.inventory_accepted && missingCash.size === 0) ||
       staleInventory ||
       !record.source_is_latest
     ) {
@@ -1956,26 +1970,20 @@ export class D1HoldingImportRepository {
       }
     const invalidContainers = new Set(
       rows
-        .filter(
-          (row) =>
-            row.parse_status !== "ready" ||
-            (certified &&
-              state.positions.some(
-                (position) =>
-                  position.container_id === row.container_id &&
-                  position.is_active !== 0 &&
-                  position.inventory_source_at &&
-                  position.inventory_source_at >= record.source_updated_at!,
-              )) ||
-            (certified &&
-              !rows.some(
-                (candidate) =>
-                  candidate.container_id === row.container_id &&
-                  candidate.instrument_type === "cash",
-              )),
-        )
+        .filter((row) => row.parse_status !== "ready")
         .map((row) => row.container_id),
     );
+    if (certified) {
+      for (const position of state.positions) {
+        if (
+          position.is_active !== 0 &&
+          position.inventory_source_at &&
+          position.inventory_source_at >= record.source_updated_at!
+        ) {
+          invalidContainers.add(position.container_id);
+        }
+      }
+    }
     const clear: HoldingImportApplyInput["decisions"] = [];
     const reasons = new Map<string, readonly string[]>();
     const matches = new Map<string, PublicSourcePosition>();
@@ -1983,8 +1991,10 @@ export class D1HoldingImportRepository {
     const quarantines: D1PreparedStatement[] = [];
     const createdAt = new Date().toISOString();
     for (const row of rows) {
+      const cashMissing = certified && missingCash.has(row.container_id);
       if (
         done.has(row.id) ||
+        (record.inventory_accepted && !cashMissing) ||
         (certified && invalidContainers.has(row.container_id)) ||
         (incomplete && !certified) ||
         row.coverage_completeness !== "complete"
@@ -2020,6 +2030,26 @@ export class D1HoldingImportRepository {
         (current !== undefined &&
           current.instrument_type !== row.instrument_type) ||
         verifiedConflict;
+      if (cashMissing) {
+        if (
+          !invalid &&
+          current !== undefined &&
+          visible?.id === current.id &&
+          !state.hiddenIds.has(current.id)
+        ) {
+          clear.push({
+            rowId: row.id,
+            decision: "accepted",
+            rationale:
+              "Updated an existing position from a verified report with missing account cash.",
+          });
+          reasons.set(row.id, [
+            "existing_position_matched",
+            "account_cash_missing",
+          ]);
+        }
+        continue;
+      }
       const key =
         row.public_exposure_identity_kind && row.protected_exposure_key
           ? identityKey(
@@ -2128,7 +2158,9 @@ export class D1HoldingImportRepository {
       [...complete].filter(
         (container) =>
           certified &&
+          !record.inventory_accepted &&
           !invalidContainers.has(container) &&
+          !missingCash.has(container) &&
           !rows.some(
             (row) =>
               row.container_id === container &&
@@ -2138,12 +2170,6 @@ export class D1HoldingImportRepository {
                   decision.decision_source === "manual",
               ),
           ) &&
-          (zeroCashContainers.has(container) ||
-            rows.some(
-              (row) =>
-                row.container_id === container &&
-                row.instrument_type === "cash",
-            )) &&
           rows
             .filter((row) => row.container_id === container)
             .every(
@@ -2246,7 +2272,9 @@ export class D1HoldingImportRepository {
           time,
         );
     for (const position of missing.filter(
-      (position) => !inventoryContainers.has(position.container_id),
+      (position) =>
+        !record.inventory_accepted &&
+        !inventoryContainers.has(position.container_id),
     ))
       quarantines.push(
         this.db
@@ -2266,7 +2294,10 @@ export class D1HoldingImportRepository {
             createdAt,
           ),
       );
-    if (quarantines.length) await this.db.batch(quarantines);
+    const atomicQuarantines =
+      certified && missingCash.size > 0 && clear.length > 0;
+    if (quarantines.length && !atomicQuarantines)
+      await this.db.batch(quarantines);
     if (clear.length) {
       try {
         await this.applyHoldingImport(
@@ -2278,6 +2309,9 @@ export class D1HoldingImportRepository {
             policyVersion: PLAID_INVESTMENTS_HOLDINGS_POLICY_VERSION,
             allowPartial: true,
             reasonCodesByRow: reasons,
+            ...(atomicQuarantines
+              ? { expectedCashlessSourceVersion: state.version }
+              : {}),
             rowObservedAtById: new Map(
               rows.flatMap((row) =>
                 row.public_observed_on
@@ -2321,18 +2355,29 @@ export class D1HoldingImportRepository {
               });
               if (acceptsInventory)
                 reviewStatements.push(inventoryInsert(version, time));
+              if (atomicQuarantines) reviewStatements.push(...quarantines);
               return reviewStatements;
             },
           },
         );
       } catch (error) {
-        const saved = await this.db
-          .prepare(
-            "SELECT import_id FROM public_holding_inventories WHERE import_id=? AND household_id=?",
-          )
-          .bind(importId, identity.household_id)
-          .first();
-        if (!saved) throw error;
+        if (record.inventory_accepted) {
+          const saved = await this.getHoldingImport(accessSubject, importId);
+          const applied = new Set(
+            saved.rows
+              .filter((row) => row.adjudicationStatus === "auto_applied")
+              .map((row) => row.id),
+          );
+          if (clear.some((row) => !applied.has(row.rowId))) throw error;
+        } else {
+          const saved = await this.db
+            .prepare(
+              "SELECT import_id FROM public_holding_inventories WHERE import_id=? AND household_id=?",
+            )
+            .bind(importId, identity.household_id)
+            .first();
+          if (!saved) throw error;
+        }
       }
     } else if (
       record.review_status === "pending_review" &&
@@ -2987,11 +3032,14 @@ export class D1HoldingImportRepository {
       ),
     ]);
     const reportedRowsByContainer = new Map<string, number>();
-    for (const row of rows)
+    const cashConfirmed = new Set<string>();
+    for (const row of rows) {
+      if (row.instrument_type === "cash") cashConfirmed.add(row.container_id);
       reportedRowsByContainer.set(
         row.container_id,
         (reportedRowsByContainer.get(row.container_id) ?? 0) + 1,
       );
+    }
     const exposureNamesByRowId = new Map<string, string[]>();
     currentExposures.forEach((record) => {
       const names = exposureNamesByRowId.get(record.import_row_id) ?? [];
@@ -3004,11 +3052,17 @@ export class D1HoldingImportRepository {
       provider.data === PLAID_INVESTMENTS_PROVIDER
         ? await publicSourceState(this.db, identity.household_id, importId)
         : null;
-    const inventory = sourceState?.inventoryDetails
-      ? HoldingImportPreviewSchema.shape.inventory
+    let inventory: HoldingImportPreview["inventory"];
+    if (sourceState?.inventoryDetails) {
+      const { zeroCashContainerIds, ...details } =
+        HoldingImportPreviewSchema.shape.inventory
           .unwrap()
-          .parse(JSON.parse(sourceState.inventoryDetails))
-      : undefined;
+          .extend({ zeroCashContainerIds: z.array(z.string()) })
+          .parse(JSON.parse(sourceState.inventoryDetails));
+      inventory = details;
+      for (const containerId of zeroCashContainerIds)
+        cashConfirmed.add(containerId);
+    }
     const previewRows: HoldingImportRowPreview[] = rows.map((row) => {
       const positionId = row.applied_position_id ?? row.existing_position_id;
       const current = positionId
@@ -3194,6 +3248,11 @@ export class D1HoldingImportRepository {
         displayLabel: record.display_label,
         completeness: record.completeness,
         reportedRowCount: reportedRowsByContainer.get(record.container_id) ?? 0,
+        ...(inventory?.sourceUpdatedAt &&
+        record.completeness === "complete" &&
+        !cashConfirmed.has(record.container_id)
+          ? { cashMissing: true as const }
+          : {}),
       })),
       rows: previewRows,
       ...(sourceState
@@ -3507,31 +3566,35 @@ export class D1HoldingImportRepository {
       }
 
       const decisionId = crypto.randomUUID();
+      const reasonCodes = decisionContext.reasonCodesByRow.get(row.id) ?? [];
+      const guarded =
+        decisionContext.expectedCashlessSourceVersion !== undefined &&
+        reasonCodes.includes("account_cash_missing");
+      // An application requires its decision. A concurrent ignore or graph edit
+      // suppresses the decision below, which rolls the application batch back.
       statements.push(
-        this.db
-          .prepare(
-            `INSERT INTO holding_import_row_decisions (
-               id, household_id, import_row_id, reviewer_user_id, decision,
-               matched_position_id, currency, reviewed_snapshot_fingerprint,
-               rationale, decision_source, policy_version, reason_codes_json,
-               decided_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .bind(
-            decisionId,
-            identity.household_id,
-            row.id,
-            identity.user_id,
-            decision.decision,
-            decision.decision === "accepted" ? position?.id : null,
-            decision.decision === "accepted" ? input.currency : null,
-            row.snapshot_fingerprint,
-            decision.rationale,
-            decisionContext.source,
-            decisionContext.policyVersion,
-            JSON.stringify(decisionContext.reasonCodesByRow.get(row.id) ?? []),
-            createdAt,
-          ),
+        this.rowDecisionStatement(guarded).bind(
+          decisionId,
+          identity.household_id,
+          row.id,
+          identity.user_id,
+          decision.decision,
+          decision.decision === "accepted" ? position?.id : null,
+          decision.decision === "accepted" ? input.currency : null,
+          row.snapshot_fingerprint,
+          decision.rationale,
+          decisionContext.source,
+          decisionContext.policyVersion,
+          JSON.stringify(reasonCodes),
+          createdAt,
+          ...(guarded
+            ? [
+                identity.household_id,
+                decisionContext.expectedCashlessSourceVersion,
+                row.id,
+              ]
+            : []),
+        ),
       );
 
       if (decision.decision === "rejected" || position === undefined) {
@@ -4118,6 +4181,23 @@ export class D1HoldingImportRepository {
       throw new Error("Household not found for the authenticated user.");
     }
     return identity;
+  }
+
+  private rowDecisionStatement(guarded: boolean) {
+    return this.db.prepare(
+      `INSERT INTO holding_import_row_decisions (
+               id, household_id, import_row_id, reviewer_user_id, decision,
+               matched_position_id, currency, reviewed_snapshot_fingerprint,
+               rationale, decision_source, policy_version, reason_codes_json,
+               decided_at
+             ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+             ${
+               guarded
+                 ? `WHERE COALESCE((SELECT version FROM public_holding_source_versions WHERE household_id=?),0)=?
+               AND NOT EXISTS(SELECT 1 FROM public_holding_source_heads WHERE review_key='report:'||? AND decision='ignore')`
+                 : ""
+             }`,
+    );
   }
 
   private importDecisionRowsStatement(publicSource: boolean) {

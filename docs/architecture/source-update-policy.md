@@ -64,10 +64,20 @@ securities and an explicit USD account balance of zero), valid USD rows,
 established account scope, and accepted rows or recorded manual exclusions. A
 newly seen account accompanied by a missing accepted account is ambiguous; it
 cannot silently duplicate an account whose provider ID changed. A missing entire
-account, partial/malformed data, unknown cash, stale source or genuine identity
-conflict preserves that account's accepted state. Other clear accounts can
-proceed. A current-report manual identity choice retains its boundary until a
-subsequent authoritative report.
+account, partial/malformed data, stale source or genuine identity conflict
+preserves that account's accepted state. Other clear accounts can proceed. A
+current-report manual identity choice retains its boundary until a subsequent
+authoritative report.
+
+When explicit cash is the only missing coverage in a verified account report,
+the policy can update positions with an active exact account/security match and
+records `account_cash_missing` on each acceptance. Unmatched rows, removals and
+the account's complete inventory watermark still require a qualifying report.
+Sources discloses missing cash at the account and excludes retained cash from
+that report's accepted holdings total. Planning uses the account's prior
+baseline inputs until cash can be accepted alongside the securities. A replay of
+the latest report can recover unapplied matching rows even when other accounts
+already committed their inventory; receipt and freshness guards still apply.
 
 Absence from an eligible inventory stops contributing to current holdings,
 exposures, connection totals and subsequent FI baselines. It does not create a

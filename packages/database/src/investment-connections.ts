@@ -128,6 +128,7 @@ type ConnectionStatusRow = LatestRunRow & {
   unresolved: number;
   omitted: string;
   reported: string;
+  missing_cash: string;
 };
 
 type InvestmentConnectionRow = {
@@ -392,8 +393,6 @@ export class D1InvestmentConnectionsRepository
     connections: readonly ConnectionRow[],
   ): Promise<Map<string, ConnectionStatusRow>> {
     const ids = connections.flatMap((connection) =>
-      connection.status === "active" &&
-      connection.investment_lifecycle_state === "active" &&
       connection.investment_connection_id !== null
         ? [connection.investment_connection_id]
         : [],
@@ -426,7 +425,17 @@ export class D1InvestmentConnectionsRepository
          AND NOT EXISTS(SELECT 1 FROM holding_import_row_decisions d WHERE d.import_row_id=r.id)
          AND NOT EXISTS(SELECT 1 FROM public_holding_source_heads h WHERE h.review_key='report:'||r.id AND h.decision='ignore')),0) unresolved,
         (SELECT json_group_array(q.position_id) FROM holding_import_quarantines q WHERE q.import_id=head.import_id AND q.position_id IS NOT NULL) omitted,
-        (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported
+        (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported,
+        (SELECT json_group_array(container_id) FROM (
+          SELECT covered.container_id FROM holding_import_coverages covered
+          JOIN public_holding_inventory_evidence evidence ON evidence.import_id=covered.import_id
+          WHERE covered.import_id=head.import_id AND covered.completeness='complete' AND evidence.source_updated_at IS NOT NULL
+          EXCEPT SELECT scope.container_id FROM holding_import_rows r
+          CROSS JOIN holding_import_row_containers scope ON scope.import_row_id=r.id
+          WHERE r.import_id=head.import_id AND r.instrument_type='cash'
+          EXCEPT SELECT zero.value FROM public_holding_inventory_evidence evidence,
+            json_each(evidence.zero_cash_containers_json) zero WHERE evidence.import_id=head.import_id
+        )) missing_cash
       FROM investment_connections connection
       LEFT JOIN public_holding_import_heads head ON head.connection_id=connection.id AND head.household_id=connection.household_id
       LEFT JOIN public_holding_inventory_evidence evidence ON evidence.import_id=head.import_id
@@ -460,6 +469,7 @@ export class D1InvestmentConnectionsRepository
           unresolved: row.unresolved,
           omitted: row.omitted,
           reported: row.reported,
+          missing_cash: row.missing_cash,
         })),
     };
     const state = live.results.some((row) => row.omitted !== "[]")
@@ -467,6 +477,9 @@ export class D1InvestmentConnectionsRepository
       : null;
     const liveById = new Map(
       live.results.map((row) => {
+        const missingCash = new Set(
+          z.array(z.string()).parse(JSON.parse(row.missing_cash)),
+        );
         const reported = new Set(
           z
             .array(z.string())
@@ -481,7 +494,11 @@ export class D1InvestmentConnectionsRepository
               const visible = state?.visibleById.get(id);
               return visible &&
                 !reported.has(visible) &&
-                !state?.ignoredIds.has(visible)
+                !state?.ignoredIds.has(visible) &&
+                !(
+                  state?.byId.get(visible)?.instrument_type === "cash" &&
+                  missingCash.has(state.byId.get(visible)!.container_id)
+                )
                 ? [visible]
                 : [];
             }),
@@ -529,6 +546,20 @@ export class D1InvestmentConnectionsRepository
     connection: ConnectionRow,
     row: ConnectionStatusRow | undefined,
   ): InvestmentConnectionStatus {
+    const inventoryCoverage = {
+      ...(row && row.missing_cash !== "[]"
+        ? {
+            cashMissingContainerIds: z
+              .array(z.string())
+              .max(100)
+              .parse(JSON.parse(row.missing_cash)),
+          }
+        : {}),
+      ...(row?.accepted_inventory_at
+        ? { acceptedInventoryAt: row.accepted_inventory_at }
+        : {}),
+      acceptedInventoryEmpty: row?.accepted_inventory_empty === 1,
+    };
     if (
       connection.status === "revoked" ||
       connection.investment_connection_id === null ||
@@ -544,6 +575,7 @@ export class D1InvestmentConnectionsRepository
           connection.institution_label ?? connection.display_label,
         status: "disconnected",
         lastSyncedAt: connection.last_synced_at,
+        ...inventoryCoverage,
         automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
@@ -563,6 +595,7 @@ export class D1InvestmentConnectionsRepository
         institutionLabel: connection.institution_label,
         status: "paused",
         lastSyncedAt: connection.last_synced_at,
+        ...inventoryCoverage,
         automaticUpdatesEnabled: false,
         latestImportId: null,
         latestRunStatus: null,
@@ -641,10 +674,7 @@ export class D1InvestmentConnectionsRepository
             ? "needs_attention"
             : "ready",
       lastSyncedAt: connection.last_synced_at,
-      ...(latestRun?.accepted_inventory_at
-        ? { acceptedInventoryAt: latestRun.accepted_inventory_at }
-        : {}),
-      acceptedInventoryEmpty: latestRun?.accepted_inventory_empty === 1,
+      ...inventoryCoverage,
       automaticUpdatesEnabled: connection.provider_account_key !== null,
       latestImportId:
         latestAdjudication !== null && latestAdjudication.quarantinedCount > 0

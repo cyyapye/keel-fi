@@ -279,12 +279,17 @@ function investmentPositionTotalsLabel(
 
 function investmentConnectionTotalsLabel(
   connection: InvestmentPositionConnection | null,
+  missingCash: ReadonlySet<string>,
 ): string {
   if (connection === null) return "Value unavailable";
   const values = new Map<string, number>();
   let missing = 0;
-  for (const position of connection.containers.flatMap(
-    (container) => container.positions,
+  for (const position of connection.containers.flatMap((container) =>
+    container.positions.filter(
+      (position) =>
+        !missingCash.has(container.id) ||
+        position.snapshot.instrumentType !== "cash",
+    ),
   )) {
     const value = position.snapshot.unrealizedValue;
     if (value.state !== "reported" || value.minor === null) {
@@ -757,9 +762,11 @@ function coverageLabel(
 function InvestmentAccountRows({
   connection,
   acceptedEmpty = false,
+  missingCash,
 }: {
   connection: InvestmentPositionConnection | null;
   acceptedEmpty?: boolean;
+  missingCash: ReadonlySet<string>;
 }) {
   if (connection === null || connection.containers.length === 0) {
     return (
@@ -774,29 +781,45 @@ function InvestmentAccountRows({
   }
   return (
     <div className="investment-institution__accounts">
-      {connection.containers.map((container) => (
-        <div className="investment-institution__account" key={container.id}>
-          <span>
-            <strong>{container.label}</strong>
-            <small>
-              {accountKindLabel(container.kind)} · {container.positions.length}{" "}
-              {container.positions.length === 1 ? "position" : "positions"}
-            </small>
-          </span>
-          <span className="investment-institution__account-value">
-            <strong>
-              {acceptedEmpty && container.positions.length === 0
-                ? formatMoney(0)
-                : investmentPositionTotalsLabel(container.positions)}
-            </strong>
-            <small>
-              {container.coverage === null
-                ? "Not checked"
-                : coverageLabel(container.coverage)}
-            </small>
-          </span>
-        </div>
-      ))}
+      {connection.containers.map((container) => {
+        const cashMissing = missingCash.has(container.id);
+        const countedPositions = cashMissing
+          ? container.positions.filter(
+              (position) => position.snapshot.instrumentType !== "cash",
+            )
+          : container.positions;
+        return (
+          <div className="investment-institution__account" key={container.id}>
+            <span>
+              <strong>{container.label}</strong>
+              <small>
+                {accountKindLabel(container.kind)} · {countedPositions.length}{" "}
+                {countedPositions.length === 1 ? "position" : "positions"}
+              </small>
+            </span>
+            <span className="investment-institution__account-value">
+              <strong>
+                {acceptedEmpty && container.positions.length === 0
+                  ? formatMoney(0)
+                  : investmentPositionTotalsLabel(countedPositions)}
+              </strong>
+              <small
+                className={
+                  cashMissing
+                    ? "investment-institution__cash-warning"
+                    : undefined
+                }
+              >
+                {cashMissing
+                  ? "Cash missing from latest report"
+                  : container.coverage === null
+                    ? "Not checked"
+                    : coverageLabel(container.coverage)}
+              </small>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2691,9 +2714,18 @@ export function InvestmentHoldings({
                 status?.institutionLabel ??
                 connection?.institutionLabel ??
                 "Investment source";
+              const missingCash = new Set(status?.cashMissingContainerIds);
               const lastComplete =
                 status?.acceptedInventoryAt ??
-                latestCompleteObservation(connection);
+                (missingCash.size > 0
+                  ? null
+                  : latestCompleteObservation(connection));
+              const reportLabel =
+                missingCash.size > 0
+                  ? "Latest accepted account inventory"
+                  : status?.latestAdjudication?.inventoryAccepted === false
+                    ? "Last accepted report"
+                    : "Latest report";
               const pendingCount =
                 status?.latestAdjudication?.quarantinedCount ??
                 (status?.latestImportId === null ||
@@ -2766,7 +2798,7 @@ export function InvestmentHoldings({
                             : `${accountCount} ${accountCount === 1 ? "account" : "accounts"}`}
                           {lastComplete === null
                             ? ""
-                            : ` · ${status?.latestAdjudication?.inventoryAccepted === false ? "Last accepted report" : "Latest report"} ${formatDate(lastComplete)}`}
+                            : ` · ${reportLabel} ${formatDate(lastComplete)}`}
                           {status?.lastSyncedAt === null ||
                           status?.lastSyncedAt === undefined
                             ? ""
@@ -2780,9 +2812,16 @@ export function InvestmentHoldings({
                               ? "Refresh pending"
                               : acceptedEmpty
                                 ? formatMoney(0)
-                                : investmentConnectionTotalsLabel(connection)}
+                                : investmentConnectionTotalsLabel(
+                                    connection,
+                                    missingCash,
+                                  )}
                           </strong>
-                          <small>Accepted holdings</small>
+                          <small>
+                            {missingCash.size > 0
+                              ? "Accepted holdings · partial"
+                              : "Accepted holdings"}
+                          </small>
                         </span>
                         <DisclosureIndicator />
                       </span>
@@ -2791,6 +2830,7 @@ export function InvestmentHoldings({
                       <InvestmentAccountRows
                         connection={connection}
                         acceptedEmpty={acceptedEmpty}
+                        missingCash={missingCash}
                       />
                       {renderInstitutionActions(true)}
                     </CollapsibleContent>
@@ -2812,7 +2852,7 @@ export function InvestmentHoldings({
                                     : `${status.latestAdjudication.automaticChangeCount ?? status.latestAdjudication.autoAppliedCount} ${(status.latestAdjudication.automaticChangeCount ?? status.latestAdjudication.autoAppliedCount) === 1 ? "change" : "changes"} applied automatically.`
                                   : status.latestAdjudication.autoAppliedCount >
                                       0
-                                    ? `${status.latestAdjudication.autoAppliedCount} positions updated automatically.`
+                                    ? `${status.latestAdjudication.autoAppliedCount} ${status.latestAdjudication.autoAppliedCount === 1 ? "position" : "positions"} updated automatically.`
                                     : "Latest report checked."}{" "}
                               {pendingCount === 0
                                 ? "No decisions needed."

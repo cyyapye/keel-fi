@@ -642,9 +642,15 @@ test("stock distribution recalculates carry and persists correction, other edits
   await openHolding(page, prepared.positionId);
   await fillReview(page);
   await checkStockKeyboard(page);
-  await expect(
-    workspace(page).getByRole("group", { name: /value.*after carry/i }),
-  ).toContainText("remaining value only");
+  const calculation = workspace(page).getByRole("button", {
+    name: "Calculation",
+    exact: true,
+  });
+  await calculation.click();
+  await expect(workspace(page).locator(".holding-calculation")).toContainText(
+    "remaining value only",
+  );
+  await calculation.click();
   await expect(
     page.getByRole("combobox", { name: "Historical value", exact: true }),
   ).toHaveCount(0);
@@ -679,17 +685,18 @@ test("stock distribution recalculates carry and persists correction, other edits
   await expect(
     workspace(page).getByLabel(/^Return before remaining carry /u),
   ).toBeVisible();
-  await expect(
-    workspace(page).getByRole("group", { name: /value.*after carry/i }),
-  ).not.toContainText("remaining value only");
+
   await expect(
     workspace(page).getByLabel(/^Return after carry /u),
   ).toContainText(/\+67\.4/);
   await capture(page, "distribution-readback");
-  await page
-    .getByRole("button", { name: "Carry details", exact: true })
-    .click();
-  await expect(workspace(page)).toContainText("$21,000");
+  await page.getByRole("button", { name: "Calculation", exact: true }).click();
+  await expect(
+    workspace(page).locator(".holding-calculation"),
+  ).not.toContainText("remaining value only");
+  await expect(workspace(page).locator(".holding-calculation")).toContainText(
+    "$21,000",
+  );
   await page
     .getByRole("button", { name: "Edit distributions", exact: true })
     .click();
@@ -959,11 +966,12 @@ test("cash receipts preserve unknown amounts and keep mixed-inclusion returns un
   await expect(
     workspace(page).getByRole("group", { name: /value.*after carry/i }),
   ).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Carry details", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Calculation", exact: true }).click();
   await expect(workspace(page)).toContainText("$21,000");
   await capture(page, "distribution-unknown-carry");
+  await workspace(page)
+    .getByRole("button", { name: "Calculation", exact: true })
+    .click();
   await page
     .getByRole("button", { name: "Edit distributions", exact: true })
     .click();
@@ -1008,7 +1016,7 @@ test("cash receipts preserve unknown amounts and keep mixed-inclusion returns un
     "unsupported_mixed",
   );
   await afterValue(page, "$36,200");
-  await expect(workspace(page).locator(".holding-value-return")).toHaveCount(0);
+  await expect(workspace(page).locator(".holding-return")).toHaveCount(0);
   await workspace(page)
     .getByRole("button", { name: "Calculation", exact: true })
     .click();
@@ -1131,7 +1139,7 @@ test("an explicitly undated provider review stays undated in detail and collecti
   await expect(
     workspace(page).getByRole("group", { name: /value.*after carry/i }),
   ).toHaveCount(0);
-  await expect(workspace(page).locator(".holding-value-return")).toHaveCount(0);
+  await expect(workspace(page).locator(".holding-return")).toHaveCount(0);
   const response = await page.request.get("/api/holdings-page");
   expect(response.status(), await response.text()).toBe(200);
   const model = HoldingsPageSchema.parse(await response.json());
@@ -1198,9 +1206,7 @@ for (const carryStatus of ["unknown", "after_carry"] as const)
         workspace(page).getByRole("group", { name: /before carry/i }),
       ).toHaveCount(0);
     }
-    await expect(workspace(page).locator(".holding-value-return")).toHaveCount(
-      0,
-    );
+    await expect(workspace(page).locator(".holding-return")).toHaveCount(0);
     await workspace(page)
       .getByRole("button", { name: "Calculation", exact: true })
       .click();

@@ -5,6 +5,7 @@ import {
   purchaseShares,
   reviewedInvestmentFromReceipt,
 } from "@keel/domain/position-purchases";
+import { positionShareSummary } from "./position-share-summary";
 import { unknownInvestmentTerms } from "@keel/domain/investment-details";
 import {
   positionCapitalSummary,
@@ -193,4 +194,34 @@ describe("position capital display", () => {
       kind: "net",
     });
   });
+});
+
+it("shows remaining shares only for a current, complete position in compatible units", () => {
+  const first = lot({
+    remainingSharesMicros: 2_000_000,
+    sharesAsOf: "2026-01-01",
+  });
+  const second = lot({
+    id: "second",
+    remainingSharesMicros: 500_000,
+    sharesAsOf: "2026-01-01",
+  });
+  const context = {
+    snapshotId: "current",
+    openedOn: null,
+    currency: "USD" as const,
+    receipt: receipt([first, second]),
+  };
+  expect(positionShareSummary(context, false)).toBeNull();
+  context.receipt.details.coversPosition = true;
+  expect(positionShareSummary(context, false)).toEqual({
+    quantityMicros: 2_500_000,
+    estimated: false,
+    asOf: "2026-01-01",
+  });
+  expect(
+    positionShareSummary({ ...context, snapshotId: "new-statement" }, false),
+  ).toBeNull();
+  context.receipt.details.lots[1]!.shareClass = "Preferred";
+  expect(positionShareSummary(context, false)).toBeNull();
 });

@@ -417,6 +417,7 @@ export const HoldingSchema = z.object({
   sourceStatus: z.enum(["verified", "review_due", "proposed", "manual"]),
   sourceLabel: z.string().min(1),
   effectiveDate: IsoDateSchema,
+  reportedValueObservedOn: IsoDateSchema.optional(),
   retrievedAt: IsoTimestampSchema,
   confidencePpm: ProbabilityPpmSchema.nullable(),
   ticker: z.string().min(1).max(32).nullable().default(null),
@@ -1679,6 +1680,7 @@ export const HoldingImportPreviewSchema = z.object({
           displayLabel: z.string().min(1),
           completeness: HoldingImportCoverageCompletenessSchema,
           reportedRowCount: z.number().int().nonnegative(),
+          cashMissing: z.literal(true).optional(),
         })
         .strict(),
     )
@@ -2911,6 +2913,7 @@ export const InvestmentConnectionStatusSchema = z
       "needs_attention",
     ]),
     lastSyncedAt: IsoTimestampSchema.nullable(),
+    cashMissingContainerIds: z.array(z.string().min(1)).max(100).optional(),
     acceptedInventoryAt: IsoTimestampSchema.optional(),
     acceptedInventoryEmpty: z.boolean().optional(),
     automaticUpdatesEnabled: z.boolean().default(false),
