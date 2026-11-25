@@ -25,6 +25,7 @@ const LocalSeedScenarioSchema = z.enum([
   "purchase-refund",
   "price-proxies",
   "closing-price",
+  "pre-distribution",
   "holdings-total",
   "personal-prices",
 ]);
@@ -63,6 +64,16 @@ export const LocalSeedScenarios = {
   "closing-price": {
     description:
       "Two synthetic SPVs and a first official close, ready for review",
+    expectedCurrentPositionCount: 2,
+    minimumAcceptedValueDecreaseCount: 0,
+    minimumAcceptedValueIncreaseCount: 0,
+    minimumCanonicalExposureCount: 1,
+    seedFiles: ["packages/database/seed/synthetic.sql"],
+    version: 1,
+  },
+  "pre-distribution": {
+    description:
+      "Two undistributed SPV positions, one with estimated shares and one with a dated GP value",
     expectedCurrentPositionCount: 2,
     minimumAcceptedValueDecreaseCount: 0,
     minimumAcceptedValueIncreaseCount: 0,
@@ -191,10 +202,16 @@ export function resolveLocalScenarioPersistRoot(
   rootDir = repositoryRoot,
 ): string {
   const scenarioRoot = resolve(rootDir, LOCAL_SEED_SCENARIO_DIRECTORY);
-  const persistRoot = resolve(scenarioRoot, scenario);
+  // A proxy walkthrough must never reset the existing personal-price walkthrough.
+  const directory =
+    scenario === "personal-prices" &&
+    process.env.KEEL_PERSONAL_PROXY_DEMO === "1"
+      ? "personal-price-proxies"
+      : scenario;
+  const persistRoot = resolve(scenarioRoot, directory);
   const fromScenarioRoot = relative(scenarioRoot, persistRoot);
   if (
-    fromScenarioRoot !== scenario ||
+    fromScenarioRoot !== directory ||
     persistRoot === scenarioRoot ||
     persistRoot === resolve(rootDir)
   ) {
@@ -552,6 +569,7 @@ export function prepareLocalSeedScenario(options: {
       if (
         scenario === "price-proxies" ||
         scenario === "closing-price" ||
+        scenario === "pre-distribution" ||
         scenario === "holdings-total" ||
         scenario === "personal-prices"
       ) {

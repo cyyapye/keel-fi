@@ -119,6 +119,18 @@ valuation source are three independent actions.
 | User decides         | Record one version-checked exposure choice covering the reviewed eligible positions. Both entry points use the same decision.                                                                                                                                             | **Use closing price** clears both prompts. **Keep current sources** also resolves this proposal. The user can revisit the source from the expanded exposure.                                            |
 | Subsequent sessions  | Apply new accepted official closes only to covered shares compatible with the chosen instrument and basis. Retain the last accepted close and its date over weekends, missing sessions or source outages. Preserve corrections and superseded observations.               | Both eligible estimates advance without daily approval. Holding details show the selected close and latest GP evidence separately. Incoming GP marks retain their own source, date and carry treatment. |
 
+Before a distribution, the same review can offer an explicitly labeled price
+proxy. For estimated underlying shares on a known split basis, the review can
+offer one listed share's price per private share. Where conversion is unknown, a
+dated before-carry SPV value can instead track the percentage change from the
+close shown at approval. The decision records that starting value and price.
+Later GP marks stay visible independently. Each accepted, matched gross stock
+release reduces the distributing SPV's remaining estimate. The brokerage balance
+comes from its own statement.
+
+Run `make dev SCENARIO=pre-distribution` to try both proxy methods and two stock
+deliveries. Use the local app's `/local-feed` controls to advance them.
+
 Run `make dev SCENARIO=closing-price` to try this in the local app. The
 synthetic portfolio starts with two Cedar Robotics positions and a first
 official close of
@@ -135,10 +147,10 @@ exercises the same ingestion and valuation logic as a trusted close event.
    autonomous EDGAR discovery by verified CIK and deduplicate by accession.
    First activation needs a bounded historical lookup for companies already
    trading when monitoring starts.
-2. Confirm the listing instrument. Use authoritative identifiers and reviewed
-   conversion terms for private shares. Keep an ambiguous issuer, class,
-   currency or conversion out of price-based estimates. An SPV unit count by
-   itself does not establish the underlying share count.
+2. Confirm the issuer, listed instrument, share class and currency. Direct share
+   pricing requires a compatible documented basis. Private units without a
+   conversion ratio can track price changes from a reviewed SPV value using the
+   proxy decision above. Keep the share quantity unknown in that case.
 3. Use Alpha Vantage for the delayed daily-price pilot. Request the compact
    `TIME_SERIES_DAILY` history and take the raw `4. close` for a completed
    trading date. An offer price, intraday trade or price inferred from a
@@ -200,7 +212,11 @@ Restarting catches up within the last 100 trading sessions. The initial fetch
 must include the confirmed first session. The tick and its date are the
 provider's raw daily observation. Corporate actions or a change in economic
 share basis require separate confirmation. This pilot assumes a fixed reviewed
-allocation in both sample positions.
+allocation in both sample positions by default. For a separate local walkthrough
+with private SPV estimates, run
+`KEEL_PERSONAL_PROXY_DEMO=1 KEEL_PERSONAL_REPLAY_FIRST=1 make dev SCENARIO=personal-prices`.
+The proxy walkthrough replays the most recently saved public price history from
+the personal feed in its own synthetic database. It makes no provider requests.
 
 For a fresh walkthrough, start with `KEEL_PERSONAL_REPLAY_FIRST=1`. Holdings and
 Portfolio Watch show one exposure decision on the first observed session. After

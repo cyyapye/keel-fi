@@ -32,11 +32,26 @@ export const nextCedarClose = {
   observedAt: "2026-11-20T21:15:00.000Z",
   sourceUrl: "https://exchange.example/cedar/2026-11-20",
 };
+function closeOn<T extends typeof firstCedarClose | typeof nextCedarClose>(
+  quote: T,
+  date: string,
+) {
+  return {
+    ...quote,
+    date,
+    observedAt: date + "T20:15:00.000Z",
+    sourceUrl: "https://exchange.example/cedar/" + date,
+  };
+}
+export const firstPrivateProxyClose = closeOn(firstCedarClose, "2026-09-24");
+export const nextPrivateProxyClose = closeOn(nextCedarClose, "2026-09-25");
+
 export async function seedSamplePricePositions(
   db: D1Database,
   company: string,
   shareBasis: { key: string; unitsPerOriginal: number },
   shareClass = "Class A",
+  preDistribution = false,
 ) {
   const cases = [
     {
@@ -69,6 +84,11 @@ export async function seedSamplePricePositions(
   const purchases = new D1PositionPurchaseRepository(db);
   for (const c of cases) {
     const p = positions.find((r) => r.legalVehicleName === c.name)!;
+    const basis =
+      preDistribution && c.name === "Summit SPV"
+        ? { key: "legacy-private-units", unitsPerOriginal: 1 }
+        : shareBasis;
+    const lotClass = preDistribution ? "Preferred" : shareClass;
     const purchase = await purchases.accept(LINK_DEMO_SUBJECT, p.id, {
       expectedSnapshotId: p.snapshot.id,
       expectedReceiptId: null,
@@ -78,7 +98,7 @@ export async function seedSamplePricePositions(
           PurchaseLotSchema.parse({
             id: "subscription",
             purchasedOn: "2025-03-12",
-            shareClass,
+            shareClass: lotClass,
             priceMicros: null,
             referencePriceMicros: null,
             grossCashMinor: 100_000,
@@ -94,10 +114,10 @@ export async function seedSamplePricePositions(
             sourceText: null,
             mark: null,
             quantityDetails: {
-              status: "confirmed",
+              status: preDistribution ? "estimated" : "confirmed",
               derivation: "Economic shares allocated by the vehicle.",
               evidence: "Synthetic subscription schedule",
-              shareBasis,
+              shareBasis: basis,
             },
           }),
         ],
@@ -113,10 +133,10 @@ export async function seedSamplePricePositions(
         origin: "gp",
         totalMinor: c.value,
         priceMicros,
-        priceDate: "2026-11-17",
-        effectiveDate: "2026-11-17",
-        shareClass,
-        shareBasis,
+        priceDate: preDistribution ? "2026-09-23" : "2026-11-17",
+        effectiveDate: preDistribution ? "2026-09-23" : "2026-11-17",
+        shareClass: lotClass,
+        shareBasis: basis,
         carryStatus: "before_carry",
         sourceLabel: c.name + " GP",
         sourceUrl: null,
@@ -136,28 +156,34 @@ export async function seedSamplePricePositions(
   if (!exposure) throw new Error("Synthetic exposure missing.");
   return exposure.id;
 }
-export async function seedClosingPrice(db: D1Database) {
+export async function seedClosingPrice(
+  db: D1Database,
+  preDistribution = false,
+) {
+  const quote = preDistribution ? firstPrivateProxyClose : firstCedarClose;
   const id = await seedSamplePricePositions(
     db,
     "Cedar Robotics",
-    firstCedarClose.shareBasis,
+    quote.shareBasis,
+    quote.shareClass,
+    preDistribution,
   );
   await db
     .prepare("INSERT INTO exposure_market_listings VALUES(?,?,?,?,?,?,?,?,?)")
     .bind(
       id,
-      firstCedarClose.instrumentId,
+      quote.instrumentId,
       "CDR",
       "Demo Exchange",
       "Class A",
-      firstCedarClose.shareBasis.key,
-      firstCedarClose.date,
+      quote.shareBasis.key,
+      quote.date,
       "https://exchange.example/cedar/listing",
       "USD",
     )
     .run();
   await recordOfficialClose(db, {
-    ...firstCedarClose,
+    ...quote,
     exposureId: id,
   });
   return id;
@@ -167,7 +193,13 @@ if (
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   const root = resolve(process.argv[2] ?? "");
-  if (root !== resolve(".keel-local/scenarios/closing-price"))
+  if (
+    root !== resolve(".keel-local/scenarios/closing-price") &&
+    !(
+      process.argv[3] === "--next" &&
+      root === resolve(".keel-local/scenarios/pre-distribution")
+    )
+  )
     throw new Error("Use the dedicated closing-price scenario.");
   if (process.argv[3] === "--next") {
     const { getPlatformProxy } = await import("wrangler");
@@ -189,7 +221,9 @@ if (
         .first<{ exposure_id: string }>();
       if (!matched) throw new Error("Synthetic first close missing.");
       await recordOfficialClose(proxy.env.DB, {
-        ...nextCedarClose,
+        ...(root === resolve(".keel-local/scenarios/pre-distribution")
+          ? nextPrivateProxyClose
+          : nextCedarClose),
         exposureId: matched.exposure_id,
       });
       console.log(matched.exposure_id);

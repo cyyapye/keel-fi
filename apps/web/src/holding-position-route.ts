@@ -5,7 +5,7 @@ export function followedCloseReviewPath(holding: Holding): string | null {
   const receipt = holding.purchaseContext?.receipt;
   const quote = receipt?.publicClose;
   return receipt && quote && publicClosingValuation(receipt, quote)
-    ? `/holdings?valuation=${encodeURIComponent(quote.exposureId)}`
+    ? `/holdings?valuation=${encodeURIComponent(quote.exposureId)}&scope=active`
     : null;
 }
 

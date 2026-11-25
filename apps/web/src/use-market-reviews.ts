@@ -4,7 +4,7 @@ import {
   type MarketReview,
 } from "@keel/domain/market-close";
 import { requestKeel } from "./api-request";
-export function useMarketReviews(id?: string | null) {
+export function useMarketReviews(id?: string | null, scope?: "active") {
   const [reviews, setReviews] = useState<MarketReview[] | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -15,7 +15,7 @@ export function useMarketReviews(id?: string | null) {
       try {
         const response = await requestKeel(
           id
-            ? `/api/exposure-closes/${encodeURIComponent(id)}`
+            ? `/api/exposure-closes/${encodeURIComponent(id)}${scope ? "?scope=active" : ""}`
             : "/api/exposure-closes",
           {
             signal: controller.signal,
@@ -48,6 +48,6 @@ export function useMarketReviews(id?: string | null) {
       controller.abort();
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [id, revision]);
+  }, [id, revision, scope]);
   return { reviews, error, refresh: () => setRevision((n) => n + 1) };
 }

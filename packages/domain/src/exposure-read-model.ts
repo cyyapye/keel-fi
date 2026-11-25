@@ -774,7 +774,8 @@ export function createInvestmentExposureView(
           valueSource: selected
             ? selected.origin === "at_cost"
               ? "invested_amount"
-              : selected.method === "shares"
+              : selected.method === "shares" ||
+                  selected.method === "price_change"
                 ? "share_price_estimate"
                 : "reviewed_adjustment"
             : adjustment !== null

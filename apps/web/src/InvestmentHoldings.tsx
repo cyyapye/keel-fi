@@ -438,6 +438,7 @@ function exposureValueSourceLabel(
 ): string | null {
   if (
     position.valueSourceLabel === "Closing-price estimate" ||
+    position.valueSourceLabel === "Closing-price proxy" ||
     position.valueSourceLabel === "My estimate" ||
     position.valueSourceLabel?.startsWith("Proxy estimate")
   )
@@ -1730,7 +1731,8 @@ function ExposureView({
             positions.length > 0 &&
             positions.every(
               (position) =>
-                position.valueSourceLabel === "Closing-price estimate",
+                position.valueSourceLabel === "Closing-price estimate" ||
+                position.valueSourceLabel === "Closing-price proxy",
             );
           const isLandingGroup =
             landOnGroup && group.exposure.id === requestedExposureId;
@@ -1870,9 +1872,14 @@ function ExposureView({
                 <ActionGroup wrap>
                   <MarketReviewLink review={marketReview} />
                   <small>
-                    First public close · {marketReview.positions.length}{" "}
+                    {marketReview.renewalCount
+                      ? "Updated valuation basis"
+                      : "First public close"}{" "}
+                    ·{" "}
+                    {marketReview.renewalCount ?? marketReview.positions.length}{" "}
                     eligible{" "}
-                    {marketReview.positions.length === 1
+                    {(marketReview.renewalCount ??
+                      marketReview.positions.length) === 1
                       ? "position"
                       : "positions"}
                   </small>

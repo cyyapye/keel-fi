@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { gzipSync } from "node:zlib";
+import { brotliCompressSync, constants } from "node:zlib";
 import { expect, it, vi } from "vitest";
 import type * as MigrationSafety from "../d1-migration-safety";
 import {
@@ -66,9 +66,9 @@ it("rejects stale, changed, unowned and incomplete expected migration inputs bef
       Object.fromEntries(
         PopulatedFixtureFrontierSchema.options.map((frontier) => [
           frontier,
-          gzipSync(JSON.stringify(fixture(history, frontier))).toString(
-            "base64",
-          ),
+          brotliCompressSync(
+            JSON.stringify(fixture(history, frontier)),
+          ).toString("base64"),
         ]),
       ),
     );
@@ -145,12 +145,13 @@ it("rejects stale, changed, unowned and incomplete expected migration inputs bef
     const inflated = directory();
     await prepareExpectedFixtureStore(inflated, (history) => {
       const packed = JSON.parse(bundle(history)) as Record<string, string>;
-      packed["0088"] = gzipSync(
+      packed["0088"] = brotliCompressSync(
         JSON.stringify(
           fixture(history, "0088", [
             ["synthetic", "x".repeat(POPULATED_FIXTURE_BYTE_LIMIT)],
           ]),
         ),
+        { params: { [constants.BROTLI_PARAM_QUALITY]: 4 } },
       ).toString("base64");
       return Promise.resolve(JSON.stringify(packed));
     });

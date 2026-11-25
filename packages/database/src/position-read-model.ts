@@ -533,7 +533,7 @@ export class D1InvestmentPositionViewRepository implements InvestmentPositionVie
              (SELECT json_object('priceMicros',gp.price_micros,'priceDate',gp.price_date,'sourceLabel',gp.source_label)
                FROM exposure_market_members member JOIN holding_price_current_quotes gp_head ON gp_head.source_position_id=member.position_id
                JOIN holding_price_quotes gp ON gp.id=gp_head.quote_id WHERE member.position_id=position.id) latest_gp_json,
-             (SELECT json_set(price.quote_json,'$.exposureId',member.exposure_id) FROM exposure_market_members member
+             (SELECT json_patch(json_set(price.quote_json,'$.exposureId',member.exposure_id),json_object('proxyBasis',json(member.proxy_basis_json))) FROM exposure_market_members member
                JOIN exposure_market_candidates candidate ON candidate.position_id=member.position_id AND candidate.mapping_id=member.mapping_id AND candidate.exposure_id=member.exposure_id
                JOIN exposure_market_prices price ON price.exposure_id=member.exposure_id
                WHERE member.position_id=position.id) AS market_quote_json,

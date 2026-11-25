@@ -6,7 +6,11 @@ import { expect, it } from "vitest";
 import { createCostFixtureDatabase } from "./test-support/cost-database";
 import { measureD1 } from "./test-support/d1-cost";
 import { COST_SUBJECT } from "./test-support/cost-fixtures";
-import { PurchaseLotSchema } from "../packages/domain/src/position-purchases";
+import {
+  PurchaseLotSchema,
+  PurchaseReceiptSchema,
+  valuationSharesKey,
+} from "../packages/domain/src/position-purchases";
 import {
   decideMarketSource,
   listMarketReviews,
@@ -136,6 +140,40 @@ it("bounds the close review projection for 120 exposures across same-session rev
       saved.choice,
       saved.positions.every((p) => p.enrolled),
     ]).toEqual([1, "follow", true]);
+
+    // Active policy lookups must stay bounded even when every issuer has a reviewed proxy.
+    const { receipt_json } = (await db
+      .prepare("SELECT receipt_json FROM exposure_market_candidates LIMIT 1")
+      .first<{ receipt_json: string }>())!;
+    const sharesKey = valuationSharesKey(
+      PurchaseReceiptSchema.parse(JSON.parse(receipt_json)).details,
+    );
+    await db
+      .prepare(
+        `INSERT INTO exposure_market_decisions(id, exposure_id, version, quote_id, user_id, choice, input_token, scope_json, decided_at)
+      SELECT 'cost-proxy-'||c.exposure_id,c.exposure_id,2,h.quote_id,'usr_demo','follow','cost-proxy',
+             json_group_array(json_object('id',c.position_id,'mappingId',c.mapping_id,'receiptId',c.receipt_id,'snapshotId',c.snapshot_id,'proxyBasis',json(?))),?
+      FROM exposure_market_candidates c JOIN exposure_market_heads h ON h.exposure_id=c.exposure_id
+      WHERE c.household_id='hh_demo' GROUP BY c.exposure_id`,
+      )
+      .bind(
+        JSON.stringify({ method: "indicative_shares", sharesKey }),
+        q.observedAt,
+      )
+      .run();
+    measured.reset();
+    const enrolled = await listMarketReviews(measured.database, COST_SUBJECT);
+    expect(enrolled).toHaveLength(120);
+    expect(
+      enrolled.every((r) =>
+        r.positions.every(
+          (p) => p.enrolled && p.proxyBasis?.method === "indicative_shares",
+        ),
+      ),
+    ).toBe(true);
+    expect(measured.cost.roundTrips).toBe(1);
+    expect(measured.cost.rowsRead).toBeLessThan(10000);
+    expect(measured.cost.rowsWritten).toBe(0);
 
     // Personal daily observations must stay isolated from official-close enrollment.
     const listing = {

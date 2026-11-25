@@ -29,6 +29,8 @@ export const PopulatedFixtureFrontierSchema = z.enum([
   "0096-prices",
   "0097",
   "0098",
+  "0098-market",
+  "0099",
 ]);
 export const EncodedMigrationFixturesSchema = z.record(
   PopulatedFixtureFrontierSchema,

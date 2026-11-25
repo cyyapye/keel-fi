@@ -584,7 +584,11 @@ reduce accepted net invested capital.
 A cumulative remaining-value estimate needs complete history covering its
 valuation date and cannot use a value dated before a recorded distribution.
 Share-derived remaining values also need remaining-share evidence dated through
-the latest in-kind distribution. No distribution command changes those shares.
+the latest in-kind distribution. An approved public-close estimate can roll its
+reviewed balance forward using gross shares released in accepted, dated SPV
+notices on the same security and split basis. The original quantity and GP mark
+remain available. A separate brokerage observation establishes shares received,
+which may differ from the gross release when the vehicle withholds shares.
 Unknown source carry classification still prevents a net estimate; reported
 after-carry values and a known zero rate do not acquire unnecessary history
 requirements.

@@ -512,12 +512,29 @@
       "histories": [12, 24],
       "maxRowsRead": 2400,
       "maxRowsWritten": 160
+    },
+    {
+      "kind": "upgrade",
+      "id": "market-proxy-basis-v1",
+      "frontier": "0098_exposure_closing_prices.sql",
+      "migrations": [
+        {
+          "name": "0099_market_proxy_basis.sql",
+          "sha256": "1704ada3fafac975daeebbf68b9dc1ce60e17bcd403869e4f4cf760af7c4f775"
+        }
+      ],
+      "fixture": "public-holding-history-v1",
+      "mainPositions": 120,
+      "unrelatedPositions": 120,
+      "histories": [12, 24],
+      "maxRowsRead": 4000,
+      "maxRowsWritten": 40
     }
   ],
   "baseline": {
     "kind": "baseline",
-    "id": "exposure-closing-prices-schema-v1",
-    "frontier": "0098_exposure_closing_prices.sql",
+    "id": "market-proxy-basis-schema-v1",
+    "frontier": "0099_market_proxy_basis.sql",
     "pending": [],
     "fixture": "public-holding-history-v1",
     "mainPositions": 120,

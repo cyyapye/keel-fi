@@ -1,4 +1,5 @@
 import type { ComponentProps } from "react";
+import type { CloseProxyBasis } from "@keel/domain/market-close";
 import { SectionHeader, Text } from "@keel/ui";
 import { formatDate, formatMoney } from "./format";
 
@@ -6,6 +7,8 @@ type Position = {
   id: string;
   name: string;
   shares: string;
+  privateClasses?: string[] | undefined;
+  proxyBasis?: CloseProxyBasis | undefined;
   closeMinor: number | bigint;
   priorMinor: number | bigint | null;
   priorSource: string | undefined;
@@ -38,6 +41,7 @@ export function ClosingPriceComparison({
   positions: Position[];
   headingProps?: ComponentProps<typeof SectionHeader>["headingProps"];
 }) {
+  const hasProxy = positions.some((p) => p.proxyBasis);
   const closeTotal = positions.reduce(
     (sum, p) => sum + BigInt(p.closeMinor),
     0n,
@@ -49,7 +53,7 @@ export function ClosingPriceComparison({
   );
   const closeHeader = (
     <th scope="col">
-      Value at close
+      {hasProxy ? "Estimated at close" : "Value at close"}
       <small>Before carry</small>
     </th>
   );
@@ -64,7 +68,9 @@ export function ClosingPriceComparison({
           title={
             following
               ? "Restore prior valuation sources?"
-              : `Use ${ticker}’s ${closeLabel}?`
+              : hasProxy
+                ? `Use ${ticker} as a price proxy?`
+                : `Use ${ticker}’s ${closeLabel}?`
           }
           headingProps={headingProps}
         />
@@ -93,14 +99,43 @@ export function ClosingPriceComparison({
                 {p.priorSource && <small>{p.priorSource}</small>}
               </td>
             );
-            const close = <td>{money(p.closeMinor)}</td>;
+            const basis = p.proxyBasis;
+            const close = (
+              <td>
+                {money(p.closeMinor)}
+                {basis?.method === "indicative_shares" && (
+                  <small>Assumes 1:1 pricing</small>
+                )}
+                {basis?.method === "price_change" && (
+                  <small>
+                    {BigInt(basis.startMinor) === BigInt(p.closeMinor)
+                      ? "Starting value"
+                      : `From ${money(basis.startMinor)}`}{" "}
+                    ·{" "}
+                    <time dateTime={basis.valueDate}>
+                      {formatDate(basis.valueDate)}
+                    </time>
+                    {basis.sourceLabel !== p.priorSource &&
+                      ` · ${basis.sourceLabel}`}
+                  </small>
+                )}
+              </td>
+            );
             return (
               <tr key={p.id}>
                 <th scope="row">
                   {p.name}
                   <small>
-                    {p.shares} <span aria-hidden="true">sh</span>
-                    <span className="visually-hidden">shares</span>
+                    {p.proxyBasis?.method === "price_change" ? (
+                      `Tracks the % change in ${ticker}`
+                    ) : p.proxyBasis?.method === "indicative_shares" ? (
+                      `${p.shares} est. ${p.privateClasses?.join(" / ") ?? "underlying"} sh`
+                    ) : (
+                      <>
+                        {p.shares} <span aria-hidden="true">sh</span>
+                        <span className="visually-hidden">shares</span>
+                      </>
+                    )}
                   </small>
                 </th>
                 {following ? close : prior}
@@ -119,8 +154,9 @@ export function ClosingPriceComparison({
       </table>
       {!following && (
         <Text as="span" variant="supporting">
-          Future closes update these estimates automatically. GP marks stay
-          available in holding details.
+          {hasProxy
+            ? "These SPV estimates follow future closes before shares reach your brokerage. Your GP marks stay in holding details."
+            : "Future closes update these estimates automatically. GP marks stay available in holding details."}
         </Text>
       )}
     </div>
