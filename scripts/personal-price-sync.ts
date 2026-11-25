@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
   renameSync,
   existsSync,
@@ -56,10 +57,24 @@ export async function syncPersonalPrices(
   const { day } = dailyWindow(now.getTime());
   const dir = join(root, "daily-feed");
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const cachePath = join(dir, day + ".json");
+  const historical = process.env.KEEL_PERSONAL_PROXY_DEMO === "1";
+  let cachePath = join(dir, day + ".json");
+  if (historical) {
+    // Only the market observations are shared. Both demo databases own their own decisions.
+    const archive = resolve(".keel-local/scenarios/personal-prices/daily-feed");
+    const latest = readdirSync(archive)
+      .filter((name) => /^\d{4}-\d{2}-\d{2}\.json$/u.test(name))
+      .sort()
+      .at(-1);
+    if (!latest)
+      throw new Error(
+        "The personal demo needs a saved daily-price observation.",
+      );
+    cachePath = join(archive, latest);
+  }
   const replayPath = join(dir, "first-session-replay");
   let fetched = false;
-  if (!existsSync(cachePath) && mode === "scheduled") {
+  if (!historical && !existsSync(cachePath) && mode === "scheduled") {
     // Even two fresh app processes or repeated restarts share one provider attempt this UTC day.
     try {
       writeFileSync(join(dir, day + ".attempt"), instrument, {

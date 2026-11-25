@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { personalInstrument } from "../packages/database/src/personal-daily-closes";
 import { PersonalListingSchema } from "../packages/domain/src/market-close";
+import { resolveLocalScenarioPersistRoot } from "./local-seed-scenarios";
 import { buildRecordedSeed } from "./seed-position-links";
 import { seedSamplePricePositions } from "./seed-closing-price";
 
@@ -18,7 +19,7 @@ if (
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   const root = resolve(process.argv[2] ?? "");
-  if (root !== resolve(".keel-local/scenarios/personal-prices"))
+  if (root !== resolveLocalScenarioPersistRoot("personal-prices"))
     throw new Error("Use the personal-prices profile.");
   const listing = readPersonalListing();
   const instrument = personalInstrument(listing);
@@ -29,6 +30,7 @@ if (
       listing.company,
       { key: instrument, unitsPerOriginal: 1 },
       listing.shareClass,
+      process.env.KEEL_PERSONAL_PROXY_DEMO === "1",
     );
     await db
       .prepare("INSERT INTO exposure_market_listings VALUES(?,?,?,?,?,?,?,?,?)")

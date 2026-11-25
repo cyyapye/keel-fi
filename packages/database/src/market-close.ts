@@ -3,6 +3,8 @@ import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { z } from "zod";
 import { personalDailyInstrumentPrefix } from "./personal-daily-closes";
 import {
+  CloseProxyBasisSchema,
+  type CloseProxyBasis,
   GpMarkPriceSchema,
   MarketQuoteSchema,
   MarketReviewSchema,
@@ -13,6 +15,7 @@ import {
   PurchaseReceiptSchema,
   effectivePositionValuation,
   publicClosingValuation,
+  proposedCloseProxyBasis,
 } from "@keel/domain/position-purchases";
 
 interface ReviewRow {
@@ -34,6 +37,7 @@ interface ReviewRow {
   snapshot_id: string;
   unrealized_value_minor: number | null;
   enrolled: number;
+  basis_json: string | null;
 }
 const candidates = ` FROM users u JOIN households hh ON hh.owner_user_id=u.id
  JOIN canonical_exposures e ON e.household_id=hh.id
@@ -48,10 +52,11 @@ type Scope = {
   id: string;
   mappingId: string;
   receiptId: string;
+  proxyBasis?: CloseProxyBasis;
   snapshotId: string;
 }[];
 async function reviews(db: D1Database, subject: string, exposure?: string) {
-  const selectCandidates = `SELECT e.id exposure_id,e.canonical_name,price.first_session,price.quote_json,
+  const selectCandidates = `SELECT m.proxy_basis_json basis_json, e.id exposure_id,e.canonical_name,price.first_session,price.quote_json,
     first.price_micros first_price,coalesce(news.is_read,0) is_read,coalesce(news.version,0) read_version,coalesce(d.version,0) version,d.choice,c.position_id,c.mapping_id,c.legal_vehicle_name,c.receipt_json,c.receipt_id,c.snapshot_id,c.unrealized_value_minor,
     (SELECT json_object('priceMicros',gp.price_micros,'priceDate',gp.price_date,'sourceLabel',gp.source_label)
      FROM holding_price_current_quotes gp_head JOIN holding_price_quotes gp ON gp.id=gp_head.quote_id
@@ -67,7 +72,19 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
   for (const row of results) {
     const quote = MarketQuoteSchema.parse(JSON.parse(row.quote_json));
     const receipt = PurchaseReceiptSchema.parse(JSON.parse(row.receipt_json));
-    const mark = publicClosingValuation(receipt, quote);
+    const approvedBasis = row.basis_json
+      ? CloseProxyBasisSchema.parse(JSON.parse(row.basis_json))
+      : undefined;
+    const direct = publicClosingValuation(receipt, quote);
+    const proxyBasis = row.enrolled
+      ? approvedBasis
+      : direct
+        ? undefined
+        : (proposedCloseProxyBasis(receipt, row.snapshot_id, quote) ??
+          undefined);
+    const mark = proxyBasis
+      ? publicClosingValuation(receipt, { ...quote, proxyBasis })
+      : direct;
     if (!mark) continue;
     let group = groups.get(row.exposure_id);
     if (!group) {
@@ -94,6 +111,16 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
       name: row.legal_vehicle_name,
       valueMinor: mark.valueMinor,
       quantityMicros: mark.quantityMicros,
+      ...(proxyBasis && { proxyBasis }),
+      ...(proxyBasis?.method === "indicative_shares" && {
+        privateClasses: [
+          ...new Set(
+            receipt.details.lots.flatMap((lot) =>
+              lot.shareClass ? [lot.shareClass] : [],
+            ),
+          ),
+        ],
+      }),
       previousMinor:
         effectivePositionValuation(receipt, row.snapshot_id)?.valueMinor ??
         row.unrealized_value_minor,
@@ -109,6 +136,7 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
       id: row.position_id,
       mappingId: row.mapping_id,
       receiptId: row.receipt_id,
+      ...(proxyBasis && { proxyBasis }),
       snapshotId: row.snapshot_id,
     });
   }
@@ -240,6 +268,12 @@ export async function decideMarketSource(
   const group = await comparison(db, subject, exposure);
   if (!fence || !group || group.review.token !== input.token) return false;
   const { review, scope } = group;
+  if (
+    input.choice === "follow" &&
+    scope.some((p) => p.proxyBasis) &&
+    !input.acceptProxyBasis
+  )
+    return false;
   const result = await db
     .prepare(
       `INSERT INTO exposure_market_decisions(id,exposure_id,version,quote_id,user_id,choice,scope_json,input_token,decided_at)

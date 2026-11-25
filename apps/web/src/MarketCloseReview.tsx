@@ -66,6 +66,10 @@ export function MarketCloseReview({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             choice,
+            ...(choice === "follow" &&
+              review.positions.some((p) => p.proxyBasis) && {
+                acceptProxyBasis: true,
+              }),
             token: review.token,
             requestId: crypto.randomUUID(),
           }),
@@ -94,6 +98,9 @@ export function MarketCloseReview({
   const provider = review && dailyCloseProvider(review.quote);
   const closeLabel = provider ? "daily close" : "closing price";
   const following = review?.choice === "follow";
+  const followAction = review?.positions.some((p) => p.proxyBasis)
+    ? "Use price proxy"
+    : "Use " + closeLabel;
   return (
     <Screen>
       <TextLink href={back}>
@@ -119,6 +126,8 @@ export function MarketCloseReview({
               id: p.id,
               name: p.name,
               shares: decimal(p.quantityMicros, 6),
+              proxyBasis: p.proxyBasis,
+              privateClasses: p.privateClasses,
               closeMinor: p.valueMinor,
               priorMinor: p.previousMinor,
               priorSource: p.previousSource,
@@ -133,7 +142,7 @@ export function MarketCloseReview({
             >
               {busy
                 ? "Saving…"
-                : `${following ? "Restore sources" : "Use " + closeLabel} for ${review.positions.length} ${review.positions.length === 1 ? "position" : "positions"}`}
+                : `${following ? "Restore sources" : followAction} for ${review.positions.length} ${review.positions.length === 1 ? "position" : "positions"}`}
             </Button>
             {following ? (
               <TextLink href={back}>Keep {closeLabel}</TextLink>

@@ -4,12 +4,13 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Plugin } from "vite";
 import { resolveDevPorts } from "./dev-ports";
+import { resolveLocalScenarioPersistRoot } from "./local-seed-scenarios";
 import { dailyWindow } from "./personal-price-window";
 
 export function personalPriceServer(
-  profile = join(
+  profile = resolveLocalScenarioPersistRoot(
+    "personal-prices",
     resolveDevPorts().rootDir,
-    ".keel-local/scenarios/personal-prices",
   ),
 ): Plugin {
   return {
@@ -55,6 +56,7 @@ export function personalPriceServer(
       const schedule = () => {
         if (stopped) return;
         run("scheduled");
+        if (process.env.KEEL_PERSONAL_PROXY_DEMO === "1") return;
         const now = Date.now();
         scheduled = setTimeout(schedule, dailyWindow(now).next - now + 1000);
         scheduled.unref();

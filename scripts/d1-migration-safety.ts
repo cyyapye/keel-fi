@@ -105,6 +105,7 @@ export const MigrationSafetyScenarioSchema = z
     inboundForeignKeyPlans: z.enum([
       "indexed-positive-and-empty-before-destructive-statements",
       "not-applicable-trigger-only-no-table-dml",
+      "nullable-column-and-trigger-no-table-dml",
       "indexed-current-head-backfill-no-parent-rebuild",
       "indexed-new-tables-no-parent-rebuild",
     ]),
@@ -451,15 +452,22 @@ export function readMigrationSafetyRegistry(root = process.cwd()) {
       "Baseline must cover the exact terminal checked-in migration frontier",
     );
   if (
-    registry.baseline.id !== "exposure-closing-prices-schema-v1" ||
-    registry.baseline.frontier !== "0098_exposure_closing_prices.sql" ||
+    registry.baseline.id !== "market-proxy-basis-schema-v1" ||
+    registry.baseline.frontier !== "0099_market_proxy_basis.sql" ||
     registry.baseline.fixture !== "public-holding-history-v1"
   )
     throw new Error(
       "New baseline frontier needs an implemented fixture and canonical runner, not a metadata-only approval",
     );
   if (
-    registry.cases.length !== 9 ||
+    registry.cases.length !== 10 ||
+    registry.cases[9]?.id !== "market-proxy-basis-v1" ||
+    registry.cases[9].frontier !== "0098_exposure_closing_prices.sql" ||
+    registry.cases[9].fixture !== "public-holding-history-v1" ||
+    !same(
+      registry.cases[9].migrations.map((m) => m.name),
+      ["0099_market_proxy_basis.sql"],
+    ) ||
     registry.cases[8]?.id !== "exposure-closing-prices-v1" ||
     registry.cases[8].frontier !== "0097_price_metadata_continuation.sql" ||
     registry.cases[8].fixture !== "public-holding-history-v1" ||
@@ -678,20 +686,33 @@ export function validateMigrationSafetyReceipt(
         "Price metadata migration needs populated main and unrelated quote histories",
       );
     if (
+      review.id === "market-proxy-basis-v1" &&
+      actual.scenarios.some(
+        (s) =>
+          (s.tableRows.exposure_market_members ?? 0) < 240 ||
+          (s.tableRows.exposure_market_closes ?? 0) < s.history,
+      )
+    )
+      throw new Error(
+        "Market proxy migration needs enrolled positions and prior close history",
+      );
+    if (
       actual.scenarios.some(
         (scenario) =>
           scenario.rowsRead > review.maxRowsRead ||
           scenario.rowsWritten > review.maxRowsWritten ||
           scenario.inboundForeignKeyPlans !==
-            (review.id === "public-source-reviews-v1" ||
-            review.id === "public-inventory-v1" ||
-            review.id === "price-metadata-continuation-v1"
-              ? "indexed-current-head-backfill-no-parent-rebuild"
-              : review.id === "app-access-v1" ||
-                  review.id === "exposure-closing-prices-v1" ||
-                  review.id === "investment-history-v1"
-                ? "indexed-new-tables-no-parent-rebuild"
-                : "not-applicable-trigger-only-no-table-dml"),
+            (review.id === "market-proxy-basis-v1"
+              ? "nullable-column-and-trigger-no-table-dml"
+              : review.id === "public-source-reviews-v1" ||
+                  review.id === "public-inventory-v1" ||
+                  review.id === "price-metadata-continuation-v1"
+                ? "indexed-current-head-backfill-no-parent-rebuild"
+                : review.id === "app-access-v1" ||
+                    review.id === "exposure-closing-prices-v1" ||
+                    review.id === "investment-history-v1"
+                  ? "indexed-new-tables-no-parent-rebuild"
+                  : "not-applicable-trigger-only-no-table-dml"),
       )
     )
       throw new Error(

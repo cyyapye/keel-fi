@@ -3,6 +3,7 @@ import {
   type AcceptDistributions,
 } from "@keel/domain/position-purchases";
 import type { DistributionReview } from "@keel/domain/investment-details";
+import type { MarketQuote } from "@keel/domain/market-close";
 import { decimal, scaled } from "./decimal-input";
 
 export type DistributionEventDraft = {
@@ -12,6 +13,7 @@ export type DistributionEventDraft = {
   amount: string;
   security: string;
   quantity: string;
+  debit?: { quote: Pick<MarketQuote, "ticker" | "shareBasis">; shares: string };
   evidence: string;
   sourceUrl: string | null;
   note: string;
@@ -79,6 +81,17 @@ export function draftDistributions(input: {
           security: event.kind === "in_kind" ? (event.securityLabel ?? "") : "",
           quantity:
             event.kind === "in_kind" ? decimal(event.quantityMicros, 6) : "",
+          ...(event.kind === "in_kind" && event.spvDebit
+            ? {
+                debit: {
+                  quote: {
+                    ticker: event.spvDebit.ticker,
+                    shareBasis: event.spvDebit.shareBasis,
+                  },
+                  shares: decimal(event.spvDebit.quantityMicros, 6),
+                },
+              }
+            : {}),
           evidence: event.sourceLabel,
           sourceUrl: event.sourceUrl,
           note: event.note,
@@ -115,6 +128,20 @@ export function parseDistributionDraft(
         success: false,
         message:
           "Enter a positive share quantity, or leave it blank if unknown.",
+      };
+    const debit = event.debit;
+    if (
+      event.kind === "in_kind" &&
+      debit?.shares.trim() &&
+      (!Number.isSafeInteger(scaled(debit.shares, 6)) ||
+        scaled(debit.shares, 6)! <= 0 ||
+        event.security.trim().toUpperCase() !==
+          debit.quote.ticker.toUpperCase())
+    )
+      return {
+        success: false,
+        message:
+          "Use the listed ticker and enter the positive number of shares released by this SPV.",
       };
     if (!event.receivedOn)
       return {
@@ -163,6 +190,12 @@ export function parseDistributionDraft(
           : {
               ...common,
               kind: "in_kind",
+              ...(event.debit?.shares.trim() && {
+                spvDebit: {
+                  ...event.debit.quote,
+                  quantityMicros: scaled(event.debit.shares, 6),
+                },
+              }),
               securityLabel: event.security.trim() || null,
               quantityMicros: scaled(event.quantity, 6),
             };

@@ -14,7 +14,9 @@ export default defineConfig({
   ...(browserCacheDir === undefined ? {} : { cacheDir: browserCacheDir }),
   plugins: [
     react(),
-    ...(process.env.KEEL_LOCAL_SCENARIO === "closing-price"
+    ...(["closing-price", "pre-distribution"].includes(
+      process.env.KEEL_LOCAL_SCENARIO ?? "",
+    )
       ? [localClosingPriceFeed()]
       : []),
     ...(process.env.KEEL_LOCAL_SCENARIO === "personal-prices"

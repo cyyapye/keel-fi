@@ -3,6 +3,8 @@ import { legalDocumentTestDatabase } from "../../../scripts/test-support/legal-d
 import {
   firstCedarClose,
   nextCedarClose,
+  firstPrivateProxyClose,
+  nextPrivateProxyClose,
   seedClosingPrice,
 } from "../../../scripts/seed-closing-price";
 import { LINK_DEMO_SUBJECT as subject } from "../../../scripts/seed-position-links";
@@ -18,7 +20,10 @@ import { D1ExposureRepository } from "./exposures";
 import { D1PositionValueAdjustmentRepository } from "./position-value-adjustments";
 import { D1HoldingsPageRepository } from "./holdings-page";
 import { D1PositionPurchaseRepository } from "./position-purchases";
-import { effectivePositionValuation } from "@keel/domain/position-purchases";
+import {
+  effectivePositionValuation,
+  publicClosingValuation,
+} from "@keel/domain/position-purchases";
 
 it("one household decision follows both positions through the next official close and keeps the original GP evidence", async () => {
   const store = legalDocumentTestDatabase();
@@ -303,6 +308,169 @@ it("requires a fresh comparison after an accepted adjustment changes the prior v
         requestId: crypto.randomUUID(),
       }),
     ).toBe(true);
+  } finally {
+    store.sqlite.close();
+  }
+});
+
+it("keeps the accepted private-share proxy and dated value anchor through closes and staggered stock deliveries", async () => {
+  const store = legalDocumentTestDatabase();
+  try {
+    const db = store.asD1();
+    const exposure = await seedClosingPrice(db, true);
+    const review = (await marketReviewDetail(db, subject, exposure))!;
+    const grove = review.positions.find((p) => p.name === "Grove SPV")!;
+    const summit = review.positions.find((p) => p.name === "Summit SPV")!;
+    expect([
+      grove.proxyBasis?.method,
+      grove.valueMinor,
+      summit.proxyBasis?.method,
+      summit.quantityMicros,
+      summit.valueMinor,
+    ]).toEqual(["indicative_shares", 500000, "price_change", null, 270000]);
+    const decision = {
+      requestId: crypto.randomUUID(),
+      token: review.token,
+      choice: "follow" as const,
+    };
+    expect(await decideMarketSource(db, subject, exposure, decision)).toBe(
+      false,
+    );
+    expect(
+      await decideMarketSource(db, subject, exposure, {
+        ...decision,
+        acceptProxyBasis: true,
+      }),
+    ).toBe(true);
+    const purchases = new D1PositionPurchaseRepository(db);
+    const read = async (id: string) => {
+      const page = await new D1HoldingsPageRepository(db).getPage(
+        subject,
+        "available",
+      );
+      return page.holdings.find(
+        (h) => h.purchaseContext?.receipt?.positionId === id,
+      )!.purchaseContext!.receipt!;
+    };
+    const summitReceipt = await read(summit.id);
+    expect(summitReceipt.publicClose?.proxyBasis?.method).toBe("price_change");
+    const gp = summitReceipt.details.valuation!.records.find(
+      (r) => r.id === "gp",
+    )!;
+    await purchases.acceptValuation(subject, summit.id, {
+      expectedReceiptId: summitReceipt.id,
+      expectedSnapshotId: summitReceipt.snapshotId,
+      method: "total",
+      record: {
+        ...gp,
+        totalMinor: 300000,
+        priceMicros: 50000000,
+        effectiveDate: nextPrivateProxyClose.date,
+        priceDate: nextPrivateProxyClose.date,
+      },
+    });
+    await recordOfficialClose(db, {
+      ...nextPrivateProxyClose,
+      exposureId: exposure,
+    });
+    const values = async () => {
+      const result = [];
+      for (const id of [grove.id, summit.id]) {
+        const receipt = await read(id);
+        result.push(
+          effectivePositionValuation(receipt, receipt.snapshotId)?.valueMinor,
+        );
+      }
+      return result;
+    };
+    expect(await values()).toEqual([520000, 280800]);
+    const event = (id: string, receivedOn: string, quantityMicros: number) => ({
+      id,
+      receivedOn,
+      kind: "in_kind" as const,
+      securityLabel: "CDR",
+      quantityMicros,
+      investorValueMinor: null,
+      spvDebit: {
+        ticker: "CDR",
+        shareBasis: firstCedarClose.shareBasis,
+        quantityMicros,
+      },
+      sourceLabel: "Synthetic SPV distribution notice",
+      sourceUrl: null,
+      note: "",
+    });
+    const events = [
+      event("first", firstPrivateProxyClose.date, 25000000),
+      event("second", nextPrivateProxyClose.date, 15000000),
+    ];
+    for (const [index, batch] of events.entries()) {
+      const prior = await read(grove.id);
+      await purchases.acceptDistributions(subject, grove.id, {
+        expectedReceiptId: prior.id,
+        expectedSnapshotId: prior.snapshotId,
+        distributionReview: {
+          method: "capital_return_first_v1",
+          events: events.slice(0, index + 1),
+          coverage: { status: "complete", throughDate: batch.receivedOn },
+          priorCarry: { status: "unknown" },
+          provider: {
+            inclusion: "unknown",
+            sourceSnapshotId: prior.snapshotId,
+            realizedValueMinor: 0,
+          },
+          sourceLabel: "Distribution history",
+          sourceUrl: null,
+          note: "",
+        },
+      });
+      expect(await values()).toEqual([index === 0 ? 390000 : 312000, 280800]);
+    }
+    const delivered = await read(grove.id);
+    const notice = delivered.details.distributionReview!;
+    const first = notice.events[0]!;
+    if (first.kind !== "in_kind" || !first.spvDebit || !delivered.publicClose)
+      throw new Error("Expected an accepted stock release and price proxy.");
+    const quote = delivered.publicClose;
+    const markWith = (stockEvent: typeof first) =>
+      publicClosingValuation(
+        {
+          ...delivered,
+          details: {
+            ...delivered.details,
+            distributionReview: { ...notice, events: [stockEvent] },
+          },
+        },
+        quote,
+      );
+    // A 25-share release still debits 25 when only 20 reach the investor after carry.
+    expect(markWith({ ...first, quantityMicros: 20000000 })?.valueMinor).toBe(
+      390000,
+    );
+    const { spvDebit, ...legacyEvent } = first;
+    expect(markWith(legacyEvent)).toBeNull();
+    expect(
+      markWith({ ...first, spvDebit: { ...spvDebit, ticker: "OTHER" } }),
+    ).toBeNull();
+    const split = {
+      ...quote,
+      priceMicros: Number(BigInt(quote.priceMicros) / 2n),
+      shareBasis: { ...quote.shareBasis, unitsPerOriginal: 2 },
+    };
+    expect(publicClosingValuation(delivered, split)?.valueMinor).toBe(312000);
+    const indexed = await read(summit.id);
+    expect(
+      publicClosingValuation(indexed, {
+        ...split,
+        proxyBasis: indexed.publicClose!.proxyBasis,
+      })?.valueMinor,
+    ).toBe(280800);
+    const final = (await marketReviewDetail(db, subject, exposure))!;
+    expect(final.choice).toBe("follow");
+    expect(final.version).toBe(1);
+    expect(final.positions.find((p) => p.id === summit.id)?.previousMinor).toBe(
+      300000,
+    );
   } finally {
     store.sqlite.close();
   }

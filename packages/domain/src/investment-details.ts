@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ShareBasisSchema } from "./valuation-record";
 
 const money = z.number().int().safe().nonnegative();
 const rate = z.number().int().min(0).max(1_000_000);
@@ -27,6 +28,15 @@ export const DistributionReviewSchema = z
               ...distributionEvent,
               securityLabel: z.string().trim().min(1).max(500).nullable(),
               quantityMicros: money.max(1_000_000_000_000).nullable(),
+              // Gross units released by the SPV may exceed the net units delivered.
+              spvDebit: z
+                .object({
+                  ticker: z.string().trim().min(1).max(80),
+                  shareBasis: ShareBasisSchema,
+                  quantityMicros: money.positive().max(1_000_000_000_000),
+                })
+                .strict()
+                .optional(),
             })
             .strict(),
         ]),
@@ -60,6 +70,20 @@ export const DistributionReviewSchema = z
       review.events.length
     )
       issue("Each distribution needs a unique identifier.", ["events"]);
+    for (const event of review.events) {
+      if (
+        event.kind === "in_kind" &&
+        event.spvDebit &&
+        (event.spvDebit.ticker.toUpperCase() !==
+          event.securityLabel?.trim().toUpperCase() ||
+          (event.quantityMicros !== null &&
+            event.spvDebit.quantityMicros < event.quantityMicros))
+      )
+        issue(
+          "The listed security must match and gross SPV shares must cover the shares received.",
+          ["events"],
+        );
+    }
     if (
       review.events.some(
         (event) => event.receivedOn > review.coverage.throughDate,
