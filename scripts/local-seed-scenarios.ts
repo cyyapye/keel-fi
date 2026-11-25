@@ -457,6 +457,19 @@ export function prepareLocalSeedScenario(options: {
           });
         }
       }
+      if (scenario === "default") {
+        const history = spawnSync(
+          process.execPath,
+          ["--import", "tsx", "scripts/seed-brokerage-history.ts"],
+          {
+            cwd: rootDir,
+            env: commandEnvironment(persistRoot),
+            stdio: "inherit",
+          },
+        );
+        if (history.status !== 0)
+          throw new Error("Could not seed synthetic brokerage history.");
+      }
       if (scenario === "position-links" || scenario === "purchase-refund") {
         const generated = spawnSync(
           process.execPath,

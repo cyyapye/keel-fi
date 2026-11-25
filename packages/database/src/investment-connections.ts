@@ -128,6 +128,7 @@ type ConnectionStatusRow = LatestRunRow & {
   unresolved: number;
   omitted: string;
   reported: string;
+  missing_cash: string;
 };
 
 type InvestmentConnectionRow = {
@@ -426,7 +427,14 @@ export class D1InvestmentConnectionsRepository
          AND NOT EXISTS(SELECT 1 FROM holding_import_row_decisions d WHERE d.import_row_id=r.id)
          AND NOT EXISTS(SELECT 1 FROM public_holding_source_heads h WHERE h.review_key='report:'||r.id AND h.decision='ignore')),0) unresolved,
         (SELECT json_group_array(q.position_id) FROM holding_import_quarantines q WHERE q.import_id=head.import_id AND q.position_id IS NOT NULL) omitted,
-        (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported
+        (SELECT json_group_array(a.position_id) FROM holding_import_rows r JOIN holding_import_applications a ON a.import_row_id=r.id WHERE r.import_id=head.import_id) reported,
+        (SELECT json_group_array(missing.container_id) FROM (
+          SELECT scope.container_id FROM holding_import_rows r
+          JOIN holding_import_row_containers scope ON scope.import_row_id=r.id
+          JOIN holding_import_coverages covered ON covered.import_id=r.import_id AND covered.container_id=scope.container_id
+          WHERE r.import_id=head.import_id AND evidence.source_updated_at IS NOT NULL AND covered.completeness='complete'
+          GROUP BY scope.container_id HAVING MAX(r.instrument_type='cash')=0
+        ) missing) missing_cash
       FROM investment_connections connection
       LEFT JOIN public_holding_import_heads head ON head.connection_id=connection.id AND head.household_id=connection.household_id
       LEFT JOIN public_holding_inventory_evidence evidence ON evidence.import_id=head.import_id
@@ -460,6 +468,7 @@ export class D1InvestmentConnectionsRepository
           unresolved: row.unresolved,
           omitted: row.omitted,
           reported: row.reported,
+          missing_cash: row.missing_cash,
         })),
     };
     const state = live.results.some((row) => row.omitted !== "[]")
@@ -467,6 +476,9 @@ export class D1InvestmentConnectionsRepository
       : null;
     const liveById = new Map(
       live.results.map((row) => {
+        const missingCash = new Set(
+          z.array(z.string()).parse(JSON.parse(row.missing_cash)),
+        );
         const reported = new Set(
           z
             .array(z.string())
@@ -481,7 +493,11 @@ export class D1InvestmentConnectionsRepository
               const visible = state?.visibleById.get(id);
               return visible &&
                 !reported.has(visible) &&
-                !state?.ignoredIds.has(visible)
+                !state?.ignoredIds.has(visible) &&
+                !(
+                  state?.byId.get(visible)?.instrument_type === "cash" &&
+                  missingCash.has(state.byId.get(visible)!.container_id)
+                )
                 ? [visible]
                 : [];
             }),
@@ -620,6 +636,14 @@ export class D1InvestmentConnectionsRepository
                 }
               : {}),
             autoAppliedCount: latestRun.auto_applied_count,
+            ...(latestRun.missing_cash !== "[]"
+              ? {
+                  cashMissingContainerIds: z
+                    .array(z.string())
+                    .max(100)
+                    .parse(JSON.parse(latestRun.missing_cash)),
+                }
+              : {}),
             ...(latestRun.report_reused === 1 ? { reportReused: true } : {}),
             ...(latestRun.preserved_observed_at
               ? { preservedObservedAt: latestRun.preserved_observed_at }

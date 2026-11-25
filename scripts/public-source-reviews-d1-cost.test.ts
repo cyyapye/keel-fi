@@ -442,6 +442,51 @@ for (const history of [12, 24] as const) {
         latest,
       );
       expect(measured.cost.rowsWritten).toBe(0);
+      const withoutCash = publicInventoryCostInput(history + 1, false);
+      withoutCash.rows = withoutCash.rows
+        .filter((row) => row.securityType !== "cash")
+        .map((row) => ({
+          ...row,
+          quantityMicros: 2_000_000,
+          marketValueMinor: 24000,
+        }));
+      withoutCash.canonicalScope.rows = withoutCash.canonicalScope.rows.slice(
+        0,
+        -1,
+      );
+      measured.reset();
+      const partial = await imports.stagePlaidInvestmentsHoldingImport(
+        "synthetic-access-subject",
+        withoutCash,
+      );
+      const partialResult =
+        await imports.autoAdjudicatePlaidInvestmentsHoldingImport(
+          "synthetic-access-subject",
+          partial.preview.id,
+        );
+      const partialCost = { ...measured.cost };
+      expect(partialResult.autoAppliedCount).toBe(119);
+      expect(partialCost.roundTrips).toBeLessThanOrEqual(40);
+      expect(partialCost.rowsRead).toBeLessThanOrEqual(60000);
+      expect(partialCost.rowsWritten).toBeLessThanOrEqual(8000);
+      measured.reset();
+      const partialState = await publicSourceState(
+        measured.database,
+        "hh_demo",
+      );
+      expect(
+        partialState.positions.filter(
+          (position) => position.account_cash_unconfirmed === 1,
+        ),
+      ).toHaveLength(119);
+      expect(
+        partialState.positions.filter(
+          (position) => !partialState.hiddenIds.has(position.id),
+        ),
+      ).toHaveLength(120);
+      expect(measured.cost.roundTrips).toBe(1);
+      expect(measured.cost.rowsRead).toBeLessThanOrEqual(2500);
+      expect(measured.cost.rowsWritten).toBe(0);
       expect(
         await runtime.database
           .prepare(
@@ -473,6 +518,7 @@ for (const history of [12, 24] as const) {
           publicInventory: {
             history,
             captureCost,
+            partialCost,
             currentCost,
             previewCost,
             plans,

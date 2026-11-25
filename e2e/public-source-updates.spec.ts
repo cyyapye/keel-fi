@@ -640,6 +640,57 @@ for (const failurePhase of ["planning", "sources"] as const) {
   });
 }
 
+test("shows which positions updated when an account report omits cash", async ({
+  page,
+  publicSourceFixture,
+}) => {
+  const label = `Synthetic missing cash ${test.info().project.name}`;
+  const fixture = await publicSourceFixture(label, false, false, true);
+  if (!fixture.next) throw new Error("Inventory fixture was not prepared");
+  const id = await fixture.next("cash-missing");
+  const origin = new URL(test.info().project.use.baseURL!).origin;
+  const response = await page.request.post(
+    `/api/holding-imports/${id}/reconcile`,
+    {
+      headers: { Origin: origin },
+    },
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+  await page.goto("/holdings/sources");
+  const source = page.locator(".investment-institution").filter({
+    has: page.getByRole("heading", { name: label, exact: true }),
+  });
+  await expect(source.locator(".investment-institution__value")).toHaveText(
+    "$8,000.00",
+  );
+  await source.locator(".investment-institution__trigger").click();
+  await expect(
+    source.getByText("Cash missing from latest report"),
+  ).toBeVisible();
+  await source
+    .getByRole("button", { name: "View activity", exact: true })
+    .click();
+  const updated = source
+    .getByRole("listitem")
+    .filter({ hasText: /CORE.*Updated automatically/ });
+  await expect(updated).toContainText("$3,000.00");
+  const pending = source
+    .getByRole("listitem")
+    .filter({ hasText: /NOVA.*Reported · cash missing/ });
+  await expect(pending).toContainText("$1,200.00");
+  await expect(pending).toContainText(
+    "Reported value excluded from accepted holdings",
+  );
+  await expect(
+    source.getByText("Excluded from account total", { exact: false }),
+  ).toBeVisible();
+  await expect(page.locator("body")).toHaveJSProperty(
+    "scrollWidth",
+    await page.locator("body").evaluate((element) => element.clientWidth),
+  );
+  await captureSource(source, "cash-missing", true);
+});
+
 test("reconciles a complete brokerage inventory automatically and keeps historical reports read-only", async ({
   page,
   publicSourceFixture,

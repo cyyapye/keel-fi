@@ -1679,6 +1679,7 @@ export const HoldingImportPreviewSchema = z.object({
           displayLabel: z.string().min(1),
           completeness: HoldingImportCoverageCompletenessSchema,
           reportedRowCount: z.number().int().nonnegative(),
+          cashMissing: z.literal(true).optional(),
         })
         .strict(),
     )
@@ -2889,6 +2890,7 @@ export const InvestmentAdjudicationSummarySchema = z
     automaticChangeCount: z.number().int().nonnegative().optional(),
     closedPositionCount: z.number().int().nonnegative().optional(),
     inventorySourceAt: IsoTimestampSchema.nullable().optional(),
+    cashMissingContainerIds: z.array(z.string().min(1)).max(100).optional(),
     baselineRefreshStatus: z.enum([
       "not_needed",
       "refreshed",

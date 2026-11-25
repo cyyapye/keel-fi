@@ -1,3 +1,4 @@
+import type { Locator } from "@playwright/test";
 import { test, expect, type Page } from "./api-mocked-test";
 import {
   alphaFixture,
@@ -100,12 +101,33 @@ async function openHolding(page: Page) {
     name: "Investment activity and tax lots",
   });
   await expect(
-    feature.getByRole("button", {
-      name: "Reconciliation unknown",
-      exact: true,
-    }),
+    feature.getByText(
+      "Keel can’t verify which trades are included in the reported shares.",
+    ),
   ).toBeVisible();
+  await expect(
+    feature.getByRole("button", { name: "Reconciliation unknown" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "Position summary" }),
+  ).toContainText("110");
   return feature;
+}
+
+async function expectAlternatingSummaries(group: Locator) {
+  const buttons = group.locator(".investment-history__record-trigger");
+  const shade = await buttons
+    .first()
+    .evaluate((button) => getComputedStyle(button).backgroundColor);
+  await expect(buttons.nth(1)).not.toHaveCSS("background-color", shade);
+}
+
+function sourceAnchor(control: Locator) {
+  return control.evaluate((button) => {
+    const rect = button.getBoundingClientRect();
+    const row = button.closest('[role="listitem"]')!.getBoundingClientRect();
+    return [Math.round(rect.left), Math.round(rect.top - row.top)];
+  });
 }
 
 test("inspects source-backed activity, remaining lots and account-only events without changing holdings", async ({
@@ -158,6 +180,19 @@ test("inspects source-backed activity, remaining lots and account-only events wi
     });
   });
   const feature = await openHolding(page);
+  await page
+    .getByRole("button", { name: "Sources & history", exact: true })
+    .click();
+  await expect(page.locator(".holding-brokerage-report time")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Add value evidence" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Other valuations" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Sources & history", exact: true })
+    .click();
   const initialSummary = await page.locator(".holding-summary").textContent();
   await expect(
     feature.getByText("Buy 40 shares", { exact: true }),
@@ -165,7 +200,10 @@ test("inspects source-backed activity, remaining lots and account-only events wi
   await expect(
     feature.getByRole("combobox", { name: "Activity type" }),
   ).not.toBeVisible();
-  const purchase = feature.getByRole("article", {
+  await expectAlternatingSummaries(
+    feature.getByRole("list", { name: "Transactions" }),
+  );
+  const purchase = feature.getByRole("listitem", {
     name: "Buy 40 shares",
     exact: true,
   });
@@ -201,10 +239,15 @@ test("inspects source-backed activity, remaining lots and account-only events wi
     stylePath: "e2e/purchase-details.capture.css",
   });
   const readsBeforeSource = calls.length;
-  await purchase.getByRole("button", { name: "Source →", exact: true }).click();
-  await expect(
-    purchase.getByRole("button", { name: "← Trade details", exact: true }),
-  ).toBeFocused();
+  const source = purchase.getByRole("button", { name: "Source", exact: true });
+  const back = purchase.getByRole("button", {
+    name: "Trade details",
+    exact: true,
+  });
+  const anchor = await sourceAnchor(source);
+  await source.click();
+  await expect(back).toBeFocused();
+  expect(await sourceAnchor(back)).toEqual(anchor);
   await expect(
     purchase.getByText("synthetic-provider-buy", { exact: true }),
   ).toBeVisible();
@@ -223,12 +266,9 @@ test("inspects source-backed activity, remaining lots and account-only events wi
   await expect(feature).toHaveScreenshot("investment-history-source.png", {
     stylePath: "e2e/purchase-details.capture.css",
   });
-  await purchase
-    .getByRole("button", { name: "← Trade details", exact: true })
-    .click();
-  await expect(
-    purchase.getByRole("button", { name: "Source →", exact: true }),
-  ).toBeFocused();
+  await back.click();
+  await expect(source).toBeFocused();
+  expect(await sourceAnchor(source)).toEqual(anchor);
   expect(calls.length).toBe(readsBeforeSource);
   await feature.getByRole("button", { name: "Filter", exact: true }).click();
   await feature.getByRole("combobox", { name: "Activity type" }).click();
@@ -277,6 +317,9 @@ test("inspects source-backed activity, remaining lots and account-only events wi
     page,
     feature,
     testInfo.project.name === "mobile-chromium",
+  );
+  await expectAlternatingSummaries(
+    feature.getByRole("list", { name: "Remaining lots" }),
   );
   await expect(feature).toHaveScreenshot("investment-history-lots.png", {
     stylePath: "e2e/purchase-details.capture.css",
@@ -517,7 +560,7 @@ test("shows incomplete lot coverage and recovers an expired read without retry l
   );
   unknownActivity = true;
   await feature.getByRole("tab", { name: "Activity", exact: true }).click();
-  const unknown = feature.getByRole("article", { name: "Buy", exact: true });
+  const unknown = feature.getByRole("listitem", { name: "Buy", exact: true });
   await expect(unknown).toContainText("Cash unavailable");
   await expect(unknown).toContainText("$150/share");
   await expect(unknown).toContainText("Unconfirmed in latest report");

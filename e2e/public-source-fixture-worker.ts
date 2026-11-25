@@ -28,7 +28,9 @@ export async function createPublicSourceFixture(
   connectionId: string;
   importId: string;
   nonce: string;
-  next?: (mode: "returned" | "empty" | "partial") => Promise<string>;
+  next?: (
+    mode: "returned" | "empty" | "partial" | "cash-missing",
+  ) => Promise<string>;
 }> {
   if (inventory) return createInventoryFixture(env, label);
   if (addition) return createAdditionFixture(env, label);
@@ -531,7 +533,7 @@ async function createInventoryFixture(env: Env, label: string) {
     connectionId: connection.id,
     importId,
     nonce,
-    next: async (mode: "returned" | "empty" | "partial") =>
+    next: async (mode: "returned" | "empty" | "partial" | "cash-missing") =>
       mode === "returned"
         ? capture(6, [
             { ...entries.core, quantity: "5", value: "500" },
@@ -541,7 +543,12 @@ async function createInventoryFixture(env: Env, label: string) {
           ])
         : mode === "empty"
           ? capture(7, [])
-          : capture(8, [entries.nova, entries.cash], true),
+          : mode === "cash-missing"
+            ? capture(8, [
+                { ...entries.core, quantity: "30", value: "3000" },
+                entries.nova,
+              ])
+            : capture(8, [entries.nova, entries.cash], true),
   };
 }
 
@@ -559,7 +566,7 @@ const operation = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("next"),
       nonce: z.uuid(),
-      mode: z.enum(["returned", "empty", "partial"]),
+      mode: z.enum(["returned", "empty", "partial", "cash-missing"]),
     })
     .strict(),
 ]);

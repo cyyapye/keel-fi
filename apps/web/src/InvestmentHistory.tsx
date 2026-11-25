@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { z } from "zod";
 import {
   InvestmentReconciliationSchema,
@@ -11,10 +11,12 @@ import {
 import {
   ActionGroup,
   Button,
+  TextLink,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
   EmptyState,
+  RecordGroup,
   FormMessage,
   DatePicker,
   Field,
@@ -122,25 +124,70 @@ function useHistoryRead<S extends z.ZodType>(
     loading: path !== null && state.key !== key,
   };
 }
-function useSourceView() {
-  const [view, setView] = useState<"initial" | "detail" | "source">("initial");
-  const sourceButtonId = useId();
-  const backButtonId = useId();
-  useEffect(() => {
-    if (view !== "initial")
-      document
-        .getElementById(view === "source" ? backButtonId : sourceButtonId)
-        ?.focus();
-  }, [view, sourceButtonId, backButtonId]);
-  return {
-    source: view === "source",
-    sourceButtonId,
-    backButtonId,
-    show: (source: boolean) => setView(source ? "source" : "detail"),
-    onOpenChange: (open: boolean) => {
-      if (!open) setView("initial");
-    },
-  };
+function HistoryRecord({
+  label,
+  children,
+  backLabel,
+  details,
+  source,
+}: {
+  label: string;
+  children: ReactNode;
+  backLabel: string;
+  details: ReactNode;
+  source: ReactNode;
+}) {
+  const [showSource, setShowSource] = useState(false);
+  return (
+    <Collapsible
+      role="listitem"
+      className="investment-history__record"
+      aria-label={label}
+      onOpenChange={(open) => {
+        if (!open) setShowSource(false);
+      }}
+    >
+      <CollapsibleTrigger className="investment-history__record-trigger">
+        {children}
+        <DisclosureIndicator />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div
+          className="investment-history__details"
+          data-source={showSource || undefined}
+        >
+          <TextLink
+            className={
+              showSource
+                ? "holding-source-nav holding-source-nav--back"
+                : "holding-source-nav"
+            }
+            onClick={() => setShowSource((shown) => !shown)}
+          >
+            {showSource ? (
+              <>
+                <DisclosureIndicator /> {backLabel}
+              </>
+            ) : (
+              <>
+                Source <DisclosureIndicator />
+              </>
+            )}
+          </TextLink>
+          <div className="investment-history__view" inert={showSource}>
+            <div>
+              <div className="investment-history__view-body">{details}</div>
+            </div>
+          </div>
+          <div className="investment-history__view" inert={!showSource}>
+            <div>
+              <div className="investment-history__view-body">{source}</div>
+            </div>
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 function Transaction({
@@ -150,7 +197,6 @@ function Transaction({
   record: InvestmentTransaction;
   account: boolean;
 }) {
-  const view = useSourceView();
   const quantity =
     record.quantityMicros === null
       ? null
@@ -179,236 +225,188 @@ function Transaction({
           ? "Broker correction"
           : null;
   return (
-    <article className="investment-history__record" aria-label={title}>
-      <Collapsible onOpenChange={view.onOpenChange}>
-        <CollapsibleTrigger className="investment-history__record-trigger">
-          <span className="investment-history__record-identity">
-            <Text as="span" variant="primary">
-              {title}
-            </Text>
-            <Text as="span" variant="supporting">
-              {formatDate(record.postedOn)}
-              {record.unitPriceMicros !== null && quantity !== 0 && (
-                <> · {amount(record.unitPriceMicros, 6)}/share</>
-              )}
-            </Text>
-            {qualifier && (
-              <Text as="span" variant="small">
-                {qualifier}
-              </Text>
+    <HistoryRecord
+      label={title}
+      backLabel="Trade details"
+      details={
+        <>
+          <DataList className="investment-history__facts">
+            {record.feesMinor !== null && record.feesMinor !== 0 && (
+              <DataItem
+                label="Fees included"
+                value={amount(record.feesMinor)}
+              />
             )}
-          </span>
-          <Text
-            as="span"
-            variant={record.cashDeltaMinor === null ? "supporting" : "primary"}
-            className="investment-history__record-value"
-          >
-            {record.cashDeltaMinor === null
-              ? "Cash unavailable"
-              : `${record.cashDeltaMinor > 0 ? "+" : ""}${amount(record.cashDeltaMinor)}`}
-          </Text>
-          <DisclosureIndicator />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          {view.source ? (
-            <div className="investment-history__source">
-              <Button
-                id={view.backButtonId}
-                tone="quiet"
-                onClick={() => view.show(false)}
-              >
-                ← Trade details
-              </Button>
-              <DataList className="investment-history__facts">
-                <DataItem label="Posted" value={formatDate(record.postedOn)} />
-                {record.initiatedAt && (
-                  <DataItem
-                    label="Order initiated"
-                    value={formatDate(record.initiatedAt.slice(0, 10))}
-                  />
-                )}
-                <DataItem
-                  label="Received"
-                  value={timestamp(record.receivedAt)}
-                />
-                <DataItem label="Execution time" value="Not provided" />
-                <DataItem label="Fees" value={amount(record.feesMinor)} />
-                {record.quantityPrecision === "rounded_to_millionths" && (
-                  <DataItem
-                    label="Reported shares"
-                    value={record.sourceQuantityDecimal}
-                  />
-                )}
-                <DataItem
-                  label="Transaction ID"
-                  value={record.providerTransactionId}
-                />
-                <DataItem label="Evidence ID" value={record.evidenceId} />
-                {record.revision > 1 && (
-                  <DataItem label="Report version" value={record.revision} />
-                )}
-              </DataList>
-              {record.quantityPrecision === "rounded_to_millionths" && (
-                <Text variant="supporting">
-                  Displayed shares are rounded to millionths.
-                </Text>
-              )}
-            </div>
-          ) : (
-            <div className="investment-history__trade-detail">
-              <DataList className="investment-history__facts">
-                {record.feesMinor !== null && record.feesMinor !== 0 && (
-                  <DataItem
-                    label="Fees included"
-                    value={amount(record.feesMinor)}
-                  />
-                )}
-                {record.initiatedAt && (
-                  <DataItem
-                    label="Order initiated"
-                    value={formatDate(record.initiatedAt.slice(0, 10))}
-                  />
-                )}
-                {record.previous && (
-                  <DataItem
-                    label="Previously reported"
-                    value={`${shares(record.previous.quantityMicros)} shares · ${amount(record.previous.cashDeltaMinor)} · Posted ${formatDate(record.previous.postedOn)}`}
-                  />
-                )}
-              </DataList>
-              {record.previous && (
-                <Text variant="supporting">
-                  Updated broker report. Counted once.
-                </Text>
-              )}
-              {record.presence === "not_in_latest_complete_report" && (
-                <Text variant="supporting">
-                  The latest report did not confirm this transaction.
-                  Cancellation is unconfirmed.
-                </Text>
-              )}
-              <Button
-                id={view.sourceButtonId}
-                tone="quiet"
-                onClick={() => view.show(true)}
-              >
-                Source →
-              </Button>
-            </div>
+            {record.initiatedAt && (
+              <DataItem
+                label="Order initiated"
+                value={formatDate(record.initiatedAt.slice(0, 10))}
+              />
+            )}
+            {record.previous && (
+              <DataItem
+                label="Previously reported"
+                value={`${shares(record.previous.quantityMicros)} shares · ${amount(record.previous.cashDeltaMinor)} · Posted ${formatDate(record.previous.postedOn)}`}
+              />
+            )}
+          </DataList>
+          {record.previous && (
+            <Text variant="supporting">
+              Updated broker report. Counted once.
+            </Text>
           )}
-        </CollapsibleContent>
-      </Collapsible>
-    </article>
+          {record.presence === "not_in_latest_complete_report" && (
+            <Text variant="supporting">
+              The latest report did not confirm this transaction. Cancellation
+              is unconfirmed.
+            </Text>
+          )}
+        </>
+      }
+      source={
+        <>
+          <DataList className="investment-history__facts">
+            <DataItem label="Posted" value={formatDate(record.postedOn)} />
+            {record.initiatedAt && (
+              <DataItem
+                label="Order initiated"
+                value={formatDate(record.initiatedAt.slice(0, 10))}
+              />
+            )}
+            <DataItem label="Received" value={timestamp(record.receivedAt)} />
+            <DataItem label="Execution time" value="Not provided" />
+            <DataItem label="Fees" value={amount(record.feesMinor)} />
+            {record.quantityPrecision === "rounded_to_millionths" && (
+              <DataItem
+                label="Reported shares"
+                value={record.sourceQuantityDecimal}
+              />
+            )}
+            <DataItem
+              label="Transaction ID"
+              value={record.providerTransactionId}
+            />
+            <DataItem label="Evidence ID" value={record.evidenceId} />
+            {record.revision > 1 && (
+              <DataItem label="Report version" value={record.revision} />
+            )}
+          </DataList>
+          {record.quantityPrecision === "rounded_to_millionths" && (
+            <Text variant="supporting">
+              Displayed shares are rounded to millionths.
+            </Text>
+          )}
+        </>
+      }
+    >
+      <span className="investment-history__record-identity">
+        <Text as="span" variant="primary">
+          {title}
+        </Text>
+        <Text as="span" variant="supporting">
+          {formatDate(record.postedOn)}
+          {record.unitPriceMicros !== null && quantity !== 0 && (
+            <> · {amount(record.unitPriceMicros, 6)}/share</>
+          )}
+        </Text>
+        {qualifier && (
+          <Text as="span" variant="small">
+            {qualifier}
+          </Text>
+        )}
+      </span>
+      <Text
+        as="span"
+        variant={record.cashDeltaMinor === null ? "supporting" : "primary"}
+        className="investment-history__record-value"
+      >
+        {record.cashDeltaMinor === null
+          ? "Cash unavailable"
+          : `${record.cashDeltaMinor > 0 ? "+" : ""}${amount(record.cashDeltaMinor)}`}
+      </Text>
+    </HistoryRecord>
   );
 }
 
 function Lot({ record }: { record: InvestmentTaxLot }) {
-  const view = useSourceView();
   return (
-    <article
-      className="investment-history__record"
-      aria-label="Remaining tax lot"
-    >
-      <Collapsible onOpenChange={view.onOpenChange}>
-        <CollapsibleTrigger className="investment-history__record-trigger">
-          <span className="investment-history__record-identity">
-            <Text as="span" variant="primary">
-              {record.quantityMicros === null
-                ? "Shares unavailable"
-                : `${record.quantityPrecision === "rounded_to_millionths" ? "About " : ""}${shares(record.quantityMicros)} shares`}
-            </Text>
-            <Text as="span" variant="supporting">
-              {record.acquiredAt
-                ? `Acquired ${formatDate(record.acquiredAt.slice(0, 10))}`
-                : "Acquisition date unavailable"}
-            </Text>
-            {record.positionType === "SHORT" && (
-              <Text as="span" variant="small">
-                Short position
-              </Text>
-            )}
-          </span>
-          <Text
-            as="span"
-            variant={
-              record.basisPerUnitMicros === null ? "supporting" : "primary"
+    <HistoryRecord
+      label="Remaining tax lot"
+      backLabel="Lot details"
+      details={
+        <DataList className="investment-history__facts">
+          <DataItem
+            label="Reported basis"
+            value={amount(record.costBasisMinor)}
+          />
+          <DataItem
+            label="Purchase price"
+            value={
+              record.purchasePriceMicros === null
+                ? "Not supplied"
+                : `${amount(record.purchasePriceMicros, 6)}/share`
             }
-            className="investment-history__record-value"
-          >
-            {record.basisPerUnitMicros === null
-              ? "Basis unavailable"
-              : `${amount(record.basisPerUnitMicros, 6)}/share`}
+          />
+        </DataList>
+      }
+      source={
+        <>
+          <DataList className="investment-history__facts">
+            <DataItem label="Origin" value="Broker reported" />
+            {record.providerLotId && (
+              <DataItem label="Broker lot" value={record.providerLotId} />
+            )}
+            <DataItem label="Evidence ID" value={record.evidenceId} />
+            {record.quantityPrecision === "rounded_to_millionths" && (
+              <DataItem
+                label="Reported shares"
+                value={record.sourceQuantityDecimal}
+              />
+            )}
+          </DataList>
+          <Text variant="supporting">
+            Reported basis can include fees and adjustments. Purchase price is a
+            separate fact.
           </Text>
-          <DisclosureIndicator />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          {view.source ? (
-            <div className="investment-history__source">
-              <Button
-                id={view.backButtonId}
-                tone="quiet"
-                onClick={() => view.show(false)}
-              >
-                ← Lot details
-              </Button>
-              <DataList className="investment-history__facts">
-                <DataItem label="Origin" value="Broker reported" />
-                {record.providerLotId && (
-                  <DataItem label="Broker lot" value={record.providerLotId} />
-                )}
-                <DataItem label="Evidence ID" value={record.evidenceId} />
-                {record.quantityPrecision === "rounded_to_millionths" && (
-                  <DataItem
-                    label="Reported shares"
-                    value={record.sourceQuantityDecimal}
-                  />
-                )}
-              </DataList>
-              <Text variant="supporting">
-                Reported basis can include fees and adjustments. Purchase price
-                is a separate fact.
-              </Text>
-              {record.quantityPrecision === "rounded_to_millionths" && (
-                <Text variant="supporting">
-                  Displayed shares are rounded to millionths.
-                </Text>
-              )}
-            </div>
-          ) : (
-            <div className="investment-history__trade-detail">
-              <DataList className="investment-history__facts">
-                <DataItem
-                  label="Reported basis"
-                  value={amount(record.costBasisMinor)}
-                />
-                <DataItem
-                  label="Purchase price"
-                  value={
-                    record.purchasePriceMicros === null
-                      ? "Not supplied"
-                      : `${amount(record.purchasePriceMicros, 6)}/share`
-                  }
-                />
-              </DataList>
-              <Button
-                id={view.sourceButtonId}
-                tone="quiet"
-                onClick={() => view.show(true)}
-              >
-                Source →
-              </Button>
-            </div>
+          {record.quantityPrecision === "rounded_to_millionths" && (
+            <Text variant="supporting">
+              Displayed shares are rounded to millionths.
+            </Text>
           )}
-        </CollapsibleContent>
-      </Collapsible>
-    </article>
+        </>
+      }
+    >
+      <span className="investment-history__record-identity">
+        <Text as="span" variant="primary">
+          {record.quantityMicros === null
+            ? "Shares unavailable"
+            : `${record.quantityPrecision === "rounded_to_millionths" ? "About " : ""}${shares(record.quantityMicros)} shares`}
+        </Text>
+        <Text as="span" variant="supporting">
+          {record.acquiredAt
+            ? `Acquired ${formatDate(record.acquiredAt.slice(0, 10))}`
+            : "Acquisition date unavailable"}
+        </Text>
+        {record.positionType === "SHORT" && (
+          <Text as="span" variant="small">
+            Short position
+          </Text>
+        )}
+      </span>
+      <Text
+        as="span"
+        variant={record.basisPerUnitMicros === null ? "supporting" : "primary"}
+        className="investment-history__record-value"
+      >
+        {record.basisPerUnitMicros === null
+          ? "Basis unavailable"
+          : `${amount(record.basisPerUnitMicros, 6)}/share`}
+      </Text>
+    </HistoryRecord>
   );
 }
 
-const headings: Record<InvestmentReconciliation["status"], string> = {
-  not_synced: "Reconciliation unknown",
-  insufficient_coverage: "Reconciliation unknown",
-  insufficient_timing: "Reconciliation unknown",
+const headings: Partial<Record<InvestmentReconciliation["status"], string>> = {
   pending_snapshot: "Activity newer than holdings",
   unexplained_difference: "Unexplained share difference",
   reconciled: "Shares reconciled",
@@ -524,6 +522,8 @@ export function InvestmentHistory({
     coverage &&
     coverage.status !== "not_synced" &&
     (coverage.status !== "complete" || outsideCoverage);
+  const reconciliationHeading =
+    reconciliation && headings[reconciliation.status];
   return (
     <section
       className="investment-history holding-detail-section"
@@ -752,6 +752,15 @@ export function InvestmentHistory({
                 </Collapsible>
               )}
             </div>
+            {tab === "activity" &&
+              !reconciliationHeading &&
+              !staleHolding &&
+              reconciliation.status !== "not_synced" && (
+                <Text variant="supporting">
+                  Keel can’t verify which trades are included in the reported
+                  shares.
+                </Text>
+              )}
             {error ? (
               <>
                 <FormMessage tone="error">{error}</FormMessage>
@@ -767,29 +776,28 @@ export function InvestmentHistory({
               <>
                 <TabsContent value="activity">
                   {activityPage?.items.length ? (
-                    activityPage.items.map((record) => (
-                      <Transaction
-                        key={record.id}
-                        record={record}
-                        account={account}
-                      />
-                    ))
+                    <RecordGroup layout="disclosures" aria-label="Transactions">
+                      {activityPage.items.map((record) => (
+                        <Transaction
+                          key={record.id}
+                          record={record}
+                          account={account}
+                        />
+                      ))}
+                    </RecordGroup>
                   ) : (
-                    <EmptyState
-                      compact
-                      icon={null}
-                      title={
-                        reconciliation.status === "not_synced"
+                    <>
+                      <Text variant="supporting">
+                        {reconciliation.status === "not_synced"
                           ? "No activity captured yet."
-                          : "No captured activity."
-                      }
-                    >
+                          : "No captured activity."}
+                      </Text>
                       {filterCount > 0 && (
                         <Button tone="quiet" onClick={clearFilters}>
                           Clear filters
                         </Button>
                       )}
-                    </EmptyState>
+                    </>
                   )}
                 </TabsContent>
                 <TabsContent value="lots">
@@ -820,9 +828,14 @@ export function InvestmentHistory({
                           is partial.
                         </FormMessage>
                       )}
-                      {lotPage.items.map((record) => (
-                        <Lot key={record.id} record={record} />
-                      ))}
+                      <RecordGroup
+                        layout="disclosures"
+                        aria-label="Remaining lots"
+                      >
+                        {lotPage.items.map((record) => (
+                          <Lot key={record.id} record={record} />
+                        ))}
+                      </RecordGroup>
                     </>
                   ) : (
                     <EmptyState
@@ -865,52 +878,52 @@ export function InvestmentHistory({
               </>
             )}
           </Tabs>
-          <Collapsible className="investment-history__reconciliation">
-            <CollapsibleTrigger layout="inline">
-              {staleHolding
-                ? "Holdings changed"
-                : headings[reconciliation.status]}
-              <DisclosureIndicator />
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <Text variant="supporting">{reconciliation.reason}</Text>
-              {reconciliation.openingQuantityMicros !== null && (
-                <DataList className="investment-history__facts">
-                  <DataItem
-                    label="Opening shares"
-                    value={shares(reconciliation.openingQuantityMicros)}
-                  />
-                  <DataItem
-                    label="Recorded activity"
-                    value={shares(reconciliation.activityQuantityMicros)}
-                  />
-                  <DataItem
-                    label="Expected shares"
-                    value={shares(reconciliation.expectedQuantityMicros)}
-                  />
-                  <DataItem
-                    label="Reported shares"
-                    value={shares(reconciliation.reportedQuantityMicros)}
-                  />
-                </DataList>
-              )}
-              {reconciliation.unexplainedQuantityMicros !== null && (
+          {reconciliationHeading && !staleHolding && (
+            <Collapsible className="investment-history__reconciliation">
+              <CollapsibleTrigger layout="inline">
+                {reconciliationHeading}
+                <DisclosureIndicator />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <Text variant="supporting">{reconciliation.reason}</Text>
+                {reconciliation.openingQuantityMicros !== null && (
+                  <DataList className="investment-history__facts">
+                    <DataItem
+                      label="Opening shares"
+                      value={shares(reconciliation.openingQuantityMicros)}
+                    />
+                    <DataItem
+                      label="Recorded activity"
+                      value={shares(reconciliation.activityQuantityMicros)}
+                    />
+                    <DataItem
+                      label="Expected shares"
+                      value={shares(reconciliation.expectedQuantityMicros)}
+                    />
+                    <DataItem
+                      label="Reported shares"
+                      value={shares(reconciliation.reportedQuantityMicros)}
+                    />
+                  </DataList>
+                )}
+                {reconciliation.unexplainedQuantityMicros !== null && (
+                  <Text variant="supporting">
+                    Unexplained difference ·{" "}
+                    {shares(reconciliation.unexplainedQuantityMicros)} shares
+                  </Text>
+                )}
+                {!reconciliation.context.quantityEffectiveOn && (
+                  <Text variant="supporting">
+                    Quantity effective date unavailable. A price date or refresh
+                    time cannot establish trade inclusion.
+                  </Text>
+                )}
                 <Text variant="supporting">
-                  Unexplained difference ·{" "}
-                  {shares(reconciliation.unexplainedQuantityMicros)} shares
+                  Cash is not reconciled. Cost basis remains broker reported.
                 </Text>
-              )}
-              {!reconciliation.context.quantityEffectiveOn && (
-                <Text variant="supporting">
-                  Quantity effective date unavailable. A price date or refresh
-                  time cannot establish trade inclusion.
-                </Text>
-              )}
-              <Text variant="supporting">
-                Cash is not reconciled. Cost basis remains broker reported.
-              </Text>
-            </CollapsibleContent>
-          </Collapsible>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
         </>
       )}
     </section>

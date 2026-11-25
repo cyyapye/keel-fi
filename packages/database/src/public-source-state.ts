@@ -23,6 +23,7 @@ export type PublicSourcePosition = {
   review_created_at: string | null;
   is_active?: number;
   inventory_source_at?: string | null;
+  account_cash_unconfirmed?: number;
 };
 
 const CURRENT_SOURCE_SEEDS_SQL = `
@@ -107,14 +108,23 @@ const SOURCE_JOINS_SQL = `  FROM scope JOIN households household ON household.id
   LEFT JOIN holding_position_snapshots s ON s.id=a.snapshot_id
   LEFT JOIN holding_import_rows r ON r.id=s.source_import_row_id
   LEFT JOIN public_holding_source_heads h ON h.position_id=p.id
-  LEFT JOIN public_holding_source_reviews review ON review.id=h.review_id
-  ORDER BY p.id`;
+  LEFT JOIN public_holding_source_reviews review ON review.id=h.review_id`;
 
 export const PUBLIC_SOURCE_POSITIONS_SQL = `WITH RECURSIVE scope AS MATERIALIZED (SELECT id household_id FROM households WHERE id=?),
-  seeds AS (${CURRENT_SOURCE_SEEDS_SQL}),inventory_details AS(SELECT NULL inventory_json),${SOURCE_COMPONENT_SQL} SELECT ${SOURCE_FIELDS_SQL},NULL inventory_json ${SOURCE_JOINS_SQL}`;
+  seeds AS (${CURRENT_SOURCE_SEEDS_SQL}),inventory_details AS(SELECT NULL inventory_json),${SOURCE_COMPONENT_SQL}
+  SELECT ${SOURCE_FIELDS_SQL},NULL inventory_json,
+    CASE WHEN a.source_updated_at IS NOT NULL AND a.source_updated_at>COALESCE(account_inventory.source_updated_at,'')
+      AND EXISTS(SELECT 1 FROM holding_import_applications receipt
+        JOIN holding_import_row_decisions choice ON choice.id=receipt.decision_id
+        CROSS JOIN json_each(choice.reason_codes_json) reason
+        WHERE receipt.id=a.application_id AND reason.value='account_cash_missing')
+      THEN 1 ELSE 0 END account_cash_unconfirmed
+  ${SOURCE_JOINS_SQL}
+  LEFT JOIN public_holding_account_inventory_heads account_inventory ON account_inventory.container_id=o.container_id
+  ORDER BY p.id`;
 const PUBLIC_REPORT_SOURCE_POSITIONS_SQL = `WITH RECURSIVE scope AS MATERIALIZED (SELECT id household_id FROM households WHERE id=?),
   report_scope AS (SELECT ? import_id),
-  seeds AS (${REPORT_CURRENT_SEEDS_SQL} ${REPORT_SOURCE_SEEDS_SQL}),${REPORT_INVENTORY_DETAILS_SQL},${SOURCE_COMPONENT_SQL} SELECT ${SOURCE_FIELDS_SQL},CASE WHEN row_number() OVER(ORDER BY p.id)=1 THEN (SELECT inventory_json FROM inventory_details) END inventory_json ${SOURCE_JOINS_SQL}`;
+  seeds AS (${REPORT_CURRENT_SEEDS_SQL} ${REPORT_SOURCE_SEEDS_SQL}),${REPORT_INVENTORY_DETAILS_SQL},${SOURCE_COMPONENT_SQL} SELECT ${SOURCE_FIELDS_SQL},CASE WHEN row_number() OVER(ORDER BY p.id)=1 THEN (SELECT inventory_json FROM inventory_details) END inventory_json ${SOURCE_JOINS_SQL} ORDER BY p.id`;
 
 export type PublicSourceState = {
   inventoryDetails?: string | null;

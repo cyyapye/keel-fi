@@ -2,18 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { Holding } from "@keel/domain";
 import { PurchaseReceiptSchema } from "@keel/domain/position-purchases";
 import { z } from "zod";
-import {
-  ActionGroup,
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  DataItem,
-  DataList,
-  DisclosureIndicator,
-  FormMessage,
-  Spinner,
-} from "@keel/ui";
+import { ActionGroup, Button, FormMessage, Spinner } from "@keel/ui";
 import { HoldingDate, HoldingInput, HoldingSelect } from "./HoldingFields";
 import { decimal, scaled } from "./decimal-input";
 import { formatDate, formatMoney } from "./format";
@@ -108,13 +97,6 @@ export function HoldingDistributions({
       });
   };
   const parsed = editor ? parseDistributionDraft(editor.draft) : null;
-  const current = holdingValueSummary(holding);
-  const hasCarryDetails =
-    current.capital.capitalBasisMinor !== null ||
-    current.capital.investorDistributionsMinor !== null ||
-    current.capital.capitalRemainingMinor !== null ||
-    review?.priorCarry.status === "known" ||
-    current.after?.carryMinor != null;
   const preview = parsed?.success
     ? holdingValueSummary(holding, parsed.data.distributionReview)
     : null;
@@ -542,58 +524,6 @@ export function HoldingDistributions({
               {formatMoney(holding.realizedValueMinor!)}
             </p>
           ) : null}
-          {hasCarryDetails && (
-            <Collapsible className="carry-details">
-              <CollapsibleTrigger layout="inline">
-                Carry details <DisclosureIndicator />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <DataList layout="rows">
-                  {current.capital.capitalBasisMinor !== null && (
-                    <DataItem
-                      label="Contributed-capital hurdle"
-                      value={formatMoney(current.capital.capitalBasisMinor)}
-                    />
-                  )}
-                  {current.capital.investorDistributionsMinor !== null && (
-                    <DataItem
-                      label="Received distributions at historical value"
-                      value={formatMoney(
-                        current.capital.investorDistributionsMinor,
-                      )}
-                    />
-                  )}
-                  {current.capital.capitalRemainingMinor !== null && (
-                    <DataItem
-                      label="Capital still to return"
-                      value={formatMoney(current.capital.capitalRemainingMinor)}
-                    />
-                  )}
-                  {review?.priorCarry.status === "known" && (
-                    <DataItem
-                      label="Carry already charged"
-                      value={formatMoney(review.priorCarry.amountMinor)}
-                    />
-                  )}
-                  {current.after?.carryMinor != null && (
-                    <DataItem
-                      label="Estimated remaining carry"
-                      value={formatMoney(current.after.carryMinor)}
-                    />
-                  )}
-                </DataList>
-                {current.after?.method === "cumulative" && (
-                  <p className="holding-metadata">
-                    Only investor distributions reduce capital still to return.
-                    Carry is calculated on cumulative gains across received
-                    investor value, carry already charged and remaining value,
-                    less carry already charged. Paid upfront fees reduce net
-                    invested and do not reduce this capital hurdle.
-                  </p>
-                )}
-              </CollapsibleContent>
-            </Collapsible>
-          )}
         </>
       )}
     </div>

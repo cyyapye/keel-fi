@@ -34,6 +34,12 @@ import {
 } from "./holding-value";
 import { holdingInvestmentHasReadbackFacts } from "./holding-investment-readback";
 import { HoldingHistory } from "./HoldingHistory";
+import {
+  HoldingReturn,
+  RelatedHoldingEntities,
+  type RelatedPosition,
+} from "./HoldingSummaryDetails";
+import { positionShareSummary } from "./position-share-summary";
 import { HoldingLinkButton } from "./HoldingLinkButton";
 import {
   HoldingInvestment,
@@ -71,7 +77,7 @@ export function SpvHoldingDetail({
   onManualNavigationLockChange?: ((locked: boolean) => void) | undefined;
   companyGroupingAction?: ReactNode;
   onAccepted: () => Promise<void>;
-  related?: Holding[];
+  related?: RelatedPosition[];
 }) {
   const [editingHere, setEditingHere] = useState(false);
   const closeReviewPath = followedCloseReviewPath(holding);
@@ -99,12 +105,20 @@ export function SpvHoldingDetail({
   const {
     record,
     reviewed,
+    capital: carryCapital,
     after,
     beforeReturn,
     afterReturn,
     carry,
     historical,
   } = holdingValueSummary(holding);
+  const distributionReview =
+    holding.purchaseContext?.receipt?.details.distributionReview;
+  const hasCarryInputs =
+    carryCapital.capitalBasisMinor !== null ||
+    carryCapital.investorDistributionsMinor !== null ||
+    carryCapital.capitalRemainingMinor !== null ||
+    distributionReview?.priorCarry.status === "known";
   const unpaid =
     holding.purchaseContext?.receipt?.details.lots.flatMap((lot) =>
       (lot.fees ?? [])
@@ -125,6 +139,22 @@ export function SpvHoldingDetail({
   const capital = positionCapitalSummary(
     holding.purchaseContext?.receipt,
     holding.purchaseContext?.snapshotId,
+  );
+  const shares = positionShareSummary(
+    holding.purchaseContext,
+    Boolean(record?.followSource),
+  );
+  const shareMetadata = shares && (
+    <p className="holding-metadata">
+      {shares.estimated && (
+        <abbr title="Estimated shares" aria-label="Estimated">
+          ≈
+        </abbr>
+      )}
+      {decimal(shares.quantityMicros, 6)}{" "}
+      {shares.quantityMicros === 1_000_000 ? "share" : "shares"}
+      {shares.asOf && <> · {formatDate(shares.asOf)}</>}
+    </p>
   );
   const lots = holding.purchaseContext?.receipt?.details.lots;
   const recordedManualCash =
@@ -160,7 +190,8 @@ export function SpvHoldingDetail({
     !holding.manualContext ||
     record !== null ||
     capital?.amountMinor != null ||
-    cashPaidMinor !== null;
+    cashPaidMinor !== null ||
+    Boolean(shares);
   const investmentEditAction =
     holding.manualContext && !hasInvestmentFacts && !investmentEditing ? (
       <Button
@@ -222,28 +253,21 @@ export function SpvHoldingDetail({
     (record.origin !== "judgment" || record.sourceUrl)
       ? record.sourceLabel
       : null;
-  const source = record && (sourceDate || sourceName) && (
-    <p className="holding-metadata">
-      {sourceDate && formatDate(sourceDate)}
-      {sourceName && (
-        <>
-          {sourceDate && " · "}
-          {record.sourceUrl ? (
-            <TextLink
-              className="holding-source-link"
-              href={record.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {sourceName}
-            </TextLink>
-          ) : (
-            sourceName
-          )}
-        </>
-      )}
-    </p>
-  );
+  const source =
+    sourceName &&
+    record &&
+    (record.sourceUrl ? (
+      <TextLink
+        className="holding-source-link"
+        href={record.sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {sourceName}
+      </TextLink>
+    ) : (
+      sourceName
+    ));
   const remainingLabel =
     record?.origin === "at_cost"
       ? "Remaining value at cost"
@@ -311,26 +335,47 @@ export function SpvHoldingDetail({
         )}
         {editable && editButton}
       </div>
-      <strong className="holding-value-amount">{formatMoney(amount)}</strong>
+      <strong className="holding-value-amount">
+        {provenance && record?.origin === "proxy" && "≈"}
+        {formatMoney(amount)}
+      </strong>
       {performance?.totalReturnPpm != null && (
-        <strong
-          className="holding-value-return"
-          aria-label={`Return ${title.toLowerCase().includes("before") ? "before remaining" : "after"} carry ${signedReturn(performance.totalReturnPpm)}`}
-        >
-          {signedReturn(performance.totalReturnPpm)}
-        </strong>
+        <HoldingReturn
+          percent={signedReturn(performance.totalReturnPpm)}
+          accessiblePercent={`Return ${title.toLowerCase().includes("before") ? "before remaining" : "after"} carry ${signedReturn(performance.totalReturnPpm)}`}
+          performance={performance}
+          estimated={
+            record?.origin === "proxy" ||
+            record?.origin === "judgment" ||
+            record?.method === "shares" ||
+            (title.includes("After carry") &&
+              record?.carryStatus !== "after_carry") ||
+            performance.costBasisSource === "funded_amount_estimate" ||
+            performance.costBasisSource === "reviewed_spv_estimate"
+          }
+          date={provenance ? sourceDate : null}
+          formatAmount={formatMoney}
+        />
       )}
-      {provenance && record?.origin !== "public_close" && source}
+      {provenance &&
+        record?.origin !== "public_close" &&
+        (source || (sourceDate && performance?.totalReturnPpm == null)) && (
+          <p className="holding-metadata">
+            {sourceDate && performance?.totalReturnPpm == null && (
+              <>
+                <time dateTime={sourceDate}>{formatDate(sourceDate)}</time>
+                {source && " · "}
+              </>
+            )}
+            {source}
+          </p>
+        )}
       {provenance && followsClose && closeQuote && (
         <p className="holding-metadata">
           Based on {closeQuote.ticker}’s{" "}
           {closeProvider ? "daily close" : "closing price"}
         </p>
       )}
-      {title.includes("After carry") &&
-        after?.method === "legacy_remaining_only" && (
-          <p className="holding-metadata">Based on remaining value only.</p>
-        )}
       {provenance &&
         record?.origin === "proxy" &&
         holding.purchaseContext?.priceProxyStatus?.stale && (
@@ -436,32 +481,7 @@ export function SpvHoldingDetail({
             </Button>
           </>
         )}
-        {related.length === 1 && (
-          <p className="holding-related holding-metadata">
-            Also held through{" "}
-            <TextLink
-              href={`/holdings?position=${encodeURIComponent(related[0]!.id)}`}
-            >
-              {related[0]!.acceptedLegalName ?? related[0]!.positionName}
-            </TextLink>
-          </p>
-        )}
-        {related.length > 1 && (
-          <div className="holding-related holding-metadata">
-            <p>Also held through</p>
-            <ul role="list" aria-label="Also held through">
-              {related.map((item) => (
-                <li key={item.id}>
-                  <TextLink
-                    href={`/holdings?position=${encodeURIComponent(item.id)}`}
-                  >
-                    {item.acceptedLegalName ?? item.positionName}
-                  </TextLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        <RelatedHoldingEntities positions={related} />
       </header>
       {companyGroupingAction}
       {distributionReadbackPending ? (
@@ -521,6 +541,7 @@ export function SpvHoldingDetail({
                   <strong className="holding-value-amount">
                     {formatMoney(capital.amountMinor)}
                   </strong>
+                  {shareMetadata}
                 </div>
               ) : (holding.manualContext || !record) &&
                 cashPaidMinor !== null ? (
@@ -540,7 +561,10 @@ export function SpvHoldingDetail({
                   <strong className="holding-value-amount">
                     {formatMoney(cashPaidMinor)}
                   </strong>
+                  {shareMetadata}
                 </div>
+              ) : shareMetadata ? (
+                <div className="holding-share-only">{shareMetadata}</div>
               ) : null}
             </section>
           )}
@@ -607,7 +631,8 @@ export function SpvHoldingDetail({
             </section>
           ) : editing ? (
             valuationEditor
-          ) : record ? (
+          ) : null}
+          {!editing && (record || hasCarryInputs) && (
             <Collapsible className="holding-calculation">
               <CollapsibleTrigger layout="inline">
                 Calculation
@@ -615,17 +640,19 @@ export function SpvHoldingDetail({
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <DataList layout="rows">
-                  <DataItem
-                    label={label}
-                    value={formatMoney(record.valueMinor)}
-                  />
-                  {record.method === "shares" && (
+                  {record && (
+                    <DataItem
+                      label={label}
+                      value={formatMoney(record.valueMinor)}
+                    />
+                  )}
+                  {record?.method === "shares" && (
                     <DataItem
                       label="Shares × price"
                       value={`${decimal(record.quantityMicros, 6)} × ${formatSharePrice(record.priceMicros!)}`}
                     />
                   )}
-                  {record.origin === "proxy" && (
+                  {record?.origin === "proxy" && (
                     <DataItem
                       label="Price source"
                       value={
@@ -648,7 +675,7 @@ export function SpvHoldingDetail({
                       }
                     />
                   )}
-                  {record.origin === "proxy" && record.sourceContinuation && (
+                  {record?.origin === "proxy" && record.sourceContinuation && (
                     <>
                       {!record.shareClass && (
                         <DataItem
@@ -666,6 +693,45 @@ export function SpvHoldingDetail({
                         />
                       )}
                     </>
+                  )}
+                  {carryCapital.capitalBasisMinor !== null && (
+                    <DataItem
+                      label="Contributed-capital hurdle"
+                      value={formatMoney(carryCapital.capitalBasisMinor)}
+                    />
+                  )}
+                  {reviewed?.terms.carryBasis &&
+                    reviewed.terms.carryBasis !== "unknown" && (
+                      <DataItem
+                        label="Carry basis"
+                        value={
+                          reviewed.terms.carryBasis === "gross_cash"
+                            ? "Cash after refunds"
+                            : "Net capital"
+                        }
+                      />
+                    )}
+                  {carryCapital.investorDistributionsMinor !== null && (
+                    <DataItem
+                      label="Received distributions at historical value"
+                      value={formatMoney(
+                        carryCapital.investorDistributionsMinor,
+                      )}
+                    />
+                  )}
+                  {carryCapital.capitalRemainingMinor !== null && (
+                    <DataItem
+                      label="Capital still to return"
+                      value={formatMoney(carryCapital.capitalRemainingMinor)}
+                    />
+                  )}
+                  {distributionReview?.priorCarry.status === "known" && (
+                    <DataItem
+                      label="Carry already charged"
+                      value={formatMoney(
+                        distributionReview.priorCarry.amountMinor,
+                      )}
+                    />
                   )}
                   {after?.carryMinor != null && (
                     <DataItem
@@ -713,11 +779,23 @@ export function SpvHoldingDetail({
                     />
                   )}
                 </DataList>
+                {after?.method === "legacy_remaining_only" && (
+                  <p className="holding-metadata">
+                    Carry is estimated from the remaining value only.
+                  </p>
+                )}
+                {after?.method === "cumulative" && (
+                  <p className="holding-metadata">
+                    Only investor distributions reduce capital still to return.
+                    The carry calculation includes historical investor value and
+                    deducts carry already charged.
+                  </p>
+                )}
                 {(beforeReturn?.totalReturnPpm != null ||
                   afterReturn?.totalReturnPpm != null) && (
                   <p className="holding-metadata">
-                    (Value + distributions excluding capital refunds − net
-                    capital) ÷ net capital
+                    Total return = (value + distributions excluding capital
+                    refunds − net capital) ÷ net capital
                   </p>
                 )}
                 {historical.status === "unavailable" && (
@@ -728,7 +806,7 @@ export function SpvHoldingDetail({
                 )}
               </CollapsibleContent>
             </Collapsible>
-          ) : null}
+          )}
         </>
       )}
       {unpaid.map((f) => (

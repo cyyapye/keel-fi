@@ -823,19 +823,7 @@ export function HoldingInvestment({
               {terms.carryPpm !== null && (
                 <DataItem
                   label="Carry"
-                  value={
-                    <>
-                      {decimal(terms.carryPpm, 4)}%
-                      {terms.carryBasis !== "unknown" && (
-                        <small>
-                          On gains above{" "}
-                          {terms.carryBasis === "gross_cash"
-                            ? "cash after refunds"
-                            : "net capital"}
-                        </small>
-                      )}
-                    </>
-                  }
+                  value={`${decimal(terms.carryPpm, 4)}%`}
                 />
               )}{" "}
               {terms.annualManagementFeePpm !== null &&
@@ -925,17 +913,20 @@ function InvestmentFacts({
       {shares && (
         <DataItem
           label={
-            lot.quantityDetails?.status === "estimated"
+            shares.derived || lot.quantityDetails?.status === "estimated"
               ? "Estimated shares"
               : "Shares"
           }
           value={
-            <>
+            <span className="holding-lot-quantity">
               {decimal(shares.quantityMicros, 6)}
               {lot.sharesAsOf && (
-                <small>As of {formatDate(lot.sharesAsOf)}</small>
+                <time className="holding-inline-date" dateTime={lot.sharesAsOf}>
+                  {" · "}
+                  {formatDate(lot.sharesAsOf)}
+                </time>
               )}
-            </>
+            </span>
           }
         />
       )}

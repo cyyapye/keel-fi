@@ -350,6 +350,10 @@ test("holding summary pairs value and return and keeps fees in Investment", asyn
   ];
   await setup(page, undefined, relatedNames);
   const related = page.getByRole("list", { name: "Also held through" });
+  await expect(related).toBeHidden();
+  await page
+    .getByRole("button", { name: "Also held through 3 other entities" })
+    .click();
   await expect(related.getByRole("listitem")).toHaveCount(3);
   for (const [index, name] of relatedNames.entries()) {
     const link = related.getByRole("link", { name, exact: true });
@@ -374,13 +378,16 @@ test("holding summary pairs value and return and keeps fees in Investment", asyn
     exact: true,
   });
   await expect(before).toContainText("$16,880.00");
-  await expect(before).toContainText("+100.00%");
+  await expect(before).toContainText("+100.00% · +$8,440.00");
   const after = page.getByRole("group", {
     name: "Estimated remaining value · After carry",
     exact: true,
   });
   await expect(after).toContainText("$15,698.00");
-  await expect(after).toContainText("+85.99%");
+  await expect(after).toContainText("+85.99% · +$7,258.00");
+  await expect(
+    page.getByRole("group", { name: "Invested capital" }),
+  ).toContainText("84.4 shares · Jan 1, 2026");
   await expect(
     page.getByRole("group", { name: "Invested capital" }),
   ).toContainText("$8,440.00");

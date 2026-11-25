@@ -129,7 +129,9 @@ export const test = base.extend<
               nonce: result.nonce,
               ...(result.hasNext
                 ? {
-                    next: async (mode: "returned" | "empty" | "partial") =>
+                    next: async (
+                      mode: "returned" | "empty" | "partial" | "cash-missing",
+                    ) =>
                       nextReport.parse(
                         await dispatch({
                           operation: "next",

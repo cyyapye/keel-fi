@@ -3210,6 +3210,105 @@ describe("AngelList holding import persistence", () => {
     ).toEqual({ count: 3 });
   });
 
+  it("updates only known positions without cash and holds the account's planning inputs until cash returns", async () => {
+    const subject = "synthetic-access-subject";
+    const etf = {
+      key: "a",
+      name: "CORE",
+      type: "etf",
+      quantity: 20_000_000,
+      value: 200000,
+    };
+    const omitted = { ...etf, key: "b", name: "OMITTED" };
+    const cash = {
+      key: "c",
+      name: "USD",
+      type: "cash",
+      quantity: 1000_000_000,
+      value: 100000,
+    };
+    const capture = async (
+      day: number,
+      entries: Parameters<typeof authoritativeInventoryInput>[1],
+    ) => {
+      const staged = await repository.stagePlaidInvestmentsHoldingImport(
+        subject,
+        authoritativeInventoryInput(day, entries),
+      );
+      await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+        subject,
+        staged.preview.id,
+      );
+      return repository.getHoldingImport(subject, staged.preview.id);
+    };
+    const first = await capture(11, [etf, omitted, cash]);
+    const planning = new D1PortfolioBaselineRepository(
+      database as unknown as D1Database,
+    );
+    const initial = await planning.getState(subject);
+    await planning.confirm(subject, {
+      sourceRevision: initial.sourceRevision!,
+      baseForecastSnapshotId: initial.baseForecastSnapshotId!,
+      baseForecastSnapshotVersion: initial.baseForecastSnapshotVersion!,
+      otherFiEligibleLiquidMinor: 0,
+      duplicateReviewConfirmed: true,
+      cashOverlapReviewConfirmed: true,
+      changeNote: "Accepted synthetic starting inventory.",
+    });
+
+    const updated = { ...etf, quantity: 30_000_000, value: 300000 };
+    const newSecurity = { ...etf, key: "d", name: "NEW", value: 250000 };
+    const partial = await capture(12, [updated, newSecurity]);
+    expect(partial.coverage).toEqual([
+      expect.objectContaining({ cashMissing: true }),
+    ]);
+    expect(partial.inventory).toMatchObject({
+      acceptedAt: null,
+      closedPositions: [],
+    });
+    expect(partial.rows.find((row) => row.ticker === "CORE")).toMatchObject({
+      positionId: first.rows.find((row) => row.ticker === "CORE")?.positionId,
+      adjudicationStatus: "auto_applied",
+      reasonCodes: ["existing_position_matched", "account_cash_missing"],
+      currentValueMinor: 300000,
+      currentQuantityMicros: 30_000_000,
+    });
+    expect(partial.rows.find((row) => row.ticker === "NEW")).toMatchObject({
+      adjudicationStatus: "pending_review",
+      positionId: null,
+    });
+    expect(partial.preservedPositions?.map((row) => row.ticker).sort()).toEqual(
+      ["OMITTED", "USD"],
+    );
+    expect(
+      (await planning.getState(subject)).summary?.publicMarketValueMinor,
+    ).toBe(initial.summary?.publicMarketValueMinor);
+
+    await repository.autoAdjudicatePlaidInvestmentsHoldingImport(
+      subject,
+      partial.id,
+    );
+    expect(
+      (await repository.getHoldingImport(subject, partial.id)).summary
+        .autoAppliedCount,
+    ).toBe(1);
+
+    const complete = await capture(13, [
+      updated,
+      newSecurity,
+      { ...cash, value: 0, quantity: 0 },
+    ]);
+    expect(complete.inventory?.closedPositions).toMatchObject([
+      { ticker: "OMITTED" },
+    ]);
+    expect(
+      complete.rows.find((row) => row.ticker === "NEW")?.adjudicationStatus,
+    ).toBe("auto_applied");
+    expect(
+      (await planning.getState(subject)).summary?.publicMarketValueMinor,
+    ).toBe(550000);
+  });
+
   it("refuses older certified ownership and ambiguous account replacements before financial acceptance", async () => {
     const subject = "synthetic-access-subject";
     const stock = {

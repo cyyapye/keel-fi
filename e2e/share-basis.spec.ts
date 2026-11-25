@@ -543,7 +543,7 @@ test("new undated GP prices propagate to followed positions with immutable metad
     name: "Before carry",
     exact: true,
   });
-  await expect(value).toContainText("$12,660.00");
+  await expect(value).toContainText("≈$12,660.00");
   await expect(value).not.toContainText(
     /Tokenfolio|Estimated value|Estimated shares|Total return/u,
   );

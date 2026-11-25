@@ -57,9 +57,14 @@ before-carry value with its before-carry return, and an after-carry value with
 its after-carry return. Label a calculated after-carry value as estimated. Keep
 net invested visible as a separate capital measure and the return denominator;
 it is not current value after carry. Preserve these relationships when the
-layout stacks on mobile. Supported before-carry return remains useful when carry
-terms are missing; an after-carry source alone cannot establish a before-carry
-value or return.
+layout stacks on mobile. Give the amount first emphasis, then pair the signed
+return percentage with its signed monetary change and a muted valuation date on
+the same line when space permits. Show supported shares and their own date under
+capital. An approximation sign marks estimated quantities and proxy values.
+Investment identifies estimated shares explicitly. Calculation owns the carry
+hurdle, distribution treatment and remaining-only assumption. Supported
+before-carry return remains useful when carry terms are missing; an after-carry
+source alone cannot establish a before-carry value or return.
 
 For this holding summary, show both supported return treatments using net
 capital after upfront deductions and received capital refunds, with the same
@@ -436,13 +441,30 @@ contract.
 
 ## Brokerage source decisions
 
+Public securities use the SPV position header and value-summary layout. Pair the
+dated market or reviewed value with its supported return and gain, and the
+broker's cost basis with shares. Keep value evidence available for missing
+values, estimates and existing reviewed marks. A broker-reported market value
+needs only its date beside the return. Both position headers disclose how many
+other entities hold the exposure and link to the individual positions. Place the
+company grouping action and its scope below this disclosure. Keep Activity and
+Tax lots together and use the catalogue's alternating disclosure summaries for
+trades and reported lots. Keep coverage, sorting and filters outside the shaded
+rows. Sources & history holds the dated report. The Sources tab opens the
+directory. Use directional chevrons for navigation between trade or lot details
+and their source. Keep the navigation control anchored as the row changes
+height. Respect reduced motion and keep the page aligned when the scrollbar
+appears.
+
 Investment activity leads with compact transaction rows: shares and reported
 cash stay together, with posting date and price below. Keep type and date
 filters behind one control. Trade detail shows relevant fees and timing; Source
 holds audit identifiers and precise-time limitations. Omit zero fees from trade
 detail while retaining the reported zero in Source. Keep partial history,
 corrections, unconfirmed events and unknown reconciliation explicit. Account
-activity names each security and omits position-only tax-lot navigation.
+activity names each security and omits position-only tax-lot navigation. Place
+an unknown trade-inclusion caveat beside Activity coverage. Give a verified
+share comparison or an observed discrepancy its own detail.
 
 The ordinary source task needs no action: show the automatic result, accepted
 holdings total, report date and last successful check. Connection health does
@@ -459,6 +481,11 @@ omission alone never supplies a Review button or acknowledgement. Reappearance
 counts one identity. Earlier activity is read-only and uses the saved report's
 values. Count changed financial facts and presence changes, rather than calling
 every unchanged accepted row a new change.
+
+When a verified report omits cash, disclose missing cash on the affected account
+and label its accepted holdings total as partial. Activity uses the recorded
+decision when it says a row was updated. A pending row can show its reported
+value and missing-cash status.
 
 For an unresolved source identity, compare the existing and reported position
 with account, shares, value and date. Prefill only a credible unique comparison

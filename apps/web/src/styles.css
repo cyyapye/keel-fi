@@ -2832,6 +2832,10 @@ h1,
   line-height: 1.5;
 }
 
+.investment-institution__account small.investment-institution__cash-warning {
+  font-size: 13px;
+}
+
 .investment-institution__coverage {
   display: grid;
   justify-items: end;
@@ -9420,6 +9424,9 @@ h1,
 .holding-detail-section [data-slot="collapsible-content"][hidden] {
   padding: 0;
 }
+.position-valuation__alternative {
+  margin-bottom: 24px;
+}
 .holding-investment-details > .notice {
   margin: 0 0 22px;
 }
@@ -9660,10 +9667,12 @@ h1,
   }
 }
 
-.spv-holding {
+.spv-holding,
+.brokerage-holding {
   max-width: 1160px;
 }
-.spv-holding h3 {
+.spv-holding h3,
+.brokerage-holding .holding-history h3 {
   margin: 0;
   font-size: 24px;
   letter-spacing: -0.035em;
@@ -9689,8 +9698,9 @@ h1,
 .holding-metric-heading {
   display: flex;
   align-items: center;
-  gap: 12px;
+  column-gap: var(--space-3);
   flex-wrap: wrap;
+  min-height: 44px;
 }
 .holding-metric-label {
   display: flex;
@@ -9708,14 +9718,6 @@ h1,
   letter-spacing: -0.045em;
   font-variant-numeric: tabular-nums;
 }
-.holding-value-return {
-  display: block;
-  margin-top: 12px;
-  font-size: 24px;
-  letter-spacing: -0.03em;
-  font-variant-numeric: tabular-nums;
-}
-
 .holding-value-metric .holding-metadata {
   margin-top: 14px;
 }
@@ -9740,16 +9742,6 @@ h1,
 }
 .holding-related {
   margin-top: 16px;
-}
-.holding-related > p {
-  margin: 0;
-}
-.holding-related > ul {
-  display: grid;
-  gap: 4px;
-  margin: 4px 0 0;
-  padding: 0;
-  list-style: none;
 }
 .holding-related .keel-link {
   white-space: normal;
@@ -9912,10 +9904,6 @@ h1,
   }
 }
 
-.holding-metric-heading {
-  min-height: 44px;
-  flex-wrap: nowrap;
-}
 .holding-metric-heading p {
   margin-bottom: 0;
 }
@@ -10020,9 +10008,6 @@ h1,
 .distribution-basis {
   max-width: 720px;
   margin-top: 28px;
-}
-.carry-details {
-  margin-top: 20px;
 }
 .distribution-event-heading {
   display: flex;
@@ -10318,13 +10303,8 @@ h1,
   min-width: 0;
   max-width: 100%;
 }
-.investment-history__record {
-  border-bottom: 1px solid var(--line-soft);
-}
-.investment-history__record:last-child {
-  border-bottom: 0;
-}
 .investment-history__record-trigger {
+  padding: var(--space-4);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto 16px;
   align-items: center;
@@ -10343,22 +10323,58 @@ h1,
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.investment-history__record [data-slot="collapsible-content"] {
-  padding-bottom: var(--space-4);
+/* Reserve the classic scrollbar before a history row makes the document scroll. */
+html:has(.investment-history) {
+  overflow-y: scroll;
 }
-.investment-history__trade-detail,
-.investment-history__source {
+body:has(.investment-history) {
+  min-width: min(320px, 100%);
+}
+.investment-history__details {
+  padding-inline: var(--space-4);
+  overflow-wrap: anywhere;
+  transition:
+    background-color 120ms ease-out,
+    margin-block-end 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.investment-history__details[data-source] {
+  background-color: var(--wash);
+}
+.investment-history__record:not(:last-child)
+  .investment-history__details[data-source] {
+  margin-block-end: var(--space-2);
+}
+.investment-history__view {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 120ms ease-out,
+    visibility 180ms;
+}
+.investment-history__view[inert] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+}
+.investment-history__view > div {
+  min-height: 0;
+  overflow: clip;
+}
+.investment-history__view-body {
   display: grid;
   gap: var(--space-2);
-  overflow-wrap: anywhere;
+  padding-block: var(--space-2) var(--space-3);
 }
-.investment-history__trade-detail > [data-slot="button"],
-.investment-history__source > [data-slot="button"] {
-  justify-self: start;
+.investment-history__view-body:has(> .data-list:only-child:empty) {
+  padding-block: 0;
 }
-.investment-history__source {
-  padding: var(--space-3) var(--space-4);
-  background: var(--wash);
+@media (prefers-reduced-motion: reduce) {
+  .investment-history__details,
+  .investment-history__view {
+    transition: none;
+  }
 }
 .investment-history__facts {
   display: grid;
@@ -10400,4 +10416,57 @@ h1,
   color: var(--canvas);
   background: var(--ink);
   border-color: var(--ink);
+}
+
+.holding-value-metric .holding-return {
+  margin: var(--space-3) 0 0;
+  color: var(--ink);
+}
+.holding-return__amount,
+.holding-inline-date {
+  display: inline-block;
+  margin-inline-start: 0.25em;
+}
+.holding-inline-date {
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  font-weight: 400;
+}
+.holding-metadata abbr[title] {
+  text-decoration: none;
+}
+.holding-return strong {
+  font-size: 18px;
+}
+.holding-related [data-slot="collapsible-content"] ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+}
+
+.holding-source-nav {
+  min-height: 44px;
+  gap: var(--space-1);
+  font-size: var(--text-supporting);
+  font-weight: 600;
+}
+.holding-source-nav.keel-link:is(:hover, :focus-visible):not(
+    [aria-disabled="true"]
+  ) {
+  text-decoration: none;
+}
+.holding-source-nav .disclosure-indicator {
+  transform: rotate(-90deg);
+}
+.holding-source-nav--back .disclosure-indicator {
+  transform: rotate(90deg);
+}
+.holding-brokerage-report {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding-block: var(--space-2);
 }
