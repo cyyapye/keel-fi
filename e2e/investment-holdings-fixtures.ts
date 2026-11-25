@@ -661,6 +661,7 @@ export function alphaHoldingsFrom(view: InvestmentHoldingsView) {
           ),
         )?.exposure.companyId ?? null,
       positionName: position.legalVehicleName,
+      acceptedLegalName: sourcePosition.acceptedLegalName,
       exposureName: position.reportedExposureName,
       ownerLabel: position.containerLabel,
       positionKind: position.positionKind,

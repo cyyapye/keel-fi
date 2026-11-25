@@ -675,10 +675,6 @@ function exposureDisplayName(
     : group.exposure.canonicalName;
 }
 
-function positionDisplayName(position: InvestmentExposurePosition): string {
-  return position.ticker ?? position.legalVehicleName;
-}
-
 type ExposureSortDirection = "ascending" | "descending";
 
 type SortableValue = {
@@ -1300,6 +1296,15 @@ function ExposureView({
     () => new Map(holdings.map((h) => [h.id, h])),
     [holdings],
   );
+  const positionLegalName = (position: InvestmentExposurePosition) => {
+    const acceptedName =
+      position.positionKind === "spv_interest"
+        ? holdingById.get(position.id)?.acceptedLegalName
+        : undefined;
+    return acceptedName ?? position.legalVehicleName;
+  };
+  const positionDisplayName = (position: InvestmentExposurePosition) =>
+    position.ticker ?? positionLegalName(position);
   const sortedExposureGroups = useMemo(
     () =>
       holdingsExposureGroups(data.exposureView).sort((left, right) =>
@@ -1486,7 +1491,7 @@ function ExposureView({
         {canonicalUnallocated.slice(0, unallocatedLimit).map((position) => {
           const reviewPosition = reviewPositionById.get(position.id) ?? null;
           const reviewOpen = exposureReviewPositionId === position.id;
-          const positionName = positionDisplayName(position);
+          const positionName = position.ticker ?? position.legalVehicleName;
           const legalNameTooltip =
             positionName === position.legalVehicleName
               ? undefined
@@ -1690,7 +1695,7 @@ function ExposureView({
                   rowValues.get(right.id) ?? null,
                   sortDirection,
                 ) ||
-                left.legalVehicleName.localeCompare(right.legalVehicleName),
+                positionLegalName(left).localeCompare(positionLegalName(right)),
             );
           const positionCount = positions.length;
           const matchingPositions =
@@ -1704,7 +1709,13 @@ function ExposureView({
           const positionLimit =
             visiblePositionCounts.get(group.exposure.id) ??
             HOLDINGS_POSITION_PAGE_SIZE;
-          const displayName = exposureDisplayName(group, positions);
+          const onlyPosition =
+            positions.length === 1 ? positions[0] : undefined;
+          const heldAtVehicle = group.exposure.exposureKind === "position";
+          const displayName =
+            heldAtVehicle && onlyPosition
+              ? positionDisplayName(onlyPosition)
+              : exposureDisplayName(group, positions);
           const estimateCount = positions.filter(isExposureEstimate).length;
           const currentSharePrice = exposureSharePricePresentation(
             group,
@@ -1724,9 +1735,6 @@ function ExposureView({
           const isLandingGroup =
             landOnGroup && group.exposure.id === requestedExposureId;
           const valueLabel = exposureTotalsLabel(group.totals);
-          const onlyPosition =
-            positions.length === 1 ? positions[0] : undefined;
-          const heldAtVehicle = group.exposure.exposureKind === "position";
           const fraction =
             group.contributions.length === 1
               ? group.contributions[0]!.allocationPpm
@@ -1740,7 +1748,7 @@ function ExposureView({
                   : "Remaining position value"
                 : `Through ${positionDisplayName(onlyPosition)} · ${fraction / 10000}%`
               : heldAtVehicle && onlyPosition?.ticker
-                ? onlyPosition.legalVehicleName
+                ? positionLegalName(onlyPosition)
                 : null;
           const performanceLabel = exposurePerformanceLabel(group, positions);
           const singleMatch =
