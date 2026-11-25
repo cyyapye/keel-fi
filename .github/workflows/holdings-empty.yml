@@ -1,0 +1,92 @@
+name: Verify the resting empty activity state
+on:
+  push:
+    branches: [codex/holdings-sources-canonical-1661-r3]
+permissions:
+  contents: write
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      KEEL_SCREENSHOT_MODE: canonical
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+          version: 11.9.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.13.0
+      - name: Prepare canonical browser and synthetic fixture
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = x86_64
+          . /etc/os-release
+          test "$ID-$VERSION_ID" = ubuntu-24.04
+          make bootstrap-ci
+          pnpm exec playwright install-deps chromium
+          node --version
+          pnpm --version
+          pnpm exec playwright --version
+          make build
+          python3 -I scripts/pilot_native.py migration-seed
+          python3 -I scripts/pilot_native.py browser-fixture
+      - name: Render and replay synthetic Holdings screens
+        run: |
+          set -euo pipefail
+          for mode in reference changed none repeat; do
+            root="$PWD/.keel-local/e2e-lanes"
+            if [[ -d "$root" ]]; then mv "$root" "$PWD/.keel-local/prior-$mode"; fi
+            mkdir -p "$root/mocked" "$root/mocked-development"
+            for lane in stateful-a stateful-b stateful-source; do
+              cp -a .keel-local/pilot-browser-seed "$root/$lane"
+            done
+            browser() {
+              local lane=$1
+              shift
+              if [[ "$lane" == mocked* ]]; then
+                env -u KEEL_LOCAL_PERSIST_TO KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE="$lane" pnpm exec playwright test --reporter=list --retries=0 "$@"
+              else
+                KEEL_E2E_ISOLATED=1 KEEL_BROWSER_LANE="$lane" KEEL_LOCAL_PERSIST_TO="$root/$lane" pnpm exec playwright test --reporter=list --retries=0 "$@"
+              fi
+            }
+            if [[ "$mode" == reference ]]; then
+              browser stateful-source --grep 'App Access keeps scope' --update-snapshots=none e2e/ui-catalogue.visual.spec.ts
+              continue
+            fi
+            if [[ "$mode" == repeat ]]; then mode=none; fi
+            browser mocked --update-snapshots="$mode" e2e/investment-history.visual.spec.ts
+          done
+      - name: Commit replayed canonical references to this verification branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/codex/holdings-sources-canonical-1661-r3
+          python3 -I - <<'PY_CHECK'
+          import pathlib, re, subprocess
+          paths = set()
+          for cmd in (["git", "diff", "--name-only", "-z"], ["git","ls-files","--others","--exclude-standard","-z","--","e2e"]):
+              paths.update(x.decode() for x in subprocess.check_output(cmd).split(b"\0") if x)
+          assert paths == {"e2e/investment-history.visual.spec.ts-snapshots/investment-history-empty-mobile-chromium-linux.png"}, paths
+          total = 0
+          for name in sorted(paths):
+              assert re.fullmatch(r"e2e/(?:(?:holdings-detail|investment-history|investment-holdings|purchase-details|portfolio-dashboard|position-links)\.visual|public-source-updates)\.spec\.ts-snapshots/[a-z0-9-]+-linux\.png",name), name
+              path = pathlib.Path(name)
+              assert path.is_file() and not path.is_symlink(), name
+              data = path.read_bytes()
+              assert data.startswith(bytes.fromhex("89504e470d0a1a0a"))
+              total += len(data)
+              assert total <= 8 * 1024 * 1024
+              subprocess.run(["git","add","--",name],check=True)
+          print("Canonical references:",len(paths),"files,",total,"bytes")
+          PY_CHECK
+          if ! git diff --cached --quiet; then
+            git -c user.name="Keel visual verification" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Capture verified Linux references for the Holdings release"
+            git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin HEAD:refs/heads/codex/holdings-sources-canonical-1661-r3
+          fi
