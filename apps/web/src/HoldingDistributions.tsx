@@ -39,6 +39,7 @@ export function HoldingDistributions({
 }) {
   const context = holding.purchaseContext!;
   const review = context.receipt?.details.distributionReview;
+  const closeQuote = context.receipt?.publicClose;
   const [editor, setEditor] = useState<Editor | null>(null);
   const form = useRef<HTMLFormElement>(null);
   const edit = useRef<HTMLButtonElement>(null);
@@ -259,6 +260,11 @@ export function HoldingDistributions({
                       updateEvent(event.id, {
                         ...event,
                         kind: kind as DistributionEventDraft["kind"],
+                        security:
+                          event.security ||
+                          (kind === "in_kind"
+                            ? (closeQuote?.ticker ?? "")
+                            : ""),
                       })
                     }
                   />
@@ -288,6 +294,27 @@ export function HoldingDistributions({
                           updateEvent(event.id, { ...event, quantity })
                         }
                       />
+                      {(event.debit || closeQuote) && (
+                        <HoldingInput
+                          label={`${event.debit?.quote.ticker ?? closeQuote!.ticker} shares released by the SPV`}
+                          numeric
+                          value={event.debit?.shares ?? ""}
+                          description="Include shares withheld for carry. Leave blank if the SPV’s gross share count is unknown."
+                          onChange={(shares) => {
+                            const quote = event.debit?.quote ?? closeQuote!;
+                            updateEvent(event.id, {
+                              ...event,
+                              debit: {
+                                shares,
+                                quote: {
+                                  ticker: quote.ticker,
+                                  shareBasis: quote.shareBasis,
+                                },
+                              },
+                            });
+                          }}
+                        />
+                      )}
                     </>
                   )}
                   <HoldingInput

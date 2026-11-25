@@ -231,7 +231,7 @@ export function SpvHoldingDetail({
           : "My estimate"
         : record?.origin === "proxy"
           ? `${record.sourceLabel} price proxy`
-          : record?.method === "shares"
+          : record?.method === "shares" || record?.method === "price_change"
             ? "Estimated value"
             : "Reported value";
   const acceptedClose = holding.purchaseContext?.receipt?.publicClose;
@@ -277,7 +277,7 @@ export function SpvHoldingDetail({
           : "My estimate of remaining value"
         : record?.origin === "proxy"
           ? "Estimated value"
-          : record?.method === "shares"
+          : record?.method === "shares" || record?.method === "price_change"
             ? "Estimated remaining value"
             : "Reported remaining value";
   const editButton = closeReviewPath ? (
@@ -372,8 +372,11 @@ export function SpvHoldingDetail({
         )}
       {provenance && followsClose && closeQuote && (
         <p className="holding-metadata">
-          Based on {closeQuote.ticker}’s{" "}
-          {closeProvider ? "daily close" : "closing price"}
+          {record?.method === "price_change"
+            ? `Tracks the percentage change in ${closeQuote.ticker}’s close`
+            : acceptedClose?.proxyBasis?.method === "indicative_shares"
+              ? `Uses ${closeQuote.ticker}’s close as a 1:1 price proxy`
+              : `Based on ${closeQuote.ticker}’s ${closeProvider ? "daily close" : "closing price"}`}
         </p>
       )}
       {provenance &&
@@ -652,6 +655,19 @@ export function SpvHoldingDetail({
                       value={`${decimal(record.quantityMicros, 6)} × ${formatSharePrice(record.priceMicros!)}`}
                     />
                   )}
+                  {record?.method === "price_change" &&
+                    acceptedClose?.proxyBasis?.method === "price_change" && (
+                      <>
+                        <DataItem
+                          label="Starting SPV value"
+                          value={`${formatMoney(acceptedClose.proxyBasis.startMinor)} · ${formatDate(acceptedClose.proxyBasis.valueDate)} · ${acceptedClose.proxyBasis.sourceLabel}`}
+                        />
+                        <DataItem
+                          label="Starting close"
+                          value={`${formatSharePrice(acceptedClose.proxyBasis.startPriceMicros)}/share · ${formatDate(acceptedClose.proxyBasis.startDate)}`}
+                        />
+                      </>
+                    )}
                   {record?.origin === "proxy" && (
                     <DataItem
                       label="Price source"

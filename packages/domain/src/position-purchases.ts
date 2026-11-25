@@ -1,4 +1,6 @@
 import {
+  CloseProxyBasisSchema,
+  type CloseProxyBasis,
   GpMarkPriceSchema,
   MarketQuoteSchema,
   type MarketQuote,
@@ -236,6 +238,7 @@ export const PurchaseDetailsSchema = z
   });
 export const PurchaseReceiptSchema = z.object({
   publicClose: MarketQuoteSchema.extend({
+    proxyBasis: CloseProxyBasisSchema.optional(),
     exposureId: z.string().min(1),
   }).optional(),
   latestGpPrice: GpMarkPriceSchema.optional(),
@@ -402,6 +405,7 @@ export function assessValuationFromShares(
     | "shareBasis"
     | "crossClassProxy"
   > & { origin: ValuationRecord["origin"] | "public_close" },
+  reviewedDebitMicros = 0n,
 ) {
   const failure = (code: string, message: string) => ({
     ok: false as const,
@@ -510,6 +514,12 @@ export function assessValuationFromShares(
     estimatedShares ||=
       lot.quantityDetails?.status === "estimated" || shares.derived;
   }
+  numerator -= reviewedDebitMicros * denominator;
+  if (numerator < 0n)
+    return failure(
+      "excess_distribution",
+      "The shares released exceed the reviewed position quantity.",
+    );
   const divisor = denominator * 10_000_000_000n;
   const value =
     (numerator * BigInt(record.priceMicros) + divisor / 2n) / divisor;
@@ -631,10 +641,53 @@ export function selectedPositionValuation(
   };
 }
 
+/** Quantity already included in a later reviewed balance must never be debited twice. */
+function publicCloseDebits(
+  details: PurchaseReceipt["details"],
+  quote: MarketQuote,
+  openingDates: string[],
+) {
+  const history = details.distributionReview;
+  let debits = 0n;
+  let effectiveDate = quote.date;
+  for (const event of history?.events ?? []) {
+    if (
+      event.kind !== "in_kind" ||
+      openingDates.every((d) => d >= event.receivedOn)
+    )
+      continue;
+    const debit = event.spvDebit;
+    if (
+      openingDates.some((d) => d >= event.receivedOn) ||
+      history?.coverage.status !== "complete" ||
+      !debit ||
+      debit.ticker !== quote.ticker ||
+      debit.shareBasis.key !== quote.shareBasis.key
+    )
+      return null;
+    const scaled =
+      BigInt(debit.quantityMicros) * BigInt(quote.shareBasis.unitsPerOriginal);
+    const divisor = BigInt(debit.shareBasis.unitsPerOriginal);
+    if (scaled % divisor !== 0n) return null;
+    debits += scaled / divisor;
+    if (event.receivedOn > effectiveDate) effectiveDate = event.receivedOn;
+  }
+  return { debits, effectiveDate };
+}
+
 export function publicClosingValuation(
   receipt: PurchaseReceipt,
-  quote: MarketQuote,
+  quote: MarketQuote & { proxyBasis?: CloseProxyBasis | undefined },
 ) {
+  const basis = quote.proxyBasis;
+  const details = receipt.details;
+  if (basis && basis.sharesKey !== valuationSharesKey(details)) return null;
+  const indexed = basis?.method === "price_change";
+  const dates = indexed
+    ? [basis.valueDate]
+    : details.lots.map((lot) => lot.sharesAsOf ?? "");
+  const releases = publicCloseDebits(details, quote, dates);
+  if (!releases) return null;
   const record = {
     id: quote.id,
     origin: "public_close" as const,
@@ -642,10 +695,10 @@ export function publicClosingValuation(
     totalMinor: null,
     priceMicros: quote.priceMicros,
     priceDate: quote.date,
-    effectiveDate: quote.date,
+    effectiveDate: releases.effectiveDate,
     shareClass: quote.shareClass,
     shareBasis: quote.shareBasis,
-    sourceLabel: "Closing-price estimate",
+    sourceLabel: basis ? "Closing-price proxy" : "Closing-price estimate",
     carryStatus: "before_carry" as const,
     sourceUrl: quote.sourceUrl,
     sourceEvidenceId: quote.id,
@@ -654,8 +707,111 @@ export function publicClosingValuation(
     watchEvidenceId: null,
     followSource: true,
   };
-  const assessment = assessValuationFromShares(receipt.details, record);
+  if (indexed) {
+    if (
+      quote.date < basis.startDate ||
+      quote.shareBasis.key !== basis.shareBasis.key ||
+      details.distributionReview?.events.some(
+        (e) => e.kind === "cash" && e.receivedOn > basis.valueDate,
+      )
+    )
+      return null;
+    const openingPrice =
+      BigInt(basis.startPriceMicros) *
+      BigInt(basis.shareBasis.unitsPerOriginal);
+    const denominator = openingPrice * 10_000_000_000n;
+    const opening =
+      BigInt(basis.startMinor) *
+      BigInt(quote.shareBasis.unitsPerOriginal) *
+      10_000_000_000n;
+    const remaining = opening - releases.debits * openingPrice;
+    if (remaining < 0n) return null;
+    const value =
+      (remaining * BigInt(quote.priceMicros) + denominator / 2n) / denominator;
+    if (value > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    return {
+      ...record,
+      method: "price_change" as const,
+      valueMinor: Number(value),
+      quantityMicros: null,
+      estimatedShares: false,
+    };
+  }
+  // The public-close debit check above accounts for later stock movements.
+  // All existing GP proxy and manual share calculations retain their own date guard.
+  const input = { ...details, distributionReview: undefined };
+  const assessment = assessValuationFromShares(
+    input,
+    basis?.method === "indicative_shares"
+      ? { ...record, origin: "proxy", crossClassProxy: true }
+      : record,
+    releases.debits,
+  );
   return assessment.ok ? { ...record, ...assessment.calculation } : null;
+}
+
+export function currentReportedValueReview(
+  receipt: PurchaseReceipt | null | undefined,
+  snapshotId: string,
+  valueMinor: number | null,
+  sourceSnapshotId: string = snapshotId,
+) {
+  const review = receipt?.details.investmentTerms?.reportedValueReview;
+  return review &&
+    (receipt?.details.investmentSnapshotId ?? receipt?.snapshotId) ===
+      snapshotId &&
+    review.sourceSnapshotId === sourceSnapshotId &&
+    review.valueMinor === valueMinor
+    ? review
+    : undefined;
+}
+
+/** Proposals never change an existing enrollment. Its accepted basis is carried with the quote. */
+export function proposedCloseProxyBasis(
+  receipt: PurchaseReceipt,
+  snapshotId: string,
+  quote: MarketQuote,
+  reportedValueMinor: number | null,
+  reportedSnapshotId: string,
+): CloseProxyBasis | null {
+  const sharesKey = valuationSharesKey(receipt.details);
+  const indicative = { method: "indicative_shares" as const, sharesKey };
+  if (publicClosingValuation(receipt, { ...quote, proxyBasis: indicative }))
+    return indicative;
+  const selected = effectivePositionValuation(
+    { ...receipt, publicClose: undefined },
+    snapshotId,
+  );
+  if (selected?.origin === "at_cost") return null;
+  const prior =
+    selected ??
+    currentReportedValueReview(
+      receipt,
+      snapshotId,
+      reportedValueMinor,
+      reportedSnapshotId,
+    );
+  if (
+    !prior ||
+    prior.carryStatus !== "before_carry" ||
+    !prior.effectiveDate ||
+    prior.effectiveDate > quote.date ||
+    prior.valueMinor <= 0 ||
+    receipt.details.distributionReview?.events.some(
+      (event) => event.receivedOn > prior.effectiveDate!,
+    )
+  )
+    return null;
+  return {
+    method: "price_change",
+    startMinor: prior.valueMinor,
+    valueDate: prior.effectiveDate,
+    sourceLabel: prior.sourceLabel,
+    startDate: quote.date,
+    startPriceMicros: quote.priceMicros,
+    shareBasis: quote.shareBasis,
+    sharesKey,
+  };
 }
 
 /** A reviewed GP total remains usable when its independent share calculation expires. */

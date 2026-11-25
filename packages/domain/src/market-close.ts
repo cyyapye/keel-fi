@@ -34,6 +34,23 @@ export function easternTradingDate(now: Date) {
 }
 
 export type MarketQuote = z.infer<typeof MarketQuoteSchema>;
+export const CloseProxyBasisSchema = z.discriminatedUnion("method", [
+  z.object({
+    method: z.literal("indicative_shares"),
+    sharesKey: z.string().min(1),
+  }),
+  z.object({
+    method: z.literal("price_change"),
+    startMinor: z.number().int().safe().positive(),
+    valueDate: z.iso.date(),
+    sourceLabel: z.string().min(1),
+    startDate: z.iso.date(),
+    startPriceMicros: MarketQuoteSchema.shape.priceMicros,
+    shareBasis: ShareBasisSchema,
+    sharesKey: z.string().min(1),
+  }),
+]);
+export type CloseProxyBasis = z.infer<typeof CloseProxyBasisSchema>;
 export const MarketReviewSchema = z.object({
   exposureId: z.string(),
   name: z.string(),
@@ -45,12 +62,15 @@ export const MarketReviewSchema = z.object({
   version: z.number().int(),
   choice: z.enum(["follow", "keep"]).nullable(),
   token: z.string(),
+  renewalCount: z.number().int().positive().optional(),
   positions: z.array(
     z.object({
       id: z.string(),
       name: z.string(),
       valueMinor: z.number().int().safe(),
-      quantityMicros: z.number().int().safe(),
+      quantityMicros: z.number().int().safe().nullable(),
+      proxyBasis: CloseProxyBasisSchema.optional(),
+      privateClasses: z.array(z.string().min(1)).optional(),
       previousSource: z.string().optional(),
       latestGpPrice: GpMarkPriceSchema.optional(),
       previousMinor: z.number().int().safe().nullable(),
@@ -64,6 +84,8 @@ export const MarketDecisionInput = z
     requestId: z.uuid(),
     token: z.string().min(1).max(128),
     choice: z.enum(["follow", "keep"]),
+    acceptProxyBasis: z.literal(true).optional(),
+    scope: z.literal("active").optional(),
   })
   .strict();
 

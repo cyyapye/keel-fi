@@ -233,6 +233,7 @@
         "packages/database/migrations/0096_economics_snapshot_lookup.sql",
         "packages/database/migrations/0097_price_metadata_continuation.sql",
         "packages/database/migrations/0098_exposure_closing_prices.sql",
+        "packages/database/migrations/0099_market_proxy_basis.sql",
         "packages/database/src/market-close.ts",
         "packages/database/src/market-close.test.ts",
         "scripts/market-close-d1-cost.test.ts",

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { brotliCompressSync, brotliDecompressSync, constants } from "node:zlib";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from "miniflare";
 import { unstable_splitSqlQuery } from "wrangler";
@@ -268,13 +268,49 @@ function seedPriceMetadataHistory(db: DatabaseSync, history: number) {
   }
 }
 
+function seedMarketDecisions(db: DatabaseSync, history: number) {
+  db.exec(`INSERT INTO companies(id,household_id,legal_name,status,created_at,updated_at)
+    SELECT 'synthetic-issuer-'||id,id,'Synthetic issuer','active','2026-08-20','2026-08-20' FROM households;
+    INSERT INTO canonical_exposures
+    (id,household_id,exposure_kind,canonical_name,company_id,resolution_method,evidence_sha256,created_by_user_id,created_at,immutable)
+    SELECT 'synthetic-listed-'||id,id,'private_company','Synthetic issuer','synthetic-issuer-'||id,'reviewed_company',hex(zeroblob(32)),owner_user_id,'2026-08-20',1
+    FROM households;
+    INSERT INTO holding_position_exposure_mappings
+    (id,household_id,position_id,exposure_id,relationship_kind,allocation_ppm,status,decision_source,decision_reference,
+     evidence_sha256,effective_at,version,supersedes_mapping_id,accepted_by_user_id,accepted_at,immutable)
+    SELECT 'synthetic-listed-'||p.id,h.id,p.id,'synthetic-listed-'||h.id,'look_through',1000000,'active','review','Synthetic fixture',
+      hex(zeroblob(32)),'2026-08-20',1,NULL,h.owner_user_id,'2026-08-20',1
+    FROM holding_positions p JOIN households h ON h.id=p.household_id WHERE p.provider='wefunder';
+    INSERT INTO exposure_market_listings
+    SELECT DISTINCT m.exposure_id,'synthetic-issuer','SYN','Exchange','Common','original','2026-08-20','https://example.invalid/listing','USD'
+    FROM holding_position_exposure_heads m JOIN holding_positions p ON p.id=m.position_id
+    WHERE p.provider='wefunder' AND m.status='active';
+    INSERT INTO exposure_market_closes SELECT exposure_id || '-q1',exposure_id,first_session,1,25000000,1,
+      'https://example.invalid/close','2026-08-20T18:00:00Z' FROM exposure_market_listings;
+    INSERT INTO exposure_market_decisions
+    SELECT l.exposure_id||'-d1',l.exposure_id,1,l.exposure_id||'-q1',h.owner_user_id,'follow','old-review',
+      json_group_array(json_object('id',m.position_id,'mappingId',m.mapping_id)),'2026-08-21T08:00:00Z'
+    FROM exposure_market_listings l JOIN holding_position_exposure_heads m ON m.exposure_id=l.exposure_id
+    JOIN households h ON h.id=m.household_id GROUP BY l.exposure_id;`);
+  // Same-session corrections grow history independently of the active member count.
+  const revise = db.prepare(`INSERT INTO exposure_market_closes
+    SELECT l.exposure_id||'-r'||?1,l.exposure_id,l.first_session,?1,25000000+?1,1,
+    'https://example.invalid/correction','2026-08-21T09:00:00Z'
+    FROM exposure_market_listings l WHERE l.exposure_id IN
+    (SELECT min(m.exposure_id) FROM exposure_market_members m JOIN canonical_exposures e ON e.id=m.exposure_id GROUP BY e.household_id)`);
+  for (let revision = 2; revision <= history; revision++)
+    revise.run({ "1": revision });
+}
+
 type Frontier = PopulatedMigrationFixture["frontier"];
 
 async function buildFixture(
   history: number,
-  frontier: Frontier,
+  target: Frontier,
   captureOld?: (fixture: PopulatedMigrationFixture) => void,
 ) {
+  const frontier =
+    target === "0099" || target === "0098-market" ? "0098" : target;
   const oldFiles = migrationFiles("0088");
   const db = new DatabaseSync(":memory:");
   const statements = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
@@ -562,7 +598,21 @@ async function buildFixture(
         ),
       );
     }
-    return snapshotFixture(frontier);
+    if (target === "0098-market" || target === "0099") {
+      if (captureOld) captureOld(snapshotFixture("0098"));
+      seedMarketDecisions(db, history);
+    }
+    if (target === "0099") {
+      statements.clear();
+      if (captureOld) captureOld(snapshotFixture("0098-market"));
+      db.exec(
+        readFileSync(
+          "packages/database/migrations/0099_market_proxy_basis.sql",
+          "utf8",
+        ),
+      );
+    }
+    return snapshotFixture(target);
   } finally {
     statements.clear();
     db.close();
@@ -695,7 +745,9 @@ function packFixture(fixture: PopulatedMigrationFixture) {
   const json = JSON.stringify(fixture) + "\n";
   if (Buffer.byteLength(json) > fixtureByteLimit)
     throw new Error("Populated migration fixture exceeds its size limit");
-  return gzipSync(json, { level: 6 }).toString("base64");
+  return brotliCompressSync(json, {
+    params: { [constants.BROTLI_PARAM_QUALITY]: 4 },
+  }).toString("base64");
 }
 
 export async function preparePopulatedMigrationFixtureStore(root: string) {
@@ -738,7 +790,7 @@ export function populatedMigrationFixtures(selectedFrontier?: Frontier) {
     const packed = (await result)[frontier];
     if (packed === undefined)
       throw new Error("Missing populated migration fixture boundary");
-    const text = gunzipSync(Buffer.from(packed, "base64"), {
+    const text = brotliDecompressSync(Buffer.from(packed, "base64"), {
       maxOutputLength: fixtureByteLimit,
     }).toString("utf8");
     const fixture = FixtureSchema.parse(JSON.parse(text));
@@ -1287,15 +1339,17 @@ if (
       "0096-prices",
       "0097",
       "0098",
+      "0098-market",
+      "0099",
       "both",
     ])
     .parse(process.argv[4]);
   if (frontier === "both") {
     const fixtures: Partial<Record<Frontier, string>> = {};
-    const terminal = await buildFixture(history, "0098", (fixture) => {
+    const terminal = await buildFixture(history, "0099", (fixture) => {
       fixtures[fixture.frontier] = packFixture(fixture);
     });
-    console.log(JSON.stringify({ ...fixtures, "0098": packFixture(terminal) }));
+    console.log(JSON.stringify({ ...fixtures, "0099": packFixture(terminal) }));
   } else {
     console.log(JSON.stringify(await buildFixture(history, frontier)));
   }

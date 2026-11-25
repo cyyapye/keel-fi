@@ -3,6 +3,8 @@ import { D1InvestmentExposureViewRepository } from "./exposure-read-model";
 import { z } from "zod";
 import { personalDailyInstrumentPrefix } from "./personal-daily-closes";
 import {
+  CloseProxyBasisSchema,
+  type CloseProxyBasis,
   GpMarkPriceSchema,
   MarketQuoteSchema,
   MarketReviewSchema,
@@ -13,6 +15,7 @@ import {
   PurchaseReceiptSchema,
   effectivePositionValuation,
   publicClosingValuation,
+  proposedCloseProxyBasis,
 } from "@keel/domain/position-purchases";
 
 interface ReviewRow {
@@ -33,7 +36,9 @@ interface ReviewRow {
   receipt_id: string;
   snapshot_id: string;
   unrealized_value_minor: number | null;
+  reported_snapshot_id: string;
   enrolled: number;
+  basis_json: string | null;
 }
 const candidates = ` FROM users u JOIN households hh ON hh.owner_user_id=u.id
  JOIN canonical_exposures e ON e.household_id=hh.id
@@ -41,6 +46,9 @@ const candidates = ` FROM users u JOIN households hh ON hh.owner_user_id=u.id
  JOIN exposure_market_closes first ON first.exposure_id=e.id AND first.session_date=price.first_session AND first.revision=(SELECT max(f.revision) FROM exposure_market_closes f WHERE f.exposure_id=e.id AND f.session_date=price.first_session)
  LEFT JOIN exposure_market_news_reads news ON news.exposure_id=e.id AND news.user_id=u.id
  JOIN exposure_market_candidates c ON c.household_id=hh.id AND c.exposure_id=e.id
+ LEFT JOIN holding_position_link_heads link ON link.target_position_id=c.position_id AND link.household_id=c.household_id AND link.state='linked' AND link.use_source_value=1
+ LEFT JOIN holding_import_application_heads source ON source.position_id=link.source_position_id
+ LEFT JOIN holding_position_snapshots linked ON linked.id=source.snapshot_id
  LEFT JOIN exposure_market_members m ON m.position_id=c.position_id AND m.mapping_id=c.mapping_id
  LEFT JOIN exposure_market_decisions d ON d.id=(SELECT id FROM exposure_market_decisions WHERE exposure_id=e.id ORDER BY version DESC LIMIT 1)
  WHERE u.access_subject=?`;
@@ -48,11 +56,17 @@ type Scope = {
   id: string;
   mappingId: string;
   receiptId: string;
+  proxyBasis?: CloseProxyBasis;
+  renewal?: true;
   snapshotId: string;
 }[];
 async function reviews(db: D1Database, subject: string, exposure?: string) {
-  const selectCandidates = `SELECT e.id exposure_id,e.canonical_name,price.first_session,price.quote_json,
-    first.price_micros first_price,coalesce(news.is_read,0) is_read,coalesce(news.version,0) read_version,coalesce(d.version,0) version,d.choice,c.position_id,c.mapping_id,c.legal_vehicle_name,c.receipt_json,c.receipt_id,c.snapshot_id,c.unrealized_value_minor,
+  const selectCandidates = `SELECT m.proxy_basis_json basis_json, e.id exposure_id,e.canonical_name,price.first_session,price.quote_json,
+    first.price_micros first_price,coalesce(news.is_read,0) is_read,coalesce(news.version,0) read_version,coalesce(d.version,0) version,d.choice,c.position_id,c.mapping_id,c.legal_vehicle_name,c.receipt_json,c.receipt_id,c.snapshot_id,coalesce(linked.id,c.snapshot_id) reported_snapshot_id,
+    CASE WHEN link.source_position_id IS NULL THEN c.unrealized_value_minor
+         WHEN linked.provider_status='live' AND coalesce((SELECT json_extract(r.state_json,'$.participationStatus') FROM holding_investment_reviews r
+           WHERE r.household_id=c.household_id AND r.position_id=link.source_position_id ORDER BY version DESC LIMIT 1),'current') NOT IN('historical','cancelled')
+         THEN linked.unrealized_value_minor END unrealized_value_minor,
     (SELECT json_object('priceMicros',gp.price_micros,'priceDate',gp.price_date,'sourceLabel',gp.source_label)
      FROM holding_price_current_quotes gp_head JOIN holding_price_quotes gp ON gp.id=gp_head.quote_id
      WHERE gp_head.source_position_id=c.position_id) latest_gp_json, (m.position_id IS NOT NULL) enrolled ${candidates}`;
@@ -67,7 +81,27 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
   for (const row of results) {
     const quote = MarketQuoteSchema.parse(JSON.parse(row.quote_json));
     const receipt = PurchaseReceiptSchema.parse(JSON.parse(row.receipt_json));
-    const mark = publicClosingValuation(receipt, quote);
+    const approvedBasis = row.basis_json
+      ? CloseProxyBasisSchema.parse(JSON.parse(row.basis_json))
+      : undefined;
+    const approvedMark = row.enrolled
+      ? publicClosingValuation(receipt, { ...quote, proxyBasis: approvedBasis })
+      : null;
+    const direct = approvedMark ?? publicClosingValuation(receipt, quote);
+    const proxyBasis = approvedMark
+      ? approvedBasis
+      : direct
+        ? undefined
+        : (proposedCloseProxyBasis(
+            receipt,
+            row.snapshot_id,
+            quote,
+            row.unrealized_value_minor,
+            row.reported_snapshot_id,
+          ) ?? undefined);
+    const mark =
+      direct ??
+      (proxyBasis && publicClosingValuation(receipt, { ...quote, proxyBasis }));
     if (!mark) continue;
     let group = groups.get(row.exposure_id);
     if (!group) {
@@ -94,10 +128,20 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
       name: row.legal_vehicle_name,
       valueMinor: mark.valueMinor,
       quantityMicros: mark.quantityMicros,
+      ...(proxyBasis && { proxyBasis }),
+      ...(proxyBasis?.method === "indicative_shares" && {
+        privateClasses: [
+          ...new Set(
+            receipt.details.lots.flatMap((lot) =>
+              lot.shareClass ? [lot.shareClass] : [],
+            ),
+          ),
+        ],
+      }),
       previousMinor:
         effectivePositionValuation(receipt, row.snapshot_id)?.valueMinor ??
         row.unrealized_value_minor,
-      enrolled: Boolean(row.enrolled),
+      enrolled: Boolean(approvedMark),
       ...(!exposure &&
         row.latest_gp_json && {
           latestGpPrice: GpMarkPriceSchema.parse(
@@ -109,12 +153,21 @@ async function reviews(db: D1Database, subject: string, exposure?: string) {
       id: row.position_id,
       mappingId: row.mapping_id,
       receiptId: row.receipt_id,
+      ...(row.enrolled && !approvedMark ? { renewal: true as const } : {}),
+      ...(proxyBasis && { proxyBasis }),
       snapshotId: row.snapshot_id,
     });
   }
-  for (const { review } of groups.values()) {
-    if (review.choice === "follow" && !review.positions.some((p) => p.enrolled))
+  for (const { review, scope } of groups.values()) {
+    const renewalCount = scope.filter((p) => p.renewal).length;
+    if (renewalCount) {
+      review.renewalCount = renewalCount;
       review.choice = null;
+    } else if (review.positions.some((p) => p.enrolled)) {
+      review.choice = "follow";
+    } else if (review.choice === "follow") {
+      review.choice = null;
+    }
   }
   return groups;
 }
@@ -124,10 +177,16 @@ export async function listMarketReviews(db: D1Database, subject: string) {
   );
 }
 // The review compares against the same accepted GP, proxy and adjustment precedence as Holdings.
-async function comparison(db: D1Database, subject: string, exposure: string) {
+async function comparison(
+  db: D1Database,
+  subject: string,
+  exposure: string,
+  scopeChoice?: "active",
+) {
   const group = (await reviews(db, subject, exposure)).get(exposure);
   if (!group) return null;
   const current = group.review;
+  if (scopeChoice === "active") current.choice = "follow";
   const previous = await new D1InvestmentPositionViewRepository(db).list(
     subject,
   );
@@ -149,9 +208,16 @@ async function comparison(db: D1Database, subject: string, exposure: string) {
     previous,
   );
   const byId = new Map(projection.positions.map((p) => [p.id, p]));
+  const renewals = new Set(
+    group.scope.filter((p) => p.renewal).map((p) => p.id),
+  );
   current.positions = current.positions
     .filter(
-      (p) => byId.has(p.id) && (current.choice !== "follow" || p.enrolled),
+      (p) =>
+        byId.has(p.id) &&
+        (current.choice === "follow"
+          ? p.enrolled
+          : !renewals.size || renewals.has(p.id)),
     )
     .map((p) => {
       const prior = byId.get(p.id)!;
@@ -168,6 +234,7 @@ async function comparison(db: D1Database, subject: string, exposure: string) {
     .filter((p) => visible.has(p.id))
     .map((p) => ({
       ...p,
+      ...(renewals.size ? { renewal: true as const } : {}),
       priorSourceRevisions: valuationRevisions.get(p.id),
       priorEstimate: byId.get(p.id)?.privateValueEstimate ?? null,
     }));
@@ -193,8 +260,9 @@ export async function marketReviewDetail(
   db: D1Database,
   subject: string,
   exposure: string,
+  scope?: "active",
 ) {
-  return (await comparison(db, subject, exposure))?.review ?? null;
+  return (await comparison(db, subject, exposure, scope))?.review ?? null;
 }
 // Read these append-only tails before rebuilding the comparison, then match them
 // in the INSERT. Each MAX(rowid) is a last-row seek. The guard covers only the
@@ -237,9 +305,15 @@ export async function decideMarketSource(
   const fence = await db
     .prepare(`SELECT ${comparisonWriteFence} AS revision`)
     .first<{ revision: string }>();
-  const group = await comparison(db, subject, exposure);
+  const group = await comparison(db, subject, exposure, input.scope);
   if (!fence || !group || group.review.token !== input.token) return false;
   const { review, scope } = group;
+  if (
+    input.choice === "follow" &&
+    scope.some((p) => p.proxyBasis) &&
+    !input.acceptProxyBasis
+  )
+    return false;
   const result = await db
     .prepare(
       `INSERT INTO exposure_market_decisions(id,exposure_id,version,quote_id,user_id,choice,scope_json,input_token,decided_at)

@@ -28,7 +28,7 @@ import {
 const now = new Date("2026-09-01T12:00:00.000Z");
 const gitSha = "a".repeat(40);
 const pending: string[] = [];
-const futureMigration = "0099_unmeasured.sql";
+const futureMigration = "0100_unmeasured.sql";
 const immutableFrontier = "0089_manual_holdings.sql";
 const distributionFrontier = "0090_distribution_reviews.sql";
 const sourceFrontier = "0091_public_source_reviews.sql";
@@ -38,7 +38,8 @@ const appFrontier = "0094_app_access.sql";
 const investmentFrontier = "0095_investment_history.sql";
 const economicsFrontier = "0096_economics_snapshot_lookup.sql";
 const metadataFrontier = "0097_price_metadata_continuation.sql";
-const frontier = "0098_exposure_closing_prices.sql";
+const closeFrontier = "0098_exposure_closing_prices.sql";
+const frontier = "0099_market_proxy_basis.sql";
 const temporaryRoots: string[] = [];
 function isolatedRegistry() {
   const root = mkdtempSync(join(tmpdir(), "keel-migration-contract-"));
@@ -103,7 +104,7 @@ function receipt(): MigrationSafetyReceipt {
     generatedAt: now.toISOString(),
     baseline: {
       kind: "baseline",
-      id: "exposure-closing-prices-schema-v1",
+      id: "market-proxy-basis-schema-v1",
       frontier,
       pending: [],
       scenarios: [
@@ -142,19 +143,50 @@ function receipt(): MigrationSafetyReceipt {
         history,
         fixtureHash: (history === 12 ? "c" : "d").repeat(64),
         tableRows:
-          review.id === "exposure-closing-prices-v1"
-            ? Object.fromEntries(
-                Object.entries(tableRows(history as 12 | 24)).filter(
-                  ([name]) => !name.startsWith("exposure_market_"),
-                ),
-              )
-            : [
-                  "economics-snapshot-lookup-v1",
-                  "price-metadata-continuation-v1",
-                ].includes(review.id)
-              ? oldTableRows(history as 12 | 24)
-              : Object.fromEntries(
-                  Object.entries(
+          review.id === "market-proxy-basis-v1"
+            ? {
+                ...tableRows(history as 12 | 24),
+                exposure_market_members: 240,
+                exposure_market_closes: 240 + history,
+              }
+            : review.id === "exposure-closing-prices-v1"
+              ? Object.fromEntries(
+                  Object.entries(tableRows(history as 12 | 24)).filter(
+                    ([name]) => !name.startsWith("exposure_market_"),
+                  ),
+                )
+              : [
+                    "economics-snapshot-lookup-v1",
+                    "price-metadata-continuation-v1",
+                  ].includes(review.id)
+                ? oldTableRows(history as 12 | 24)
+                : Object.fromEntries(
+                    Object.entries(
+                      oldTableRows(
+                        history as 12 | 24,
+                        review.id === "app-access-v1" ||
+                          review.id === "investment-history-v1",
+                        review.id !== "distribution-reviews-v1",
+                      ),
+                    ).filter(
+                      ([name]) =>
+                        !name.startsWith("app_access_") &&
+                        !name.startsWith("investment_history_") &&
+                        !name.startsWith("investment_transaction_") &&
+                        name !== "investment_tax_lots",
+                    ),
+                  ),
+        tablesPreserved:
+          review.id === "market-proxy-basis-v1"
+            ? 166
+            : review.id === "exposure-closing-prices-v1"
+              ? 160
+              : [
+                    "economics-snapshot-lookup-v1",
+                    "price-metadata-continuation-v1",
+                  ].includes(review.id)
+                ? 159
+                : Object.keys(
                     oldTableRows(
                       history as 12 | 24,
                       review.id === "app-access-v1" ||
@@ -162,47 +194,26 @@ function receipt(): MigrationSafetyReceipt {
                       review.id !== "distribution-reviews-v1",
                     ),
                   ).filter(
-                    ([name]) =>
+                    (name) =>
                       !name.startsWith("app_access_") &&
                       !name.startsWith("investment_history_") &&
                       !name.startsWith("investment_transaction_") &&
                       name !== "investment_tax_lots",
-                  ),
-                ),
-        tablesPreserved:
-          review.id === "exposure-closing-prices-v1"
-            ? 160
-            : [
-                  "economics-snapshot-lookup-v1",
-                  "price-metadata-continuation-v1",
-                ].includes(review.id)
-              ? 159
-              : Object.keys(
-                  oldTableRows(
-                    history as 12 | 24,
-                    review.id === "app-access-v1" ||
-                      review.id === "investment-history-v1",
-                    review.id !== "distribution-reviews-v1",
-                  ),
-                ).filter(
-                  (name) =>
-                    !name.startsWith("app_access_") &&
-                    !name.startsWith("investment_history_") &&
-                    !name.startsWith("investment_transaction_") &&
-                    name !== "investment_tax_lots",
-                ).length,
+                  ).length,
         rowsRead: 10,
         rowsWritten: 4,
         inboundForeignKeyPlans:
-          review.id === "public-source-reviews-v1" ||
-          review.id === "public-inventory-v1" ||
-          review.id === "price-metadata-continuation-v1"
-            ? "indexed-current-head-backfill-no-parent-rebuild"
-            : review.id === "app-access-v1" ||
-                review.id === "exposure-closing-prices-v1" ||
-                review.id === "investment-history-v1"
-              ? "indexed-new-tables-no-parent-rebuild"
-              : "not-applicable-trigger-only-no-table-dml",
+          review.id === "market-proxy-basis-v1"
+            ? "nullable-column-and-trigger-no-table-dml"
+            : review.id === "public-source-reviews-v1" ||
+                review.id === "public-inventory-v1" ||
+                review.id === "price-metadata-continuation-v1"
+              ? "indexed-current-head-backfill-no-parent-rebuild"
+              : review.id === "app-access-v1" ||
+                  review.id === "exposure-closing-prices-v1" ||
+                  review.id === "investment-history-v1"
+                ? "indexed-new-tables-no-parent-rebuild"
+                : "not-applicable-trigger-only-no-table-dml",
       })),
     })),
   });
@@ -313,12 +324,17 @@ describe("populated D1 migration evidence", () => {
       {
         id: "exposure-closing-prices-v1",
         frontier: metadataFrontier,
+        migrations: [{ name: closeFrontier }],
+      },
+      {
+        id: "market-proxy-basis-v1",
+        frontier: closeFrontier,
         migrations: [{ name: frontier }],
       },
     ]);
     expect(registry.baseline).toMatchObject({
       kind: "baseline",
-      id: "exposure-closing-prices-schema-v1",
+      id: "market-proxy-basis-schema-v1",
       frontier,
       pending: [],
     });
@@ -397,7 +413,7 @@ describe("populated D1 migration evidence", () => {
     const admitted = admit(evidence);
     expect(admitted).toMatchObject({
       kind: "baseline",
-      caseId: "exposure-closing-prices-schema-v1",
+      caseId: "market-proxy-basis-schema-v1",
       migrationCost: null,
       footprint: { households: 2, holding_position_snapshots: 6241 },
     });
@@ -417,13 +433,13 @@ describe("populated D1 migration evidence", () => {
     ).toMatchObject({ rowsRead: 10, rowsWritten: 4 });
     expect(
       admit(evidence, {
-        frontier: metadataFrontier,
+        frontier: closeFrontier,
         pending: [frontier],
         gitSha,
       }),
     ).toMatchObject({
       kind: "upgrade",
-      caseId: "exposure-closing-prices-v1",
+      caseId: "market-proxy-basis-v1",
       migrationCost: { rowsRead: 10, rowsWritten: 4 },
     });
     // An older target has several pending migrations; no individual case claims that complete sequence.
@@ -439,6 +455,7 @@ describe("populated D1 migration evidence", () => {
           investmentFrontier,
           economicsFrontier,
           metadataFrontier,
+          closeFrontier,
           frontier,
         ],
         gitSha,
@@ -491,6 +508,7 @@ describe("populated D1 migration evidence", () => {
           investmentFrontier,
           economicsFrontier,
           metadataFrontier,
+          closeFrontier,
           frontier,
         ],
         gitSha,
