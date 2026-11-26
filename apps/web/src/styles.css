@@ -3001,6 +3001,9 @@ h1,
 .valuation-comparison__intro h2 {
   margin-bottom: 0;
 }
+.valuation-comparison__source {
+  max-width: 22rem;
+}
 .valuation-comparison__quote {
   display: grid;
   gap: var(--space-1);

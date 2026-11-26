@@ -21,9 +21,10 @@ import { WatchFilingRow } from "../../apps/web/src/WatchFilingRow";
 import { formatDate } from "../../apps/web/src/format";
 
 // This is tab-local walkthrough progress for the two entrances to the synthetic IPO.
-const walkthroughStorageName = "keel-catalogue-ipo-v1";
+const walkthroughStorageName = "keel-catalogue-ipo-v2";
 const Walkthrough = z.object({
   close: z.enum(["awaiting", "first", "next"]),
+  anchor: z.enum(["first", "next"]),
   decision: z.enum(["undecided", "follow", "keep"]),
   filingRead: z.boolean(),
   closeRead: z.boolean(),
@@ -34,6 +35,7 @@ export function initialIpo(close: IpoState["close"]): IpoState {
   return {
     close,
     decision: "undecided",
+    anchor: "first",
     filingRead: false,
     closeRead: false,
     laterGroveMark: false,
@@ -72,6 +74,22 @@ export function useIpoWalkthrough(active: boolean, step: Step) {
   return [state, setState] as const;
 }
 
+export function sampleIssuer() {
+  const defaults = { company: "Cedar Robotics", ticker: "CDR" };
+  if (!["127.0.0.1", "localhost"].includes(location.hostname)) return defaults;
+  const query = new URLSearchParams(location.search);
+  const issuer = z
+    .object({
+      company: z
+        .string()
+        .max(60)
+        .regex(/^[A-Za-z][A-Za-z .-]*$/u),
+      ticker: z.string().regex(/^[A-Z]{1,5}$/u),
+    })
+    .safeParse({ company: query.get("company"), ticker: query.get("ticker") });
+  return issuer.success ? issuer.data : defaults;
+}
+
 export function IpoWatch({
   step,
   state,
@@ -87,6 +105,7 @@ export function IpoWatch({
   headingRef: Ref<HTMLHeadingElement>;
   reviewAction: ReactNode;
 }) {
+  const { company, ticker } = sampleIssuer();
   const hasClose = state.close !== "awaiting";
   const pending = hasClose && state.decision === "undecided";
   const unread =
@@ -139,10 +158,10 @@ export function IpoWatch({
               <RecordItem
                 aria-label="First public close"
                 headingAs="h4"
-                title={`Cedar Robotics’ first close is ${money(close(false))}/share`}
+                title={`${company} closes at ${money(close(false))}/share`}
                 metadata={
                   <>
-                    CDR ·{" "}
+                    {ticker} ·{" "}
                     <time dateTime={closingDate(false)}>
                       {formatDate(closingDate(false))}
                     </time>
@@ -171,7 +190,11 @@ export function IpoWatch({
             )}
             {showFiling && (
               <WatchFilingRow
-                title="Cedar Robotics files for an IPO"
+                title={
+                  company === "Cedar Robotics"
+                    ? "Cedar Robotics files for an IPO"
+                    : "Sample IPO filing · Cedar Robotics"
+                }
                 href="/ui/sources/cedar-robotics-s1.html"
                 metadata={
                   <>
@@ -205,11 +228,11 @@ export function IpoWatch({
             title={decisions ? "No decisions needed" : "No unread updates"}
           >
             {decisions && state.decision === "follow"
-              ? "Grove SPV and Summit SPV both follow CDR’s closing price."
+              ? `Grove SPV and Summit SPV both follow ${ticker}’s closing price.`
               : decisions && state.decision === "keep"
                 ? "Both positions kept their prior valuation sources."
                 : decisions
-                  ? "Cedar’s IPO filing is news. A closing price is needed before you can review a switch."
+                  ? "The first public close will be available to review here."
                   : "Read news is available in All updates."}
           </EmptyState>
         )}

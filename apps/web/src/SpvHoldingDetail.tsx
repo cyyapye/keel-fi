@@ -660,7 +660,14 @@ export function SpvHoldingDetail({
                       <>
                         <DataItem
                           label="Starting SPV value"
-                          value={`${formatMoney(acceptedClose.proxyBasis.startMinor)} · ${formatDate(acceptedClose.proxyBasis.valueDate)} · ${acceptedClose.proxyBasis.sourceLabel}`}
+                          value={[
+                            formatMoney(acceptedClose.proxyBasis.startMinor),
+                            acceptedClose.proxyBasis.valueDate &&
+                              formatDate(acceptedClose.proxyBasis.valueDate),
+                            acceptedClose.proxyBasis.sourceLabel,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         />
                         <DataItem
                           label="Starting close"

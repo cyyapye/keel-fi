@@ -14,6 +14,12 @@ export type Step =
   "holdings" | "review" | "watch-review" | WatchStep | PositionId;
 
 export function valuationRoute(id = "") {
+  // Keep bookmarked review and detail links on the single IPO walkthrough.
+  if (/^estimate-proxy(?:-|$)/u.test(id)) {
+    id = id.replace(/^estimate-proxy/u, "closing-price");
+    if (id === "closing-price-harbor" || id === "closing-price-vale")
+      id = "closing-price";
+  }
   for (const scenario of Object.keys(scenarios) as Scenario[]) {
     if (id === scenario) return { scenario, step: "holdings" as Step };
     const step = id.slice(scenario.length + 1);
@@ -51,20 +57,14 @@ export const mark = (source: GpSource, next: boolean) =>
   (source === "grove" ? 4_000n : 4_500n) + (next ? 200n : 0n);
 export const markDate = (next: boolean) => (next ? "June 2" : "May 29");
 
-// Grove reports its own mark. Summit's private price evidence comes from Elm.
+export const summitGpEstimate = 270_000n;
 export function ipoGpMark(position: GpSource, laterGroveMark: boolean) {
-  if (position === "summit") {
-    return {
-      source: "Elm SPV · proxy source",
-      price: 4_500n,
-      date: "2026-05-29",
-    };
-  }
-  return {
-    source: names.grove,
-    price: mark("grove", laterGroveMark),
-    date: laterGroveMark ? "2026-06-03" : "2026-05-29",
-  };
+  return position === "grove"
+    ? {
+        amount: mark("grove", laterGroveMark),
+        date: laterGroveMark ? "2026-06-03" : "2026-05-29",
+      }
+    : { amount: summitGpEstimate, date: "2026-05-29" };
 }
 
 export type PositionRow = {
@@ -81,7 +81,30 @@ export function positionRows(
   next: boolean,
   followed: GpSource | null,
   updated: GpSource | null,
+  anchorAtNextClose = false,
 ): PositionRow[] {
+  if (scenario === "closing-price") {
+    const price = close(next);
+    const anchor = close(anchorAtNextClose);
+    return [
+      {
+        id: "grove",
+        value: publicClose ? quantities.grove * price : 400_000n,
+        estimated: publicClose,
+        source: publicClose ? "Closing-price estimate" : "GP report · May 29",
+        evidence: "",
+      },
+      {
+        id: "summit",
+        value: publicClose
+          ? (summitGpEstimate * price + anchor / 2n) / anchor
+          : summitGpEstimate,
+        estimated: true,
+        source: publicClose ? "Closing-price proxy" : "GP estimate · May 29",
+        evidence: "",
+      },
+    ];
+  }
   const rows: PositionRow[] = (["grove", "summit"] as const).map((id) => ({
     id,
     estimated: false,
@@ -106,26 +129,6 @@ export function positionRows(
       evidence: `${money(price)} per Class A share · ${markDate(linked && updated === source)}. ${linked ? "Follows future accepted prices from " + names[source] + "." : "New GP marks do not update this one-time estimate."}`,
     };
   };
-  if (scenario === "closing-price")
-    return publicClose
-      ? rows.map((row) => ({
-          id: row.id,
-          estimated: true,
-          value: quantities[row.id] * close(next),
-          source: "Closing-price estimate",
-          evidence: `CDR · ${money(close(next))} per Class A share · ${next ? "June 3" : "June 2"}. Follows each trading-day close.`,
-        }))
-      : [
-          rows[0]!,
-          {
-            id: "summit",
-            estimated: true,
-            value: 270_000n,
-            source: "Proxy · Elm SPV",
-            evidence:
-              "Follows Elm SPV’s accepted Class A mark. Its May 29 price was $45 per share.",
-          },
-        ];
   if (scenario === "gp-choice") {
     rows.push(
       followed

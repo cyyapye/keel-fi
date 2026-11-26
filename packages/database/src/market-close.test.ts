@@ -30,7 +30,7 @@ it("one household decision follows both positions through the next official clos
   const store = legalDocumentTestDatabase();
   try {
     const db = store.asD1(),
-      exposureId = await seedClosingPrice(db);
+      exposureId = await seedClosingPrice(db, "mixed");
     const read = async () =>
       (await marketReviewDetail(db, subject, exposureId))!;
     const holdings = async () => {
@@ -53,7 +53,7 @@ it("one household decision follows both positions through the next official clos
     };
     const pending = await read();
     expect(pending.positions.map((p) => p.valueMinor).sort()).toEqual([
-      300000, 500000,
+      270000, 500000,
     ]);
     expect(pending.choice).toBeNull();
     expect(await setMarketNewsRead(db, subject, exposureId, true, 0)).toBe(
@@ -62,6 +62,7 @@ it("one household decision follows both positions through the next official clos
     expect((await read()).choice).toBeNull();
     const input = {
       choice: "follow" as const,
+      acceptProxyBasis: true as const,
       token: pending.token,
       requestId: crypto.randomUUID(),
     };
@@ -73,7 +74,7 @@ it("one household decision follows both positions through the next official clos
     expect(await decideMarketSource(db, subject, exposureId, input)).toBe(true);
     expect(await holdings()).toEqual([
       { value: 500000, source: "public_close", gp: 400000 },
-      { value: 300000, source: "public_close", gp: 270000 },
+      { value: 270000, source: "public_close", gp: 270000 },
     ]);
     const groveId = pending.positions.find((p) => p.name === "Grove SPV")!.id;
     const purchases = new D1PositionPurchaseRepository(db);
@@ -121,7 +122,7 @@ it("one household decision follows both positions through the next official clos
     await recordOfficialClose(db, { ...firstCedarClose, exposureId });
     expect(await holdings()).toEqual([
       { value: 520000, source: "public_close", gp: 400000 },
-      { value: 312000, source: "public_close", gp: 270000 },
+      { value: 280800, source: "public_close", gp: 270000 },
     ]);
     const next = await read();
     expect([next.version, next.choice, next.quote.date, next.read]).toEqual([
@@ -318,7 +319,7 @@ it("keeps the accepted private-share proxy and dated value anchor through closes
   const store = legalDocumentTestDatabase();
   try {
     const db = store.asD1();
-    const exposure = await seedClosingPrice(db, true);
+    const exposure = await seedClosingPrice(db, "pre-distribution");
     const review = (await marketReviewDetail(db, subject, exposure))!;
     const grove = review.positions.find((p) => p.name === "Grove SPV")!;
     const summit = review.positions.find((p) => p.name === "Summit SPV")!;
@@ -490,7 +491,7 @@ it("uses the investment editor's reviewed GP value and reopens a corrected basis
   const store = legalDocumentTestDatabase();
   try {
     const db = store.asD1();
-    const exposure = await seedClosingPrice(db, true);
+    const exposure = await seedClosingPrice(db, "pre-distribution");
     const read = async () => (await marketReviewDetail(db, subject, exposure))!;
     const purchases = new D1PositionPurchaseRepository(db);
     const positions = (

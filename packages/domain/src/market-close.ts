@@ -42,7 +42,7 @@ export const CloseProxyBasisSchema = z.discriminatedUnion("method", [
   z.object({
     method: z.literal("price_change"),
     startMinor: z.number().int().safe().positive(),
-    valueDate: z.iso.date(),
+    valueDate: z.iso.date().nullable(),
     sourceLabel: z.string().min(1),
     startDate: z.iso.date(),
     startPriceMicros: MarketQuoteSchema.shape.priceMicros,

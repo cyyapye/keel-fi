@@ -1800,7 +1800,7 @@ test("one exposure decision applies each close to both SPVs", async ({
   });
   await expect(company).toContainText("1 estimate");
   const approve = page.getByRole("button", {
-    name: "Use closing price for 2 positions",
+    name: "Follow CDR for 2 positions",
   });
   const pendingReview = page.getByRole("link", {
     name: "Review valuation for Cedar Robotics",
@@ -1838,7 +1838,7 @@ test("one exposure decision applies each close to both SPVs", async ({
   }
   await review.click();
   await expect(
-    page.getByRole("heading", { name: "Use CDR’s closing price?" }),
+    page.getByRole("heading", { name: "Valuation source" }),
   ).toBeFocused();
   await expect(exposure).toBeHidden();
   const security = page.getByText("CDR · Class A", { exact: true });
@@ -1851,27 +1851,39 @@ test("one exposure decision applies each close to both SPVs", async ({
     "Current sources",
   );
   await expect(affected.getByRole("columnheader").last()).toContainText(
-    "Value at close",
+    "Estimated at close",
   );
   for (const [position, close] of [
     ["Grove SPV", "$5,000"],
-    ["Summit SPV", "$3,000"],
+    ["Summit SPV", "$2,700"],
   ] as const) {
     await expect(
       affected
         .getByRole("row", { name: new RegExp(position) })
         .getByRole("cell")
         .last(),
-    ).toHaveText(close);
+    ).toContainText(close);
   }
-  await page.getByRole("link", { name: "Keep current sources" }).click();
+  const select = page.getByRole("combobox", { name: "Source for 2 positions" });
+  const choose = async (name: string) => {
+    await select.click();
+    await page.getByRole("option", { name, exact: true }).click();
+  };
+  await expect(
+    affected.getByRole("row", { name: /Summit SPV/u }),
+  ).toContainText("Tracks the % change in CDR");
+  await choose("Keep current sources");
+  const keep = page.getByRole("button", {
+    name: "Keep sources for 2 positions",
+  });
+  await keep.click();
   await expect(company).toBeFocused();
   await expect(pendingReview).toHaveCount(0);
   await company.click();
   await expect(review).toBeHidden();
   await company.click();
-  await expect(grove).toContainText("$4K");
-  await expect(summit).toContainText("$2.7K");
+  await expect(grove).toContainText("$4,000");
+  await expect(summit).toContainText("$2,700");
   const reopenReview = exposure.getByRole("link", {
     name: "Review valuation",
     exact: true,
@@ -1879,11 +1891,12 @@ test("one exposure decision applies each close to both SPVs", async ({
   await reopenReview.hover();
   await expect(reopenReview).toHaveCSS("text-decoration-line", "none");
   await reopenReview.click();
+  await choose("Follow CDR closes");
   await approve.click();
   await expect(company).toHaveAttribute("aria-expanded", "true");
-  await expect(grove).toContainText("$5K");
-  await expect(summit).toContainText("$3K");
-  await expect(company).toContainText("$8K");
+  await expect(grove).toContainText("$5,000");
+  await expect(summit).toContainText("$2,700");
+  await expect(company).toContainText("$7,700");
   await expect(exposure.getByText("$50/share · Jun 2, 2026")).toBeVisible();
   await expect(review).toBeHidden();
   await grove.getByRole("link").click();
@@ -1909,19 +1922,19 @@ test("one exposure decision applies each close to both SPVs", async ({
   await expect(closingPrice).toContainText("Jun 2, 2026");
   await expect(valuation).toContainText("$5,000");
   await page.getByRole("link", { name: "Back to Holdings" }).click();
-  await expect(company).toContainText("$8K");
+  await expect(company).toContainText("$7,700");
   await expect(review).toBeHidden();
   await summit.getByRole("link").click();
-  const elmMark = valuation
+  const gpEstimate = valuation
     .getByRole("definition")
-    .filter({ hasText: "Elm SPV · proxy source" });
-  await expect(elmMark).toContainText("$45/share");
-  await expect(elmMark).toContainText("May 29, 2026");
+    .filter({ hasText: "Summit SPV" });
+  await expect(gpEstimate).toContainText("$2,700");
+  await expect(gpEstimate).toContainText("May 29, 2026");
   await page.getByRole("link", { name: "Back to Holdings" }).click();
   await page.getByRole("button", { name: "Preview next trading day" }).click();
-  await expect(grove).toContainText("$5.2K");
-  await expect(summit).toContainText("$3.1K");
-  await expect(company).toContainText("$8.3K");
+  await expect(grove).toContainText("$5,200");
+  await expect(summit).toContainText("$2,808");
+  await expect(company).toContainText("$8,008");
   await expect(exposure.getByText("$52/share · Jun 3, 2026")).toBeVisible();
   await expect(company).toContainText("2 estimates");
   await expect(approve).toBeHidden();
@@ -1937,30 +1950,34 @@ test("one exposure decision applies each close to both SPVs", async ({
   await changeSource.click();
   await expect(security).toBeVisible();
   await expect(affected.getByRole("columnheader").nth(1)).toContainText(
-    "Value at close",
+    "Estimated at close",
   );
   await expect(affected.getByRole("columnheader").last()).toHaveText(
     "Prior sources",
   );
   await expect(
     affected.getByRole("row", { name: /Total/ }).getByRole("cell"),
-  ).toHaveText(["$8,320", "$6,700"]);
-  await page
-    .getByRole("link", { name: "Keep closing price", exact: true })
-    .click();
-  await expect(company).toContainText("$8.3K");
+  ).toHaveText(["$8,008", "$6,700"]);
+  await approve.click();
+  await expect(company).toContainText("$8,008");
   await expect(exposure.getByText("$52/share · Jun 3, 2026")).toBeVisible();
   await expect(review).toHaveCount(0);
   await changeSource.click();
+  await choose("Restore prior sources");
   await page
     .getByRole("button", { name: "Restore sources for 2 positions" })
     .click();
-  await expect(company).toContainText("$6.7K");
+  await expect(company).toContainText("$6,700");
   await expect(company).toContainText("1 estimate");
   await expect(pendingReview).toHaveCount(0);
   await expect(
     exposure.getByRole("link", { name: "Review valuation", exact: true }),
   ).toBeVisible();
+  await reopenReview.click();
+  await choose("Follow CDR closes");
+  await approve.click();
+  await expect(summit).toContainText("$2,700");
+  await expect(company).toContainText("$7,900");
 });
 
 test("an IPO filing is news and one Watch decision resolves both Holdings estimates", async ({
@@ -2008,17 +2025,17 @@ test("an IPO filing is news and one Watch decision resolves both Holdings estima
   await expect(headline).toBeVisible();
   await expect(link("View Holdings")).toHaveCount(0);
   await page.goto("/ui/#journeys/closing-price");
-  await expect(company).toContainText("$6.7K");
+  await expect(company).toContainText("$6,700");
   await expect(chip).toHaveCount(0);
   await link("Portfolio Watch").click();
   await button("Preview first close").click();
   await expect(button("Decisions (1)")).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByRole("article", { name: "First public close" }),
-  ).toContainText("Cedar Robotics’ first close is $50/share");
+  ).toContainText("Cedar Robotics closes at $50/share");
   await expect(link("View Holdings")).toHaveCount(0);
   await page.goto("/ui/#journeys/closing-price");
-  await expect(company).toContainText("$6.7K");
+  await expect(company).toContainText("$6,700");
   await expect(chip).toBeVisible();
   await link("Portfolio Watch").click();
   await chip.click();
@@ -2029,25 +2046,24 @@ test("an IPO filing is news and one Watch decision resolves both Holdings estima
       .locator("tbody")
       .getByRole("row"),
   ).toHaveCount(2);
-  await button("Use closing price for 2 positions").click();
+  await button("Follow CDR for 2 positions").click();
   await expect(button("Decisions (0)")).toHaveAttribute("aria-pressed", "true");
   await expect(
     page.getByText("No decisions needed", { exact: true }),
   ).toBeVisible();
   await link("View Holdings").click();
-  await expect(company).toContainText("$8K");
+  await expect(company).toContainText("$7,700");
   await expect(chip).toHaveCount(0);
-  await expect(position("Grove SPV")).toContainText("$5K");
-  await expect(position("Summit SPV")).toContainText("$3K");
-  await expect(
-    page.getByText("Closing-price estimate", { exact: true }),
-  ).toHaveCount(2);
+  await expect(position("Grove SPV")).toContainText("$5,000");
+  await expect(position("Summit SPV")).toContainText("$2,700");
+  await expect(position("Grove SPV")).toContainText("Closing-price estimate");
+  await expect(position("Summit SPV")).toContainText("Closing-price proxy");
   await page.reload();
-  await expect(company).toContainText("$8K");
+  await expect(company).toContainText("$7,700");
   await expect(chip).toHaveCount(0);
   await button("Preview next trading day").click();
-  await expect(position("Grove SPV")).toContainText("$5.2K");
-  await expect(position("Summit SPV")).toContainText("$3.1K");
+  await expect(position("Grove SPV")).toContainText("$5,200");
+  await expect(position("Summit SPV")).toContainText("$2,808");
   await link("Portfolio Watch").click();
   await expect(button("Decisions (0)")).toBeVisible();
   await button("All updates").click();
@@ -2068,6 +2084,7 @@ test("GP marks respect the source selected for each position", async ({
   });
   const position = (name: string) =>
     page
+      .getByRole("list", { name: "Positions in Cedar Robotics" })
       .getByRole("listitem")
       .filter({ has: page.getByRole("link", { name: "Open " + name }) });
   const next = page.getByRole("button", { name: "Preview next GP mark" });
@@ -2114,6 +2131,7 @@ test("choosing a GP proxy through Holdings prices only the unvalued SPV", async 
   await page.getByRole("link", { name: "Leave Vale unvalued" }).click();
   await expect(review).toHaveCount(0);
   const vale = page
+    .getByRole("list", { name: "Positions in Cedar Robotics" })
     .getByRole("listitem")
     .filter({ hasText: "Vale SPV" })
     .filter({ has: page.getByRole("link", { name: "Open Vale SPV" }) });
@@ -2275,4 +2293,31 @@ test("reconciles fund attribution and a missing position value independently", a
       await change.click();
     }
   }
+});
+
+test("a bookmarked GP estimate review enters the same IPO decision and retries without losing its selection", async ({
+  page,
+}) => {
+  await page.goto("/ui/#journeys/estimate-proxy-review");
+  const selector = page.getByRole("combobox", {
+    name: "Source for 2 positions",
+  });
+  await selector.focus();
+  await page.keyboard.press("ArrowDown");
+  await page.getByRole("option", { name: "Keep current sources" }).click();
+  await page.getByRole("button", { name: "Walkthrough controls" }).click();
+  await page.getByRole("button", { name: "Preview a failed save" }).click();
+  await expect(page.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await expect(page.getByRole("alert")).toContainText("Couldn’t save");
+  await expect(selector).toContainText("Keep current sources");
+  await page
+    .getByRole("button", { name: "Keep sources for 2 positions" })
+    .click();
+  await expect(page).toHaveURL(/#journeys\/closing-price$/u);
+  const scenario = page.getByRole("combobox", { name: "Walkthrough scenario" });
+  await expect(scenario).toContainText("IPO listing");
+  await scenario.click();
+  await expect(page.getByRole("option", { name: /IPO/u })).toHaveCount(1);
+  await page.getByRole("option", { name: "Different GP marks" }).click();
+  await expect(scenario).toHaveText("Different GP marks");
 });

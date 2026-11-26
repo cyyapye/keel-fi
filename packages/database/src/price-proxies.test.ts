@@ -18,6 +18,8 @@ import {
   PurchaseReceiptSchema,
   type PurchaseReceipt,
   assessValuationFromShares,
+  proposedCloseProxyBasis,
+  publicClosingValuation,
   selectedPositionValuation,
 } from "@keel/domain/position-purchases";
 import {
@@ -470,6 +472,37 @@ it("follows a newer undated GP price using recorded metadata assumptions, reject
     selectedPositionValuation(refreshed, positions[0]!.snapshotId)
       ?.effectiveDate,
   ).toBeNull();
+  const close = {
+    id: "demo-close",
+    ticker: "CDR",
+    venue: "Demo Exchange",
+    shareClass: "Class A",
+    shareBasis: { key: "listed-class-a", unitsPerOriginal: 1 },
+    sourceUrl: "https://exchange.example/cdr",
+    date: "2026-10-01",
+    priceMicros: 50_000_000,
+  };
+  const anchor = proposedCloseProxyBasis(
+    refreshed,
+    refreshed.snapshotId,
+    close,
+    null,
+    refreshed.snapshotId,
+  );
+  expect(anchor).toMatchObject({
+    method: "price_change",
+    startMinor: 2_532_000,
+    valueDate: null,
+    startDate: close.date,
+  });
+  expect(
+    publicClosingValuation(refreshed, {
+      ...close,
+      proxyBasis: anchor!,
+      date: "2026-10-02",
+      priceMicros: 52_000_000,
+    })?.valueMinor,
+  ).toBe(2_633_280);
   expect(refreshed.details.lots).toEqual(initial.details.lots);
   const page = await new D1HoldingsPageRepository(db.asD1()).getPage(
     COST_SUBJECT,

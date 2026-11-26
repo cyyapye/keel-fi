@@ -30,7 +30,9 @@ if (
       listing.company,
       { key: instrument, unitsPerOriginal: 1 },
       listing.shareClass,
-      process.env.KEEL_PERSONAL_PROXY_DEMO === "1",
+      process.env.KEEL_PERSONAL_PROXY_DEMO === "1"
+        ? "pre-distribution"
+        : "listed-shares",
     );
     await db
       .prepare("INSERT INTO exposure_market_listings VALUES(?,?,?,?,?,?,?,?,?)")

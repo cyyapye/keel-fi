@@ -63,13 +63,13 @@ export const LocalSeedScenarios = {
   },
   "closing-price": {
     description:
-      "Two synthetic SPVs and a first official close, ready for review",
+      "A first public close for two SPVs, one with listed shares and one with a GP estimate",
     expectedCurrentPositionCount: 2,
     minimumAcceptedValueDecreaseCount: 0,
     minimumAcceptedValueIncreaseCount: 0,
     minimumCanonicalExposureCount: 1,
     seedFiles: ["packages/database/seed/synthetic.sql"],
-    version: 1,
+    version: 2,
   },
   "pre-distribution": {
     description:
