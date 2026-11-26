@@ -89,20 +89,28 @@ const mentionsDaily = /\b(?:daily|per day)\b/iu;
 const statedAllowance =
   /^(?:(?:your|the|our) )?daily (?:API )?(?:rate |request )?(?:quota|limit|allowance) is \d+ (?:API )?(?:requests?|calls?)(?: per day)?$/iu;
 
+const statedBurst =
+  /^(?:you (?:have )?(?:exceeded|reached) (?:the|your) (?:API |rate )?limit of|please limit (?:requests )?to) (?:1|one) (?:API )?(?:request|call) per second$/iu;
+
 function canRetryBurst(response: unknown) {
   const notice = providerNotice.safeParse(response);
   if (!notice.success) return false;
   const messages = [notice.data.Information ?? "", notice.data.Note ?? ""];
   if (!messages.some((message) => perSecondLimit.test(message))) return false;
-  // Only a standalone statement of the allowance is safe to ignore. An unknown
-  // or exhausted daily-limit notice must not spend another provider call.
-  return messages.every((message) =>
+  if (!messages.some((message) => mentionsDaily.test(message))) return true;
+  // Mixed notices are safe only when every clause is accounted for. Even a
+  // separate sentence without the word "daily" can report an exhausted quota.
+  const clauses = messages.flatMap((message) =>
     message
       .split(/[.!?;(),\n]+/u)
-      .every(
-        (clause) =>
-          !mentionsDaily.test(clause) || statedAllowance.test(clause.trim()),
-      ),
+      .map((clause) => clause.trim())
+      .filter(Boolean),
+  );
+  return (
+    clauses.some((clause) => statedBurst.test(clause)) &&
+    clauses.every(
+      (clause) => statedBurst.test(clause) || statedAllowance.test(clause),
+    )
   );
 }
 

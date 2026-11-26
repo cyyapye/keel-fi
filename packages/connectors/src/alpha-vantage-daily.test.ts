@@ -111,6 +111,7 @@ it("recovers a shared-key burst once while respecting the daily quota and UTC wi
       "Daily quota exhausted. Free keys are limited to 1 request per second.",
       "Your daily quota of 25 requests has been exhausted. Free keys are limited to 1 request per second.",
       "You have used all of your daily quota of 25 requests. Free keys are limited to 1 request per second.",
+      "Your daily quota is 25 requests. You have used all 25 requests. Free keys are limited to 1 request per second.",
     ]) {
       provider.mockClear();
       problem = dailyNotice;
