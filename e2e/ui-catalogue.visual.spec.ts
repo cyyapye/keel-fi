@@ -1,4 +1,10 @@
 import { areas } from "./ui-catalogue/journey-spec";
+import {
+  clinicReport,
+  financingReport,
+  markReport,
+} from "./ui-catalogue/watch-evidence-reports";
+import { expectSelectedFinancingReport } from "./watch-evidence-parity";
 import { taskJourneys } from "./ui-catalogue/task-journey-spec";
 import { fileURLToPath } from "node:url";
 import type { Page, TestInfo } from "@playwright/test";
@@ -1719,11 +1725,164 @@ test("accepted source journey explains value reuse and preserves a selected alte
   expect(mutations).toEqual([]);
 });
 
+test("Watch opens the selected report and offers decisions for its claim", async ({
+  page,
+}, testInfo) => {
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      writes.push(request.url());
+  });
+  await page.goto("/ui/#journeys/evidence-watch");
+  await expect(page.getByText("Shipped", { exact: true })).toBeVisible();
+  const watch = page.getByRole("region", { name: "Watch updates" });
+  const row = watch.getByRole("article", {
+    name: financingReport.headline,
+    exact: true,
+  });
+  const clinic = watch.getByRole("article", {
+    name: clinicReport.headline,
+    exact: true,
+  });
+  const capture = async (name: string, area: typeof row) => {
+    if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS !== "1") return;
+    await page.evaluate(() => document.fonts.ready);
+    await area.screenshot({
+      path: testInfo.outputPath("watch-" + name + ".png"),
+      scale: "css",
+      animations: "disabled",
+      style: ".topbar, .mobile-nav { visibility: hidden !important; }",
+    });
+  };
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+  if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
+    await page.evaluate(() => document.fonts.ready);
+    await page.screenshot({
+      path: testInfo.outputPath("watch-entry.png"),
+      scale: "css",
+      animations: "disabled",
+    });
+  }
+  await capture("updates", watch);
+  await expect(
+    clinic.getByRole("button", { name: "Review decision" }),
+  ).toHaveCount(0);
+  await clinic.getByRole("button", { name: "Details", exact: true }).click();
+  await clinic.getByRole("button", { name: "View evidence" }).click();
+  const clinicCard = page.locator('[id="evidence-' + clinicReport.id + '"]');
+  await expect(clinicCard).toBeFocused();
+  await page.goBack();
+  await row.getByRole("button", { name: "Mark read", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  await watch
+    .getByRole("button", { name: "Decisions (1)", exact: true })
+    .click();
+  await expect(
+    row.getByRole("button", { name: "Mark unread", exact: true }),
+  ).toBeVisible();
+  await row
+    .getByRole("button", { name: "Review decision", exact: true })
+    .press("Enter");
+  await expect(page).toHaveURL(
+    new RegExp("#journeys/evidence-review/" + financingReport.id + "$"),
+  );
+  const selected = await expectSelectedFinancingReport(page);
+  await page.reload();
+  await expect(selected).toBeFocused();
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+  if (testInfo.project.name === "mobile-chromium") {
+    await expect
+      .poll(() =>
+        selected.evaluate((card) => {
+          const bar = document.querySelector(".topbar");
+          return (
+            !!bar &&
+            card.getBoundingClientRect().top >=
+              bar.getBoundingClientRect().bottom
+          );
+        }),
+      )
+      .toBe(true);
+  }
+  await capture("financing", selected);
+  const controls = page.getByRole("button", {
+    name: "Capture controls and source",
+  });
+  await controls.click();
+  await page.getByRole("button", { name: "Fail next review" }).click();
+  await selected.getByRole("button", { name: "Scenario only" }).click();
+  await expect(page.getByText("Evidence review returned 503.")).toBeVisible();
+  await expect(
+    selected.getByText("pending review", { exact: true }),
+  ).toBeVisible();
+  await selected.getByRole("button", { name: "Scenario only" }).click();
+  const scenario = page.getByRole("region", {
+    name: "Scenario workspace excerpt",
+  });
+  await expect(scenario.getByRole("status")).toContainText(
+    financingReport.headline,
+  );
+  await expect(scenario.getByRole("status")).toContainText(
+    "Holding impact not calculated.",
+  );
+  await capture("scenario", scenario);
+  await page.reload();
+  await expect(scenario.getByRole("status")).toHaveCount(0);
+  await page.getByRole("link", { name: "Evidence Inbox", exact: true }).click();
+  await expect(
+    selected.getByText("scenario only", { exact: true }),
+  ).toBeVisible();
+  const mark = page.locator('[id="evidence-' + markReport.id + '"]');
+  await mark.getByRole("button", { name: "Accept evidence" }).click();
+  await expect(
+    mark.getByText("Update External mark: $18,000.00 → $20,000.00"),
+  ).toBeVisible();
+  await capture("mapped-preview", mark);
+  await mark.getByRole("button", { name: "Accept without applying" }).click();
+  await mark.getByRole("button", { name: "Apply accepted evidence" }).click();
+  await mark.getByRole("button", { name: "Confirm & apply" }).click();
+  await expect(
+    mark.getByText("Accepted and applied to External mark."),
+  ).toBeVisible();
+  await clinicCard.getByRole("button", { name: "Reject" }).click();
+  await expect(clinicCard.getByText("rejected", { exact: true })).toBeVisible();
+  await expect(
+    selected.getByText("scenario only", { exact: true }),
+  ).toBeVisible();
+  await controls.click();
+  await page.getByRole("button", { name: "Open unavailable report" }).click();
+  await expect(
+    page.getByText("This update is no longer available in the inbox."),
+  ).toBeVisible();
+  await expect(
+    clinicCard.getByRole("heading", { name: clinicReport.headline }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Explore the Apply / Ignore proposal" })
+    .click();
+  await expect(page.getByText("Proposal", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Apply", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ignore", exact: true }),
+  ).toBeVisible();
+  expect(writes).toEqual([]);
+});
+
 test("specialized task routes preserve their native context and separate legal-entity reference", async ({
   page,
 }) => {
-  for (const journey of taskJourneys.filter((item) =>
-    ["evidence", "obligations"].includes(item.id),
+  for (const journey of taskJourneys.filter(
+    (item) => item.id === "obligations",
   )) {
     for (const step of journey.steps) {
       await page.goto(`/ui/#journeys/${step.id}`);
@@ -1732,7 +1891,7 @@ test("specialized task routes preserve their native context and separate legal-e
       ).toBeVisible();
       await expect(
         page.getByRole("heading", {
-          name: journey.id === "evidence" ? "Evidence Inbox" : "Obligations",
+          name: "Obligations",
           exact: true,
         }),
       ).toBeVisible();

@@ -7,31 +7,15 @@ import {
 } from "@playwright/test";
 
 import { PortfolioWatchActivitySchema } from "../packages/domain/src/portfolio-watch-activity";
+import {
+  clinicReport,
+  financingFactsFixture,
+  financingReport,
+} from "./ui-catalogue/watch-evidence-reports";
+import { expectSelectedFinancingReport } from "./watch-evidence-parity";
 import { navigateToScreen } from "./navigation";
 
 const captureDesignReview = process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1";
-
-const financingFactsFixture = {
-  roundType: "series",
-  roundLabel: "Series C",
-  instrument: "equity",
-  announcedAmount: {
-    amountMinor: 6_200_000_000,
-    currency: "USD",
-    qualifier: "exact",
-    evidenceText:
-      "announced a US$62 million Series C financing at a US$310 million post-money company valuation",
-  },
-  companyValuation: {
-    amountMinor: 31_000_000_000,
-    currency: "USD",
-    qualifier: "exact",
-    basis: "post_money",
-    evidenceText:
-      "announced a US$62 million Series C financing at a US$310 million post-money company valuation",
-  },
-  ambiguities: [],
-};
 
 const portfolioWatchFixture = {
   targets: [
@@ -1505,7 +1489,7 @@ test(
     );
     expect(alphaResponse.ok()).toBe(true);
     const alpha = await alphaResponse.json();
-    const selected = alpha.evidenceInbox[0];
+    const selected = financingReport;
     const financing = {
       ...portfolioWatchFixture.observations[0]!,
       evidenceEventId: selected.id,
@@ -1515,18 +1499,17 @@ test(
     const news = {
       ...financing,
       id: "synthetic-news",
-      evidenceEventId: "synthetic-news-event",
+      evidenceEventId: clinicReport.id,
+      sourceUrl: "https://newsroom.harbor-health.example/updates/clinic",
       financingFacts: null,
       valuationLowMinor: null,
       valuationMiddleMinor: null,
       valuationHighMinor: null,
-      sourceTitle:
-        "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
-      observedFact:
-        "Harbor opens a new clinic and expands its regional care network with additional locations planned for next year",
+      sourceTitle: clinicReport.headline,
+      observedFact: clinicReport.headline,
       readAt: null as string | null,
     };
-    const evidenceInbox = [...alpha.evidenceInbox];
+    const evidenceInbox = [clinicReport, selected, ...alpha.evidenceInbox];
     await page.route("**/api/alpha", (route) =>
       route.fulfill({
         json: {
@@ -1619,7 +1602,7 @@ test(
     await expect(page).toHaveURL(
       new RegExp(`/evidence\\?event=${encodeURIComponent(selected.id)}`),
     );
-    await expect(page.locator(`[id="evidence-${selected.id}"]`)).toBeFocused();
+    await expectSelectedFinancingReport(page);
     await test.step(
       "Show ambiguous financing without choosing an amount",
       async () => {
