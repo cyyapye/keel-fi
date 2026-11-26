@@ -85,22 +85,24 @@ const providerNotice = z.object({
   Note: z.string().optional(),
 });
 const perSecondLimit = /\b(?:1|one) (?:API )?(?:request|call) per second\b/iu;
-// Normalize the provider's quantified daily allowances before checking which
-// limit it says was exhausted. A reminder of the daily allowance is informational.
-const dailyAllowance =
-  /\b(?:daily (?:API )?(?:rate |request )?(?:quota|limit|allowance)(?: of [\d,]+(?: (?:API )?(?:requests?|calls?))?(?: per day)?)?|[\d,]+ (?:API )?(?:requests?|calls?) per day)\b/giu;
-const spentDailyAllowance =
-  /\bdaily quota(?: (?:has|been|is|was|already|now))* (?:exhausted|exceeded|reached|used up)\b|\b(?:exhausted|exceeded|reached|used up) (?:(?:your|the|its|our|standard|free|API|rate|limit|of) )*daily quota\b/iu;
+const mentionsDaily = /\b(?:daily|per day)\b/iu;
+const statedAllowance =
+  /^(?:(?:your|the|our) )?daily (?:API )?(?:rate |request )?(?:quota|limit|allowance) is \d+ (?:API )?(?:requests?|calls?)(?: per day)?$/iu;
 
 function canRetryBurst(response: unknown) {
   const notice = providerNotice.safeParse(response);
   if (!notice.success) return false;
   const messages = [notice.data.Information ?? "", notice.data.Note ?? ""];
-  return (
-    messages.some((message) => perSecondLimit.test(message)) &&
-    !messages.some((message) =>
-      spentDailyAllowance.test(message.replace(dailyAllowance, "daily quota")),
-    )
+  if (!messages.some((message) => perSecondLimit.test(message))) return false;
+  // Only a standalone statement of the allowance is safe to ignore. An unknown
+  // or exhausted daily-limit notice must not spend another provider call.
+  return messages.every((message) =>
+    message
+      .split(/[.!?;(),\n]+/u)
+      .every(
+        (clause) =>
+          !mentionsDaily.test(clause) || statedAllowance.test(clause.trim()),
+      ),
   );
 }
 
