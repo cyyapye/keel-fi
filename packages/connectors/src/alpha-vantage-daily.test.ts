@@ -29,6 +29,7 @@ it("recovers a shared-key burst once while respecting the daily quota and UTC wi
   let slowPreview = false;
   let responseDelay = 0;
   let rejectOperations: string[] = [];
+  let burstNotice = "Please limit to 1 request per second.";
   const jitter = vi.spyOn(Math, "random").mockReturnValue(0.99999);
   const delay = (ms: number) =>
     new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -45,7 +46,7 @@ it("recovers a shared-key burst once while respecting the daily quota and UTC wi
     if (responseDelay) await delay(responseDelay);
     if (problem || throttled)
       return Response.json({
-        Information: problem ?? "Please limit to 1 request per second.",
+        Information: problem ?? burstNotice,
       });
     if (split) {
       if (slowPreview && symbol === "ELM") await delay(11_000);
@@ -112,6 +113,7 @@ it("recovers a shared-key burst once while respecting the daily quota and UTC wi
       "Your daily quota of 25 requests has been exhausted. Free keys are limited to 1 request per second.",
       "You have used all of your daily quota of 25 requests. Free keys are limited to 1 request per second.",
       "Your daily quota is 25 requests. You have used all 25 requests. Free keys are limited to 1 request per second.",
+      "All 25 calls per 24 hours have been used. Please limit to 1 request per second.",
     ]) {
       provider.mockClear();
       problem = dailyNotice;
@@ -120,6 +122,10 @@ it("recovers a shared-key burst once while respecting the daily quota and UTC wi
     }
     problem = undefined;
     vi.setSystemTime(new Date("2025-10-03T15:00:00Z"));
+    // The provider appends the plan allowance even to its retryable burst notice.
+    burstNotice =
+      "Thank you for using Alpha Vantage! Please consider spreading out your free API requests more sparingly (1 request per second). " +
+      "You may subscribe to any of the premium plans at https://www.alphavantage.co/premium/ to lift the free key rate limit (25 requests per day), raise the per-second burst limit, and instantly unlock all premium endpoints";
     responseDelay = 11_999;
     for (const [feed, budgetMs] of [
       ["local", 87_200],

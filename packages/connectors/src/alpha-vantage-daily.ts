@@ -84,8 +84,11 @@ const providerNotice = z.object({
   Information: z.string().optional(),
   Note: z.string().optional(),
 });
-const perSecondLimit = /\b(?:1|one) (?:API )?(?:request|call) per second\b/iu;
-const mentionsDaily = /\b(?:daily|per day)\b/iu;
+const providerGreeting = /^Thank you for using Alpha Vantage!\s*/iu;
+const upgradeFooter =
+  /\s*You may subscribe to any of the premium plans at https:\/\/(?:www\.)?alphavantage\.co\/premium\/? to lift the free key rate limit \(\d+ requests per day\), raise the per-second burst limit, and instantly unlock all premium endpoints\.?\s*$/iu;
+const providerBurst =
+  /Please consider spreading out your free API requests more sparingly \(1 request per second\)/giu;
 const statedAllowance =
   /^(?:(?:your|the|our) )?daily (?:API )?(?:rate |request )?(?:quota|limit|allowance) is \d+ (?:API )?(?:requests?|calls?)(?: per day)?$/iu;
 
@@ -96,12 +99,13 @@ function canRetryBurst(response: unknown) {
   const notice = providerNotice.safeParse(response);
   if (!notice.success) return false;
   const messages = [notice.data.Information ?? "", notice.data.Note ?? ""];
-  if (!messages.some((message) => perSecondLimit.test(message))) return false;
-  if (!messages.some((message) => mentionsDaily.test(message))) return true;
   // Mixed notices are safe only when every clause is accounted for. Even a
   // separate sentence without the word "daily" can report an exhausted quota.
   const clauses = messages.flatMap((message) =>
     message
+      .replace(providerGreeting, "")
+      .replace(upgradeFooter, "")
+      .replace(providerBurst, "Please limit to 1 request per second")
       .split(/[.!?;(),\n]+/u)
       .map((clause) => clause.trim())
       .filter(Boolean),
