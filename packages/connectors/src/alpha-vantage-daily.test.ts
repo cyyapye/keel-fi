@@ -107,11 +107,15 @@ it("recovers a shared-key burst once while respecting the daily quota and UTC wi
     await expect(refresh("CDR")).rejects.toThrow();
     expect(provider).toHaveBeenCalledTimes(2);
     provider.mockClear();
-    problem =
-      "Daily quota exhausted. Free keys are limited to 1 request per second.";
-    await expect(refresh("CDR")).rejects.toThrow();
-    expect(provider).toHaveBeenCalledTimes(1);
-    provider.mockClear();
+    for (const dailyNotice of [
+      "Daily quota exhausted. Free keys are limited to 1 request per second.",
+      "Your daily quota of 25 requests has been exhausted. Free keys are limited to 1 request per second.",
+    ]) {
+      provider.mockClear();
+      problem = dailyNotice;
+      await expect(refresh("CDR", "preview")).rejects.toThrow();
+      expect(provider).toHaveBeenCalledTimes(1);
+    }
     problem = undefined;
     vi.setSystemTime(new Date("2025-10-03T15:00:00Z"));
     responseDelay = 11_999;

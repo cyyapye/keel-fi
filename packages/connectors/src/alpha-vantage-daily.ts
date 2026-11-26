@@ -85,22 +85,21 @@ const providerNotice = z.object({
   Note: z.string().optional(),
 });
 const perSecondLimit = /\b(?:1|one) (?:API )?(?:request|call) per second\b/iu;
-// Match which limit was exhausted. Burst notices can also state the daily allowance.
-const exhaustedDailyLimit =
-  /\b(?:daily (?:API )?(?:rate |request )?(?:quota|limit|allowance)|per day)(?: (?:has|been|is|was|already|now))* (?:exhausted|exceeded|reached|used up)\b/iu;
-const reachedDailyLimit =
-  /\b(?:exhausted|exceeded|reached|used up) (?:(?:your|the|its|our|standard|free) )*(?:daily\b|(?:(?:API |rate )?limit of )?\d+ (?:API )?(?:requests?|calls?) per day\b)/iu;
+const dailyLimit = /\b(?:daily|per day)\b/iu;
+const exhausted = /\b(?:exhausted|exceeded|reached|used (?:up|all))\b/iu;
 
 function canRetryBurst(response: unknown) {
   const notice = providerNotice.safeParse(response);
   if (!notice.success) return false;
-  const messages = [notice.data.Information ?? "", notice.data.Note ?? ""];
+  // The provider can report a burst, then state the daily allowance in another
+  // sentence. Only associate exhaustion with limits in the same clause.
+  const clauses = [
+    notice.data.Information ?? "",
+    notice.data.Note ?? "",
+  ].flatMap((message) => message.split(/[.!?;,\n]+/u));
   return (
-    messages.some((message) => perSecondLimit.test(message)) &&
-    !messages.some(
-      (message) =>
-        exhaustedDailyLimit.test(message) || reachedDailyLimit.test(message),
-    )
+    clauses.some((clause) => perSecondLimit.test(clause)) &&
+    !clauses.some((clause) => dailyLimit.test(clause) && exhausted.test(clause))
   );
 }
 
