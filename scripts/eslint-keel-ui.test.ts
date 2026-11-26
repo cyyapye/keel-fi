@@ -36,7 +36,12 @@ it("rejects native interactive controls in application consumers", async () => {
   );
   // Exercise the repository config on a real catalogue consumer. A rule-only
   // fixture cannot detect a regression in which paths ESLint actually checks.
-  const [journey] = await new ESLint().lintText(
+  // Both consumer rules inspect JSX. Skip TypeScript program construction
+  // while preserving the flat config's real file matching and plugin rules.
+  const repoLint = new ESLint({
+    overrideConfig: tseslint.configs.disableTypeChecked,
+  });
+  const [journey] = await repoLint.lintText(
     `import { Button } from "@keel/ui";
      export const preview = <details><summary>Source</summary><Button style={{ color: "red" }}>Reset</Button></details>;`,
     { filePath: "e2e/ui-catalogue/evidence-walkthrough.tsx" },

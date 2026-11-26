@@ -1286,6 +1286,7 @@ function App() {
       <Screen>
         <PageHeader
           title={title}
+          eyebrow={status ? "Synthetic walkthrough" : undefined}
           description={
             status ? (
               <>

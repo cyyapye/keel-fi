@@ -23,7 +23,7 @@ const history = "apps/web/src/InvestmentHistory.tsx";
 const access = "apps/web/src/AppAccess.tsx";
 const gp = "apps/web/src/HoldingValuation.tsx";
 const obligations = proposal(
-  "The Inbox and History layout is proposed. Keel already supports reviewing payment treatment and its impact on runway.",
+  "Inbox and History for obligations. Keel already supports reviewing payment treatment and its impact on runway.",
   "apps/web/src/Obligations.tsx",
 );
 const simplifiedEvidence = proposal(
@@ -62,11 +62,11 @@ const byId: Readonly<Record<string, StepStatus | undefined>> = {
     gp,
   ),
   "planning-overview": proposal(
-    "The Current / Target meter is proposed. Opening a saved goal from Overview is available in Keel.",
+    "Current and target runway shown on a meter. Keel already lets you open a saved goal from Overview.",
     app,
   ),
   "planning-goal": proposal(
-    "The runway meter is proposed. Saving a goal version and its forecast is available in Keel.",
+    "A runway meter beside the draft goal. Saving a goal already records its version and forecast in Keel.",
     app,
   ),
   "planning-scenario": shipped(
@@ -84,11 +84,11 @@ const byId: Readonly<Record<string, StepStatus | undefined>> = {
   "obligations-review": obligations,
   "obligations-impact": obligations,
   "source-updates-sources": proposal(
-    "The link from an accepted source report to its selected value is proposed.",
+    "Open a position’s selected value directly from the accepted source report.",
     "apps/web/src/HoldingImportOutcome.tsx",
   ),
   "source-updates-outcome": proposal(
-    "The per-position value explanation is proposed. Keel already applies eligible updates to a followed GP total.",
+    "See why one position’s value changed or stayed the same. Keel already applies eligible updates to a followed GP total.",
     "packages/database/src/gp-reported-totals.ts",
   ),
   "source-updates-entities": shipped(
@@ -126,11 +126,11 @@ const gpDetail = shipped(
   "apps/web/src/SpvHoldingDetail.tsx",
 );
 const gpReview = proposal(
-  "This shortened GP source picker is proposed. Keel’s valuation editor supports choosing a price source for a position.",
+  "A shorter GP source picker. Keel’s valuation editor already supports choosing a price source for a position.",
   gp,
 );
 const gpHoldings = proposal(
-  "This Holdings summary of GP source changes is proposed. Keel already distinguishes a followed price from a one-time estimate.",
+  "Show GP source changes in the Holdings summary. Keel already distinguishes a followed price from a one-time estimate.",
   gp,
 );
 
