@@ -55,7 +55,8 @@ async function alphaVantageResponse(
     apikey: apiKey,
   }).toString();
   const response = await fetch(url, {
-    redirect: "error",
+    // Workers support manual redirect handling. The status check below rejects 3xx.
+    redirect: "manual",
     signal: AbortSignal.timeout(12_000),
   });
   if (!response.ok) throw new Error("The daily price service is unavailable.");
@@ -79,18 +80,85 @@ async function alphaVantageResponse(
   return JSON.parse(body + decoder.decode()) as unknown;
 }
 
+const providerNotice = z.object({
+  Information: z.string().optional(),
+  Note: z.string().optional(),
+});
+const providerGreeting = /^Thank you for using Alpha Vantage!\s*/iu;
+const upgradeFooter =
+  /\s*You may subscribe to any of the premium plans at https:\/\/(?:www\.)?alphavantage\.co\/premium\/? to lift the free key rate limit \(\d+ requests per day\), raise the per-second burst limit, and instantly unlock all premium endpoints\.?\s*$/iu;
+const providerBurst =
+  /Please consider spreading out your free API requests more sparingly \(1 request per second\)/giu;
+const statedAllowance =
+  /^(?:(?:your|the|our) )?daily (?:API )?(?:rate |request )?(?:quota|limit|allowance) is \d+ (?:API )?(?:requests?|calls?)(?: per day)?$/iu;
+
+const statedBurst =
+  /^(?:you (?:have )?(?:exceeded|reached) (?:the|your) (?:API |rate )?limit of|please limit (?:requests )?to) (?:1|one) (?:API )?(?:request|call) per second$/iu;
+
+function canRetryBurst(response: unknown) {
+  const notice = providerNotice.safeParse(response);
+  if (!notice.success) return false;
+  const messages = [notice.data.Information ?? "", notice.data.Note ?? ""];
+  // Mixed notices are safe only when every clause is accounted for. Even a
+  // separate sentence without the word "daily" can report an exhausted quota.
+  const clauses = messages.flatMap((message) =>
+    message
+      .replace(providerGreeting, "")
+      .replace(upgradeFooter, "")
+      .replace(providerBurst, "Please limit to 1 request per second")
+      .split(/[.!?;(),\n]+/u)
+      .map((clause) => clause.trim())
+      .filter(Boolean),
+  );
+  return (
+    clauses.some((clause) => statedBurst.test(clause)) &&
+    clauses.every(
+      (clause) => statedBurst.test(clause) || statedAllowance.test(clause),
+    )
+  );
+}
+
 export async function fetchDailyPrices(
   symbol: string,
   apiKey: string,
   now: Date,
   firstSession: string,
+  feed: "local" | "preview" = "local",
 ) {
+  const endOfDay = new Date(now);
+  endOfDay.setUTCHours(24, 0, 0, 0);
+  let recovered = false;
+
+  async function request(
+    operation: "SPLITS" | "TIME_SERIES_DAILY",
+    delayMs = 0,
+  ): Promise<unknown> {
+    if (Date.now() + delayMs >= endOfDay.getTime())
+      throw new Error("The daily price window has ended.");
+    if (delayMs > 0)
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    if (Date.now() >= endOfDay.getTime())
+      throw new Error("The daily price window has ended.");
+    const response = await alphaVantageResponse(operation, symbol, apiKey);
+    if (!recovered && canRetryBurst(response)) {
+      // Two 12-second HTTP deadlines and the normal pause fit in 30s.
+      // Preview also gives a throttled local pair time to finish its recovery.
+      recovered = true;
+      // Randomize local recovery so independent profiles avoid retrying in lockstep.
+      const backoffMs =
+        feed === "preview"
+          ? 120_000
+          : 30_000 + Math.floor(Math.random() * 20_000);
+      return request(operation, backoffMs);
+    }
+    return response;
+  }
   const splitResponse = z
     .object({
       symbol: z.literal(symbol),
       data: z.array(z.object({ effective_date: z.iso.date() })).max(500),
     })
-    .safeParse(await alphaVantageResponse("SPLITS", symbol, apiKey));
+    .safeParse(await request("SPLITS"));
   if (!splitResponse.success)
     throw new Error("Unable to confirm the trading share basis.");
   const split = splitResponse.data.data
@@ -100,7 +168,7 @@ export async function fetchDailyPrices(
   // After a split, raw prices and the original share allocation use different units.
   const cutoff = easternTradingDate(now);
   return parseDailyPrices(
-    await alphaVantageResponse("TIME_SERIES_DAILY", symbol, apiKey),
+    await request("TIME_SERIES_DAILY", 1_200),
     symbol,
     split && split < cutoff ? split : cutoff,
   );
