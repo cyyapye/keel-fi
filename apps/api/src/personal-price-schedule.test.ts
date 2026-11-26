@@ -93,7 +93,7 @@ it("admits one preview price refresh per day and continues both approved positio
       return Promise.resolve(
         Response.json({
           Information:
-            "You exceeded the limit of 1 request per second. Your daily quota is 25 requests.",
+            "You exceeded the limit of 1 request per second (your daily quota is 25 requests).",
         }),
       );
     }
