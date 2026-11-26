@@ -1265,8 +1265,10 @@ function App() {
       card.scrollIntoView({ block: "start" });
     }
   }, [route]);
-  const stepId = page === "journeys" ? route.split("/")[1] : undefined;
-  const status = journeyStepStatus(stepId);
+  const journeyRoute =
+    page === "journeys" ? route.slice("#journeys/".length) : undefined;
+  const stepId = journeyRoute?.split("/")[0];
+  const status = journeyStepStatus(journeyRoute);
   const title =
     page === "journeys" ? "Journeys" : pages.find((p) => p.id === page)!.label;
   return (

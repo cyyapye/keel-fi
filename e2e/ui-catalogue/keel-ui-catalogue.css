@@ -423,6 +423,11 @@
   gap: var(--space-4);
 }
 
+/* Keep the focused report identity below the catalogue's sticky mobile bar. */
+.catalogue-watch-evidence .evidence-card[id] {
+  scroll-margin-top: 72px;
+}
+
 /* Approved Evidence V9; scoped to this synthetic journey only. */
 .catalogue-evidence-demo {
   display: grid;

@@ -26,6 +26,7 @@ const obligations = proposal(
   "Inbox and History for obligations. Keel already supports reviewing payment treatment and its impact on runway.",
   "apps/web/src/Obligations.tsx",
 );
+export const evidenceProposalRoute = "evidence-review/proposals/apply-ignore";
 const simplifiedEvidence = proposal(
   "This is the Apply / Ignore design. Keel currently offers separate review, scenario and application choices.",
   app,
@@ -77,9 +78,19 @@ const byId: Readonly<Record<string, StepStatus | undefined>> = {
     "Open Forecast History to inspect saved forecasts.",
     app,
   ),
-  "evidence-watch": simplifiedEvidence,
-  "evidence-review": simplifiedEvidence,
-  "evidence-scenario": simplifiedEvidence,
+  "evidence-watch": shipped(
+    "Open a Watch update in Evidence using its event ID.",
+    app,
+  ),
+  "evidence-review": shipped(
+    "Review the chosen report with the decisions available for its claim.",
+    "apps/web/src/WatchEvidenceReport.tsx",
+  ),
+  "evidence-scenario": shipped(
+    "Inspect the reviewed report’s context in Scenarios.",
+    app,
+  ),
+  [evidenceProposalRoute]: simplifiedEvidence,
   "obligations-proposal": obligations,
   "obligations-review": obligations,
   "obligations-impact": obligations,
@@ -134,8 +145,10 @@ const gpHoldings = proposal(
   gp,
 );
 
-export function journeyStepStatus(id?: string): StepStatus | undefined {
-  if (!id) return;
+export function journeyStepStatus(route?: string): StepStatus | undefined {
+  if (!route) return;
+  if (Object.hasOwn(byId, route)) return byId[route];
+  const id = route.split("/")[0]!;
   const valuation = valuationRoute(id);
   if (!valuation) return Object.hasOwn(byId, id) ? byId[id] : undefined;
   const { scenario, step } = valuation;
