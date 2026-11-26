@@ -91,7 +91,10 @@ it("admits one preview price refresh per day and continues both approved positio
     ) {
       refuseNextClose = false;
       return Promise.resolve(
-        Response.json({ Information: "Limit: 1 request per second." }),
+        Response.json({
+          Information:
+            "You exceeded the limit of 1 request per second. Your daily quota is 25 requests.",
+        }),
       );
     }
     if (outage)
