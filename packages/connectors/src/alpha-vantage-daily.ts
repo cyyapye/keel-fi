@@ -55,7 +55,8 @@ async function alphaVantageResponse(
     apikey: apiKey,
   }).toString();
   const response = await fetch(url, {
-    redirect: "error",
+    // Workers support manual redirect handling. The status check below rejects 3xx.
+    redirect: "manual",
     signal: AbortSignal.timeout(12_000),
   });
   if (!response.ok) throw new Error("The daily price service is unavailable.");
@@ -79,18 +80,55 @@ async function alphaVantageResponse(
   return JSON.parse(body + decoder.decode()) as unknown;
 }
 
+const perSecondMessage = z
+  .string()
+  .regex(/\b(?:1|one) (?:API )?(?:request|call) per second\b/iu);
+const burstLimit = z.union([
+  z.object({ Information: perSecondMessage }),
+  z.object({ Note: perSecondMessage }),
+]);
+
 export async function fetchDailyPrices(
   symbol: string,
   apiKey: string,
   now: Date,
   firstSession: string,
+  feed: "local" | "preview" = "local",
 ) {
+  const endOfDay = new Date(now);
+  endOfDay.setUTCHours(24, 0, 0, 0);
+  let recovered = false;
+
+  async function request(
+    operation: "SPLITS" | "TIME_SERIES_DAILY",
+    delayMs = 0,
+  ): Promise<unknown> {
+    if (Date.now() + delayMs >= endOfDay.getTime())
+      throw new Error("The daily price window has ended.");
+    if (delayMs > 0)
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    if (Date.now() >= endOfDay.getTime())
+      throw new Error("The daily price window has ended.");
+    const response = await alphaVantageResponse(operation, symbol, apiKey);
+    if (!recovered && burstLimit.safeParse(response).success) {
+      // Two 12-second HTTP deadlines and the normal pause fit in 30s.
+      // Preview also gives a throttled local pair time to finish its recovery.
+      recovered = true;
+      // Randomize local recovery so independent profiles avoid retrying in lockstep.
+      const backoffMs =
+        feed === "preview"
+          ? 120_000
+          : 30_000 + Math.floor(Math.random() * 20_000);
+      return request(operation, backoffMs);
+    }
+    return response;
+  }
   const splitResponse = z
     .object({
       symbol: z.literal(symbol),
       data: z.array(z.object({ effective_date: z.iso.date() })).max(500),
     })
-    .safeParse(await alphaVantageResponse("SPLITS", symbol, apiKey));
+    .safeParse(await request("SPLITS"));
   if (!splitResponse.success)
     throw new Error("Unable to confirm the trading share basis.");
   const split = splitResponse.data.data
@@ -100,7 +138,7 @@ export async function fetchDailyPrices(
   // After a split, raw prices and the original share allocation use different units.
   const cutoff = easternTradingDate(now);
   return parseDailyPrices(
-    await alphaVantageResponse("TIME_SERIES_DAILY", symbol, apiKey),
+    await request("TIME_SERIES_DAILY", 1_200),
     symbol,
     split && split < cutoff ? split : cutoff,
   );

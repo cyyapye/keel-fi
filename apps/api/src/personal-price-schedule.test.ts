@@ -73,7 +73,15 @@ it("admits one preview price refresh per day and continues both approved positio
   };
   let split: string | null = null,
     outage = false;
-  const provider = vi.fn((url: URL) => {
+  let lastRequestAt = -Infinity;
+  const provider = vi.fn((url: URL, init: RequestInit) => {
+    // Match workerd, which rejects redirect: "error" before making a request.
+    if (init.redirect === "error") throw new TypeError("Invalid redirect");
+    const now = Date.now();
+    const rateLimited = now - lastRequestAt < 1_000;
+    lastRequestAt = now;
+    if (rateLimited)
+      return Promise.resolve(Response.json({ Information: "Rate limited" }));
     if (outage)
       return Promise.resolve(
         Response.json({ Information: "Provider unavailable" }),
@@ -98,7 +106,8 @@ it("admits one preview price refresh per day and continues both approved positio
     );
   });
   vi.stubGlobal("fetch", provider);
-  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  vi.setTimerTickMode("nextTimerAsync");
   const tick = (day: string, configuration = env) => {
     const scheduledTime = Date.parse(day + "T13:00:00Z");
     vi.setSystemTime(scheduledTime);

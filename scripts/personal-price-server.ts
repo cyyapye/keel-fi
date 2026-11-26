@@ -38,7 +38,10 @@ export function personalPriceServer(
                 mode,
                 profile,
               ],
-              { cwd: rootDir, timeout: 60_000 },
+              {
+                cwd: rootDir,
+                timeout: mode === "scheduled" ? 120_000 : 60_000,
+              },
             );
             if (result.stdout.includes("DAILY_PRICES_UPDATED"))
               server.ws.send({ type: "full-reload" });

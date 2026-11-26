@@ -1186,13 +1186,25 @@ is added.
 
 The loopback personal-prices profile checks on startup and at 10:00 UTC. The
 configured personal Preview uses its existing 13:00 UTC trigger. Each admits one
-instrument per daily window, with one split-history request followed by one
-raw-price request, up to 96 KiB and 12 seconds each. Backfill is bounded to 100
-completed dates. One local profile and one Preview together spend at most four
-of the provider's 25 requests per UTC day, leaving 21. Additional independent
-local profiles sharing the key can each spend two more. With both disabled,
-idle-day D1, storage and provider costs are zero. No queue messages, retry
-timers, browser polling or authentication calls are added.
+instrument per daily window. Split history and the daily close use two provider
+requests, separated by at least 1.2 seconds. If the provider explicitly reports
+its one-request-per-second limit, local waits a randomized 30–50 seconds and
+Preview waits 120 seconds before repeating that request once. This gives the two
+producers distinct recovery times and spreads retries among independent local
+profiles. A competing refresh on the same key has time to finish without
+depending on synchronized clocks. A daily quota response, an outage, or a
+repeated refusal stops the refresh. A request may not start past the admitted
+UTC day. Each HTTP request is limited to 96 KiB and 12 seconds. Backfill is
+bounded to 100 completed dates. One local profile and one Preview normally spend
+four of the provider's 25 calls per UTC day, at most six on a throttled day,
+leaving at least 19. Each additional independent local profile can spend up to
+three more. Including both waits and the HTTP timeouts, local is bounded to 87.2
+seconds and Preview to 157.2 seconds. Its 120-second deadline gives the
+scheduled local child over 27 seconds for startup and ingestion after the
+five-second Keychain lookup. Cached replay retains its 60-second deadline. With
+both disabled, idle-day D1, storage and provider costs are zero. No queue
+messages, additional daily admissions, browser polling or authentication calls
+are added.
 
 The local walkthrough replays the cached response after a decision without
 another provider call. Preview checks a single rolling R2 object and writes its
