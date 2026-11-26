@@ -34,6 +34,17 @@ it("rejects native interactive controls in application consumers", async () => {
   expect(result.map((message) => message.ruleId)).toEqual(
     Array(6).fill("keel-ui/shared-controls"),
   );
+  // Exercise the repository config on a real catalogue consumer. A rule-only
+  // fixture cannot detect a regression in which paths ESLint actually checks.
+  const [journey] = await new ESLint().lintText(
+    `import { Button } from "@keel/ui";
+     export const preview = <details><summary>Source</summary><Button style={{ color: "red" }}>Reset</Button></details>;`,
+    { filePath: "e2e/ui-catalogue/evidence-walkthrough.tsx" },
+  );
+  expect(journey!.messages.map((message) => message.ruleId)).toEqual([
+    "keel-ui/shared-controls",
+    "keel-ui/no-inline-control-restyle",
+  ]);
 });
 
 it("rejects appearance overrides through renamed and namespace UI imports", async () => {
