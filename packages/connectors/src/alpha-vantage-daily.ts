@@ -80,13 +80,20 @@ async function alphaVantageResponse(
   return JSON.parse(body + decoder.decode()) as unknown;
 }
 
-const perSecondMessage = z
-  .string()
-  .regex(/\b(?:1|one) (?:API )?(?:request|call) per second\b/iu);
-const burstLimit = z.union([
-  z.object({ Information: perSecondMessage }),
-  z.object({ Note: perSecondMessage }),
-]);
+const providerNotice = z.object({
+  Information: z.string().optional(),
+  Note: z.string().optional(),
+});
+const perSecondLimit = /\b(?:1|one) (?:API )?(?:request|call) per second\b/iu;
+const exhaustedDailyLimit =
+  /\b(?:daily|per day)\b.{0,100}\b(?:exhausted|exceeded|reached|used up)\b|\b(?:exhausted|exceeded|reached|used up)\b.{0,100}\b(?:daily|per day)\b/isu;
+
+function canRetryBurst(response: unknown) {
+  const notice = providerNotice.safeParse(response);
+  if (!notice.success) return false;
+  const message = [notice.data.Information, notice.data.Note].join(" ");
+  return perSecondLimit.test(message) && !exhaustedDailyLimit.test(message);
+}
 
 export async function fetchDailyPrices(
   symbol: string,
@@ -110,7 +117,7 @@ export async function fetchDailyPrices(
     if (Date.now() >= endOfDay.getTime())
       throw new Error("The daily price window has ended.");
     const response = await alphaVantageResponse(operation, symbol, apiKey);
-    if (!recovered && burstLimit.safeParse(response).success) {
+    if (!recovered && canRetryBurst(response)) {
       // Two 12-second HTTP deadlines and the normal pause fit in 30s.
       // Preview also gives a throttled local pair time to finish its recovery.
       recovered = true;

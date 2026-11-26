@@ -107,7 +107,8 @@ it("recovers a shared-key burst once while respecting the daily quota and UTC wi
     await expect(refresh("CDR")).rejects.toThrow();
     expect(provider).toHaveBeenCalledTimes(2);
     provider.mockClear();
-    problem = "Your daily limit is 25 requests per day.";
+    problem =
+      "Daily quota exhausted. Free keys are limited to 1 request per second.";
     await expect(refresh("CDR")).rejects.toThrow();
     expect(provider).toHaveBeenCalledTimes(1);
     provider.mockClear();

@@ -74,14 +74,26 @@ it("admits one preview price refresh per day and continues both approved positio
   let split: string | null = null,
     outage = false;
   let lastRequestAt = -Infinity;
+  let refuseNextClose = false;
+  const requestTimes: number[] = [];
   const provider = vi.fn((url: URL, init: RequestInit) => {
     // Match workerd, which rejects redirect: "error" before making a request.
     if (init.redirect === "error") throw new TypeError("Invalid redirect");
     const now = Date.now();
+    requestTimes.push(now);
     const rateLimited = now - lastRequestAt < 1_000;
     lastRequestAt = now;
     if (rateLimited)
       return Promise.resolve(Response.json({ Information: "Rate limited" }));
+    if (
+      refuseNextClose &&
+      url.searchParams.get("function") === "TIME_SERIES_DAILY"
+    ) {
+      refuseNextClose = false;
+      return Promise.resolve(
+        Response.json({ Information: "Limit: 1 request per second." }),
+      );
+    }
     if (outage)
       return Promise.resolve(
         Response.json({ Information: "Provider unavailable" }),
@@ -142,8 +154,11 @@ it("admits one preview price refresh per day and continues both approved positio
     ).rejects.toThrow("No completed trading date");
     split = null;
     provider.mockClear();
+    requestTimes.length = 0;
+    refuseNextClose = true;
     await Promise.all([tick("2026-11-20"), tick("2026-11-20")]);
-    expect(provider).toHaveBeenCalledTimes(2);
+    expect(provider).toHaveBeenCalledTimes(3);
+    expect(requestTimes[2]! - requestTimes[1]!).toBe(120_000);
     const first = (await marketReviewDetail(db, LINK_DEMO_SUBJECT, id))!;
     expect(first.choice).toBe(null);
     expect(first.positions).toHaveLength(2);
@@ -166,12 +181,12 @@ it("admits one preview price refresh per day and continues both approved positio
     outage = true;
     await tick("2026-11-22");
     await tick("2026-11-22");
-    expect(provider).toHaveBeenCalledTimes(5);
+    expect(provider).toHaveBeenCalledTimes(6);
     outage = false;
     split = "2026-11-23";
     quotes["2026-11-23"] = { "4. close": "31.45" };
     await tick("2026-11-24");
-    expect(provider).toHaveBeenCalledTimes(7);
+    expect(provider).toHaveBeenCalledTimes(8);
     expect(
       (await listMarketReviews(db, LINK_DEMO_SUBJECT))[0]?.quote.date,
     ).toBe("2026-11-20");
