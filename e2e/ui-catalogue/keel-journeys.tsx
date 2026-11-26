@@ -72,8 +72,8 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
     return (
       <Screen>
         <p>
-          See how Keel fits together, then inspect one path across screens and
-          components.
+          Explore a task with synthetic records. Each step identifies what has
+          shipped, what has approval for implementation, or what is proposed.
         </p>
         <section className="catalogue-example">
           <SectionHeader title="What do I own in this company?" />
@@ -122,18 +122,12 @@ export function Journeys({ stepId }: { stepId?: string | undefined }) {
             <TextLink href={`#journeys/${journey.steps[0]!.id}`}>
               Inspect the journey
             </TextLink>
-            <p className="catalogue-note">
-              {journey.id === "planning"
-                ? "Interactive demo · synthetic goal editing and saved-version flow."
-                : "Read-only walkthrough · actual routes and in-memory boundaries identified."}
-            </p>
           </section>
         ))}
         <SectionHeader title="Browse by area" />
         <p className="catalogue-note">
           Inspect separate user tasks, not one forced chain. Overview → Holdings
-          remains the detailed synthetic ownership example. Additional paths are
-          source-backed walkthroughs, not interactive product simulations.
+          follows a company exposure into an individual position.
         </p>
         <div className="catalogue-grid">
           {areas.map(([id, title, description]) => (

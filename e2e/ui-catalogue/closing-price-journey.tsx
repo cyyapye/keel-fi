@@ -182,7 +182,6 @@ export function ValuationJourney({
   const holdingsHeader = (
     <>
       <TextLink href="#journeys">All journeys</TextLink>
-      <p className="catalogue-note">Proposed journey · Synthetic holdings</p>
       <ScenarioPicker scenario={scenario} />
       <SectionHeader title="Holdings" />
     </>

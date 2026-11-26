@@ -12,9 +12,51 @@ import {
   validateJourney,
 } from "../e2e/ui-catalogue/journey-spec";
 import { readFileSync } from "node:fs";
+import { journeyStepStatus } from "../e2e/ui-catalogue/journey-status";
+import {
+  scenarios,
+  valuationRoute,
+} from "../e2e/ui-catalogue/valuation-scenarios";
 describe("catalogue journey reference contract", () => {
   it("keeps stable connected steps and real component references", () => {
     expect(validateJourney).not.toThrow();
+    const valuationIds = Object.keys(scenarios).flatMap((scenario) =>
+      [
+        "",
+        "-review",
+        "-grove",
+        "-summit",
+        "-vale",
+        "-watch",
+        "-watch-decisions",
+        "-watch-all",
+        "-watch-review",
+      ]
+        .map((suffix) => scenario + suffix)
+        .filter((id) => valuationRoute(id)),
+    );
+    const ids = [
+      ...steps.map(({ id }) => id),
+      ...taskJourneys.flatMap((journey) => journey.steps.map(({ id }) => id)),
+      "holdings-total",
+      "holdings-total-position",
+      "holdings-total-valuation",
+      ...valuationIds,
+    ];
+    for (const id of ids) {
+      const status = journeyStepStatus(id);
+      expect(status, id).toBeDefined();
+      expect(readFileSync(status!.evidence, "utf8").length).toBeGreaterThan(0);
+      if (status!.stage === "Approved for implementation")
+        expect(status!.approvalSha256).toMatch(/^[a-f0-9]{64}$/);
+    }
+    expect(journeyStepStatus("planning-goal")?.stage).toBe("Proposal");
+    expect(journeyStepStatus("planning-history")?.stage).toBe("Shipped");
+    expect(journeyStepStatus("source-updates-outcome")?.stage).toBe("Proposal");
+    expect(journeyStepStatus("estimate-proxy-review")).toEqual(
+      journeyStepStatus("closing-price-review"),
+    );
+    expect(journeyStepStatus("unknown")).toBeUndefined();
     expect(edges.map((edge) => `${edge.from}:${edge.to}`)).toEqual([
       "portfolio:company",
       "company:position",
