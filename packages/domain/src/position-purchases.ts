@@ -684,7 +684,7 @@ export function publicClosingValuation(
   if (basis && basis.sharesKey !== valuationSharesKey(details)) return null;
   const indexed = basis?.method === "price_change";
   const dates = indexed
-    ? [basis.valueDate]
+    ? [basis.valueDate ?? basis.startDate]
     : details.lots.map((lot) => lot.sharesAsOf ?? "");
   const releases = publicCloseDebits(details, quote, dates);
   if (!releases) return null;
@@ -712,7 +712,12 @@ export function publicClosingValuation(
       quote.date < basis.startDate ||
       quote.shareBasis.key !== basis.shareBasis.key ||
       details.distributionReview?.events.some(
-        (e) => e.kind === "cash" && e.receivedOn > basis.valueDate,
+        (event) =>
+          // A backdated delivery discovered after approving an undated GP estimate
+          // cannot be assumed to have been included in that opening balance.
+          (basis.valueDate === null && event.receivedOn <= basis.startDate) ||
+          (event.kind === "cash" &&
+            event.receivedOn > (basis.valueDate ?? basis.startDate)),
       )
     )
       return null;
@@ -791,14 +796,24 @@ export function proposedCloseProxyBasis(
       reportedValueMinor,
       reportedSnapshotId,
     );
+  // An accepted share-price proxy can have a known current dollar value even
+  // when the reporting GP never provided a mark date.
+  const undatedProxy =
+    selected?.origin === "proxy" && selected.method === "shares";
   if (
     !prior ||
     prior.carryStatus !== "before_carry" ||
-    !prior.effectiveDate ||
-    prior.effectiveDate > quote.date ||
+    (!prior.effectiveDate &&
+      (!undatedProxy ||
+        receipt.details.lots.some(
+          (lot) =>
+            (lot.purchasedOn && lot.purchasedOn > quote.date) ||
+            (lot.sharesAsOf && lot.sharesAsOf > quote.date),
+        ))) ||
+    (prior.effectiveDate && prior.effectiveDate > quote.date) ||
     prior.valueMinor <= 0 ||
     receipt.details.distributionReview?.events.some(
-      (event) => event.receivedOn > prior.effectiveDate!,
+      (event) => !prior.effectiveDate || event.receivedOn > prior.effectiveDate,
     )
   )
     return null;

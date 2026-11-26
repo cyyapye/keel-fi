@@ -9,6 +9,6 @@ if (root !== resolve(".keel-local/scenarios/pre-distribution"))
 writeFileSync(
   join(root, "pre-distribution.sql"),
   await buildRecordedSeed(async (db) => {
-    await seedClosingPrice(db, true);
+    await seedClosingPrice(db, "pre-distribution");
   }),
 );

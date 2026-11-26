@@ -54,6 +54,10 @@ export function MarketCloseReview({
       : undefined;
   const { reviews, error: readError } = useMarketReviews(id, scope);
   const review = reviews?.find((r) => r.exposureId === id);
+  const [draft, setDraft] = useState<{
+    token: string;
+    choice: "follow" | "keep";
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const holdingsHref = `/holdings?exposure=${encodeURIComponent(id)}`;
@@ -100,12 +104,11 @@ export function MarketCloseReview({
       setBusy(false);
     }
   }
-  const provider = review && dailyCloseProvider(review.quote);
-  const closeLabel = provider ? "daily close" : "closing price";
   const following = review?.choice === "follow";
-  const followAction = review?.positions.some((p) => p.proxyBasis)
-    ? "Use price proxy"
-    : "Use " + closeLabel;
+  const choice =
+    draft && draft.token === review?.token
+      ? draft.choice
+      : (review?.choice ?? "follow");
   return (
     <Screen>
       <TextLink href={back}>
@@ -120,7 +123,13 @@ export function MarketCloseReview({
       ) : (
         <>
           <ClosingPriceComparison
-            closeLabel={closeLabel}
+            choice={choice}
+            disabled={busy}
+            onChoiceChange={(value) => {
+              setDraft({ token: review.token, choice: value });
+              setError("");
+            }}
+            dailyClose={Boolean(dailyCloseProvider(review.quote))}
             company={review.name}
             ticker={review.quote.ticker}
             shareClass={review.quote.shareClass}
@@ -143,23 +152,15 @@ export function MarketCloseReview({
             <Button
               tone="primary"
               disabled={busy}
-              onClick={() => void save(following ? "keep" : "follow")}
+              onClick={() => {
+                if (choice === review.choice) window.location.assign(back);
+                else void save(choice);
+              }}
             >
               {busy
                 ? "Saving…"
-                : `${following ? "Restore sources" : followAction} for ${review.positions.length} ${review.positions.length === 1 ? "position" : "positions"}`}
+                : `${choice === "follow" ? `Follow ${review.quote.ticker}` : following ? "Restore sources" : "Keep sources"} for ${review.positions.length} ${review.positions.length === 1 ? "position" : "positions"}`}
             </Button>
-            {following ? (
-              <TextLink href={back}>Keep {closeLabel}</TextLink>
-            ) : (
-              <Button
-                tone="quiet"
-                disabled={busy}
-                onClick={() => void save("keep")}
-              >
-                Keep current sources
-              </Button>
-            )}
           </ActionGroup>
         </>
       )}

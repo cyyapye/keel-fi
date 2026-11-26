@@ -116,30 +116,34 @@ valuation source are three independent actions.
 | Public filing        | Match the reviewed issuer to an SEC CIK. Ingest its public S‑1 or F‑1 from EDGAR, including the accession number and original document URL. Keep amendments in the same offering history. A company announcement of a confidential submission can appear as company news. | An Unread headline opens the original source in a new tab. Existing position values continue to use their current sources.                                                                              |
 | Listing confirmed    | Reconcile the issuer, exchange, instrument identifier, currency, security class and share-conversion or split terms against the final prospectus and exchange listing. A tentative symbol can change.                                                                     | Coverage can explain an unresolved match. A confirmed listing alone creates no valuation decision.                                                                                                      |
 | First official close | Read the regular-session official close for the confirmed instrument from an entitled end-of-day source. Preserve its venue, session date, currency, unadjusted price and revision. A delayed observation can replay the first session from history.                      | One **Review valuation** action appears under the collapsed exposure and in Watch Decisions. Its review names each eligible legal position and compares current and proposed estimates before carry.    |
-| User decides         | Record one version-checked exposure choice covering the reviewed eligible positions. Both entry points use the same decision.                                                                                                                                             | **Use closing price** clears both prompts. **Keep current sources** also resolves this proposal. The user can revisit the source from the expanded exposure.                                            |
+| User decides         | Record one version-checked exposure choice covering the reviewed eligible positions. Both entry points use the same decision.                                                                                                                                             | Choosing **Follow** clears both prompts. **Keep current sources** also resolves this proposal. The user can revisit the source from the expanded exposure.                                              |
 | Subsequent sessions  | Apply new accepted official closes only to covered shares compatible with the chosen instrument and basis. Retain the last accepted close and its date over weekends, missing sessions or source outages. Preserve corrections and superseded observations.               | Both eligible estimates advance without daily approval. Holding details show the selected close and latest GP evidence separately. Incoming GP marks retain their own source, date and carry treatment. |
 
 Before a distribution, the same review can offer an explicitly labeled price
 proxy. For estimated underlying shares on a known split basis, the review can
 offer one listed share's price per private share. Where conversion is unknown, a
-dated before-carry SPV value can instead track the percentage change from the
-close shown at approval. The decision records that starting value and price.
-Later GP marks stay visible independently. Each accepted, matched gross stock
-release reduces the distributing SPV's remaining estimate. The brokerage balance
-comes from its own statement.
+before-carry SPV value can instead track percentage changes from the close shown
+at approval. A previously accepted GP price proxy with a known current value is
+eligible even if the GP omitted its mark date, provided the SPV has no recorded
+distributions. The decision records the starting value and public close
+separately from the GP's mark. A later backdated delivery that makes this
+opening balance uncertain suspends the estimate. Later GP marks stay visible
+independently. Each accepted, matched gross stock release reduces the
+distributing SPV's remaining estimate. The brokerage balance comes from its own
+statement.
 
 Run `make dev SCENARIO=pre-distribution` to try both proxy methods and two stock
 deliveries. Use the local app's `/local-feed` controls to advance them.
 
-Run `make dev SCENARIO=closing-price` to try this in the local app. The
-synthetic portfolio starts with two Cedar Robotics positions and a first
-official close of
-$50. Choose **Review valuation** in Holdings or Portfolio Watch → Decisions,
-then **Use closing price for 2 positions**. Open `/local-feed` on the same
-local web address to deliver the next $52
-close. Holdings then shows $5,200 for
-Grove and $3,120 for Summit. The local feed
-exercises the same ingestion and valuation logic as a trusted close event.
+Run `make dev SCENARIO=closing-price` to try one approval across both methods.
+Select **Review valuation** in Holdings or Portfolio Watch Decisions, then
+**Follow CDR for 2 positions**. At the first
+$50 close, Grove's 100 shares
+are worth $5,000 and Summit starts at its
+$2,700 GP valuation. Deliver the
+next $52 close at `/local-feed`. Holdings shows
+$5,200 for Grove and $2,808 for Summit. The local feed exercises the same
+ingestion and valuation logic as a trusted close event.
 
 **Implementation order for live source coverage.**
 

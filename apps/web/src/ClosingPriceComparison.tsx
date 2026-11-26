@@ -1,14 +1,34 @@
 import type { ComponentProps } from "react";
 import type { CloseProxyBasis } from "@keel/domain/market-close";
-import { SectionHeader, Text } from "@keel/ui";
-import { formatDate, formatMoney } from "./format";
+import {
+  Field,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  SectionHeader,
+  Text,
+} from "@keel/ui";
+import { formatDate, formatMoney, formatSharePrice } from "./format";
 
 type Position = {
   id: string;
   name: string;
   shares: string;
   privateClasses?: string[] | undefined;
-  proxyBasis?: CloseProxyBasis | undefined;
+  proxyBasis?:
+    | Pick<
+        Extract<CloseProxyBasis, { method: "price_change" }>,
+        | "method"
+        | "startMinor"
+        | "sourceLabel"
+        | "valueDate"
+        | "startDate"
+        | "startPriceMicros"
+      >
+    | { method: "indicative_shares" }
+    | undefined;
   closeMinor: number | bigint;
   priorMinor: number | bigint | null;
   priorSource: string | undefined;
@@ -22,26 +42,55 @@ function money(value: number | bigint | null) {
 
 export function ClosingPriceComparison({
   company,
-  closeLabel = "closing price",
   ticker,
   shareClass,
   price,
+  dailyClose = false,
   date,
   following,
   positions,
   headingProps = {},
+  choice,
+  onChoiceChange,
+  disabled,
 }: {
+  choice: "follow" | "keep";
+  onChoiceChange: (choice: "follow" | "keep") => void;
+  disabled: boolean;
   company: string;
-  closeLabel?: "closing price" | "daily close";
   ticker: string;
   shareClass: string;
+  dailyClose?: boolean;
   price: string;
   date: string;
   following: boolean;
   positions: Position[];
   headingProps?: ComponentProps<typeof SectionHeader>["headingProps"];
 }) {
+  const followLabel = dailyClose
+    ? `Follow ${ticker} daily closes`
+    : `Follow ${ticker} closes`;
   const hasProxy = positions.some((p) => p.proxyBasis);
+  const scope = `${positions.length} ${positions.length === 1 ? "position" : "positions"}`;
+  const keepLabel = following
+    ? "Restore prior sources"
+    : "Keep current sources";
+  const indexed = positions.flatMap((p) =>
+    p.proxyBasis?.method === "price_change"
+      ? [{ name: p.name, basis: p.proxyBasis }]
+      : [],
+  );
+  const anchor = indexed[0]?.basis;
+  const commonAnchor =
+    anchor &&
+    indexed.every(
+      ({ basis }) =>
+        basis.startDate === anchor.startDate &&
+        basis.startPriceMicros === anchor.startPriceMicros,
+    );
+  const indexNote = commonAnchor
+    ? `${indexed.length === 1 ? indexed[0]!.name + " tracks" : "These estimates track"} ${ticker} from its ${formatSharePrice(anchor.startPriceMicros)}/share close on ${formatDate(anchor.startDate)}. `
+    : "";
   const closeTotal = positions.reduce(
     (sum, p) => sum + BigInt(p.closeMinor),
     0n,
@@ -65,15 +114,34 @@ export function ClosingPriceComparison({
       <div className="valuation-comparison__intro">
         <SectionHeader
           eyebrow={company}
-          title={
-            following
-              ? "Restore prior valuation sources?"
-              : hasProxy
-                ? `Use ${ticker} as a price proxy?`
-                : `Use ${ticker}’s ${closeLabel}?`
-          }
+          title="Valuation source"
           headingProps={headingProps}
         />
+        <Field
+          label={`Source for ${scope}`}
+          className="valuation-comparison__source"
+        >
+          {(control) => (
+            <Select
+              value={choice}
+              disabled={disabled}
+              onValueChange={(value) => {
+                if (value === "keep" || value === "follow")
+                  onChoiceChange(value);
+              }}
+            >
+              <SelectTrigger {...control}>
+                <SelectValue>
+                  {choice === "follow" ? followLabel : keepLabel}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="follow">{followLabel}</SelectItem>
+                <SelectItem value="keep">{keepLabel}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </Field>
         <div className="valuation-comparison__quote">
           <Text as="strong" variant="primary">
             {price}/share · <time dateTime={date}>{formatDate(date)}</time>
@@ -110,11 +178,16 @@ export function ClosingPriceComparison({
                   <small>
                     {BigInt(basis.startMinor) === BigInt(p.closeMinor)
                       ? "Starting value"
-                      : `From ${money(basis.startMinor)}`}{" "}
-                    ·{" "}
-                    <time dateTime={basis.valueDate}>
-                      {formatDate(basis.valueDate)}
-                    </time>
+                      : `From ${money(basis.startMinor)}`}
+                    {basis.valueDate && (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <time dateTime={basis.valueDate}>
+                          {formatDate(basis.valueDate)}
+                        </time>
+                      </>
+                    )}
                     {basis.sourceLabel !== p.priorSource &&
                       ` · ${basis.sourceLabel}`}
                   </small>
@@ -152,13 +225,11 @@ export function ClosingPriceComparison({
           </tr>
         </tfoot>
       </table>
-      {!following && (
-        <Text as="span" variant="supporting">
-          {hasProxy
-            ? "These SPV estimates follow future closes before shares reach your brokerage. Your GP marks stay in holding details."
-            : "Future closes update these estimates automatically. GP marks stay available in holding details."}
-        </Text>
-      )}
+      <Text as="span" variant="supporting">
+        {choice === "follow"
+          ? `${indexNote}Future closes update ${positions.length === 1 ? "this position" : "these positions"} automatically.`
+          : `Each position uses its ${following ? "prior" : "current"} valuation source.`}
+      </Text>
     </div>
   );
 }

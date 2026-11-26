@@ -28,10 +28,10 @@ import {
 import {
   IpoWatch,
   initialIpo,
+  sampleIssuer,
   startIpoWalkthrough,
   useIpoWalkthrough,
 } from "./ipo-watch-journey";
-import { DetailLink } from "./detail-link";
 import {
   close,
   closingDate,
@@ -44,6 +44,7 @@ import {
   positionRows,
   quantities,
   scenarios,
+  summitGpEstimate,
   type GpSource,
   type Scenario,
   type Step,
@@ -56,6 +57,8 @@ function IpoHoldingValuation({
   next,
   laterGroveMark,
   hasClose,
+  anchorAtNextClose,
+  ticker,
   previewMark,
 }: {
   position: GpSource;
@@ -64,10 +67,12 @@ function IpoHoldingValuation({
   next: boolean;
   laterGroveMark: boolean;
   hasClose: boolean;
+  anchorAtNextClose: boolean;
+  ticker: string;
   previewMark: () => void;
 }) {
   const gp = ipoGpMark(position, laterGroveMark);
-  const shares = quantities[position].toString();
+  const knownShares = position === "grove";
   const reported = !publicClose && position === "grove";
   return (
     <>
@@ -82,16 +87,18 @@ function IpoHoldingValuation({
           <strong className="holding-value-amount">{formatMoney(value)}</strong>
           <p className="holding-metadata">
             {publicClose
-              ? `${shares} Class A shares at CDR’s closing price`
+              ? knownShares
+                ? `${quantities.grove} Class A shares at ${ticker}’s closing price`
+                : `Tracks ${ticker}’s percentage change from ${money(close(anchorAtNextClose))}/share on ${formatDate(closingDate(anchorAtNextClose))}.`
               : reported
                 ? "Grove SPV report · May 29, 2026"
-                : `${shares} Class A shares at Elm SPV’s proxy mark`}
+                : "Summit SPV GP estimate"}
           </p>
         </div>
         <DataList layout="rows" aria-label="Valuation prices">
           {hasClose && (
             <DataItem
-              label="CDR closing price"
+              label={`${ticker} closing price`}
               value={
                 <>
                   {money(close(next))}/share
@@ -106,14 +113,15 @@ function IpoHoldingValuation({
             />
           )}
           <DataItem
-            label="Latest GP mark"
+            label={knownShares ? "Latest GP mark" : "Latest GP estimate"}
             aria-live="polite"
             aria-atomic="true"
             value={
               <>
-                {money(gp.price)}/share
+                {money(gp.amount)}
+                {knownShares && "/share"}
                 <small className="holding-metadata">
-                  {gp.source} ·{" "}
+                  {names[position]} ·{" "}
                   <time dateTime={gp.date}>{formatDate(gp.date)}</time>
                 </small>
               </>
@@ -171,7 +179,18 @@ export function ValuationJourney({
   scenario: Scenario;
   step: Step;
 }) {
+  const holdingsHeader = (
+    <>
+      <TextLink href="#journeys">All journeys</TextLink>
+      <p className="catalogue-note">Proposed journey · Synthetic holdings</p>
+      <ScenarioPicker scenario={scenario} />
+      <SectionHeader title="Holdings" />
+    </>
+  );
   const ipo = scenario === "closing-price";
+  const { company, ticker } = ipo
+    ? sampleIssuer()
+    : { company: "Cedar Robotics", ticker: "CDR" };
   const choice = scenario === "gp-choice";
   const target = choice ? "vale" : "summit";
   const watchUpdates =
@@ -196,12 +215,18 @@ export function ValuationJourney({
   const [draft, setDraft] = useState<GpSource | null>(
     followed ?? (choice ? null : "grove"),
   );
+  const [selectedSource, setSelectedSource] = useState<
+    "follow" | "keep" | null
+  >(null);
+  const source =
+    selectedSource ?? (ipoState.decision === "keep" ? "keep" : "follow");
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const saveTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
     setSaving(false);
     setSaveFailed(false);
+    setSelectedSource(null);
     return () => window.clearTimeout(saveTimer.current);
   }, [step]);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -219,7 +244,15 @@ export function ValuationJourney({
     if (step === "review") setDraft(followed ?? (choice ? null : "grove"));
   }, [step, followed, choice, watchUpdates]);
 
-  const rows = positionRows(scenario, publicClose, next, followed, updated);
+  const anchorAtNextClose = publicClose ? ipoState.anchor === "next" : next;
+  const rows = positionRows(
+    scenario,
+    publicClose,
+    next,
+    followed,
+    updated,
+    anchorAtNextClose,
+  );
   const selected = rows.find((row) => row.id === step);
   const total = rows.reduce((sum, row) => sum + (row.value ?? 0n), 0n);
   const valued = rows.filter((row) => row.value !== null).length;
@@ -250,7 +283,13 @@ export function ValuationJourney({
       if (ipo) {
         setIpoState((s) => ({
           ...s,
-          decision: publicClose ? "keep" : "follow",
+          decision: source,
+          anchor:
+            source === "follow" &&
+            s.decision !== "follow" &&
+            s.close !== "awaiting"
+              ? s.close
+              : s.anchor,
           closeRead: true,
         }));
       } else setFollowed(draft);
@@ -259,7 +298,14 @@ export function ValuationJourney({
     }, 600);
   };
   const proposedRows = ipo
-    ? positionRows(scenario, !publicClose, next, null, null)
+    ? positionRows(
+        scenario,
+        !publicClose,
+        next,
+        null,
+        updated,
+        anchorAtNextClose,
+      )
     : [];
   const canEditSource = !ipo && scenario !== "gp-separate";
   const draftMark = draft ? mark(draft, updated === draft) : null;
@@ -269,7 +315,7 @@ export function ValuationJourney({
     <TextLink
       className="catalogue-valuation-pill"
       href={reviewLink}
-      aria-label={pending ? "Review valuation for Cedar Robotics" : undefined}
+      aria-label={pending ? `Review valuation for ${company}` : undefined}
     >
       <Badge tone="accent">Review valuation</Badge>
     </TextLink>
@@ -300,12 +346,14 @@ export function ValuationJourney({
         {selected ? (
           <>
             <SectionHeader
-              eyebrow="Holding details excerpt · Cedar Robotics"
+              eyebrow={`Holding details excerpt · ${company}`}
               title={names[selected.id]}
               headingProps={headingProps}
             />
             {ipo && selected.id !== "vale" && selected.value !== null ? (
               <IpoHoldingValuation
+                ticker={ticker}
+                anchorAtNextClose={anchorAtNextClose}
                 position={selected.id}
                 value={selected.value}
                 publicClose={publicClose}
@@ -341,8 +389,14 @@ export function ValuationJourney({
         ) : ipo ? (
           <>
             <ClosingPriceComparison
-              company="Cedar Robotics"
-              ticker="CDR"
+              company={company}
+              ticker={ticker}
+              choice={source}
+              disabled={saving}
+              onChoiceChange={(value) => {
+                setSelectedSource(value);
+                setSaveFailed(false);
+              }}
               shareClass="Class A"
               price={money(close(next))}
               date={closeDate}
@@ -354,10 +408,25 @@ export function ValuationJourney({
                 return {
                   id: prior.id,
                   name: names[prior.id],
-                  shares: quantities[prior.id].toString(),
+                  shares:
+                    prior.id === "grove" ? quantities.grove.toString() : "",
+                  proxyBasis:
+                    prior.id === "summit"
+                      ? {
+                          method: "price_change",
+                          startMinor: Number(summitGpEstimate),
+                          startPriceMicros: Number(
+                            close(anchorAtNextClose) * 10_000n,
+                          ),
+                          startDate: closingDate(anchorAtNextClose),
+                          valueDate: ipoGpMark("summit", false).date,
+                          sourceLabel: "Summit SPV GP",
+                        }
+                      : undefined,
                   closeMinor: (publicClose ? current : proposal).value!,
                   priorMinor: prior.value,
-                  priorSource: prior.source,
+                  priorSource:
+                    prior.id === "summit" ? "Summit SPV GP" : "Grove SPV GP",
                 };
               })}
             />
@@ -370,25 +439,12 @@ export function ValuationJourney({
               <Button tone="primary" disabled={saving} onClick={() => save()}>
                 {saving
                   ? "Saving…"
-                  : publicClose
-                    ? "Restore sources for 2 positions"
-                    : "Use closing price for 2 positions"}
+                  : source === "follow"
+                    ? `Follow ${ticker} for 2 positions`
+                    : publicClose
+                      ? "Restore sources for 2 positions"
+                      : "Keep sources for 2 positions"}
               </Button>
-              {!saving && (
-                <TextLink
-                  href={returnHref}
-                  onClick={() => {
-                    setIpoState((s) => ({
-                      ...s,
-                      decision: publicClose ? "follow" : "keep",
-                      closeRead: true,
-                    }));
-                    setExpanded(true);
-                  }}
-                >
-                  {publicClose ? "Keep closing price" : "Keep current sources"}
-                </TextLink>
-              )}
             </ActionGroup>
           </>
         ) : (
@@ -494,128 +550,150 @@ export function ValuationJourney({
       (choice && followed));
   return (
     <Screen className="catalogue-stack">
-      <TextLink href="#journeys">All journeys</TextLink>
-      <p className="catalogue-note">Proposed journey · Synthetic holdings</p>
-      <ScenarioPicker scenario={scenario} />
-      <SectionHeader title="Holdings" />
+      {holdingsHeader}
       <section
-        className="catalogue-stack"
+        className="catalogue-stack exposure-groups"
         aria-labelledby="valuation-exposures"
       >
         <h3 id="valuation-exposures">Exposures</h3>
-        <Collapsible
-          className="exposure-group"
-          open={expanded}
-          onOpenChange={setExpanded}
-        >
-          <CollapsibleTrigger
-            ref={trigger}
-            className="exposure-row exposure-group__summary"
+        <RecordGroup layout="disclosures" aria-label="Company exposures">
+          <Collapsible
+            role="listitem"
+            className="exposure-group"
+            open={expanded}
+            onOpenChange={setExpanded}
           >
-            <span className="exposure-group__identity">
-              <strong>Cedar Robotics</strong>
-              <small>
-                {valued < rows.length
-                  ? `${valued} of ${rows.length} positions valued`
-                  : `${rows.length} positions`}
-              </small>
-            </span>
-            <span className="exposure-group__totals">
-              <span className="exposure-group__value">
-                {formatHoldingsAmount(total)}
-              </span>
-              <small className="exposure-group__performance exposure-group__market-meta">
-                {valued < rows.length
-                  ? "Known value before carry"
-                  : "Before carry"}
-                {estimates > 0 &&
-                  ` · ${estimates} ${estimates === 1 ? "estimate" : "estimates"}`}
-              </small>
-            </span>
-            <DisclosureIndicator className="exposure-group__indicator" />
-          </CollapsibleTrigger>
-          {pending && (
-            <div className="catalogue-valuation-prompt">
-              {reviewChip}
-              <small>
-                {ipo
-                  ? "First public close · 2 positions"
-                  : "Vale SPV · 2 possible GP sources"}
-              </small>
-            </div>
-          )}
-          <CollapsibleContent>
-            <section
-              className="exposure-group__positions catalogue-stack"
-              aria-label="Exposure valuation"
+            <CollapsibleTrigger
+              ref={trigger}
+              className="exposure-row exposure-group__summary"
             >
-              {publicClose && (
-                <ActionGroup wrap>
-                  <p className="exposure-group__quote" aria-live="polite">
-                    {money(close(next))}/share ·{" "}
-                    <time dateTime={closeDate}>{formatDate(closeDate)}</time>
-                  </p>
-                  <TextLink
-                    href={reviewLink}
-                    aria-label="Change source for both Cedar Robotics positions"
-                    title="Change source for both Cedar Robotics positions"
-                  >
-                    Change source
-                  </TextLink>
-                </ActionGroup>
-              )}
-              {!ipo && updated && (updated === followed || !followed) && (
-                <p className="catalogue-note" aria-live="polite">
-                  {followed ? (
-                    <>
-                      {names[target]} now uses {names[updated]}’s June 2 mark of{" "}
-                      {money(mark(updated, true))} per Class A share.
-                    </>
-                  ) : (
-                    <>
-                      {names[updated]} marked Class A at{" "}
-                      {money(mark(updated, true))} on June 2. {names[target]}{" "}
-                      keeps its one-time estimate.
-                    </>
-                  )}
-                </p>
-              )}
-              {ipo && kept && !publicClose && reviewChip}
-              <RecordGroup
-                aria-label="Positions in Cedar Robotics"
-                className="candidate-compact-position-metadata holding-position-rows"
+              <span className="exposure-group__identity">
+                <strong>{company}</strong>
+                <small>
+                  {valued < rows.length
+                    ? `${valued} of ${rows.length} positions valued`
+                    : `${rows.length} positions`}
+                </small>
+              </span>
+              <span className="exposure-group__totals">
+                <span className="exposure-group__value">
+                  {ipo ? money(total) : formatHoldingsAmount(total)}
+                </span>
+                <small className="exposure-group__performance exposure-group__market-meta">
+                  {valued < rows.length
+                    ? "Known value before carry"
+                    : "Before carry"}
+                  {estimates > 0 &&
+                    ` · ${estimates} ${estimates === 1 ? "estimate" : "estimates"}`}
+                </small>
+              </span>
+              <DisclosureIndicator className="exposure-group__indicator" />
+            </CollapsibleTrigger>
+            {pending && (
+              <div className="catalogue-valuation-prompt">
+                {reviewChip}
+                <small>
+                  {ipo
+                    ? "First public close · 2 positions"
+                    : "Vale SPV · 2 possible GP sources"}
+                </small>
+              </div>
+            )}
+            <CollapsibleContent>
+              <section
+                className={
+                  ipo
+                    ? "exposure-group__positions"
+                    : "exposure-group__positions catalogue-stack"
+                }
+                aria-label="Exposure valuation"
               >
-                {rows.map((row) => (
-                  <RecordRow
-                    key={row.id}
-                    title={names[row.id]}
-                    detail={
+                {publicClose && (
+                  <ActionGroup wrap>
+                    <span className="exposure-group__quote" aria-live="polite">
+                      {money(close(next))}/share ·{" "}
+                      <time dateTime={closeDate}>{formatDate(closeDate)}</time>
+                    </span>
+                    <TextLink
+                      href={reviewLink}
+                      aria-label={`Change source for both ${company} positions`}
+                      title={`Change source for both ${company} positions`}
+                    >
+                      Change source
+                    </TextLink>
+                  </ActionGroup>
+                )}
+                {!ipo && updated && (updated === followed || !followed) && (
+                  <p className="catalogue-note" aria-live="polite">
+                    {followed ? (
                       <>
-                        {quantities[row.id].toString()}{" "}
-                        <span aria-hidden="true">sh</span>
-                        <span className="visually-hidden">
-                          underlying Class A shares
-                        </span>
+                        {names[target]} now uses {names[updated]}’s June 2 mark
+                        of {money(mark(updated, true))} per Class A share.
                       </>
-                    }
-                    value={
-                      row.value === null
-                        ? "Value unavailable"
-                        : formatHoldingsAmount(row.value)
-                    }
-                    metadata={row.source}
-                    action={
-                      <DetailLink
-                        href={href(scenario, row.id)}
-                        label={`Open ${names[row.id]}`}
-                      />
-                    }
-                  />
-                ))}
-              </RecordGroup>
-            </section>
-          </CollapsibleContent>
-        </Collapsible>
+                    ) : (
+                      <>
+                        {names[updated]} marked Class A at{" "}
+                        {money(mark(updated, true))} on June 2. {names[target]}{" "}
+                        keeps its one-time estimate.
+                      </>
+                    )}
+                  </p>
+                )}
+                {ipo && kept && !publicClose && reviewChip}
+                <RecordGroup
+                  aria-label={`Positions in ${company}`}
+                  className="holding-position-rows"
+                >
+                  {rows.map((row) => (
+                    <RecordRow
+                      className="position-row--detail"
+                      key={row.id}
+                      title={names[row.id]}
+                      detail={
+                        ipo && row.id === "summit" ? (
+                          publicClose ? (
+                            `From ${money(summitGpEstimate)} GP estimate`
+                          ) : (
+                            "Share count unknown"
+                          )
+                        ) : (
+                          <>
+                            {quantities[row.id].toString()}{" "}
+                            <span aria-hidden="true">sh</span>
+                            <span className="visually-hidden">
+                              underlying Class A shares
+                            </span>
+                          </>
+                        )
+                      }
+                      value={
+                        <span className="position-row__value">
+                          <span>
+                            {row.value === null
+                              ? "Value unavailable"
+                              : ipo
+                                ? money(row.value)
+                                : formatHoldingsAmount(row.value)}
+                          </span>
+                          <small>{row.source}</small>
+                        </span>
+                      }
+                      action={
+                        <TextLink
+                          className="position-row__action"
+                          href={href(scenario, row.id)}
+                          aria-label={`Open ${names[row.id]}`}
+                        >
+                          <DisclosureIndicator />
+                        </TextLink>
+                      }
+                    />
+                  ))}
+                </RecordGroup>
+              </section>
+            </CollapsibleContent>
+          </Collapsible>
+        </RecordGroup>
       </section>
       {ipo && (
         <TextLink href={href(scenario, hasClose ? "watch-decisions" : "watch")}>

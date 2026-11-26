@@ -46,13 +46,16 @@ function closeOn<T extends typeof firstCedarClose | typeof nextCedarClose>(
 export const firstPrivateProxyClose = closeOn(firstCedarClose, "2026-09-24");
 export const nextPrivateProxyClose = closeOn(nextCedarClose, "2026-09-25");
 
+type PositionExample = "listed-shares" | "pre-distribution" | "mixed";
+
 export async function seedSamplePricePositions(
   db: D1Database,
   company: string,
   shareBasis: { key: string; unitsPerOriginal: number },
   shareClass = "Class A",
-  preDistribution = false,
+  example: PositionExample = "listed-shares",
 ) {
+  const preDistribution = example === "pre-distribution";
   const cases = [
     {
       name: "Grove SPV",
@@ -84,6 +87,7 @@ export async function seedSamplePricePositions(
   const purchases = new D1PositionPurchaseRepository(db);
   for (const c of cases) {
     const p = positions.find((r) => r.legalVehicleName === c.name)!;
+    const gpOnly = example === "mixed" && c.name === "Summit SPV";
     const basis =
       preDistribution && c.name === "Summit SPV"
         ? { key: "legacy-private-units", unitsPerOriginal: 1 }
@@ -107,18 +111,20 @@ export async function seedSamplePricePositions(
             feePpm: null,
             feeBasis: null,
             feeLabel: null,
-            remainingSharesMicros: c.shares * 1_000_000,
-            sharesAsOf: "2026-09-20",
+            remainingSharesMicros: gpOnly ? null : c.shares * 1_000_000,
+            sharesAsOf: gpOnly ? null : "2026-09-20",
             sourceLabel: "Synthetic subscription",
             sourceUrl: null,
             sourceText: null,
             mark: null,
-            quantityDetails: {
-              status: preDistribution ? "estimated" : "confirmed",
-              derivation: "Economic shares allocated by the vehicle.",
-              evidence: "Synthetic subscription schedule",
-              shareBasis: basis,
-            },
+            quantityDetails: gpOnly
+              ? undefined
+              : {
+                  status: preDistribution ? "estimated" : "confirmed",
+                  derivation: "Economic shares allocated by the vehicle.",
+                  evidence: "Synthetic subscription schedule",
+                  shareBasis: basis,
+                },
           }),
         ],
       },
@@ -132,8 +138,12 @@ export async function seedSamplePricePositions(
         id: "gp",
         origin: "gp",
         totalMinor: c.value,
-        priceMicros,
-        priceDate: preDistribution ? "2026-09-23" : "2026-11-17",
+        priceMicros: gpOnly ? null : priceMicros,
+        priceDate: gpOnly
+          ? null
+          : preDistribution
+            ? "2026-09-23"
+            : "2026-11-17",
         effectiveDate: preDistribution ? "2026-09-23" : "2026-11-17",
         shareClass: lotClass,
         shareBasis: basis,
@@ -158,15 +168,16 @@ export async function seedSamplePricePositions(
 }
 export async function seedClosingPrice(
   db: D1Database,
-  preDistribution = false,
+  example: PositionExample = "listed-shares",
 ) {
-  const quote = preDistribution ? firstPrivateProxyClose : firstCedarClose;
+  const quote =
+    example === "pre-distribution" ? firstPrivateProxyClose : firstCedarClose;
   const id = await seedSamplePricePositions(
     db,
     "Cedar Robotics",
     quote.shareBasis,
     quote.shareClass,
-    preDistribution,
+    example,
   );
   await db
     .prepare("INSERT INTO exposure_market_listings VALUES(?,?,?,?,?,?,?,?,?)")
@@ -234,7 +245,7 @@ if (
     writeFileSync(
       join(root, "closing-price.sql"),
       await buildRecordedSeed(async (db) => {
-        await seedClosingPrice(db);
+        await seedClosingPrice(db, "mixed");
       }),
     );
 }
