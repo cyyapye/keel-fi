@@ -13,11 +13,20 @@ import {
 } from "jose";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  MacAgentTargetSchema,
+  providerBrowserOrigin,
+} from "../packages/domain/src/index";
+import { storeMacAgentAuthorization } from "./mac-agent-auth";
+import {
   loadReconnectAccess,
   startReconnectAccessGateway,
   type ReconnectAccessConfig,
   type ReconnectAccessGateway,
 } from "./provider-reconnect-access";
+import {
+  checkProviderReconnectConfigs,
+  validateProviderReconnectConfig,
+} from "./provider-reconnect-check";
 
 const config: ReconnectAccessConfig = {
   version: 1,
@@ -336,6 +345,76 @@ describe("authenticated reconnect admission", () => {
 });
 
 describe("private named reconnect configuration", () => {
+  it("reports every provider and fails on deployed API origin drift", async () => {
+    temporary = await mkdtemp(path.join(os.tmpdir(), "keel-access-synthetic-"));
+    vi.stubEnv("XDG_CONFIG_HOME", temporary);
+    const webOrigin = new URL("https://keel.example.com");
+    const tunnelTokenFile = path.join(temporary, "token");
+    const probeCredentialsFile = path.join(temporary, "probe.json");
+    const configFile = path.join(temporary, "access.json");
+    await writeFile(tunnelTokenFile, "synthetic-token-".repeat(4), {
+      mode: 0o600,
+    });
+    await writeFile(
+      probeCredentialsFile,
+      JSON.stringify({
+        clientId: probeClientId,
+        clientSecret: "synthetic-secret-".repeat(4),
+      }),
+      { mode: 0o600 },
+    );
+    vi.stubEnv("KEEL_RECONNECT_CONFIG_FILE", configFile);
+    for (const target of MacAgentTargetSchema.options) {
+      storeMacAgentAuthorization(
+        webOrigin,
+        {
+          version: 1,
+          apiOrigin: config.apiOrigin,
+          target,
+          token: "keel_agent_v1_" + "s".repeat(43),
+        },
+        { platform: "linux" },
+      );
+    }
+
+    async function runCheck(includeDrift: boolean) {
+      const report = vi.fn();
+      const result = await checkProviderReconnectConfigs(
+        webOrigin,
+        async (origin, provider) => {
+          await writeFile(
+            configFile,
+            JSON.stringify({
+              ...config,
+              provider,
+              apiOrigin:
+                includeDrift && provider === "angellist"
+                  ? webOrigin.origin
+                  : config.apiOrigin,
+              publicOrigin: providerBrowserOrigin(config.apiOrigin, provider),
+              listenPort: 16001,
+              tunnelTokenFile,
+              probeCredentialsFile,
+            }),
+            { mode: 0o600 },
+          );
+          return validateProviderReconnectConfig(origin, provider);
+        },
+        report,
+      );
+      return { result, lines: report.mock.calls.flat() };
+    }
+
+    await expect(runCheck(true)).resolves.toEqual({
+      result: 1,
+      lines: ["angellist: FAIL", "tokenfolio: PASS", "sydecar: PASS"],
+    });
+    await expect(runCheck(false)).resolves.toEqual({
+      result: 0,
+      lines: ["angellist: PASS", "tokenfolio: PASS", "sydecar: PASS"],
+    });
+  });
+
   it("fails closed without configuration and rejects permissive files or symlinks", async () => {
     vi.stubEnv("KEEL_RECONNECT_CONFIG_FILE", undefined);
     await expect(
