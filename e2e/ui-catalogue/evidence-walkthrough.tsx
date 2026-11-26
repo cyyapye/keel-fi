@@ -215,9 +215,9 @@ export function EvidenceWalkthrough({ stepId }: { stepId: string }) {
         <CollapsibleContent>
           <p className="catalogue-note">
             Synthetic-only screen excerpts. No requests, storage, payment or
-            application writes. Source revision06e63a7:{" "}
-            {"App.tsx Watch and EvidenceCard"}. The route labels describe
-            product context; catalogue hashes are not product routes.
+            application writes. Source revision 06e63a7, App.tsx Watch and
+            EvidenceCard. Route labels identify the corresponding product
+            screen. Catalogue links stay in this walkthrough.
           </p>
           <Button tone="quiet" disabled={busy} onClick={() => F(!fail)}>
             Fail next review: {fail ? "on" : "off"}
