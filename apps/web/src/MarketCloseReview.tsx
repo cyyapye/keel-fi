@@ -8,7 +8,10 @@ import {
   Screen,
   TextLink,
 } from "@keel/ui";
-import type { MarketReview } from "@keel/domain/market-close";
+import {
+  dailyCloseProvider,
+  type MarketReview,
+} from "@keel/domain/market-close";
 import { useMarketReviews } from "./use-market-reviews";
 import { requestKeel } from "./api-request";
 import { decimal } from "./decimal-input";
@@ -126,6 +129,7 @@ export function MarketCloseReview({
               setDraft({ token: review.token, choice: value });
               setError("");
             }}
+            dailyClose={Boolean(dailyCloseProvider(review.quote))}
             company={review.name}
             ticker={review.quote.ticker}
             shareClass={review.quote.shareClass}

@@ -482,6 +482,15 @@ it("follows a newer undated GP price using recorded metadata assumptions, reject
     date: "2026-10-01",
     priceMicros: 50_000_000,
   };
+  expect(
+    proposedCloseProxyBasis(
+      refreshed,
+      refreshed.snapshotId,
+      { ...close, date: "2026-08-31" },
+      null,
+      refreshed.snapshotId,
+    ),
+  ).toBeNull();
   const anchor = proposedCloseProxyBasis(
     refreshed,
     refreshed.snapshotId,

@@ -803,7 +803,13 @@ export function proposedCloseProxyBasis(
   if (
     !prior ||
     prior.carryStatus !== "before_carry" ||
-    (!prior.effectiveDate && !undatedProxy) ||
+    (!prior.effectiveDate &&
+      (!undatedProxy ||
+        receipt.details.lots.some(
+          (lot) =>
+            (lot.purchasedOn && lot.purchasedOn > quote.date) ||
+            (lot.sharesAsOf && lot.sharesAsOf > quote.date),
+        ))) ||
     (prior.effectiveDate && prior.effectiveDate > quote.date) ||
     prior.valueMinor <= 0 ||
     receipt.details.distributionReview?.events.some(

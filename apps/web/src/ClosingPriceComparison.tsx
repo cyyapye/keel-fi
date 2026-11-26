@@ -45,6 +45,7 @@ export function ClosingPriceComparison({
   ticker,
   shareClass,
   price,
+  dailyClose = false,
   date,
   following,
   positions,
@@ -59,12 +60,16 @@ export function ClosingPriceComparison({
   company: string;
   ticker: string;
   shareClass: string;
+  dailyClose?: boolean;
   price: string;
   date: string;
   following: boolean;
   positions: Position[];
   headingProps?: ComponentProps<typeof SectionHeader>["headingProps"];
 }) {
+  const followLabel = dailyClose
+    ? `Follow ${ticker} daily closes`
+    : `Follow ${ticker} closes`;
   const hasProxy = positions.some((p) => p.proxyBasis);
   const scope = `${positions.length} ${positions.length === 1 ? "position" : "positions"}`;
   const keepLabel = following
@@ -84,7 +89,7 @@ export function ClosingPriceComparison({
         basis.startPriceMicros === anchor.startPriceMicros,
     );
   const indexNote = commonAnchor
-    ? `${indexed.length === 1 ? indexed[0]!.name + " tracks" : "GP estimates track"} ${ticker} from its ${formatSharePrice(anchor.startPriceMicros)}/share close on ${formatDate(anchor.startDate)}. `
+    ? `${indexed.length === 1 ? indexed[0]!.name + " tracks" : "These estimates track"} ${ticker} from its ${formatSharePrice(anchor.startPriceMicros)}/share close on ${formatDate(anchor.startDate)}. `
     : "";
   const closeTotal = positions.reduce(
     (sum, p) => sum + BigInt(p.closeMinor),
@@ -127,11 +132,11 @@ export function ClosingPriceComparison({
             >
               <SelectTrigger {...control}>
                 <SelectValue>
-                  {choice === "follow" ? `Follow ${ticker} closes` : keepLabel}
+                  {choice === "follow" ? followLabel : keepLabel}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="follow">Follow {ticker} closes</SelectItem>
+                <SelectItem value="follow">{followLabel}</SelectItem>
                 <SelectItem value="keep">{keepLabel}</SelectItem>
               </SelectContent>
             </Select>
