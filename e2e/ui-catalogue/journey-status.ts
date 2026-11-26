@@ -79,7 +79,7 @@ const byId: Readonly<Record<string, StepStatus | undefined>> = {
     app,
   ),
   "evidence-watch": shipped(
-    "Open a Watch update in Evidence using its event ID.",
+    "Open a Watch update to review that report in Evidence.",
     app,
   ),
   "evidence-review": shipped(
