@@ -17,6 +17,10 @@ export async function isolateMaintenanceExample({ page }: { page: Page }) {
 }
 
 const entry = (step: string) => "/ui/#journeys/maintenance-" + step;
+const savedPurchaseReceipt = (page: Page) =>
+  page.evaluate(() =>
+    sessionStorage.getItem("keel-ui:holding-maintenance:purchases:v2"),
+  );
 async function select(page: Page, label: string, option: string | RegExp) {
   await page.getByRole("combobox", { name: label, exact: true }).click();
   await page
@@ -246,16 +250,6 @@ export async function correctInvestmentAndDistributions(
   await expect(page.locator(".distribution-preview")).toContainText(
     "$15,728.00",
   );
-  await chooseDate(page, "History through", "2026-10-02");
-  await page
-    .getByRole("button", { name: "Save distributions", exact: true })
-    .click();
-  await expect(
-    page.getByText("Distribution history cannot be dated in the future.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await chooseDate(page, "History through", "2026-09-30");
   await capture(page, info, "distribution-correction");
   await page.getByRole("button", { name: "Save distributions" }).click();
   const reload = page.getByRole("button", {
@@ -264,15 +258,11 @@ export async function correctInvestmentAndDistributions(
   await expect(reload).toBeVisible();
   await expect(afterCarry).toHaveCount(0);
   await capture(page, info, "distribution-recovery");
-  const receipt = () =>
-    page.evaluate(() =>
-      sessionStorage.getItem("keel-ui:holding-maintenance:purchases:v2"),
-    );
-  const saved = await receipt();
+  const saved = await savedPurchaseReceipt(page);
   expect(saved).toBeTruthy();
   await reload.click();
   await expect(page.getByText("$1,800.00", { exact: true })).toBeVisible();
-  expect(await receipt()).toBe(saved);
+  expect(await savedPurchaseReceipt(page)).toBe(saved);
   await page.reload();
   await expect(page.getByText("$12,000.00", { exact: true })).toBeVisible();
   await expect(page.getByText("$1,800.00", { exact: true })).toBeVisible();
@@ -294,6 +284,22 @@ export async function correctInvestmentAndDistributions(
   await expect(calculation).toContainText("$10,440.00");
   await expect(calculation).toContainText("$1,800.00");
   await expect(calculation).toContainText("$1,152.00");
+  await page.getByRole("button", { name: "Edit distributions" }).click();
+  await chooseDate(page, "History through", "2026-10-02");
+  const save = page.getByRole("button", { name: "Save distributions" });
+  await save.click();
+  await expect(
+    page.getByText(/Cancel, reload this page, and reopen to review/),
+  ).toBeVisible();
+  await expect(save).toBeDisabled();
+  expect(await savedPurchaseReceipt(page)).toBe(saved);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "Edit distributions" }).click();
+  await expect(
+    page.getByRole("textbox", { name: "Cash received · $", exact: true }),
+  ).toHaveValue("1800");
+  await expect(save).toBeDisabled();
 }
 
 export async function acceptFeeAndCarryTerms(
@@ -367,9 +373,18 @@ export async function acceptFeeAndCarryTerms(
     .click();
   await expect(source).toHaveValue("Synthetic amended subscription");
   await capture(page, info, "terms-reopened");
+  const accepted = await savedPurchaseReceipt(page);
+  expect(accepted).toBeTruthy();
   await managementFee.fill("9300");
-  await investment.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(excessiveFees).toBeVisible();
+  const save = investment.getByRole("button", { name: "Save", exact: true });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect(excessiveFees).toBeVisible();
+    await expect(managementFee).toHaveValue("9300");
+    expect(await savedPurchaseReceipt(page)).toBe(accepted);
+  }
+  await expect(save).toBeEnabled();
   await capture(page, info, "terms-excessive-fees");
   await investment.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(

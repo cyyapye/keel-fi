@@ -219,12 +219,17 @@ export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
       : AcceptPurchasesSchema.parse(body);
     if (!distribution && path !== prefix + "purchases")
       throw new Error("Unknown sample investment action.");
-    if (
-      change.expectedSnapshotId !== current.snapshotId ||
-      change.expectedReceiptId !== current.id
-    )
+    if (change.expectedReceiptId !== current.id)
       return Response.json(
-        { error: "The investment changed. Reopen the current position." },
+        { error: "The investment changed. Reload before saving." },
+        { status: 409 },
+      );
+    if (change.expectedSnapshotId !== current.snapshotId)
+      return Response.json(
+        {
+          error:
+            "The position or purchase details changed. Reload and review again.",
+        },
         { status: 409 },
       );
     if (
@@ -234,7 +239,7 @@ export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
     )
       return Response.json(
         { error: "Distribution history cannot be dated in the future." },
-        { status: 400 },
+        { status: 409 },
       );
     const details =
       "distributionReview" in change
@@ -243,7 +248,7 @@ export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
     if ("details" in change) {
       const fees = normalizePurchaseLotFees(change.details.lots);
       if (!fees.ok)
-        return Response.json({ error: fees.error }, { status: 400 });
+        return Response.json({ error: fees.error }, { status: 409 });
       details.lots = fees.lots;
       details.investmentSnapshotId = current.snapshotId;
       if (current.details.valuation)
