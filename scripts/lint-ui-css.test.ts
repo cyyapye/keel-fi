@@ -48,6 +48,7 @@ it("rejects new spacing and typography drift across app, catalogue and shared CS
     "apps/web/src/route.css",
     `
     .route { gap: 0.75rem var(--space-2); margin-inline: -4px auto; padding: 0; width: 19px; }
+    .text-role--supporting > .child:focus, :not(.text-role--supporting), .text-role--supporting::before { font-size: 14px; }
     .compact .text-role--supporting { font-size: 0.8125rem; font-weight: 400; }
   `,
   );
@@ -63,6 +64,10 @@ it("rejects new spacing and typography drift across app, catalogue and shared CS
     @media (width < 600px) { .cash { font-size: var(--text-unknown); font-weight: 550; } }
     .catalogue-group-stack { gap: var(--space-2); }
     .step .text-role--supporting { font-size: 14px; }
+    .text-role--supporting:hover { font-size: 14px; }
+    .catalogue-fact-group[data-state="open"] { gap: 24px; }
+    .text-role--primary.emphasis { font-weight: 400; }
+    :where(.text-role--supporting):focus { font-size: 14px; }
   `,
   );
   write(
@@ -71,7 +76,7 @@ it("rejects new spacing and typography drift across app, catalogue and shared CS
   );
   const failed = lint();
   expect(failed.status).toBe(1);
-  expect(failed.stderr).toContain("9 new off-scale declaration(s)");
+  expect(failed.stderr).toContain("13 new off-scale declaration(s)");
   expect(failed.stderr).toContain("padding-block: 8px 19px");
   expect(failed.stderr).toContain(
     "@media (width < 600px) › .cash | font-weight: 550",

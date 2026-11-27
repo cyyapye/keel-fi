@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import postcss from "postcss";
+import parseSelector from "postcss-selector-parser";
 
 const roots = ["apps/web", "packages/ui", "e2e/ui-catalogue"];
 const themeFile = "packages/ui/src/styles.css";
@@ -91,12 +92,40 @@ const roles = new Map([
   ["catalogue-group-stack", { gap: "--space-6" }],
 ]);
 
+// Only the selector subject receives the declaration. An ancestor, a negated
+// role or the originating element of a pseudo-element does not receive it.
+function* subjectRoles(selector) {
+  for (const node of selector.nodes.toReversed()) {
+    if (node.type === "combinator") break;
+    if (node.type === "pseudo") {
+      if (
+        node.value.startsWith("::") ||
+        [":before", ":after", ":first-line", ":first-letter"].includes(
+          node.value,
+        )
+      )
+        break;
+      if ([":is", ":where"].includes(node.value))
+        for (const option of node.nodes) yield* subjectRoles(option);
+    }
+    if (node.type === "class" && roles.has(node.value))
+      yield roles.get(node.value);
+  }
+}
+
+const ruleRoles = new WeakMap();
 function matchesRole(decl, prop, value, scale) {
-  if (decl.parent.type !== "rule") return true;
-  return decl.parent.selectors.every((selector) => {
-    const name = /\.([\w-]+)$/u.exec(selector)?.[1];
-    const role = roles.get(name);
-    const expected = role?.[prop.endsWith("gap") ? "gap" : prop];
+  const rule = decl.parent;
+  if (rule.type !== "rule") return true;
+  let targeted = ruleRoles.get(rule);
+  if (!targeted) {
+    targeted = parseSelector()
+      .astSync(rule.selector)
+      .nodes.flatMap((branch) => [...subjectRoles(branch)]);
+    ruleRoles.set(rule, targeted);
+  }
+  return targeted.every((role) => {
+    const expected = role[prop.endsWith("gap") ? "gap" : prop];
     if (!expected) return true;
     if (prop === "font-weight")
       return (value === "normal" ? "400" : value) === expected;
