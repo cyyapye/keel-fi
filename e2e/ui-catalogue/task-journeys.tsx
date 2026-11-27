@@ -1,6 +1,7 @@
 import { AppAccessWalkthrough } from "./app-access-walkthrough";
 import { SourceUpdatesWalkthrough } from "./source-updates-walkthrough";
 import { ObligationsWalkthrough } from "./obligations-walkthrough";
+import { WatchEvidenceWalkthrough } from "./watch-evidence-walkthrough";
 import { EvidenceWalkthrough } from "./evidence-walkthrough";
 import { PlanningWalkthrough } from "./planning-walkthrough";
 import {
@@ -11,6 +12,7 @@ import {
   SectionHeader,
   TextLink,
 } from "@keel/ui";
+import { evidenceProposalRoute } from "./journey-status";
 import { taskJourneys, taskSourceRevision } from "./task-journey-spec";
 
 export function TaskJourney({ stepId }: { stepId: string }) {
@@ -25,6 +27,27 @@ export function TaskJourney({ stepId }: { stepId: string }) {
         actions={<TextLink href="#journeys">Return to Journeys</TextLink>}
       />
     );
+  const proposal = location.hash === "#journeys/" + evidenceProposalRoute;
+  if (journey.id === "evidence") {
+    return (
+      <Screen>
+        <TextLink href="#journeys">All journeys</TextLink>
+        <SectionHeader
+          title={proposal ? "Apply or ignore a reported value" : journey.title}
+        />
+        {proposal ? (
+          <>
+            <EvidenceWalkthrough stepId="evidence-proposal" />
+            <TextLink href="#journeys/evidence-watch">
+              Back to Watch capture
+            </TextLink>
+          </>
+        ) : (
+          <WatchEvidenceWalkthrough stepId={stepId} />
+        )}
+      </Screen>
+    );
+  }
   const index = journey.steps.indexOf(step);
   const sourceValueStep =
     journey.id === "source-updates" && stepId !== "source-updates-entities";
@@ -43,16 +66,13 @@ export function TaskJourney({ stepId }: { stepId: string }) {
           ? "See what an accepted source report changed, and which value remains in use. Synthetic walkthrough."
           : journey.id === "obligations"
             ? "Review an obligation and its next-payment treatment. Synthetic walkthrough."
-            : journey.id === "evidence"
-              ? "Review a report, then choose whether to apply it to the holding. Synthetic walkthrough."
-              : journey.id === "planning"
-                ? "Edit a goal, save a version, then inspect its forecast record. Synthetic walkthrough."
-                : journey.id === "app-access"
-                  ? "Inspect permissions and access lifetime. Synthetic read-only walkthrough."
-                  : "Source-backed current-state walkthrough · synthetic reference only. Links inspect the next reference screen; they do not perform the described product action."}
+            : journey.id === "planning"
+              ? "Edit a goal, save a version, then inspect its forecast record. Synthetic walkthrough."
+              : journey.id === "app-access"
+                ? "Inspect permissions and access lifetime. Synthetic read-only walkthrough."
+                : "Source-backed current-state walkthrough · synthetic reference only. Links inspect the next reference screen; they do not perform the described product action."}
       </p>
       {!sourceValueStep &&
-        journey.id !== "evidence" &&
         journey.id !== "obligations" &&
         journey.id !== "app-access" && (
           <nav
@@ -87,8 +107,6 @@ export function TaskJourney({ stepId }: { stepId: string }) {
         <PlanningWalkthrough stepId={stepId} />
       ) : journey.id === "obligations" ? (
         <ObligationsWalkthrough stepId={stepId} />
-      ) : journey.id === "evidence" ? (
-        <EvidenceWalkthrough stepId={stepId} />
       ) : (
         <RecordItem
           title={step.title}
@@ -115,7 +133,6 @@ export function TaskJourney({ stepId }: { stepId: string }) {
       )}
       {!sourceValueStep &&
         journey.id !== "planning" &&
-        journey.id !== "evidence" &&
         journey.id !== "obligations" &&
         journey.id !== "app-access" && (
           <ActionGroup wrap>
@@ -135,7 +152,6 @@ export function TaskJourney({ stepId }: { stepId: string }) {
         )}
       {!sourceValueStep &&
         journey.id !== "planning" &&
-        journey.id !== "evidence" &&
         journey.id !== "obligations" &&
         journey.id !== "app-access" && (
           <p className="catalogue-note">
