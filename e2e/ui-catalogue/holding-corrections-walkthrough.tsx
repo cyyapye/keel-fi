@@ -32,6 +32,7 @@ import {
 } from "../purchase-detail-fixtures";
 import {
   AcceptDistributionsSchema,
+  normalizePurchaseLotFees,
   AcceptPurchasesSchema,
   PurchaseReceiptSchema,
 } from "../../packages/domain/src/position-purchases";
@@ -144,6 +145,26 @@ function InvestmentCalculation({
               value={formatMoney(capital.capitalBasisMinor)}
             />
           )}
+          {capital.investorDistributionsMinor !== null && (
+            <DataItem
+              label="Received distributions at historical value"
+              value={formatMoney(capital.investorDistributionsMinor)}
+            />
+          )}
+          {capital.capitalRemainingMinor !== null && (
+            <DataItem
+              label="Capital still to return"
+              value={formatMoney(capital.capitalRemainingMinor)}
+            />
+          )}
+          {reviewed?.distributionReview?.priorCarry.status === "known" && (
+            <DataItem
+              label="Carry already charged"
+              value={formatMoney(
+                reviewed.distributionReview.priorCarry.amountMinor,
+              )}
+            />
+          )}
           {after?.carryMinor != null && (
             <DataItem
               label="Estimated carry"
@@ -151,6 +172,13 @@ function InvestmentCalculation({
             />
           )}
         </DataList>
+        {after?.method === "cumulative" && (
+          <p className="holding-metadata">
+            Only investor distributions reduce capital still to return. The
+            carry calculation includes historical investor value and deducts
+            carry already charged.
+          </p>
+        )}
         {performance?.totalReturnPpm != null && (
           <p className="holding-metadata">
             Total return = (value + distributions excluding capital refunds −
@@ -199,10 +227,30 @@ export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
         { error: "The investment changed. Reopen the current position." },
         { status: 409 },
       );
+    if (
+      "distributionReview" in change &&
+      change.distributionReview.coverage.throughDate >
+        new Date().toISOString().slice(0, 10)
+    )
+      return Response.json(
+        { error: "Distribution history cannot be dated in the future." },
+        { status: 400 },
+      );
     const details =
       "distributionReview" in change
         ? { ...current.details, distributionReview: change.distributionReview }
         : change.details;
+    if ("details" in change) {
+      const fees = normalizePurchaseLotFees(change.details.lots);
+      if (!fees.ok)
+        return Response.json({ error: fees.error }, { status: 400 });
+      details.lots = fees.lots;
+      details.investmentSnapshotId = current.snapshotId;
+      if (current.details.valuation)
+        details.valuation = current.details.valuation;
+      if (current.details.distributionReview)
+        details.distributionReview = current.details.distributionReview;
+    }
     const next = PurchaseReceiptSchema.parse({
       ...current,
       id: crypto.randomUUID(),

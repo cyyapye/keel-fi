@@ -120,6 +120,20 @@ function ManualExample({ mode, route }: { mode: Mode; route: string }) {
     (row) => detail(row.receipt.positionId) === route,
   );
   const previous = useRef(action);
+  const locked = useRef(false);
+  useEffect(() => {
+    function keepUnconfirmedSubmission() {
+      if (
+        locked.current &&
+        location.hash.startsWith(base) &&
+        location.hash !== base + "/new"
+      )
+        history.pushState(null, "", base + "/new");
+    }
+    window.addEventListener("popstate", keepUnconfirmedSubmission);
+    return () =>
+      window.removeEventListener("popstate", keepUnconfirmedSubmission);
+  }, []);
   useEffect(() => {
     if (selected) selectedHeading.current?.focus();
     else if (!action && previous.current === "/new") add.current?.focus();
@@ -135,6 +149,9 @@ function ManualExample({ mode, route }: { mode: Mode; route: string }) {
     return (
       <ManualHoldingEditor
         request={sample.request}
+        onNavigationLockChange={(value) => {
+          locked.current = value;
+        }}
         onClose={() => {
           location.hash = base;
         }}

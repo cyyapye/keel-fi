@@ -12,7 +12,7 @@ import {
   calculateValuationFromShares,
   assessValuationFromShares,
   valuationSharesKey,
-  purchaseFeeSummary,
+  normalizePurchaseLotFees,
   netInvestedValuation,
 } from "@keel/domain/position-purchases";
 import {
@@ -548,71 +548,9 @@ export class D1PositionPurchaseRepository implements PositionPurchaseRepository 
       if (input.details.investmentTerms)
         input.details.investmentTerms.reportedValueReview = null;
     }
-    const feeIds = new Set<string>();
-    const lotIds = new Set(input.details.lots.map((l) => l.id));
-    for (const lot of input.details.lots) {
-      if (!lot.fees) continue;
-      for (const fee of lot.fees) {
-        if (fee.paymentStatus === "unpaid") fee.treatment = "separate";
-        if (
-          feeIds.has(fee.id) ||
-          fee.coveredLotIds.some((id) => !lotIds.has(id))
-        )
-          throw new PositionPurchaseError(
-            "unsupported",
-            "Record each fee once and link it only to this investment's acquisitions.",
-          );
-        feeIds.add(fee.id);
-      }
-      if (new Set(lot.fees.map((f) => f.id)).size !== lot.fees.length)
-        throw new PositionPurchaseError(
-          "unsupported",
-          "Fee identifiers must be unique within an acquisition.",
-        );
-      const fees = purchaseFeeSummary(lot);
-      if (lot.feesComplete && !fees)
-        throw new PositionPurchaseError(
-          "unsupported",
-          "Complete the fee basis and prepaid duration.",
-        );
-      if (fees) {
-        const retained =
-          lot.grossCashMinor === null
-            ? null
-            : BigInt(lot.grossCashMinor) -
-              BigInt(
-                lot.capitalReturn?.status === "received"
-                  ? lot.capitalReturn.amountMinor
-                  : 0,
-              );
-        if (retained !== null && BigInt(fees.amountMinor) > retained)
-          throw new PositionPurchaseError(
-            "unsupported",
-            "Upfront fees exceed cash after refunds.",
-          );
-        // Explicit net-capital bases remain evidence even when the fee is estimated.
-        for (const fee of lot.fees)
-          if (
-            fee.method === "percentage" &&
-            fee.basis === "net_capital" &&
-            fee.basisMinor === null
-          )
-            fee.basisMinor = lot.netCapitalMinor;
-        lot.upfrontDeductionsMinor = fees.estimated ? null : fees.amountMinor;
-        lot.netCapitalMinor =
-          fees.estimated || lot.grossCashMinor === null
-            ? null
-            : Number(
-                BigInt(lot.grossCashMinor) -
-                  BigInt(
-                    lot.capitalReturn?.status === "received"
-                      ? lot.capitalReturn.amountMinor
-                      : 0,
-                  ) -
-                  BigInt(fees.amountMinor),
-              );
-      }
-    }
+    const fees = normalizePurchaseLotFees(input.details.lots);
+    if (!fees.ok) throw new PositionPurchaseError("unsupported", fees.error);
+    input.details.lots = fees.lots;
     const selectedRecord = prior?.details.valuation?.records.find(
       (r) => r.id === prior.details.valuation?.selected?.recordId,
     );

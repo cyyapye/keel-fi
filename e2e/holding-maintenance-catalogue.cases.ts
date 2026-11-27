@@ -1,5 +1,8 @@
 import type { Page, TestInfo } from "@playwright/test";
-import { openImportedInvestment } from "./holding-maintenance-parity";
+import {
+  chooseDate,
+  openImportedInvestment,
+} from "./holding-maintenance-parity";
 import { expect } from "./api-mocked-test";
 
 export async function isolateMaintenanceExample({ page }: { page: Page }) {
@@ -71,6 +74,11 @@ export async function manualHoldingRecovery(
     await page
       .getByRole("button", { name: "Save holding", exact: true })
       .click();
+    await expect(
+      page.getByRole("button", { name: "Check holdings" }),
+    ).toBeVisible();
+    await page.goBack();
+    await expect(page).toHaveURL(/#journeys\/maintenance-manual\/new$/);
     await expect(
       page.getByRole("button", { name: "Check holdings" }),
     ).toBeVisible();
@@ -171,16 +179,20 @@ export async function linkAndReplacePosition(
     section.getByText(/Historical · replaced by this SPV/),
   ).toBeVisible();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
+  const reported = page.getByRole("group", {
+    name: "Reported remaining value · Carry unspecified",
+  });
+  await expect(reported).toContainText("$15,600.00");
+  await expect(reported).toContainText("Sep 17, 2026 · Tokenfolio");
   await expect(
-    page.getByText("$15,600.00 · Tokenfolio · Sep 17, 2026", { exact: true }),
-  ).toBeVisible();
+    page
+      .getByRole("region", { name: "Position summary" })
+      .getByText("Cash paid", { exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByText(
       /Demo Orbit VII SPV · Demo Family LLC · Sydecar · Sep 20, 2026/,
     ),
-  ).toBeVisible();
-  await expect(
-    page.getByText("$6,000.00", { exact: true }).first(),
   ).toBeVisible();
   await capture(page, info, "links-saved");
 }
@@ -189,6 +201,7 @@ export async function correctInvestmentAndDistributions(
   { page }: { page: Page },
   info: TestInfo,
 ) {
+  await page.clock.setFixedTime(new Date("2026-10-01T12:00:00Z"));
   await page.goto(entry("investment"));
   await page
     .getByRole("button", { name: "Edit investment", exact: true })
@@ -233,6 +246,16 @@ export async function correctInvestmentAndDistributions(
   await expect(page.locator(".distribution-preview")).toContainText(
     "$15,728.00",
   );
+  await chooseDate(page, "History through", "2026-10-02");
+  await page
+    .getByRole("button", { name: "Save distributions", exact: true })
+    .click();
+  await expect(
+    page.getByText("Distribution history cannot be dated in the future.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await chooseDate(page, "History through", "2026-09-30");
   await capture(page, info, "distribution-correction");
   await page.getByRole("button", { name: "Save distributions" }).click();
   const reload = page.getByRole("button", {
@@ -261,6 +284,13 @@ export async function correctInvestmentAndDistributions(
   await capture(page, info, "investment-readback");
   await page.getByRole("button", { name: "Calculation", exact: true }).click();
   const calculation = page.locator(".holding-calculation");
+  await expect(
+    calculation.getByText("Estimated net capital", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    calculation.getByText("Net capital", { exact: true }),
+  ).toBeVisible();
+  await expect(calculation).toContainText("deducts carry already charged");
   await expect(calculation).toContainText("$10,440.00");
   await expect(calculation).toContainText("$1,800.00");
   await expect(calculation).toContainText("$1,152.00");
@@ -289,6 +319,13 @@ export async function acceptFeeAndCarryTerms(
   });
   await expect(managementFee).toHaveValue("360");
   await expect(carry).toHaveValue("15");
+  await managementFee.fill("9300");
+  await investment.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    investment.getByText("Upfront fees exceed cash after refunds.", {
+      exact: true,
+    }),
+  ).toBeVisible();
   await managementFee.fill("420");
   await carry.fill("18");
   await select(page, "Carry gains above", "Net capital");

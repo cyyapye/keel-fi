@@ -4,7 +4,8 @@ import {
   exampleReadback,
 } from "./holding-maintenance-fixture";
 import { useState } from "react";
-import { Button, DataItem, DataList, SectionHeader } from "@keel/ui";
+import { Button, SectionHeader } from "@keel/ui";
+import { holdingValueSummary } from "../../apps/web/src/holding-value";
 import { HoldingSchema } from "../../packages/domain/src/index";
 import {
   AcceptPositionLinkSchema,
@@ -148,6 +149,20 @@ export function HoldingLinksWalkthrough() {
   const supplier = positions.find(
     (position) => position.id === summary.valueSource,
   );
+  const selected = records[0]!;
+  const projected = {
+    ...selected,
+    purchaseContext: {
+      ...selected.purchaseContext!,
+      reportedValueSnapshotId:
+        supplier?.snapshot.id ?? selected.purchaseContext!.snapshotId,
+      reportedValueMinor: supplier?.snapshot.unrealizedValue.minor ?? null,
+      reportedSourceLabel: supplier?.source.label ?? selected.sourceLabel,
+      sourceObservedOn:
+        supplier?.snapshot.observedAt.slice(0, 10) ?? selected.effectiveDate,
+    },
+  };
+  const { record } = holdingValueSummary(projected);
   const [generation, setGeneration] = useState(0);
   return (
     <>
@@ -162,21 +177,45 @@ export function HoldingLinksWalkthrough() {
             formatDate(records[0]!.effectiveDate)
           }
         />
-        <DataList layout="rows">
-          <DataItem
-            label="Administrator NAV"
-            value={
-              supplier?.snapshot.unrealizedValue.minor != null
-                ? formatMoney(supplier.snapshot.unrealizedValue.minor) +
-                  " · " +
-                  supplier.source.label +
-                  " · " +
-                  formatDate(supplier.snapshot.observedAt)
-                : "Not reported"
-            }
-          />
-          <DataItem label="Cash paid" value={formatMoney(600_000)} />
-        </DataList>
+        <section
+          className="holding-value-summary"
+          aria-label="Position summary"
+        >
+          {record ? (
+            <div
+              className="holding-value-metric"
+              role="group"
+              aria-label="Reported remaining value · Carry unspecified"
+            >
+              <p>Reported remaining value · Carry unspecified</p>
+              <strong className="holding-value-amount">
+                {formatMoney(record.valueMinor)}
+              </strong>
+              <p className="holding-metadata">
+                {record.effectiveDate && (
+                  <>
+                    <time dateTime={record.effectiveDate}>
+                      {formatDate(record.effectiveDate)}
+                    </time>
+                    {" · "}
+                  </>
+                )}
+                {record.sourceLabel}
+              </p>
+            </div>
+          ) : (
+            <div
+              className="holding-value-metric"
+              role="group"
+              aria-label="Cash paid"
+            >
+              <p>Cash paid</p>
+              <strong className="holding-value-amount">
+                {formatMoney(selected.investedMinor!)}
+              </strong>
+            </div>
+          )}
+        </section>
         <fieldset className="holding-form-fieldset holding-linked-records">
           <PositionLinksEditor
             key={generation}
