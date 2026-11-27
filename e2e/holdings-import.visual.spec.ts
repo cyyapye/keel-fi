@@ -1299,8 +1299,10 @@ test(
       ),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Update queued" }),
-    ).toBeDisabled();
+      privateInvestments
+        .getByRole("article", { name: "AngelList", exact: true })
+        .getByRole("button", { name: "Queue update" }),
+    ).toHaveCount(0);
   },
 );
 
@@ -1313,6 +1315,11 @@ test(
     let alphaChecks = 0;
     const sessionId = "22222222-2222-4222-8222-222222222222";
     let sessionStatus: "ready" | "opened" | "connected" = "ready";
+    let agentStatus: "needs_attention" | "running" = "needs_attention";
+    let releaseReadback: () => void = () => undefined;
+    const readback = new Promise<void>((complete) => {
+      releaseReadback = complete;
+    });
     await page.addInitScript(() => {
       window.open = () => null;
       const attempts: number[] = [];
@@ -1335,17 +1342,21 @@ test(
       await route.fulfill({ json: [] });
     });
     await page.route("**/api/automation/angellist/status", async (route) => {
+      if (sessionStatus === "connected") await readback;
       await route.fulfill({
         json: {
           version: 1,
-          status: "needs_attention",
+          status: agentStatus,
           interval: "daily",
-          runStatus: null,
+          runStatus: agentStatus === "running" ? "queued" : null,
           lastSeenAt: "2026-08-26T12:00:00.000Z",
           lastCompletedAt: "2026-08-25T12:00:00.000Z",
           nextRunAt: "2026-08-27T12:00:00.000Z",
           latestImportId: "import_synthetic_angellist",
-          errorCode: "angellist_sign_in_required",
+          errorCode:
+            agentStatus === "needs_attention"
+              ? "angellist_sign_in_required"
+              : null,
         },
       });
     });
@@ -1484,12 +1495,50 @@ test(
     sessionStatus = "connected";
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await page.clock.runFor(5_100);
+    const angelList = page.getByRole("article", {
+      name: "AngelList",
+      exact: true,
+    });
+    const successNotice = angelList.getByText("AngelList sign-in confirmed.", {
+      exact: true,
+    });
+    const signInRequired = angelList.getByText(
+      "Sign in again to resume updates",
+      {
+        exact: true,
+      },
+    );
+    const reconnect = angelList.getByRole("button", {
+      name: "Reconnect AngelList",
+    });
     await expect(
-      page.getByText(
-        "AngelList reconnected. Clear positions update automatically; exceptions stay available for review.",
-        { exact: true },
-      ),
+      angelList.getByRole("status").getByText("Checking AngelList connection…"),
     ).toBeVisible();
+    await expect(successNotice).toHaveCount(0);
+    await expect(signInRequired).toHaveCount(0);
+    await expect(reconnect).toHaveCount(0);
+
+    agentStatus = "running";
+    releaseReadback();
+    await expect(successNotice).toBeVisible();
+    await expect(angelList.getByText(/^Holdings updated /u)).toBeVisible();
+    await expect(
+      angelList.getByText("Update queued", { exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      angelList.getByRole("status").getByText("Update queued"),
+    ).toBeVisible();
+    await expect(
+      angelList.getByRole("button", { name: "Queue update" }),
+    ).toHaveCount(0);
+    await expect(signInRequired).toHaveCount(0);
+
+    agentStatus = "needs_attention";
+    await page.clock.runFor(10_100);
+    await expect(signInRequired).toBeVisible();
+    await expect(angelList.getByText(/^Holdings updated /u)).toBeVisible();
+    await expect(successNotice).toHaveCount(0);
+    await expect(reconnect).toBeVisible();
 
     const completedCount = reconnectChecks;
     await page.clock.runFor(60_000);

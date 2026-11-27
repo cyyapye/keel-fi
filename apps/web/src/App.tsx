@@ -3661,8 +3661,8 @@ function angelListAgentMessage(overview: AngelListMacAgentOverview | null): {
   if (overview.status === "running") {
     return overview.runStatus === "queued"
       ? {
-          title: "Update queued",
-          description: "It will start at the agent’s next daily check.",
+          title: null,
+          description: null,
         }
       : {
           title: "Reading portfolio",
@@ -4028,8 +4028,10 @@ function AgentTroubleshooting({
 }
 
 function ProviderUpdateSummary({
+  completedLabel = "Updated",
   overview,
 }: {
+  completedLabel?: string;
   overview: AngelListMacAgentOverview | ProviderPortfolioAgentOverview | null;
 }) {
   if (overview === null || overview.status === "setup_required") return null;
@@ -4038,13 +4040,17 @@ function ProviderUpdateSummary({
   return (
     <p className="provider-agent-row__meta">
       {overview.lastCompletedAt !== null && (
-        <>Updated {formatDate(overview.lastCompletedAt)}</>
+        <>
+          {completedLabel} {formatDate(overview.lastCompletedAt)}
+        </>
       )}
       {overview.lastCompletedAt !== null && nextRunAt !== null && " · "}
       {nextRunAt !== null && <>Next {formatDate(nextRunAt)}</>}
     </p>
   );
 }
+
+const ANGELLIST_SIGN_IN_CONFIRMED_NOTICE = "AngelList sign-in confirmed.";
 
 function AngelListMacAgentControl() {
   const [overview, setOverview] = useState<AngelListMacAgentOverview | null>(
@@ -4060,6 +4066,9 @@ function AngelListMacAgentControl() {
     try {
       const next = await loadAngelListAutomationOverview();
       setOverview(next);
+      if (next.status !== "ready" && next.status !== "running") {
+        setNotice(null);
+      }
       setError(null);
       return next;
     } catch {
@@ -4155,10 +4164,14 @@ function AngelListMacAgentControl() {
   };
 
   const reconnectCompleted = useCallback(() => {
-    setNotice(
-      "AngelList reconnected. Clear positions update automatically; exceptions stay available for review.",
-    );
-    void reload();
+    setOverview(null);
+    setNotice(null);
+    setError(null);
+    void reload().then((next) => {
+      if (next?.status === "ready" || next?.status === "running") {
+        setNotice(ANGELLIST_SIGN_IN_CONFIRMED_NOTICE);
+      }
+    });
   }, [reload]);
 
   return (
@@ -4172,14 +4185,23 @@ function AngelListMacAgentControl() {
           <p className="provider-agent-row__status">{message.title}</p>
         )}
         {message.description !== null && <p>{message.description}</p>}
-        <ProviderUpdateSummary overview={overview} />
+        <ProviderUpdateSummary
+          completedLabel={
+            repairRequired || notice === ANGELLIST_SIGN_IN_CONFIRMED_NOTICE
+              ? "Holdings updated"
+              : "Updated"
+          }
+          overview={overview}
+        />
       </div>
 
       <div className="provider-agent-row__action" aria-live="polite">
-        {overview === null && error === null ? (
-          <span className="provider-agent-row__checking" role="status">
-            Checking…
-          </span>
+        {overview === null ? (
+          error === null && (
+            <span className="provider-agent-row__checking" role="status">
+              Checking AngelList connection…
+            </span>
+          )
         ) : setupRequired ? (
           <div className="provider-agent-row__setup">
             <Button
@@ -4247,19 +4269,21 @@ function AngelListMacAgentControl() {
                 </SelectContent>
               </Select>
             </div>
-            <Button
-              disabled={busyAction !== null || running}
-              onClick={() => void runNow()}
-              tone="secondary"
-            >
-              {busyAction === "run"
-                ? "Requesting…"
-                : running
-                  ? overview?.runStatus === "queued"
-                    ? "Update queued"
-                    : "Update in progress"
-                  : "Queue update"}
-            </Button>
+            {running && overview?.runStatus === "queued" ? (
+              <FormMessage role="status">Update queued</FormMessage>
+            ) : (
+              <Button
+                disabled={busyAction !== null || running}
+                onClick={() => void runNow()}
+                tone="secondary"
+              >
+                {busyAction === "run"
+                  ? "Requesting…"
+                  : running
+                    ? "Update in progress"
+                    : "Queue update"}
+              </Button>
+            )}
           </ActionGroup>
         )}
 
