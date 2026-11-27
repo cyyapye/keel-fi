@@ -302,7 +302,6 @@ export function HoldingsTotalJourney({
       aria-label="Holdings total journey"
     >
       <TextLink href="#journeys">All journeys</TextLink>
-      <p className="catalogue-note">Proposed journey · Synthetic holdings</p>
       <Field
         label="Simulated fund statement"
         className="catalogue-valuation-field"

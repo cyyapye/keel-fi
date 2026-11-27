@@ -440,14 +440,9 @@
   display: grid;
   gap: var(--space-4);
 }
-.catalogue-evidence-demo details {
+.catalogue-evidence-demo .evidence-prototype {
   border-top: 1px solid var(--line-soft);
   padding-top: var(--space-4);
-}
-.catalogue-evidence-demo summary {
-  cursor: pointer;
-  min-height: 44px;
-  color: var(--muted);
 }
 /* The excerpt has no icon/status columns: use the native section header's full text column. */
 .catalogue-evidence-demo .evidence-card > .section-heading {
@@ -541,15 +536,6 @@
 .catalogue-obligations-demo .obligations-card .action-group > button {
   flex: 0 0 auto;
   width: auto;
-}
-.catalogue-obligations-demo summary {
-  cursor: pointer;
-  min-height: 44px;
-  color: var(--muted);
-}
-.catalogue-obligations-demo details[open] {
-  display: grid;
-  gap: var(--space-3);
 }
 .catalogue-obligations-demo .obligations-prototype {
   border-top: 1px solid var(--line-soft);

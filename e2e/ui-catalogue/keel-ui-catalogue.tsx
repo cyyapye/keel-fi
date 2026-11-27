@@ -1,4 +1,5 @@
 import { formatHoldingsAmount } from "@keel/ui/money";
+import { journeyStepStatus } from "./journey-status";
 import { Journeys } from "./keel-journeys";
 import { JourneyUsage } from "./journey-usage";
 import { groups, pages, type Page } from "./catalogue-manifest";
@@ -1264,6 +1265,8 @@ function App() {
       card.scrollIntoView({ block: "start" });
     }
   }, [route]);
+  const stepId = page === "journeys" ? route.split("/")[1] : undefined;
+  const status = journeyStepStatus(stepId);
   const title =
     page === "journeys" ? "Journeys" : pages.find((p) => p.id === page)!.label;
   return (
@@ -1283,10 +1286,19 @@ function App() {
       <Screen>
         <PageHeader
           title={title}
-          description={`Keel @keel/ui · ${CATALOGUE_REVISION} · synthetic browser fixtures`}
+          eyebrow={status ? "Synthetic walkthrough" : undefined}
+          description={
+            status ? (
+              <>
+                <strong>{status.stage}</strong> · {status.detail}
+              </>
+            ) : (
+              `Keel @keel/ui · ${CATALOGUE_REVISION} · synthetic browser fixtures`
+            )
+          }
         />
         {page === "journeys" ? (
-          <Journeys stepId={route.split("/")[1]} />
+          <Journeys stepId={stepId} />
         ) : page === "collection-loading" ? (
           <CollectionLoading />
         ) : page === "compositions" ? (
