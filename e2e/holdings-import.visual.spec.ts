@@ -1540,9 +1540,9 @@ test(
 
     await retryStatus.press("Enter");
     await expect(successNotice).toBeVisible();
-    await expect(
-      angelList.getByRole("heading", { name: "AngelList" }),
-    ).toBeFocused();
+    const heading = angelList.getByRole("heading", { name: "AngelList" });
+    await expect(heading).toBeFocused();
+    await expect(heading).toHaveCSS("outline-style", "solid");
     await expect(retryStatus).toHaveCount(0);
     expect(reconnectStarts).toBe(1);
     expect(readbackAttempts).toBe(2);
