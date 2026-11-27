@@ -2753,7 +2753,7 @@ test.describe("Holding maintenance", () => {
     correctInvestmentAndDistributions,
   );
   test(
-    "SPV fees and carry are reviewed before the accepted terms reopen on the same position",
+    "fee and carry corrections reopen on the same USD investment with its distributions intact",
     acceptFeeAndCarryTerms,
   );
 });

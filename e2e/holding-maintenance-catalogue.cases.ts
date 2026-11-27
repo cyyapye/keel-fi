@@ -1,4 +1,5 @@
 import type { Page, TestInfo } from "@playwright/test";
+import { openImportedInvestment } from "./holding-maintenance-parity";
 import { expect } from "./api-mocked-test";
 
 export async function isolateMaintenanceExample({ page }: { page: Page }) {
@@ -116,14 +117,16 @@ export async function manualHoldingRecovery(
     }
     await selected.getByRole("link", { name: "Back to holdings" }).click();
     await expect(page.getByText(name, { exact: true })).toHaveCount(1);
-    await expect(
-      page.getByRole("button", { name: "Add holding", exact: true }),
-    ).toBeFocused();
+    await expect(page.locator(`a[href="${new URL(url).hash}"]`)).toBeFocused();
     if (mode === "Saved, response lost")
       await page
         .getByRole("button", { name: "Capture controls and source" })
         .click();
   }
+  const add = page.getByRole("button", { name: "Add holding", exact: true });
+  await add.click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(add).toBeFocused();
 }
 
 export async function linkAndReplacePosition(
@@ -131,18 +134,15 @@ export async function linkAndReplacePosition(
   info: TestInfo,
 ) {
   await page.goto(entry("links"));
-  async function openLinks() {
-    await page
-      .getByRole("button", { name: "Ownership, sources & history" })
-      .click();
-    await page
-      .getByRole("button", { name: "Linked investment records", exact: true })
-      .click();
-  }
-  await openLinks();
   const section = page.getByRole("region", {
     name: "Linked investment records",
   });
+  const add = section.getByRole("button", {
+    name: "Add linked investment record",
+  });
+  const viewRecords = section.getByRole("button", { name: "View records" });
+  await expect(viewRecords).toHaveCount(0);
+  await add.click();
   await select(page, "Source to link", /Demo Orbit Aerospace source/);
   await select(page, "Reported valuation to use", /^Use Tokenfolio/);
   await expect(section).toContainText("USD 5,200.00");
@@ -151,6 +151,7 @@ export async function linkAndReplacePosition(
   await capture(page, info, "links-comparison");
   await section.getByRole("button", { name: "Apply link" }).click();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
+  await add.click();
   await select(page, "Link another source", /Demo Orbit V SPV/);
   await select(page, "Relationship", "Earlier SPV replaced by this one");
   await expect(
@@ -165,7 +166,7 @@ export async function linkAndReplacePosition(
     section.getByText(/Historical · replaced by this SPV/),
   ).toBeVisible();
   await page.reload();
-  await openLinks();
+  await viewRecords.click();
   await expect(
     section.getByText(/Historical · replaced by this SPV/),
   ).toBeVisible();
@@ -174,8 +175,10 @@ export async function linkAndReplacePosition(
     page.getByText("$15,600.00 · Tokenfolio · Sep 17, 2026", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /^Ownership, sources & history/ }),
-  ).toContainText("Sydecar · Sep 20, 2026");
+    page.getByText(
+      /Demo Orbit VII SPV · Demo Family LLC · Sydecar · Sep 20, 2026/,
+    ),
+  ).toBeVisible();
   await expect(
     page.getByText("$6,000.00", { exact: true }).first(),
   ).toBeVisible();
@@ -268,65 +271,65 @@ export async function acceptFeeAndCarryTerms(
   info: TestInfo,
 ) {
   await page.goto(entry("terms"));
-  await page.getByRole("button", { name: "Fees & carry" }).click();
-  await page.getByRole("button", { name: "Review fee & carry" }).click();
-  await select(page, "Imported amount", "Before fees · gross commitment");
-  const fee = page.getByLabel("Management fee rate", { exact: true });
-  const carry = page.getByLabel("Carry", { exact: true });
-  await expect(fee).toHaveValue("2");
-  await expect(carry).toHaveValue("20");
-  await fee.fill("3");
-  await carry.fill("18");
-  await page.getByLabel("Fee term").fill("1");
-  await page.getByLabel("Setup fee", { exact: true }).fill("0");
-  await page
-    .getByLabel("What changed")
-    .fill(
-      "Demo Beacon subscription amendment records a 3% management fee for one year and 18% carry on exit gains.",
-    );
-  await page.getByRole("button", { name: "Review terms" }).click();
-  const preview = page.locator(".position-economics__review");
-  await expect(preview).toContainText("3.0% · $3,000.00");
-  await expect(preview).toContainText("$97,000.00");
-  await expect(preview).toContainText("18.0%");
-  const timing = preview.getByText(
-    "Carry is recorded as a term now and applied only when a partial or full exit is accepted.",
-    { exact: true },
-  );
-  await expect(timing).toBeVisible();
-  const smallestLabel = await preview
-    .locator(":scope > div > span, :scope > p, :scope > small")
-    .evaluateAll((elements) => ({
-      size: Math.min(
-        ...elements.map((el) => parseFloat(getComputedStyle(el).fontSize)),
-      ),
-      supporting: parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue(
-          "--text-supporting",
-        ),
-      ),
-    }));
-  expect(smallestLabel.size).toBeGreaterThanOrEqual(smallestLabel.supporting);
-  await capture(page, info, "terms-review");
-  await preview.getByRole("button", { name: "Accept terms" }).click();
+  const investment = page.getByRole("region", {
+    name: "Investment",
+    exact: true,
+  });
   await expect(
-    page.getByRole("button", { name: "Update fee & carry" }),
+    page.getByText(/Demo Cedar SPV · Demo Family LLC/),
+  ).toBeVisible();
+  await openImportedInvestment(page);
+  const managementFee = investment.getByRole("textbox", {
+    name: "Management fee paid · $",
+    exact: true,
+  });
+  const carry = investment.getByRole("textbox", {
+    name: "Carry · %",
+    exact: true,
+  });
+  await expect(managementFee).toHaveValue("360");
+  await expect(carry).toHaveValue("15");
+  await managementFee.fill("420");
+  await carry.fill("18");
+  await select(page, "Carry gains above", "Net capital");
+  await investment
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  const source = investment.getByRole("textbox", {
+    name: "Purchase source",
+    exact: true,
+  });
+  await source.fill("Synthetic amended subscription");
+  await capture(page, info, "terms-review");
+  await investment.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    investment.getByRole("definition").filter({ hasText: "$420.00" }),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Fees & carry" }).click();
   await expect(
-    page.getByRole("button", { name: "Update fee & carry" }),
+    investment.getByRole("definition").filter({ hasText: "$420.00" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Harbor Health Systems" }),
-  ).toBeVisible();
-  const accepted = page.locator(".position-economics__rows");
-  await expect(accepted).toContainText("$3,000.00");
-  await expect(accepted).toContainText("$97,000.00");
-  await expect(accepted).toContainText("18.0%");
-  await expect(accepted).toContainText("Sydecar template");
+  await expect(investment.getByText("18%", { exact: true })).toBeVisible();
+  await expect(investment).toContainText("$200.00");
+  await expect(page.getByText("$1,500.00", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Calculation", exact: true }).click();
+  await expect(page.locator(".holding-calculation")).toContainText(
+    "Contributed-capital hurdle",
+  );
+  await expect(page.locator(".holding-calculation")).toContainText("$1,800.00");
   await capture(page, info, "terms-accepted");
-  await page.getByRole("button", { name: "Update fee & carry" }).click();
-  await expect(fee).toHaveValue("3");
+  await openImportedInvestment(page);
+  await expect(managementFee).toHaveValue("420");
   await expect(carry).toHaveValue("18");
+  await expect(
+    investment.getByRole("combobox", {
+      name: "Carry gains above",
+      exact: true,
+    }),
+  ).toContainText("Net capital");
+  await investment
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(source).toHaveValue("Synthetic amended subscription");
+  await capture(page, info, "terms-reopened");
 }

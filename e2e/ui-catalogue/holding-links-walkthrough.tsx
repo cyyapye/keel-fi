@@ -4,16 +4,7 @@ import {
   exampleReadback,
 } from "./holding-maintenance-fixture";
 import { useState } from "react";
-import {
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  DataItem,
-  DataList,
-  DisclosureIndicator,
-  SectionHeader,
-} from "@keel/ui";
+import { Button, DataItem, DataList, SectionHeader } from "@keel/ui";
 import { HoldingSchema } from "../../packages/domain/src/index";
 import {
   AcceptPositionLinkSchema,
@@ -74,6 +65,16 @@ const records = [
     committedMinor: row.invested,
     realizedValueMinor: 0,
     instrumentType: "SPV interest",
+    purchaseContext: {
+      snapshotId: "snapshot_" + row.id,
+      currency: "USD",
+      openedOn: null,
+      receipt: null,
+      reportedValueSnapshotId: "snapshot_" + row.id,
+      reportedValueMinor: row.value,
+      reportedSourceLabel: row.provider,
+      sourceObservedOn: row.observedOn,
+    },
     positionValueContext: {
       snapshotId: "snapshot_" + row.id,
       currency: "USD",
@@ -127,20 +128,26 @@ function positionExample() {
     download: () =>
       Promise.reject(new Error("This sample has no attached documents.")),
     sourceHref: () => undefined,
-    selectedValue: () =>
-      links.find(
+    summary: () => {
+      const active = links.filter(
         (link) =>
-          link.state === "linked" &&
-          link.targetPositionId === "current" &&
-          link.useSourceValue,
-      )?.sourcePositionId,
+          link.state === "linked" && link.targetPositionId === "current",
+      );
+      return {
+        hasLinkedRecords: active.length > 0,
+        valueSource: active.find((link) => link.useSourceValue)
+          ?.sourcePositionId,
+      };
+    },
   };
 }
 
 export function HoldingLinksWalkthrough() {
   const [actions, setActions] = useState(positionExample);
-  const [valueSource, setValueSource] = useState(actions.selectedValue());
-  const supplier = positions.find((position) => position.id === valueSource);
+  const [summary, setSummary] = useState(actions.summary);
+  const supplier = positions.find(
+    (position) => position.id === summary.valueSource,
+  );
   const [generation, setGeneration] = useState(0);
   return (
     <>
@@ -150,7 +157,10 @@ export function HoldingLinksWalkthrough() {
       >
         <SectionHeader
           title="Demo Orbit Aerospace"
-          description="Demo Orbit VII SPV · Demo Family LLC"
+          description={
+            "Demo Orbit VII SPV · Demo Family LLC · Sydecar · " +
+            formatDate(records[0]!.effectiveDate)
+          }
         />
         <DataList layout="rows">
           <DataItem
@@ -167,34 +177,20 @@ export function HoldingLinksWalkthrough() {
           />
           <DataItem label="Cash paid" value={formatMoney(600_000)} />
         </DataList>
-        <Collapsible
-          key={generation}
-          className="holding-ownership holding-detail-section"
-        >
-          <CollapsibleTrigger
-            layout="inline"
-            className="holding-section-toggle"
-          >
-            <span>
-              <strong>Ownership, sources &amp; history</strong>
-              <small>
-                Demo Family LLC · Sydecar ·{" "}
-                {formatDate(records[0]!.effectiveDate)}
-              </small>
-            </span>
-            <DisclosureIndicator />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <PositionLinksEditor
-              positionId="current"
-              actions={actions}
-              onAccepted={() => {
-                setValueSource(actions.selectedValue());
-                return Promise.resolve();
-              }}
-            />
-          </CollapsibleContent>
-        </Collapsible>
+        <fieldset className="holding-form-fieldset holding-linked-records">
+          <PositionLinksEditor
+            key={generation}
+            positionId="current"
+            hasLinkedRecords={summary.hasLinkedRecords}
+            presentation="section"
+            actions={actions}
+            onAccepted={() => {
+              // The app refreshes the selected holding and its source projection.
+              setSummary(actions.summary());
+              return Promise.resolve();
+            }}
+          />
+        </fieldset>
       </section>
       <MaintenanceControls>
         <p className="catalogue-note">
@@ -206,8 +202,9 @@ export function HoldingLinksWalkthrough() {
           tone="quiet"
           onClick={() => {
             saveExample(key, []);
-            setActions(positionExample());
-            setValueSource(undefined);
+            const clean = positionExample();
+            setActions(clean);
+            setSummary(clean.summary());
             setGeneration((n) => n + 1);
           }}
         >

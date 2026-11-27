@@ -65,22 +65,21 @@ export const holdingMaintenanceJourney: TaskJourney = {
         "Button",
         "DataList",
         "Field",
-        "InputGroup",
-        "Notice",
+        "Input",
         "Select",
-        "Stat",
       ],
-      title: "Review fees and carry",
-      route: "/holdings?position=holding_demo_spv",
-      source: "apps/web/src/PositionEconomicsEditor.tsx",
+      title: "Correct fees and carry",
+      route: "/holdings?position=synthetic-holding",
+      source: "apps/web/src/HoldingInvestment.tsx",
       owner:
-        "The SPV economics editor owns review and acceptance of reported terms.",
+        "The position’s investment editor saves the acquisition fee, carry rate and carry basis in its purchase receipt.",
       action:
-        "Review fees and carry against the imported capital and confirm the terms.",
-      result: "Read the accepted terms on the same SPV.",
+        "Open Edit investment and correct the paid fee and carry terms from the subscription amendment.",
+      result:
+        "Reopen the same position to inspect its saved fee, carry rate and basis.",
       context:
-        "A carry rate is an agreed term. Charging carry requires a qualifying exit.",
-      alternate: "Back preserves the draft for correction before acceptance.",
+        "A paid fee belongs to its acquisition. Carry terms inform the estimate of remaining value after carry.",
+      alternate: "Cancel returns to the last saved investment.",
     },
   ],
 };

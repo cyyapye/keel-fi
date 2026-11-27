@@ -13,7 +13,6 @@ import {
   DataList,
   SectionHeader,
 } from "@keel/ui";
-import { PositionEconomicsEditor } from "../../apps/web/src/PositionEconomicsEditor";
 import { HoldingInvestment } from "../../apps/web/src/HoldingInvestment";
 import { HoldingReturn } from "../../apps/web/src/HoldingSummaryDetails";
 import {
@@ -27,7 +26,6 @@ import {
   positionCapitalSummary,
 } from "../../apps/web/src/position-capital-summary";
 import { positionShareSummary } from "../../apps/web/src/position-share-summary";
-import { beaconEconomicsContext } from "../holdings-detail-fixtures";
 import {
   purchaseDetailProjection,
   purchaseDetailReceipt,
@@ -38,16 +36,11 @@ import {
   PurchaseReceiptSchema,
 } from "../../packages/domain/src/position-purchases";
 import {
-  PositionEconomicsTermsSchema,
-  type AcceptPositionEconomicsInput,
-} from "../../packages/domain/src/position-economics";
-import {
   MaintenanceControls,
   ExampleSelect,
 } from "./holding-maintenance-controls";
 
 const receiptKey = "keel-ui:holding-maintenance:purchases:v2";
-const termsKey = "keel-ui:holding-maintenance:terms:v1";
 const outcomes = [
   "Read saved holding",
   "Updated holding fails to load once",
@@ -108,7 +101,8 @@ function InvestmentCalculation({
 }: {
   summary: ReturnType<typeof holdingValueSummary>;
 }) {
-  const { beforeReturn, afterReturn, after, historical } = summary;
+  const { beforeReturn, afterReturn, after, capital, historical, reviewed } =
+    summary;
   const performance = beforeReturn ?? afterReturn;
   return (
     <Collapsible className="holding-calculation">
@@ -133,6 +127,23 @@ function InvestmentCalculation({
               value={formatMoney(historical.netDistributionsMinor)}
             />
           )}
+          {reviewed?.terms.carryBasis &&
+            reviewed.terms.carryBasis !== "unknown" && (
+              <DataItem
+                label="Carry basis"
+                value={
+                  reviewed.terms.carryBasis === "gross_cash"
+                    ? "Cash after refunds"
+                    : "Net capital"
+                }
+              />
+            )}
+          {capital.capitalBasisMinor !== null && (
+            <DataItem
+              label="Contributed-capital hurdle"
+              value={formatMoney(capital.capitalBasisMinor)}
+            />
+          )}
           {after?.carryMinor != null && (
             <DataItem
               label="Estimated carry"
@@ -151,7 +162,7 @@ function InvestmentCalculation({
   );
 }
 
-function InvestmentExample() {
+export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
   const [receipt, setReceipt] = useState(readPurchase);
   const [outcome, setOutcome] = useState<Outcome>(outcomes[0]);
   const failedReadback = useRef(false);
@@ -311,97 +322,19 @@ function InvestmentExample() {
         />
       </section>
       <MaintenanceControls>
-        <ExampleSelect
-          label="Distribution readback"
-          choices={outcomes}
-          value={outcome}
-          onChange={setOutcome}
-        />
+        {!terms && (
+          <ExampleSelect
+            label="Distribution readback"
+            choices={outcomes}
+            value={outcome}
+            onChange={setOutcome}
+          />
+        )}
         <p className="catalogue-note">
-          Investment and distribution changes update this tab’s sample position.
-          The saved readback uses the reviewed purchases and distributions.
+          The sample subscription and distribution receipts belong to Demo Cedar
+          SPV. Changes stay in this tab.
         </p>
       </MaintenanceControls>
     </>
   );
-}
-
-function FeeTermsExample() {
-  const read = () =>
-    readExample(termsKey, PositionEconomicsTermsSchema.nullable(), () => null);
-  const [terms, setTerms] = useState(read);
-  const id = "holding_demo_spv";
-  const holding = {
-    id,
-    sourceLabel: "Sydecar template",
-    purchaseContext: null,
-    positionEconomicsContext: {
-      ...beaconEconomicsContext,
-      acceptedTerms: terms,
-    },
-  };
-  const accept = async (
-    positionId: string,
-    input: AcceptPositionEconomicsInput,
-  ) => {
-    await exampleReadback();
-    if (
-      positionId !== id ||
-      input.expectedSnapshotId !== beaconEconomicsContext.snapshotId ||
-      input.expectedTermsId !== (read()?.id ?? null)
-    )
-      throw new Error("The sample holding changed.");
-    const next = PositionEconomicsTermsSchema.parse({
-      ...input,
-      id: crypto.randomUUID(),
-      positionId: id,
-      acceptedAgainstSnapshotId: beaconEconomicsContext.snapshotId,
-      commitmentMinorAtAcceptance: beaconEconomicsContext.committedMinor,
-      fundedMinorAtAcceptance: beaconEconomicsContext.fundedMinor,
-      acceptedAt: new Date().toISOString(),
-      decisionSource: "manual",
-    });
-    saveExample(termsKey, next);
-    return next;
-  };
-  return (
-    <section
-      className="holding-detail-workspace"
-      aria-label="Selected position"
-    >
-      <SectionHeader
-        title="Harbor Health Systems"
-        description="Beacon Demo SPV · Demo Family LLC"
-      />
-      <Collapsible className="holding-detail-section">
-        <CollapsibleTrigger layout="inline" className="holding-section-toggle">
-          <span>
-            <strong>Fees &amp; carry</strong>
-            <small>Investment amounts and reviewed terms</small>
-          </span>
-          <DisclosureIndicator />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <PositionEconomicsEditor
-            holding={holding}
-            acceptTerms={accept}
-            onAccepted={() => {
-              setTerms(read());
-              return Promise.resolve();
-            }}
-          />
-        </CollapsibleContent>
-      </Collapsible>
-      <MaintenanceControls>
-        <p className="catalogue-note">
-          Reported terms come from the synthetic Sydecar template. Accepted
-          terms remain with this position in this tab.
-        </p>
-      </MaintenanceControls>
-    </section>
-  );
-}
-
-export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
-  return terms ? <FeeTermsExample /> : <InvestmentExample />;
 }

@@ -112,6 +112,7 @@ function ownerLabel(input: ManualHoldingInput) {
 
 function ManualExample({ mode, route }: { mode: Mode; route: string }) {
   const [sample] = useState(() => openExample(mode));
+  const list = useRef<HTMLElement>(null);
   const add = useRef<HTMLButtonElement>(null);
   const selectedHeading = useRef<HTMLHeadingElement>(null);
   const action = route.slice(base.length);
@@ -121,7 +122,13 @@ function ManualExample({ mode, route }: { mode: Mode; route: string }) {
   const previous = useRef(action);
   useEffect(() => {
     if (selected) selectedHeading.current?.focus();
-    else if (!action && previous.current) add.current?.focus();
+    else if (!action && previous.current === "/new") add.current?.focus();
+    else if (!action && previous.current.startsWith("/position/"))
+      list.current
+        ?.querySelector<HTMLAnchorElement>(
+          `a[href="${CSS.escape(base + previous.current)}"]`,
+        )
+        ?.focus();
     previous.current = action;
   }, [action, selected]);
   if (action === "/new")
@@ -191,7 +198,7 @@ function ManualExample({ mode, route }: { mode: Mode; route: string }) {
     );
   }
   return (
-    <section aria-label="Holdings">
+    <section ref={list} aria-label="Holdings">
       <SectionHeader
         title="Holdings"
         action={

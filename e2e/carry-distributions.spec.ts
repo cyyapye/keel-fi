@@ -1,3 +1,4 @@
+import { openImportedInvestment } from "./holding-maintenance-parity";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { HoldingsPageSchema } from "../packages/domain/src/holdings-page";
 import {
@@ -712,9 +713,19 @@ test("stock distribution recalculates carry and persists correction, other edits
   );
   expectPreserved(corrected, first);
   await afterValue(page, "$36,000");
+  expect(prepared.holding.positionKind).toBe("spv_interest");
+  expect(prepared.holding.purchaseContext?.currency).toBe("USD");
+  await openImportedInvestment(page);
   await page
-    .getByRole("button", { name: "Edit investment", exact: true })
-    .click();
+    .getByRole("textbox", {
+      name: "Synthetic upfront deductions paid · $",
+      exact: true,
+    })
+    .fill("3200");
+  await page
+    .getByRole("textbox", { name: "Carry · %", exact: true })
+    .fill("18");
+  await select(page, "Carry gains above", "Net capital");
   await page
     .getByRole("button", { name: "Source details", exact: true })
     .click();
@@ -738,6 +749,18 @@ test("stock distribution recalculates carry and persists correction, other edits
   const changedPurchase = await purchaseResponse;
   expect(changedPurchase.status(), await changedPurchase.text()).toBe(201);
   const preserved = PurchaseReceiptSchema.parse(await changedPurchase.json());
+  expect(preserved.details.lots[0]!.fees).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: "synthetic-carry-upfront-fee",
+        paidMinor: 320_000,
+      }),
+    ]),
+  );
+  expect(preserved.details.investmentTerms).toMatchObject({
+    carryPpm: 180_000,
+    carryBasis: "net_capital",
+  });
   expect(preserved.details.distributionReview).toEqual(
     corrected.details.distributionReview,
   );
@@ -745,7 +768,10 @@ test("stock distribution recalculates carry and persists correction, other edits
     preserved.details.lots[0]!.quantityDetails?.shareBasis.unitsPerOriginal,
   ).toBe(5);
   await page.reload();
-  await afterValue(page, "$36,000");
+  await afterValue(page, "$35,824");
+  await expect(workspace(page)).toContainText("$3,200");
+  if (process.env.KEEL_HOLDING_MAINTENANCE_CAPTURE)
+    await capture(page, "usd-fees-and-carry-readback");
   await page
     .getByRole("button", { name: "Edit distributions", exact: true })
     .click();

@@ -54,8 +54,8 @@ const byId: Readonly<Record<string, StepStatus | undefined>> = {
     "apps/web/src/HoldingInvestment.tsx",
   ),
   "maintenance-terms": shipped(
-    "Review the SPV’s fee and carry terms before accepting them.",
-    "apps/web/src/PositionEconomicsEditor.tsx",
+    "Correct acquisition fees and carry terms in the selected USD SPV’s investment.",
+    "apps/web/src/HoldingInvestment.tsx",
   ),
   "observed-burn": shipped(
     "Prepare a runway draft in Scenarios, explicitly save it, and follow a later burn decision from Overview.",
