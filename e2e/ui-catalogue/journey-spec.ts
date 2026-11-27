@@ -102,11 +102,25 @@ export function stepsUsing(names: readonly string[]) {
     )
       ? [{ id: "holdings-total", title: "Reconcile holdings" }]
       : []),
+    ...(names.some((name) =>
+      [
+        "Collapsible",
+        "RecordGroup",
+        "RecordRow",
+        "SectionHeader",
+        "Stat",
+        "TextLink",
+      ].includes(name),
+    )
+      ? [{ id: "cash-history", title: "Cash account history" }]
+      : []),
     ...(names.some((name) => name === "RecordItem" || name === "TextLink")
-      ? taskJourneys.map((journey) => ({
-          id: journey.steps[0]!.id,
-          title: journey.title,
-        }))
+      ? taskJourneys
+          .filter((journey) => journey.id !== "cash")
+          .map((journey) => ({
+            id: journey.steps[0]!.id,
+            title: journey.title,
+          }))
       : []),
   ];
 }

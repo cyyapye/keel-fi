@@ -33,6 +33,10 @@ const simplifiedEvidence = proposal(
 );
 
 const byId: Readonly<Record<string, StepStatus | undefined>> = {
+  "cash-history": shipped(
+    "Inspect an account’s recorded balance changes in Holdings.",
+    "apps/web/src/CashHoldings.tsx",
+  ),
   portfolio: shipped(
     "Open a company exposure from Overview.",
     "apps/web/src/PortfolioSnapshot.tsx",

@@ -39,6 +39,7 @@ export async function buildUiCatalogue(returnUrl = "/"): Promise<string> {
     entryPoints: [join(fixture, "keel-ui-catalogue.tsx")],
     bundle: true,
     write: false,
+    outfile: "catalogue.js",
     minify: true,
     format: "iife",
     platform: "browser",
@@ -49,18 +50,20 @@ export async function buildUiCatalogue(returnUrl = "/"): Promise<string> {
       CATALOGUE_REVISION: JSON.stringify("local sources"),
       CATALOGUE_TOKENS: JSON.stringify(tokens),
     },
+    nodePaths: [join(repository, "apps/web/node_modules")],
     alias: {
-      "@keel/ui/money": join(repository, "packages/ui/src/lib/money.ts"),
-      "@keel/ui": join(repository, "packages/ui/src/index.tsx"),
       react: dirname(webRequire.resolve("react/package.json")),
       "react-dom": dirname(webRequire.resolve("react-dom/package.json")),
       recharts: dirname(webRequire.resolve("recharts/package.json")),
     },
   });
-  const script = result.outputFiles[0]?.text.replaceAll(
-    "</script",
-    "<\\/script",
+  const componentStyles = result.outputFiles.find((file) =>
+    file.path.endsWith(".css"),
   );
+  if (componentStyles) styles.splice(2, 0, componentStyles.text);
+  const script = result.outputFiles
+    .find((file) => file.path.endsWith(".js"))
+    ?.text.replaceAll("</script", "<\\/script");
   if (!script) throw new Error("Catalogue bundle is empty.");
   return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>Keel · Theme &amp; components</title><style>${styles.join("\n")}</style></head><body><div id="root"></div><script>${script}</script></body></html>`;
 }
