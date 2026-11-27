@@ -142,9 +142,16 @@ function summaryFor(state: PlanActualMonitoringState): {
   };
 }
 
+const defaultRequests = {
+  loadPlanActualMonitoring,
+  snoozePlanActualMonitoring,
+};
+
 export function PlanActualMonitoring({
+  requests = defaultRequests,
   onNavigate,
 }: {
+  requests?: typeof defaultRequests;
   onNavigate: (route: MonitoringRoute) => void;
 }) {
   const [state, setState] = useState<PlanActualMonitoringState | null>(null);
@@ -156,22 +163,25 @@ export function PlanActualMonitoring({
   const [expanded, setExpanded] = useState(false);
   const summaryRef = useRef<HTMLButtonElement>(null);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const nextState = await loadPlanActualMonitoring(signal);
-      setState(nextState);
-      setError(null);
-    } catch (caught) {
-      if (caught instanceof DOMException && caught.name === "AbortError") {
-        return;
+  const load = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const nextState = await requests.loadPlanActualMonitoring(signal);
+        setState(nextState);
+        setError(null);
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          return;
+        }
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Plan versus actual monitoring could not load.",
+        );
       }
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : "Plan versus actual monitoring could not load.",
-      );
-    }
-  }, []);
+    },
+    [requests],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -188,7 +198,7 @@ export function PlanActualMonitoring({
     setBusyKey(item.key);
     setNotice(null);
     try {
-      const nextState = await snoozePlanActualMonitoring({
+      const nextState = await requests.snoozePlanActualMonitoring({
         itemKey: item.key,
         sourceRevision: item.sourceRevision,
       });

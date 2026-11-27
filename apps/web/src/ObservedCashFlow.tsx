@@ -23,7 +23,7 @@ import {
   Stat,
   StatGroup,
 } from "@keel/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   disconnectCashAccount,
@@ -112,10 +112,19 @@ function outcomeCopy(state: CashFlowState): string {
   }
 }
 
+const defaultRequests = {
+  loadCashFlow,
+  reviewCashFlow,
+  syncCashFlow,
+  disconnectCashAccount,
+};
+
 export function ObservedCashFlow({
+  requests = defaultRequests,
   onPreparePlanDraft,
   reloadKey,
 }: {
+  requests?: typeof defaultRequests;
   onPreparePlanDraft: (suggestion: CashFlowPlanSuggestion) => void;
   reloadKey: number;
 }) {
@@ -136,12 +145,15 @@ export function ObservedCashFlow({
   const [message, setMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const refresh = (signal?: AbortSignal) =>
-    loadCashFlow(signal).then((next) => {
-      setState(next);
-      setLoadError(null);
-      return next;
-    });
+  const refresh = useCallback(
+    (signal?: AbortSignal) =>
+      requests.loadCashFlow(signal).then((next) => {
+        setState(next);
+        setLoadError(null);
+        return next;
+      }),
+    [requests],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -155,7 +167,7 @@ export function ObservedCashFlow({
       }
     });
     return () => controller.abort();
-  }, [reloadKey]);
+  }, [reloadKey, refresh]);
 
   const proposal = state?.pendingProposals[0] ?? null;
 
@@ -169,7 +181,7 @@ export function ObservedCashFlow({
     setActionError(null);
     setMessage(null);
     try {
-      const next = await syncCashFlow(
+      const next = await requests.syncCashFlow(
         connectionId,
         requiresConfirmation ? pricingConfirmed[connectionId] === true : false,
       );
@@ -198,7 +210,7 @@ export function ObservedCashFlow({
     setActionError(null);
     setMessage(null);
     try {
-      const result = await reviewCashFlow(proposal.id, {
+      const result = await requests.reviewCashFlow(proposal.id, {
         changeNote: changeNote.trim(),
         decisions: proposal.categories.map((category) => ({
           categoryId: category.id,
@@ -206,13 +218,13 @@ export function ObservedCashFlow({
         })),
       });
       if (result.planSuggestion === null) {
-        setState(await loadCashFlow());
+        setState(await requests.loadCashFlow());
         setMessage(
           "Review complete. The current burn plan remains reasonable.",
         );
       } else {
         onPreparePlanDraft(result.planSuggestion);
-        setState(await loadCashFlow());
+        setState(await requests.loadCashFlow());
         setMessage("Plan draft prepared below. Review the runway, then save.");
       }
     } catch (error: unknown) {
@@ -231,8 +243,8 @@ export function ObservedCashFlow({
     setActionError(null);
     setMessage(null);
     try {
-      await disconnectCashAccount(connectionId);
-      setState(await loadCashFlow());
+      await requests.disconnectCashAccount(connectionId);
+      setState(await requests.loadCashFlow());
       setDisconnectId(null);
       setMessage(
         "Bank access removed. Reviewed balances and plan history remain.",

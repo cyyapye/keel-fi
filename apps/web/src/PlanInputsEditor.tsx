@@ -61,11 +61,15 @@ function runwayLabel(months: number, totalMonthlyBurnMinor: number): string {
   return totalMonthlyBurnMinor === 0 ? "No monthly burn" : `${months} months`;
 }
 
+const defaultRequests = { loadPlanInputs, savePlanInputs };
+
 export function PlanInputsEditor({
+  requests = defaultRequests,
   onSaved,
   suggestion,
   suggestionVersion,
 }: {
+  requests?: typeof defaultRequests;
   onSaved: () => Promise<void>;
   suggestion: CashFlowPlanSuggestion | null;
   suggestionVersion: number;
@@ -86,7 +90,8 @@ export function PlanInputsEditor({
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadPlanInputs(controller.signal)
+    void requests
+      .loadPlanInputs(controller.signal)
       .then((nextPlan) => {
         setPlan(nextPlan);
         setDraft(draftFromPlan(nextPlan));
@@ -105,7 +110,7 @@ export function PlanInputsEditor({
         }
       });
     return () => controller.abort();
-  }, [reloadKey]);
+  }, [reloadKey, requests]);
 
   useEffect(() => {
     if (
@@ -251,7 +256,8 @@ export function PlanInputsEditor({
     };
     setSaveState("saving");
     setSaveMessage(null);
-    void savePlanInputs(input)
+    void requests
+      .savePlanInputs(input)
       .then(async (result) => {
         setCashFlowProposalId(null);
         setPlan(result.plan);
