@@ -15,3 +15,17 @@ export async function adjustOverlappingCash(page: Page) {
     page.getByText("$263,000.00 → $263,000.00", { exact: true }),
   ).toBeVisible();
 }
+
+/** A real revision conflict requires reading and reviewing the new source. */
+export async function reviewUpdatedCash(page: Page) {
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Review Synthetic reserve cash" })
+    .click();
+  const amount = page.getByLabel("Cash held elsewhere", { exact: true });
+  await expect(amount).toHaveValue("25,000.00");
+  await amount.fill("20,000.00");
+  await expect(
+    page.getByText("$264,000.00 → $264,000.00", { exact: true }),
+  ).toBeVisible();
+}

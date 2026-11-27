@@ -75,7 +75,7 @@ export const taskJourneys: TaskJourney[] = [
           "A saved decision applies to the selected source. Holdings rereads the outstanding sources.",
         context: "Unresolved sources keep their previous planning treatment.",
         alternate:
-          "A rejected save keeps the selected source and its entered cash amount.",
+          "A changed source rejects the stale decision. Reload Holdings and review the latest values before confirming.",
       },
     ],
   },

@@ -22,6 +22,8 @@ import {
 } from "../../apps/web/src/PortfolioBaselineReconciliation";
 import {
   exampleSource,
+  savedExample,
+  restartExample,
   routineExamples,
   reviewExamples,
   type Example,
@@ -87,7 +89,9 @@ function BaselineExample({ example }: { example: Example }) {
 export function BaselineWalkthrough({ stepId }: { stepId: string }) {
   const routine = stepId === "baseline-refresh";
   const examples = routine ? routineExamples : reviewExamples;
-  const [example, setExample] = useState<Example>(examples[0]);
+  const [example, setExample] = useState<Example>(
+    () => savedExample(routine) ?? examples[0],
+  );
   const [run, setRun] = useState(0);
   return (
     <>
@@ -113,7 +117,10 @@ export function BaselineWalkthrough({ stepId }: { stepId: string }) {
               value={example}
               onValueChange={(value) => {
                 const selected = examples.find((item) => item === value);
-                if (selected) setExample(selected);
+                if (selected && selected !== example) {
+                  restartExample(routine);
+                  setExample(selected);
+                }
               }}
             >
               <SelectTrigger aria-label="Baseline example">
@@ -131,14 +138,18 @@ export function BaselineWalkthrough({ stepId }: { stepId: string }) {
           <ActionGroup>
             <Button
               tone="quiet"
-              onClick={() => setRun((current) => current + 1)}
+              onClick={() => {
+                restartExample(routine);
+                setRun((current) => current + 1);
+              }}
             >
               Restart example
             </Button>
           </ActionGroup>
           <p className="catalogue-note">
-            Product reference · Holdings planning baseline at 32ee1909.
-            Decisions here use synthetic sources and last for this example.
+            Product reference · Holdings planning baseline at 32ee1909. This tab
+            keeps synthetic decisions through a page reload. Restart example
+            restores its starting values.
           </p>
         </CollapsibleContent>
       </Collapsible>

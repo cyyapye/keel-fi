@@ -1,4 +1,7 @@
-import { adjustOverlappingCash } from "./portfolio-baseline-parity";
+import {
+  adjustOverlappingCash,
+  reviewUpdatedCash,
+} from "./portfolio-baseline-parity";
 import {
   cashException,
   removedException,
@@ -619,9 +622,24 @@ test(
       const body = route.request().postDataJSON() as Record<string, unknown>;
       if (failNext) {
         failNext = false;
+        baselineState = {
+          ...baselineState,
+          sourceRevision: "e".repeat(64),
+          baseForecastSnapshotVersion: 6,
+          baseForecastSnapshotId: "synthetic-forecast-6",
+          planning: {
+            ...automaticReadyState.planning,
+            currentFiEligibleLiquidMinor: 26_400_000,
+          },
+        };
+      }
+      if (body.sourceRevision !== baselineState.sourceRevision) {
         await route.fulfill({
           status: 409,
-          json: { error: "The portfolio changed. Reload before saving." },
+          json: {
+            error:
+              "The portfolio or forecast changed. Review the latest baseline before confirming.",
+          },
         });
         return;
       }
@@ -667,11 +685,14 @@ test(
       .getByRole("button", { name: "Include cash with this amount" })
       .click();
     await expect(
-      page.getByText("The portfolio changed. Reload before saving."),
+      page.getByText(
+        "The portfolio or forecast changed. Review the latest baseline before confirming.",
+      ),
     ).toBeVisible();
     await expect(
       page.getByLabel("Cash held elsewhere", { exact: true }),
     ).toHaveValue("20,000.00");
+    await reviewUpdatedCash(page);
     await page
       .getByRole("button", { name: "Include cash with this amount" })
       .click();
@@ -679,6 +700,8 @@ test(
       page.getByRole("heading", { name: "1 source needs your decision" }),
     ).toBeVisible();
     expect(decisions[0]).toMatchObject({
+      sourceRevision: "e".repeat(64),
+      baseForecastSnapshotVersion: 6,
       reviewedExceptionKeys: [cashException.key],
       otherFiEligibleLiquidMinor: 2_000_000,
     });

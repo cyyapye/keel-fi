@@ -1,4 +1,7 @@
-import { adjustOverlappingCash } from "./portfolio-baseline-parity";
+import {
+  adjustOverlappingCash,
+  reviewUpdatedCash,
+} from "./portfolio-baseline-parity";
 import { join } from "node:path";
 import { areas } from "./ui-catalogue/journey-spec";
 import {
@@ -2628,7 +2631,7 @@ test("Planning baseline refreshes routine changes and preserves the selected ove
     queue.getByRole("heading", { name: "2 sources need your decision" }),
   ).toBeVisible();
   await capture("queue", queue);
-  await choose("Decision save fails once");
+  await choose("Source changes during review");
   await adjustOverlappingCash(page);
   const selected = page.getByRole("region", { name: "Synthetic reserve cash" });
   await capture("cash", selected);
@@ -2637,13 +2640,19 @@ test("Planning baseline refreshes routine changes and preserves the selected ove
   });
   await save.click();
   await expect(selected).toContainText(
-    "The decision could not be saved. Try again.",
+    "The portfolio or forecast changed. Review the latest baseline before confirming.",
   );
   await expect(
     selected.getByLabel("Cash held elsewhere", { exact: true }),
   ).toHaveValue("20,000.00");
   await capture("save-error", selected);
   await save.press("Enter");
+  await expect(selected).toContainText(
+    "Review the latest baseline before confirming.",
+  );
+  await reviewUpdatedCash(page);
+  await save.click();
+  await page.reload();
   await expect(
     queue.getByRole("heading", { name: "1 source needs your decision" }),
   ).toBeVisible();
@@ -2654,7 +2663,7 @@ test("Planning baseline refreshes routine changes and preserves the selected ove
     .getByRole("button", { name: "Review Synthetic missing holding" })
     .click();
   await expect(
-    page.getByText("$263,000.00 → $262,000.00", { exact: true }),
+    page.getByText("$264,000.00 → $263,000.00", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Decide later" }).click();
   await expect(
