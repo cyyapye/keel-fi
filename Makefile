@@ -72,7 +72,7 @@ help:
 	@echo "  make ui-handoff PACKET=... REVIEW=... CHECKS=... REVIEW_RECORD=...   Gate material UI handoff"
 	@echo "  make ui-review-prepare BRIEF=... OUT=...   Package current design-review evidence"
 	@echo "  make ui-review-check PACKET=... REVIEW=... Validate review coverage and freshness"
-	@echo "  make lint          Run ESLint"
+	@echo "  make lint          Check UI stylesheets and run ESLint"
 	@echo "  make typecheck     Run TypeScript checks"
 	@echo "  make test          Run unit/API tests (optional TEST_ARGS=...)"
 	@echo "  make db-seed       Prepare a named D1 scenario (SCENARIO=default)"
@@ -134,6 +134,7 @@ lint:
 	$(PNPM) lint
 
 lint-typecheck:
+	$(PNPM) lint:css
 	node --v8-pool-size=1 --max-old-space-size=4096 scripts/lint-typecheck.mjs
 
 typecheck:

@@ -309,6 +309,26 @@ rows; it is not a production-scale proof.
 
 ## Verification and enforcement
 
+Both `make lint` and CI's `make lint-typecheck` run `pnpm lint:css` over CSS
+files in the web app, shared UI and executable catalogue. Use the theme's
+`--space-*` and `--text-*` tokens. Matching px values and rem equivalents at the
+16px design reference are accepted, as are zero spacing and auto margins. Checks
+cover gap, margin and padding (including logical sides), font size, weight,
+family, the font shorthand and local overrides of the theme tokens. The
+catalogue uses 400 for regular text, 600 for emphasis and 800 for field labels.
+Explicit Text variants and the catalogue's three named grouping examples also
+have role-specific checks. Rendered review still determines whether each screen
+chose the appropriate role and grouping.
+
+The [existing stylesheet inventory](../engineering/ui-style-debt.md) groups
+off-scale declarations by screen or shared component area. Some older display
+and control treatments need design review before changing them. Run
+`pnpm lint:css --report "Cash accounts"` for matching live file and line
+locations. New occurrences, changed values and moves to a different selector or
+breakpoint fail lint. Use `pnpm lint:css --prune` after a fix to remove resolved
+entries. Add a new shared treatment through the theme and its documented
+catalogue role.
+
 `make lint` enforces `keel-ui/shared-controls` and
 `keel-ui/no-inline-control-restyle` in `apps/web/src/**/*.tsx`. Native links,
 buttons, inputs, selects, textareas and disclosures belong in `@keel/ui`. Named,

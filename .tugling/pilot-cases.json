@@ -1365,6 +1365,8 @@
     "scripts/lint-typecheck.test.ts :: preserves compiler diagnostics and the complete lint failure contract",
     "scripts/lint-typecheck.test.ts :: refuses unsupported compiler hosts and emission modes",
     "scripts/lint-typecheck.test.ts :: requires every canonical workspace context and rejects command drift",
+    "scripts/lint-ui-css.test.ts :: rejects new spacing and typography drift across app, catalogue and shared CSS",
+    "scripts/lint-ui-css.test.ts :: retires repaired debt without transferring allowances between declarations or breakpoints",
     "scripts/linux-agent-cloudflare-egress.test.ts :: Linux agent Cloudflare Tunnel egress > allows port 7844 only to Cloudflare's documented IPv4 endpoints",
     "scripts/linux-agent-cloudflare-egress.test.ts :: Linux agent Cloudflare Tunnel egress > is valid POSIX shell",
     "scripts/linux-agent-cloudflare-egress.test.ts :: Linux agent Cloudflare Tunnel egress > reinstalls and verifies both host and namespace rules at service start",
