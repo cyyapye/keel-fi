@@ -41,6 +41,22 @@ const byId: Readonly<Record<string, StepStatus | undefined>> = {
     "Review one source and its effect on the planning baseline in Holdings.",
     "apps/web/src/PortfolioBaselineReconciliation.tsx",
   ),
+  "maintenance-manual": shipped(
+    "Add a holding and check the submission if its save is uncertain.",
+    "apps/web/src/ManualHoldingEditor.tsx",
+  ),
+  "maintenance-links": shipped(
+    "Link two reports of one investment or record the earlier SPV it replaced.",
+    "apps/web/src/PositionLinksEditor.tsx",
+  ),
+  "maintenance-investment": shipped(
+    "Correct a position’s purchases or distributions and read back the saved amounts.",
+    "apps/web/src/HoldingInvestment.tsx",
+  ),
+  "maintenance-terms": shipped(
+    "Correct acquisition fees and carry terms in the selected USD SPV’s investment.",
+    "apps/web/src/HoldingInvestment.tsx",
+  ),
   "observed-burn": shipped(
     "Prepare a runway draft in Scenarios, explicitly save it, and follow a later burn decision from Overview.",
     "apps/web/src/PlanInputsEditor.tsx",

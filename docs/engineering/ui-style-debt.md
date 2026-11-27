@@ -10,13 +10,13 @@ screen name or selector fragment. After a repair, run `pnpm lint:css --prune`
 and commit the reduced inventory with the stylesheet. See the
 [type and spacing contract](../product/ui-library.md#type-and-spacing-hierarchy).
 
-Tracked declarations: 1135.
+Tracked declarations: 1134.
 
 - [App access (2)](#app-access)
 - [Cash accounts and baseline (107)](#cash-accounts-and-baseline)
 - [Evidence and decisions (70)](#evidence-and-decisions)
 - [Forecast history (8)](#forecast-history)
-- [Holdings and position details (277)](#holdings-and-position-details)
+- [Holdings and position details (276)](#holdings-and-position-details)
 - [Holdings sources and imports (91)](#holdings-sources-and-imports)
 - [Legal entities and ownership (54)](#legal-entities-and-ownership)
 - [Obligations (53)](#obligations)
@@ -248,7 +248,7 @@ apps/web/src/styles.css | @media (max-width: 620px) › .history-comparison | ga
 
 ## Holdings and position details
 
-141 spacing, 136 typography.
+141 spacing, 135 typography.
 
 ```text
 apps/web/src/styles.css | .distribution-amount .holding-metadata, .distribution-identity .holding-metadata | margin-top: 6px
@@ -397,7 +397,6 @@ apps/web/src/styles.css | .position-economics__form, .position-economics__review
 apps/web/src/styles.css | .position-economics__heading h3 | margin-top: 3px
 apps/web/src/styles.css | .position-economics__heading p:last-child | font-size: 9px
 apps/web/src/styles.css | .position-economics__review > div:not(.position-economics__actions) | gap: 7px
-apps/web/src/styles.css | .position-economics__review > small | font-size: 8px
 apps/web/src/styles.css | .position-economics__review strong | font-size: 20px
 apps/web/src/styles.css | .position-economics__rows > div | padding: 10px 0
 apps/web/src/styles.css | .position-economics__rows strong, .position-economics__rows strong.is-not-set | font-weight: 550
@@ -405,7 +404,7 @@ apps/web/src/styles.css | .position-economics__rows | margin-top: 18px
 apps/web/src/styles.css | .position-economics__values article, .holding-performance__values article | padding: 14px 0 8px
 apps/web/src/styles.css | .position-economics__values small, .holding-performance__values small | font-size: 8px
 apps/web/src/styles.css | .position-economics__values small, .holding-performance__values small | margin-top: 9px
-apps/web/src/styles.css | .position-economics__values span, .holding-performance__values span, .position-economics__review span | font-size: 8px
+apps/web/src/styles.css | .position-economics__values span, .holding-performance__values span | font-size: 8px
 apps/web/src/styles.css | .position-economics__values strong, .holding-performance__values strong | font-size: clamp(18px, 2vw, 25px)
 apps/web/src/styles.css | .position-economics__values strong, .holding-performance__values strong | font-weight: 620
 apps/web/src/styles.css | .position-economics__values strong.is-not-set, .holding-performance__values strong.is-not-set | font-size: 16px

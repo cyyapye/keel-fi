@@ -25,12 +25,14 @@ type Editor = {
 };
 const ErrorSchema = z.object({ error: z.string() });
 export function HoldingDistributions({
+  request: fetch = globalThis.fetch,
   holding,
   disabled,
   onAccepted,
   onEditingChange,
   onReadbackPendingChange,
 }: {
+  request?: typeof globalThis.fetch;
   holding: Holding;
   disabled: boolean;
   onAccepted: () => Promise<void>;

@@ -132,6 +132,7 @@ function initialDraft(holding?: Holding): Draft {
 }
 
 type ManualHoldingEditorProps = {
+  request?: typeof requestKeel;
   holding?: Holding;
   onClose: () => void;
   onSaved: (receipt: ManualHoldingReceipt) => Promise<void>;
@@ -139,6 +140,7 @@ type ManualHoldingEditorProps = {
 };
 
 export function ManualHoldingEditor(props: ManualHoldingEditorProps) {
+  const request = props.request ?? requestKeel;
   const [options, setOptions] = useState<ManualHoldingOptions | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadVersion, setLoadVersion] = useState(0);
@@ -149,7 +151,7 @@ export function ManualHoldingEditor(props: ManualHoldingEditorProps) {
   };
   useEffect(() => {
     const controller = new AbortController();
-    void requestKeel("/api/manual-holdings/options", {
+    void request("/api/manual-holdings/options", {
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -175,7 +177,7 @@ export function ManualHoldingEditor(props: ManualHoldingEditorProps) {
         }
       });
     return () => controller.abort();
-  }, [loadVersion]);
+  }, [loadVersion, request]);
   if (options)
     return (
       <ManualHoldingForm
@@ -219,6 +221,7 @@ export function ManualHoldingEditor(props: ManualHoldingEditorProps) {
 }
 
 function ManualHoldingForm({
+  request = requestKeel,
   holding,
   onClose,
   onSaved,
@@ -464,7 +467,7 @@ function ManualHoldingForm({
     persistDraft(true);
     lock.current?.(true);
     try {
-      const response = await requestKeel(
+      const response = await request(
         holding
           ? `/api/manual-holdings/${encodeURIComponent(holding.id)}/identity`
           : "/api/manual-holdings",
@@ -529,7 +532,7 @@ function ManualHoldingForm({
   const check = async () => {
     setState({ kind: "checking" });
     try {
-      const response = await requestKeel(
+      const response = await request(
         `/api/manual-holdings/submissions/${encodeURIComponent(submissionId)}`,
         {},
       );

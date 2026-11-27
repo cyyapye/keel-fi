@@ -1,3 +1,4 @@
+import { HoldingMaintenanceWalkthrough } from "./holding-maintenance-journey";
 import { BaselineWalkthrough } from "./baseline-walkthrough";
 import { ObservedBurnWalkthrough } from "./observed-burn-walkthrough";
 import { CashHistoryWalkthrough } from "./cash-history-walkthrough";
@@ -33,7 +34,8 @@ export function TaskJourney({ stepId }: { stepId: string }) {
   if (
     journey.id === "cash" ||
     journey.id === "baseline" ||
-    journey.id === "observed-burn"
+    journey.id === "observed-burn" ||
+    journey.id === "holding-maintenance"
   ) {
     return (
       <Screen>
@@ -43,6 +45,8 @@ export function TaskJourney({ stepId }: { stepId: string }) {
           <CashHistoryWalkthrough />
         ) : journey.id === "baseline" ? (
           <BaselineWalkthrough key={stepId} stepId={stepId} />
+        ) : journey.id === "holding-maintenance" ? (
+          <HoldingMaintenanceWalkthrough key={stepId} stepId={stepId} />
         ) : (
           <ObservedBurnWalkthrough />
         )}

@@ -264,6 +264,7 @@ function initialLot(holding: Holding): PurchaseLot {
 }
 
 export function HoldingInvestment({
+  request: fetch = globalThis.fetch,
   holding,
   disabled,
   onAccepted,
@@ -277,6 +278,7 @@ export function HoldingInvestment({
   onAccepted: () => Promise<void>;
   onEditingChange: (editing: boolean) => void;
   onReadbackPendingChange: (pending: boolean) => void;
+  request?: typeof globalThis.fetch;
   editorRef?: Ref<HoldingInvestmentHandle>;
   omitCashPaid?: boolean;
 }) {
@@ -840,6 +842,7 @@ export function HoldingInvestment({
         </>
       )}
       <HoldingDistributions
+        request={fetch}
         holding={holding}
         disabled={disabled || draft !== null}
         onAccepted={onAccepted}

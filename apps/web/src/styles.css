@@ -1612,8 +1612,7 @@ h1,
 }
 
 .position-economics__values span,
-.holding-performance__values span,
-.position-economics__review span {
+.holding-performance__values span {
   color: var(--faint);
   font-size: 8px;
   font-weight: 800;
@@ -1694,6 +1693,14 @@ h1,
   letter-spacing: -0.03em;
 }
 
+.position-economics__review > div > span,
+.position-economics__review > p,
+.position-economics__review > small {
+  color: var(--muted);
+  font-size: var(--text-supporting);
+  line-height: 1.5;
+}
+
 .position-economics__review p,
 .position-economics__review > small,
 .position-economics__review > .notice,
@@ -1701,17 +1708,8 @@ h1,
   grid-column: 1 / -1;
 }
 
-.position-economics__review p {
+.position-economics__review > p {
   margin: 0;
-  color: var(--ink);
-  font-size: 10px;
-  line-height: 1.6;
-}
-
-.position-economics__review > small {
-  color: var(--muted);
-  font-size: 8px;
-  line-height: 1.55;
 }
 
 .holding-detail-value > span {

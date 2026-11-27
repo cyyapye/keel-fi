@@ -363,6 +363,77 @@ export function purchaseFeeSummary(lot: PurchaseLot) {
   };
 }
 
+/** Apply confirmed upfront fees to a copy of the submitted acquisition lots. */
+export function normalizePurchaseLotFees(
+  lots: readonly PurchaseLot[],
+): { ok: true; lots: PurchaseLot[] } | { ok: false; error: string } {
+  const normalized = lots.map((lot) => ({
+    ...lot,
+    ...(lot.fees ? { fees: lot.fees.map((fee) => ({ ...fee })) } : {}),
+  }));
+  const feeIds = new Set<string>();
+  const lotIds = new Set(normalized.map((l) => l.id));
+  for (const lot of normalized) {
+    if (!lot.fees) continue;
+    for (const fee of lot.fees) {
+      if (fee.paymentStatus === "unpaid") fee.treatment = "separate";
+      if (feeIds.has(fee.id) || fee.coveredLotIds.some((id) => !lotIds.has(id)))
+        return {
+          ok: false,
+          error:
+            "Record each fee once and link it only to this investment's acquisitions.",
+        };
+      feeIds.add(fee.id);
+    }
+    if (new Set(lot.fees.map((f) => f.id)).size !== lot.fees.length)
+      return {
+        ok: false,
+        error: "Fee identifiers must be unique within an acquisition.",
+      };
+    const fees = purchaseFeeSummary(lot);
+    if (lot.feesComplete && !fees)
+      return {
+        ok: false,
+        error: "Complete the fee basis and prepaid duration.",
+      };
+    if (fees) {
+      const retained =
+        lot.grossCashMinor === null
+          ? null
+          : BigInt(lot.grossCashMinor) -
+            BigInt(
+              lot.capitalReturn?.status === "received"
+                ? lot.capitalReturn.amountMinor
+                : 0,
+            );
+      if (retained !== null && BigInt(fees.amountMinor) > retained)
+        return { ok: false, error: "Upfront fees exceed cash after refunds." };
+      // Explicit net-capital bases remain evidence even when the fee is estimated.
+      for (const fee of lot.fees)
+        if (
+          fee.method === "percentage" &&
+          fee.basis === "net_capital" &&
+          fee.basisMinor === null
+        )
+          fee.basisMinor = lot.netCapitalMinor;
+      lot.upfrontDeductionsMinor = fees.estimated ? null : fees.amountMinor;
+      lot.netCapitalMinor =
+        fees.estimated || lot.grossCashMinor === null
+          ? null
+          : Number(
+              BigInt(lot.grossCashMinor) -
+                BigInt(
+                  lot.capitalReturn?.status === "received"
+                    ? lot.capitalReturn.amountMinor
+                    : 0,
+                ) -
+                BigInt(fees.amountMinor),
+            );
+    }
+  }
+  return { ok: true, lots: normalized };
+}
+
 /** Only effective ownership dependencies: metadata corrections do not reprice. */
 export function valuationSharesKey(details: PurchaseReceipt["details"]) {
   return JSON.stringify({
