@@ -319,13 +319,6 @@ export async function acceptFeeAndCarryTerms(
   });
   await expect(managementFee).toHaveValue("360");
   await expect(carry).toHaveValue("15");
-  await managementFee.fill("9300");
-  await investment.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(
-    investment.getByText("Upfront fees exceed cash after refunds.", {
-      exact: true,
-    }),
-  ).toBeVisible();
   await managementFee.fill("420");
   await carry.fill("18");
   await select(page, "Carry gains above", "Net capital");
@@ -337,6 +330,11 @@ export async function acceptFeeAndCarryTerms(
     exact: true,
   });
   await source.fill("Synthetic amended subscription");
+  const excessiveFees = investment.getByText(
+    "Upfront fees exceed cash after refunds.",
+    { exact: true },
+  );
+  await expect(excessiveFees).toBeHidden();
   await capture(page, info, "terms-review");
   await investment.getByRole("button", { name: "Save", exact: true }).click();
   await expect(
@@ -369,4 +367,12 @@ export async function acceptFeeAndCarryTerms(
     .click();
   await expect(source).toHaveValue("Synthetic amended subscription");
   await capture(page, info, "terms-reopened");
+  await managementFee.fill("9300");
+  await investment.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(excessiveFees).toBeVisible();
+  await capture(page, info, "terms-excessive-fees");
+  await investment.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    investment.getByRole("definition").filter({ hasText: "$420.00" }),
+  ).toBeVisible();
 }
