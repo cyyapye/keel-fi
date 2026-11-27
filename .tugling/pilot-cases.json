@@ -362,6 +362,7 @@
     "apps/web/src/worker.test.ts :: web Worker routing > identifies the exact web deployment on the health response",
     "apps/web/src/worker.test.ts :: web Worker routing > serves application routes from static assets",
     "packages/connectors/src/alpha-vantage-daily.test.ts :: imports only completed raw daily closes for the confirmed US symbol",
+    "packages/connectors/src/alpha-vantage-daily.test.ts :: recovers a shared-key burst once while respecting the daily quota and UTC window",
     "packages/connectors/src/angellist-investments-csv.test.ts :: AngelList investments CSV parsing > derives a stable normalized natural key only from the identity fields",
     "packages/connectors/src/angellist-investments-csv.test.ts :: AngelList investments CSV parsing > handles escaped quotes, commas, and embedded newlines in quoted cells",
     "packages/connectors/src/angellist-investments-csv.test.ts :: AngelList investments CSV parsing > maps locked values to explicit states and requires a blank multiple",

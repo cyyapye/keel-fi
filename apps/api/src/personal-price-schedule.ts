@@ -69,6 +69,7 @@ export async function refreshPreviewDailyPrices(
       apiKey,
       now,
       listing.firstSession,
+      "preview",
     );
     if (
       !current.latest &&
