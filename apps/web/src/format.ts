@@ -199,3 +199,22 @@ export function formatPositionCurrency(
     ? formatMoney(minorUnits)
     : formatCurrency(minorUnits, currency);
 }
+
+export function minorUnitsToDollarInput(value: number): string {
+  const minor = BigInt(value);
+  const dollars = (minor / 100n).toLocaleString("en-US");
+  const cents = (minor % 100n).toString().padStart(2, "0");
+  return `${dollars}.${cents}`;
+}
+
+export function dollarInputToMinorUnits(value: string): number | null {
+  const normalized = value.trim().replaceAll(",", "");
+  const match = /^(\d+)(?:\.(\d{0,2}))?$/u.exec(normalized);
+  if (match === null) {
+    return null;
+  }
+  const whole = BigInt(match[1] ?? "0");
+  const fraction = (match[2] ?? "").padEnd(2, "0");
+  const minor = whole * 100n + BigInt(fraction.length === 0 ? "0" : fraction);
+  return minor <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(minor) : null;
+}

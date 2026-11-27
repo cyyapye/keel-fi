@@ -114,9 +114,26 @@ export function stepsUsing(names: readonly string[]) {
     )
       ? [{ id: "cash-history", title: "Cash account history" }]
       : []),
+    ...(names.some((name) => ["Button", "Notice", "TextLink"].includes(name))
+      ? [{ id: "baseline-refresh", title: "Routine planning refresh" }]
+      : []),
+    ...(names.some((name) =>
+      [
+        "ActionGroup",
+        "Field",
+        "Input",
+        "InputGroup",
+        "Button",
+        "TextLink",
+      ].includes(name),
+    )
+      ? [{ id: "baseline-exceptions", title: "Review one planning source" }]
+      : []),
     ...(names.some((name) => name === "RecordItem" || name === "TextLink")
       ? taskJourneys
-          .filter((journey) => journey.id !== "cash")
+          .filter(
+            (journey) => journey.id !== "cash" && journey.id !== "baseline",
+          )
           .map((journey) => ({
             id: journey.steps[0]!.id,
             title: journey.title,

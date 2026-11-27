@@ -1,3 +1,4 @@
+import { adjustOverlappingCash } from "./portfolio-baseline-parity";
 import { join } from "node:path";
 import { areas } from "./ui-catalogue/journey-spec";
 import {
@@ -8,7 +9,7 @@ import {
 import { expectSelectedFinancingReport } from "./watch-evidence-parity";
 import { taskJourneys } from "./ui-catalogue/task-journey-spec";
 import { fileURLToPath } from "node:url";
-import type { Page, TestInfo } from "@playwright/test";
+import type { Locator, Page, TestInfo } from "@playwright/test";
 import { expect, test } from "./api-mocked-test";
 
 if (process.env.KEEL_CAPTURE_DESIGN_VARIANTS === "1") {
@@ -2568,6 +2569,121 @@ test("Cash history keeps the account and visible page through a failed read", as
   await savings.click();
   await expect(cash.getByText("No recorded balance history.")).toBeVisible();
   await capture("empty");
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+  expect(requests).toEqual([]);
+});
+
+test("Planning baseline refreshes routine changes and preserves the selected overlap decision on retry", async ({
+  page,
+}, testInfo) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      requests.push(request.url());
+  });
+  const capture = async (state: string, area?: Locator) => {
+    const out = process.env.KEEL_BASELINE_JOURNEY_REVIEW_DIR;
+    if (!out) return;
+    await page.evaluate(() => document.fonts.ready);
+    await (area ?? page).screenshot({
+      path: join(out, state + "-" + testInfo.project.name + ".png"),
+      scale: "css",
+      animations: "disabled",
+    });
+  };
+  const controls = page.getByRole("button", {
+    name: "Capture controls and source",
+  });
+  const choose = async (name: string) => {
+    await controls.click();
+    await page.getByRole("combobox", { name: "Baseline example" }).click();
+    await page.getByRole("option", { name, exact: true }).click();
+    await controls.click();
+  };
+  const finished = page.getByText(/Capture result · The plan now uses/);
+  await page.goto("/ui/#journeys/baseline-refresh");
+  await expect(page.getByText("Shipped", { exact: true })).toBeVisible();
+  await expect(finished).toContainText("$263,000.00");
+  await expect(page.locator(".portfolio-baseline-review")).toHaveCount(0);
+  await capture("routine");
+  await choose("Refresh fails once");
+  const retry = page.getByRole("button", { name: "Retry automatic update" });
+  await expect(retry).toBeVisible();
+  await capture("refresh-error", page.locator(".portfolio-baseline--error"));
+  await retry.press("Enter");
+  await expect(finished).toContainText("$263,000.00");
+
+  await page
+    .getByRole("link", { name: "Inspect a source that needs review" })
+    .click();
+  await expect(page).toHaveURL(/#journeys\/baseline-exceptions$/);
+  const queue = page.getByRole("region", {
+    name: /sources? needs? your decision/,
+  });
+  await expect(
+    queue.getByRole("heading", { name: "2 sources need your decision" }),
+  ).toBeVisible();
+  await capture("queue", queue);
+  await choose("Decision save fails once");
+  await adjustOverlappingCash(page);
+  const selected = page.getByRole("region", { name: "Synthetic reserve cash" });
+  await capture("cash", selected);
+  const save = selected.getByRole("button", {
+    name: "Include cash with this amount",
+  });
+  await save.click();
+  await expect(selected).toContainText(
+    "The decision could not be saved. Try again.",
+  );
+  await expect(
+    selected.getByLabel("Cash held elsewhere", { exact: true }),
+  ).toHaveValue("20,000.00");
+  await capture("save-error", selected);
+  await save.press("Enter");
+  await expect(
+    queue.getByRole("heading", { name: "1 source needs your decision" }),
+  ).toBeVisible();
+  await expect(
+    queue.getByRole("button", { name: "Review Synthetic reserve cash" }),
+  ).toHaveCount(0);
+  await queue
+    .getByRole("button", { name: "Review Synthetic missing holding" })
+    .click();
+  await expect(
+    page.getByText("$263,000.00 → $262,000.00", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Decide later" }).click();
+  await expect(
+    queue.getByRole("button", { name: "Review Synthetic missing holding" }),
+  ).toBeVisible();
+
+  await choose("Possible holding overlap");
+  await queue
+    .getByRole("button", { name: "Review Synthetic incoming holding" })
+    .click();
+  const holding = page.getByRole("region", {
+    name: "Synthetic incoming holding",
+  });
+  await expect(holding).toContainText("same account or ownership scope");
+  await expect(
+    holding.getByText("$263,000.00 → $263,750.00", { exact: true }),
+  ).toBeVisible();
+  await capture("holding", holding);
+  await holding
+    .getByRole("button", { name: "Include as separate source" })
+    .click();
+  await queue
+    .getByRole("button", { name: "Review Synthetic missing holding" })
+    .click();
+  await expect(
+    page.getByText("$263,750.00 → $262,750.00", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Remove from plan" }).click();
+  await expect(finished).toContainText("$262,750.00");
   await expect
     .poll(() =>
       page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
