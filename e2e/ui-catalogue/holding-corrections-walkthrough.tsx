@@ -20,7 +20,13 @@ import {
   holdingValueSummary,
   signedReturn,
 } from "../../apps/web/src/holding-value";
-import { formatMoney } from "../../apps/web/src/format";
+import { formatDate, formatMoney } from "../../apps/web/src/format";
+import { decimal } from "../../apps/web/src/decimal-input";
+import {
+  capitalSummaryLabel,
+  positionCapitalSummary,
+} from "../../apps/web/src/position-capital-summary";
+import { positionShareSummary } from "../../apps/web/src/position-share-summary";
 import { beaconEconomicsContext } from "../holdings-detail-fixtures";
 import {
   purchaseDetailProjection,
@@ -40,7 +46,7 @@ import {
   ExampleSelect,
 } from "./holding-maintenance-controls";
 
-const receiptKey = "keel-ui:holding-maintenance:purchases:v1";
+const receiptKey = "keel-ui:holding-maintenance:purchases:v2";
 const termsKey = "keel-ui:holding-maintenance:terms:v1";
 const outcomes = [
   "Read saved holding",
@@ -59,6 +65,16 @@ function initialPurchase() {
     ...initial,
     details: {
       ...initial.details,
+      // This statement evidences paid amounts and the prepaid period only.
+      // Correcting cash paid does not change either fee already paid.
+      lots: initial.details.lots.map((lot) => ({
+        ...lot,
+        fees: lot.fees?.map((fee) => ({
+          ...fee,
+          ratePpm: null,
+          basis: "unknown",
+        })),
+      })),
       distributionReview: {
         ...evidence,
         method: "capital_return_first_v1",
@@ -140,8 +156,17 @@ function InvestmentExample() {
   const [outcome, setOutcome] = useState<Outcome>(outcomes[0]);
   const failedReadback = useRef(false);
   const [readbackPending, setReadbackPending] = useState(false);
+  const [editing, setEditing] = useState(false);
   const holding = purchaseDetailProjection(receipt).holdings[0]!;
   const summary = holdingValueSummary(holding);
+  const capital = positionCapitalSummary(
+    receipt,
+    holding.purchaseContext?.snapshotId,
+  );
+  const shares = positionShareSummary(
+    holding.purchaseContext,
+    Boolean(summary.record?.followSource),
+  );
   const request: typeof fetch = async (path, init) => {
     const current = readPurchase();
     const prefix =
@@ -187,6 +212,7 @@ function InvestmentExample() {
           title={holding.exposureName ?? holding.positionName}
           description={holding.positionName + " · " + holding.ownerLabel}
         />
+        {editing && !readbackPending && <p className="eyebrow">Saved values</p>}
         {readbackPending ? (
           <p role="status" className="distribution-result-limit">
             Distributions were saved. Updated values and returns will appear
@@ -241,6 +267,30 @@ function InvestmentExample() {
                 </div>
               ),
             )}
+            {capital?.amountMinor != null && (
+              <div
+                className="holding-value-metric"
+                role="group"
+                aria-label="Invested capital"
+              >
+                <p>{capitalSummaryLabel(capital)}</p>
+                <strong className="holding-value-amount">
+                  {formatMoney(capital.amountMinor)}
+                </strong>
+                {shares && (
+                  <p className="holding-metadata">
+                    {shares.estimated && (
+                      <abbr title="Estimated shares" aria-label="Estimated">
+                        ≈
+                      </abbr>
+                    )}
+                    {decimal(shares.quantityMicros, 6)}{" "}
+                    {shares.quantityMicros === 1_000_000 ? "share" : "shares"}
+                    {shares.asOf && <> · {formatDate(shares.asOf)}</>}
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         )}
         {!readbackPending && <InvestmentCalculation summary={summary} />}
@@ -248,7 +298,7 @@ function InvestmentExample() {
           holding={holding}
           disabled={false}
           request={request}
-          onEditingChange={() => {}}
+          onEditingChange={setEditing}
           onReadbackPendingChange={setReadbackPending}
           onAccepted={async () => {
             await exampleReadback();

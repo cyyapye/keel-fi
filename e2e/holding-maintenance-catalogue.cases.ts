@@ -60,6 +60,12 @@ test("manual holding recovery opens the committed position or retries only after
       })
       .check();
     await select(page, "Held by", "Demo Family LLC");
+    if (mode === "Saved, response lost") {
+      await page
+        .getByRole("button", { name: "Add investment or valuation details" })
+        .click();
+      await page.getByLabel("Cash paid · USD", { exact: true }).fill("6250");
+    }
     await page
       .getByRole("button", { name: "Save holding", exact: true })
       .click();
@@ -83,6 +89,12 @@ test("manual holding recovery opens the committed position or retries only after
       await expect(page.getByLabel("Fund name", { exact: true })).toHaveValue(
         name,
       );
+      await expect(
+        page.getByText(
+          "No matching holding was found. Review this entry before trying again.",
+        ),
+      ).toBeVisible();
+      await capture(page, info, "manual-no-match");
       await page.getByRole("button", { name: "Try again" }).click();
     }
     const selected = page.getByRole("region", { name: "Selected holding" });
@@ -95,6 +107,12 @@ test("manual holding recovery opens the committed position or retries only after
       selected.getByRole("heading", { name, exact: true }),
     ).toBeVisible();
     await expect(page).toHaveURL(url);
+    if (mode === "Saved, response lost") {
+      await expect(selected).toContainText("Direct · Demo Family LLC");
+      await expect(selected).toContainText("Entered by you");
+      await expect(selected).toContainText("$6,250.00");
+      await capture(page, info, "manual-recovered");
+    }
     await selected.getByRole("link", { name: "Back to holdings" }).click();
     await expect(page.getByText(name, { exact: true })).toHaveCount(1);
     await expect(
@@ -125,6 +143,10 @@ test("linked reports can supply value while a replacement stays historical", asy
   });
   await select(page, "Source to link", /Demo Orbit Aerospace source/);
   await select(page, "Reported valuation to use", /^Use Tokenfolio/);
+  await expect(section).toContainText("USD 5,200.00");
+  await expect(section).toContainText("USD 6,000.00");
+  await expect(section).toContainText("USD 15,600.00");
+  await capture(page, info, "links-comparison");
   await section.getByRole("button", { name: "Apply link" }).click();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
   await select(page, "Link another source", /Demo Orbit V SPV/);
@@ -132,6 +154,10 @@ test("linked reports can supply value while a replacement stays historical", asy
   await expect(
     section.getByRole("combobox", { name: "Reported valuation to use" }),
   ).toHaveCount(0);
+  await expect(section).toContainText(
+    "The earlier SPV moves to history. No sale or new contribution is recorded.",
+  );
+  await capture(page, info, "links-replacement");
   await section.getByRole("button", { name: "Apply link" }).click();
   await page.reload();
   await openLinks();
@@ -164,6 +190,9 @@ test("a purchase correction preserves distributions and saved distributions relo
   const afterCarry = page.getByRole("group", {
     name: "Estimated remaining value · After carry",
   });
+  const invested = page.getByRole("group", { name: "Invested capital" });
+  await expect(invested).toContainText("Net invested");
+  await expect(invested).toContainText("$10,440.00");
   await expect(afterCarry).toContainText("$15,773.00");
   await page
     .getByRole("button", { name: "Capture controls and source" })
@@ -180,6 +209,11 @@ test("a purchase correction preserves distributions and saved distributions relo
   await page
     .getByRole("textbox", { name: "Cash received · $", exact: true })
     .fill("1800");
+  await expect(page.getByText("Saved values", { exact: true })).toBeVisible();
+  await expect(page.locator(".distribution-preview")).toContainText(
+    "$15,728.00",
+  );
+  await capture(page, info, "distribution-correction");
   await page.getByRole("button", { name: "Save distributions" }).click();
   const reload = page.getByRole("button", {
     name: "Reload saved distributions",
@@ -189,7 +223,7 @@ test("a purchase correction preserves distributions and saved distributions relo
   await capture(page, info, "distribution-recovery");
   const receipt = () =>
     page.evaluate(() =>
-      sessionStorage.getItem("keel-ui:holding-maintenance:purchases:v1"),
+      sessionStorage.getItem("keel-ui:holding-maintenance:purchases:v2"),
     );
   const saved = await receipt();
   expect(saved).toBeTruthy();
@@ -200,6 +234,10 @@ test("a purchase correction preserves distributions and saved distributions relo
   await expect(page.getByText("$12,000.00", { exact: true })).toBeVisible();
   await expect(page.getByText("$1,800.00", { exact: true })).toBeVisible();
   await expect(afterCarry).toContainText("$15,728.00");
+  await expect(invested).toContainText("$10,440.00");
+  await expect(page.getByText("2% · Cash paid", { exact: true })).toHaveCount(
+    0,
+  );
   await capture(page, info, "investment-readback");
   await page.getByRole("button", { name: "Calculation", exact: true }).click();
   const calculation = page.locator(".holding-calculation");
@@ -225,7 +263,9 @@ test("SPV fees and carry are reviewed before the accepted terms reopen on the sa
   await page.getByLabel("Setup fee", { exact: true }).fill("0");
   await page
     .getByLabel("What changed")
-    .fill("Reviewed synthetic subscription terms.");
+    .fill(
+      "Demo Beacon subscription amendment records a 3% management fee for one year and 18% carry on exit gains.",
+    );
   await page.getByRole("button", { name: "Review terms" }).click();
   const preview = page.locator(".position-economics__review");
   await expect(preview).toContainText("3.0% · $3,000.00");
@@ -241,6 +281,12 @@ test("SPV fees and carry are reviewed before the accepted terms reopen on the sa
   await expect(
     page.getByRole("heading", { name: "Harbor Health Systems" }),
   ).toBeVisible();
+  const accepted = page.locator(".position-economics__rows");
+  await expect(accepted).toContainText("$3,000.00");
+  await expect(accepted).toContainText("$97,000.00");
+  await expect(accepted).toContainText("18.0%");
+  await expect(accepted).toContainText("Sydecar template");
+  await capture(page, info, "terms-accepted");
   await page.getByRole("button", { name: "Update fee & carry" }).click();
   await expect(fee).toHaveValue("3");
   await expect(carry).toHaveValue("18");
