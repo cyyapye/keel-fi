@@ -4062,6 +4062,7 @@ function AngelListMacAgentControl() {
     "copy" | "interval" | "run" | null
   >(null);
   const awaitingReconnectStatus = useRef(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -4181,7 +4182,9 @@ function AngelListMacAgentControl() {
       className="provider-agent-row"
     >
       <div className="provider-agent-row__heading">
-        <h3 id="angellist-agent-label">AngelList</h3>
+        <h3 id="angellist-agent-label" ref={headingRef} tabIndex={-1}>
+          AngelList
+        </h3>
         {message.title !== null && (
           <p className="provider-agent-row__status">{message.title}</p>
         )}
@@ -4205,6 +4208,7 @@ function AngelListMacAgentControl() {
           ) : (
             <Button
               onClick={() => {
+                headingRef.current?.focus({ preventScroll: true });
                 setError(null);
                 void reload();
               }}

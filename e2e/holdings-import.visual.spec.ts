@@ -1538,8 +1538,11 @@ test(
     await expect(signInRequired).toHaveCount(0);
     await expect(reconnect).toHaveCount(0);
 
-    await retryStatus.click();
+    await retryStatus.press("Enter");
     await expect(successNotice).toBeVisible();
+    await expect(
+      angelList.getByRole("heading", { name: "AngelList" }),
+    ).toBeFocused();
     await expect(retryStatus).toHaveCount(0);
     expect(reconnectStarts).toBe(1);
     expect(readbackAttempts).toBe(2);
