@@ -1,0 +1,24 @@
+{
+  "id": "keel-concepts-combined",
+  "skill": "delivery-plan",
+  "project_type": "react-ui",
+  "sandbox": "read-only",
+  "minimum_score": 1.0,
+  "expected_state": "ADVISORY",
+  "max_changed_files": 0,
+  "prompt": "Read the applicable local guidance. In artifacts_inspected, include a separate receipt for each of .codex/skills/keel-ui-quality/SKILL.md and docs/product/ui-and-copy.md, using exactly: SHA256 <repository-relative-path> <computed-hex-digest>. Compute these from the files you inspected; do not guess if local reads fail. This checkout contains an intentionally bounded instruction bundle, not an application. Some linked files are absent; record that limitation and use the supplied evidence. Do not retrieve any worked example or previous evaluation. Give your first concrete deliverable and next steps in the summary field (up to 900 words), with enough specifics to judge the proposed behavior. This exercise is advisory only; no files should change. Make this Holdings detail intuitive before we build the revised screen. The existing sections are Purchases & refunds, Value & return, Fees & carry, and Ownership. Use existing visual components and show a proposal before application code. Specify how the information would be organized and what the user would see and do.\nSynthetic accepted records, all money in USD integer cents:\nPurchase A: cash paid 1000000; received capital refund 100000 with no receipt date; upfront deductions total 56000; net share capital 844000. The deductions consist of setup 20000 and management 36000 already paid. The notice says 20000 ppm annually on 900000 for January 2026 through December 2027. This prepayment covers the whole position, including later purchase B. There is no evidence about management charges after that period.\nPurchase B: cash paid 500000; setup 10000; net share capital 490000; no additional management payment.\nPosition terms store management rate 20000 ppm and carry 150000 ppm on positive gains above reviewed cash retained after refunds. Rate fields and purchase amounts have separate storage owners. The current mark is 1600000, reviewed as before carry. There are no other distributions. The refund is reviewed as excluded from reported distributions. Cash and remaining-share coverage are current.",
+  "decision_questions": [
+    {
+      "id": "authority",
+      "question": "What work is authorized next?",
+      "options": ["application_implementation", "proposal_preparation"],
+      "expected": "proposal_preparation",
+      "critical": true
+    }
+  ],
+  "post_run_commands": [["git", "diff", "--exit-code", "HEAD"]],
+  "required_command_groups": [
+    [".codex/skills/keel-ui-quality/SKILL.md"],
+    ["docs/product/ui-and-copy.md"]
+  ]
+}

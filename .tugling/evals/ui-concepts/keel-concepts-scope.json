@@ -1,0 +1,34 @@
+{
+  "id": "keel-concepts-scope",
+  "skill": "delivery-plan",
+  "project_type": "react-ui",
+  "sandbox": "read-only",
+  "minimum_score": 1.0,
+  "expected_state": "ADVISORY",
+  "max_changed_files": 0,
+  "prompt": "Read the applicable local guidance. In artifacts_inspected, include a separate receipt for each of .codex/skills/keel-ui-quality/SKILL.md and docs/product/ui-and-copy.md, using exactly: SHA256 <repository-relative-path> <computed-hex-digest>. Compute these from the files you inspected; do not guess if local reads fail. This checkout contains an intentionally bounded instruction bundle, not an application. Some linked files are absent; record that limitation and use the supplied evidence. Do not retrieve any worked example or previous evaluation. Give your first concrete deliverable and next steps in the summary field (up to 900 words), with enough specifics to judge the proposed behavior. This exercise is advisory only; no files should change. Describe the work you would carry out for these two independent requests in a normal full checkout, including the applicable instructions, verification and stopping point. Do not attempt either fix in this bounded fixture.\nRequest A: The already approved inline purchase editor has a Save button clipped at 375px. Fix the layout locally while preserving its fields, task steps, acceptance semantics and desktop behavior. No new product concept or publication is requested.\nRequest B: Correct a broken Markdown link in contributor documentation mentioning Holdings fees and UI quality. Its existing destination moved from docs/old-reference.md to docs/reference.md; the target exists. No application, UI copy or skill behavior changes are requested.",
+  "decision_questions": [
+    {
+      "id": "repair",
+      "question": "What is the next action for request A in a full checkout?",
+      "options": [
+        "repair_with_existing_authorization",
+        "obtain_new_design_approval"
+      ],
+      "expected": "repair_with_existing_authorization",
+      "critical": true
+    },
+    {
+      "id": "document",
+      "question": "What verification applies to request B?",
+      "options": ["document_checks", "full_application_ui_workflow"],
+      "expected": "document_checks",
+      "critical": true
+    }
+  ],
+  "post_run_commands": [["git", "diff", "--exit-code", "HEAD"]],
+  "required_command_groups": [
+    [".codex/skills/keel-ui-quality/SKILL.md"],
+    ["docs/product/ui-and-copy.md"]
+  ]
+}
