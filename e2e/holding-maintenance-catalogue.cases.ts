@@ -161,6 +161,9 @@ export async function linkAndReplacePosition(
   );
   await capture(page, info, "links-replacement");
   await section.getByRole("button", { name: "Apply link" }).click();
+  await expect(
+    section.getByText(/Historical · replaced by this SPV/),
+  ).toBeVisible();
   await page.reload();
   await openLinks();
   await expect(
@@ -306,6 +309,9 @@ export async function acceptFeeAndCarryTerms(
   expect(smallestLabel.size).toBeGreaterThanOrEqual(smallestLabel.supporting);
   await capture(page, info, "terms-review");
   await preview.getByRole("button", { name: "Accept terms" }).click();
+  await expect(
+    page.getByRole("button", { name: "Update fee & carry" }),
+  ).toBeVisible();
   await page.reload();
   await page.getByRole("button", { name: "Fees & carry" }).click();
   await expect(
