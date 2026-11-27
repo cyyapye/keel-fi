@@ -1,3 +1,5 @@
+import { holdingMaintenanceJourney } from "./holding-maintenance-spec";
+
 /** Read-only walkthrough evidence. No product routes are followed by the catalogue. */
 export const taskSourceRevision = "06e63a7ea70873dfecf1f4d701163dae3bd49b9c";
 export type TaskStep = {
@@ -10,6 +12,7 @@ export type TaskStep = {
   result: string;
   context: string;
   alternate: string;
+  components?: string[];
 };
 export type TaskJourney = {
   id: string;
@@ -79,6 +82,7 @@ export const taskJourneys: TaskJourney[] = [
       },
     ],
   },
+  holdingMaintenanceJourney,
   {
     id: "observed-burn",
     title: "How does observed spending affect my runway plan?",

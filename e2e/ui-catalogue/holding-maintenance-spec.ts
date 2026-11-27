@@ -7,6 +7,16 @@ export const holdingMaintenanceJourney: TaskJourney = {
   steps: [
     {
       id: "maintenance-manual",
+      components: [
+        "ActionGroup",
+        "Button",
+        "Collapsible",
+        "DatePicker",
+        "Field",
+        "Input",
+        "Notice",
+        "Select",
+      ],
       title: "Add a holding",
       route: "/holdings/new",
       source: "apps/web/src/ManualHoldingEditor.tsx",
@@ -20,6 +30,7 @@ export const holdingMaintenanceJourney: TaskJourney = {
     },
     {
       id: "maintenance-links",
+      components: ["ActionGroup", "Button", "DataList", "Select"],
       title: "Link investment records",
       route: "/holdings?position=current",
       source: "apps/web/src/PositionLinksEditor.tsx",
@@ -33,6 +44,7 @@ export const holdingMaintenanceJourney: TaskJourney = {
     },
     {
       id: "maintenance-investment",
+      components: ["ActionGroup", "Button", "Field", "Input", "Notice"],
       title: "Correct purchases and distributions",
       route: "/holdings?position=synthetic-holding",
       source: "apps/web/src/HoldingInvestment.tsx",
@@ -48,6 +60,16 @@ export const holdingMaintenanceJourney: TaskJourney = {
     },
     {
       id: "maintenance-terms",
+      components: [
+        "ActionGroup",
+        "Button",
+        "DataList",
+        "Field",
+        "InputGroup",
+        "Notice",
+        "Select",
+        "Stat",
+      ],
       title: "Review fees and carry",
       route: "/holdings?position=holding_demo_spv",
       source: "apps/web/src/PositionEconomicsEditor.tsx",

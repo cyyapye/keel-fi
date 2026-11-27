@@ -1,7 +1,7 @@
 import type { Page, TestInfo } from "@playwright/test";
-import { test, expect } from "./api-mocked-test";
+import { expect } from "./api-mocked-test";
 
-test.beforeEach(async ({ page }) => {
+export async function isolateMaintenanceExample({ page }: { page: Page }) {
   // Every action in the synthetic catalogue must stay within the example.
   await page.route("**/api/**", async (route) => {
     await route.abort();
@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
         new URL(route.request().url()).pathname,
     );
   });
-});
+}
 
 const entry = (step: string) => "/ui/#journeys/maintenance-" + step;
 async function select(page: Page, label: string, option: string | RegExp) {
@@ -37,9 +37,10 @@ async function capture(page: Page, info: TestInfo, state: string) {
   }
 }
 
-test("manual holding recovery opens the committed position or retries only after checking for it", async ({
-  page,
-}, info) => {
+export async function manualHoldingRecovery(
+  { page }: { page: Page },
+  info: TestInfo,
+) {
   await page.goto(entry("manual"));
   await page
     .getByRole("button", { name: "Capture controls and source" })
@@ -123,11 +124,12 @@ test("manual holding recovery opens the committed position or retries only after
         .getByRole("button", { name: "Capture controls and source" })
         .click();
   }
-});
+}
 
-test("linked reports can supply value while a replacement stays historical", async ({
-  page,
-}, info) => {
+export async function linkAndReplacePosition(
+  { page }: { page: Page },
+  info: TestInfo,
+) {
   await page.goto(entry("links"));
   async function openLinks() {
     await page
@@ -175,11 +177,12 @@ test("linked reports can supply value while a replacement stays historical", asy
     page.getByText("$6,000.00", { exact: true }).first(),
   ).toBeVisible();
   await capture(page, info, "links-saved");
-});
+}
 
-test("a purchase correction preserves distributions and saved distributions reload without another write", async ({
-  page,
-}, info) => {
+export async function correctInvestmentAndDistributions(
+  { page }: { page: Page },
+  info: TestInfo,
+) {
   await page.goto(entry("investment"));
   await page
     .getByRole("button", { name: "Edit investment", exact: true })
@@ -255,11 +258,12 @@ test("a purchase correction preserves distributions and saved distributions relo
   await expect(calculation).toContainText("$10,440.00");
   await expect(calculation).toContainText("$1,800.00");
   await expect(calculation).toContainText("$1,152.00");
-});
+}
 
-test("SPV fees and carry are reviewed before the accepted terms reopen on the same position", async ({
-  page,
-}, info) => {
+export async function acceptFeeAndCarryTerms(
+  { page }: { page: Page },
+  info: TestInfo,
+) {
   await page.goto(entry("terms"));
   await page.getByRole("button", { name: "Fees & carry" }).click();
   await page.getByRole("button", { name: "Review fee & carry" }).click();
@@ -319,4 +323,4 @@ test("SPV fees and carry are reviewed before the accepted terms reopen on the sa
   await page.getByRole("button", { name: "Update fee & carry" }).click();
   await expect(fee).toHaveValue("3");
   await expect(carry).toHaveValue("18");
-});
+}

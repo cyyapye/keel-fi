@@ -142,11 +142,21 @@ export function stepsUsing(names: readonly string[]) {
     )
       ? [{ id: "observed-burn", title: "Observed burn and runway" }]
       : []),
+    ...taskJourneys.flatMap((journey) =>
+      journey.steps
+        .filter((step) => step.components?.some((name) => names.includes(name)))
+        .map(({ id, title }) => ({ id, title })),
+    ),
     ...(names.some((name) => name === "RecordItem" || name === "TextLink")
       ? taskJourneys
           .filter(
             (journey) =>
-              !["cash", "baseline", "observed-burn"].includes(journey.id),
+              ![
+                "cash",
+                "baseline",
+                "observed-burn",
+                "holding-maintenance",
+              ].includes(journey.id),
           )
           .map((journey) => ({
             id: journey.steps[0]!.id,

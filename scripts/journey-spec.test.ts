@@ -110,6 +110,10 @@ it("covers all areas with bounded source-backed task paths and safe stable IDs",
   expect(ids).toEqual(
     expect.arrayContaining([
       "cash-history",
+      "maintenance-manual",
+      "maintenance-links",
+      "maintenance-investment",
+      "maintenance-terms",
       "observed-burn",
       "planning-overview",
       "evidence-watch",
@@ -129,6 +133,14 @@ it("covers all areas with bounded source-backed task paths and safe stable IDs",
       ["cash", "observed-burn"].includes(journey.id) ? 0 : 1,
     );
     for (const step of journey.steps) {
+      if (journey.id === "holding-maintenance") {
+        expect(journeyStepStatus(step.id)).toMatchObject({
+          stage: "Shipped",
+          evidence: step.source,
+        });
+      }
+      for (const name of step.components ?? [])
+        expect(componentPage(name), name).toBeTruthy();
       expect(step.id).toMatch(/^[a-z-]+$/);
       expect(readFileSync(step.source, "utf8").length).toBeGreaterThan(0);
       for (const value of [

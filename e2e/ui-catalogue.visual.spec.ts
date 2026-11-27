@@ -1,4 +1,11 @@
 import {
+  isolateMaintenanceExample,
+  manualHoldingRecovery,
+  linkAndReplacePosition,
+  correctInvestmentAndDistributions,
+  acceptFeeAndCarryTerms,
+} from "./holding-maintenance-catalogue.cases";
+import {
   adjustOverlappingCash,
   reviewUpdatedCash,
 } from "./portfolio-baseline-parity";
@@ -2729,4 +2736,24 @@ test("Observed burn capture keeps draft, save and later reviewed drift distinct"
   await page.reload();
   await expectEditedBurnDraftKeepsItsOwnVersion(page);
   expect(calls).toEqual([]);
+});
+
+test.describe("Holding maintenance", () => {
+  test.beforeEach(isolateMaintenanceExample);
+  test(
+    "manual holding recovery opens the committed position or retries only after checking for it",
+    manualHoldingRecovery,
+  );
+  test(
+    "linked reports can supply value while a replacement stays historical",
+    linkAndReplacePosition,
+  );
+  test(
+    "a purchase correction preserves distributions and saved distributions reload without another write",
+    correctInvestmentAndDistributions,
+  );
+  test(
+    "SPV fees and carry are reviewed before the accepted terms reopen on the same position",
+    acceptFeeAndCarryTerms,
+  );
 });
