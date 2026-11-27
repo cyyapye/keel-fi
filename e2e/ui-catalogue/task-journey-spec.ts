@@ -80,6 +80,29 @@ export const taskJourneys: TaskJourney[] = [
     ],
   },
   {
+    id: "observed-burn",
+    title: "How does observed spending affect my runway plan?",
+    areas: ["scenarios", "overview"],
+    steps: [
+      {
+        id: "observed-burn",
+        title: "Review spending, save a plan, and check later drift",
+        route: "/scenarios",
+        source: "apps/web/src/ObservedCashFlow.tsx",
+        owner:
+          "Scenarios owns burn treatment, the unsaved runway draft, and the explicit plan save. Overview monitors later reviewed actuals.",
+        action:
+          "Review the three-month spending categories, prepare a draft, and save the plan. In a later Overview, open Details and review the burn decision.",
+        result:
+          "Saving creates a new plan and forecast version. A separate reviewed observation can flag drift and lead back to Scenarios.",
+        context:
+          "Monitoring compares against the saved plan. Opening or deferring its decision preserves that plan.",
+        alternate:
+          "Changing a treatment updates the draft comparison. The current saved forecast remains in use until Save plan succeeds.",
+      },
+    ],
+  },
+  {
     id: "planning",
     title: "How does a goal become a saved plan?",
     areas: ["overview", "goals", "scenarios", "forecasts"],

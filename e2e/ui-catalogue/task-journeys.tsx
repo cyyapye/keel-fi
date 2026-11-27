@@ -1,4 +1,5 @@
 import { BaselineWalkthrough } from "./baseline-walkthrough";
+import { ObservedBurnWalkthrough } from "./observed-burn-walkthrough";
 import { CashHistoryWalkthrough } from "./cash-history-walkthrough";
 import { AppAccessWalkthrough } from "./app-access-walkthrough";
 import { SourceUpdatesWalkthrough } from "./source-updates-walkthrough";
@@ -29,15 +30,21 @@ export function TaskJourney({ stepId }: { stepId: string }) {
         actions={<TextLink href="#journeys">Return to Journeys</TextLink>}
       />
     );
-  if (journey.id === "cash" || journey.id === "baseline") {
+  if (
+    journey.id === "cash" ||
+    journey.id === "baseline" ||
+    journey.id === "observed-burn"
+  ) {
     return (
       <Screen>
         <TextLink href="#journeys">All journeys</TextLink>
         <SectionHeader title={journey.title} />
         {journey.id === "cash" ? (
           <CashHistoryWalkthrough />
-        ) : (
+        ) : journey.id === "baseline" ? (
           <BaselineWalkthrough key={stepId} stepId={stepId} />
+        ) : (
+          <ObservedBurnWalkthrough />
         )}
       </Screen>
     );

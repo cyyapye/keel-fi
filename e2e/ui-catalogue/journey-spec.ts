@@ -129,10 +129,24 @@ export function stepsUsing(names: readonly string[]) {
     )
       ? [{ id: "baseline-exceptions", title: "Review one planning source" }]
       : []),
+    ...(names.some((name) =>
+      [
+        "Button",
+        "Collapsible",
+        "DataList",
+        "Field",
+        "InputGroup",
+        "Select",
+        "Stat",
+      ].includes(name),
+    )
+      ? [{ id: "observed-burn", title: "Observed burn and runway" }]
+      : []),
     ...(names.some((name) => name === "RecordItem" || name === "TextLink")
       ? taskJourneys
           .filter(
-            (journey) => journey.id !== "cash" && journey.id !== "baseline",
+            (journey) =>
+              !["cash", "baseline", "observed-burn"].includes(journey.id),
           )
           .map((journey) => ({
             id: journey.steps[0]!.id,

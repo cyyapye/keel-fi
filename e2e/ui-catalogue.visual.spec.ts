@@ -9,6 +9,10 @@ import {
   financingReport,
   markReport,
 } from "./ui-catalogue/watch-evidence-reports";
+import {
+  expectBurnPlanFollowUp,
+  expectEditedBurnDraftKeepsItsOwnVersion,
+} from "./observed-burn-journey";
 import { expectSelectedFinancingReport } from "./watch-evidence-parity";
 import { taskJourneys } from "./ui-catalogue/task-journey-spec";
 import { fileURLToPath } from "node:url";
@@ -2699,4 +2703,30 @@ test("Planning baseline refreshes routine changes and preserves the selected ove
     )
     .toBe(true);
   expect(requests).toEqual([]);
+});
+
+test("Observed burn capture keeps draft, save and later reviewed drift distinct", async ({
+  page,
+}) => {
+  const calls: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      calls.push(request.url());
+  });
+  await page.goto("/ui/#journeys/observed-burn");
+  await expect(page.getByText("Shipped", { exact: true })).toBeVisible();
+  await expectBurnPlanFollowUp(page, async () => {
+    await page
+      .getByRole("button", { name: "Continue capture to the later Overview" })
+      .click();
+    await expect(
+      page.getByRole("region", { name: "Overview capture" }),
+    ).toBeFocused();
+  });
+  await expect(
+    page.getByRole("region", { name: "Scenarios capture" }),
+  ).toBeFocused();
+  await page.reload();
+  await expectEditedBurnDraftKeepsItsOwnVersion(page);
+  expect(calls).toEqual([]);
 });
