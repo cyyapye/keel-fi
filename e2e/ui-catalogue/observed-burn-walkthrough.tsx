@@ -79,7 +79,7 @@ export function ObservedBurnWalkthrough() {
                 return Promise.resolve();
               }}
             />
-            {saves > 0 && (
+            {example.canOpenLaterObservation() && (
               <ActionGroup>
                 <Button onClick={laterOverview}>
                   {screen === "august"
@@ -96,8 +96,8 @@ export function ObservedBurnWalkthrough() {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <p className="catalogue-note">
-              The sample starts with May–July spending. After saving, continue
-              to Overview to compare the saved plan with a separate review of
+              The sample starts with May–July spending. Save the reviewed
+              amounts to continue to Overview and compare the plan with
               August–October spending. In Keel, open Overview separately.
             </p>
             {overview && (

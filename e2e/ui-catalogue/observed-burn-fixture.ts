@@ -36,6 +36,21 @@ const initialValues = {
 };
 const fiEligibleLiquidMinor = 13_000_000;
 
+type PlanBase = Pick<
+  PlanInputState,
+  | "baseCashFlowPlanId"
+  | "baseForecastSnapshotId"
+  | "baseForecastSnapshotVersion"
+>;
+
+function samePlanBase(left: PlanBase, right: PlanBase) {
+  return (
+    left.baseCashFlowPlanId === right.baseCashFlowPlanId &&
+    left.baseForecastSnapshotId === right.baseForecastSnapshotId &&
+    left.baseForecastSnapshotVersion === right.baseForecastSnapshotVersion
+  );
+}
+
 function proposalFor(
   report: typeof august,
   plan: PlanInputState,
@@ -155,6 +170,7 @@ export function createObservedBurnExample() {
   let report = august;
   let proposal: CashFlowProposal | null = proposalFor(report, plan);
   let reviewed: CashFlowProposal | null = null;
+  let augustProposalApplied = false;
   const cooldowns: PlanActualMonitoringInput["cooldowns"] = [];
   const cashFlow = (): CashFlowState => ({
     version: 1,
@@ -222,6 +238,7 @@ export function createObservedBurnExample() {
     });
   return {
     hasProposal: () => proposal !== null,
+    canOpenLaterObservation: () => augustProposalApplied,
     cashFlowRequests: {
       loadCashFlow: () => Promise.resolve(cashFlow()),
       reviewCashFlow: (id: string, input: CashFlowReviewInput) =>
@@ -229,9 +246,13 @@ export function createObservedBurnExample() {
           if (
             !proposal ||
             id !== proposal.id ||
-            proposal.planning.baseCashFlowPlanId !== plan.baseCashFlowPlanId
+            proposal.status !== "pending_review"
           )
             throw new Error("Observed cash-flow proposal is stale.");
+          if (!samePlanBase(proposal.planning, plan))
+            throw new Error(
+              "The runway plan changed. Check cash flow again against the latest plan.",
+            );
           reviewed = review(proposal, input);
           proposal = reviewed.planSuggestion ? reviewed : null;
           return {
@@ -247,17 +268,13 @@ export function createObservedBurnExample() {
       loadPlanInputs: () => Promise.resolve(plan),
       savePlanInputs: (input: PlanInputSave) =>
         Promise.resolve().then(() => {
-          if (
-            input.baseCashFlowPlanId !== plan.baseCashFlowPlanId ||
-            input.baseForecastSnapshotId !== plan.baseForecastSnapshotId ||
-            input.baseForecastSnapshotVersion !==
-              plan.baseForecastSnapshotVersion
-          )
+          if (!samePlanBase(input, plan))
             throw new Error("Plan inputs are stale.");
           if (
             input.cashFlowProposalId !== undefined &&
             (proposal?.planSuggestion?.proposalId !==
               input.cashFlowProposalId ||
+              !samePlanBase(proposal.planning, input) ||
               input.householdBurnMonthlyMinor !==
                 proposal.planSuggestion.householdBurnMonthlyMinor ||
               input.businessBurnMonthlyMinor !==
@@ -281,7 +298,10 @@ export function createObservedBurnExample() {
             values,
             impact: createPlanInputImpact(values, fiEligibleLiquidMinor),
           };
-          if (input.cashFlowProposalId === proposal?.id) proposal = null;
+          if (proposal && input.cashFlowProposalId === proposal.id) {
+            if (report === august) augustProposalApplied = true;
+            proposal = null;
+          }
           return {
             plan,
             priorImpact,
@@ -292,6 +312,10 @@ export function createObservedBurnExample() {
     },
     openLaterObservation: () => {
       if (report === november) return;
+      if (!augustProposalApplied)
+        throw new Error(
+          "Save the reviewed August proposal to continue the example.",
+        );
       report = november;
       const later = proposalFor(report, plan);
       reviewed = review(later, {

@@ -9,7 +9,10 @@ import {
   financingReport,
   markReport,
 } from "./ui-catalogue/watch-evidence-reports";
-import { expectBurnPlanFollowUp } from "./observed-burn-journey";
+import {
+  expectBurnPlanFollowUp,
+  expectEditedBurnDraftKeepsItsOwnVersion,
+} from "./observed-burn-journey";
 import { expectSelectedFinancingReport } from "./watch-evidence-parity";
 import { taskJourneys } from "./ui-catalogue/task-journey-spec";
 import { fileURLToPath } from "node:url";
@@ -2723,5 +2726,7 @@ test("Observed burn capture keeps draft, save and later reviewed drift distinct"
   await expect(
     page.getByRole("region", { name: "Scenarios capture" }),
   ).toBeFocused();
+  await page.reload();
+  await expectEditedBurnDraftKeepsItsOwnVersion(page);
   expect(calls).toEqual([]);
 });

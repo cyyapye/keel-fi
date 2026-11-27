@@ -83,6 +83,40 @@ export async function expectBurnPlanFollowUp(
   ).toBe(true);
 }
 
+export async function expectEditedBurnDraftKeepsItsOwnVersion(page: Page) {
+  const flow = page.locator(".cash-flow-review");
+  const editor = page.locator(".plan-inputs-editor");
+  const household = editor.getByRole("textbox", { name: /Household burn/ });
+  const save = editor.getByRole("button", { name: "Save plan", exact: true });
+  await flow
+    .getByRole("combobox", { name: "General services treatment" })
+    .click();
+  await page.getByRole("option", { name: "Business burn" }).click();
+  await flow.getByRole("button", { name: "Prepare plan draft" }).click();
+  await expect(household).toHaveValue("5,000");
+  await household.fill("5100");
+  await save.click();
+  await expect(editor.getByRole("status")).toHaveText(
+    "Plan saved with forecast version 4.",
+  );
+  await expect(
+    page.getByRole("button", {
+      name: "Continue capture to the later Overview",
+    }),
+  ).toHaveCount(0);
+  await flow.getByRole("button", { name: "Load plan draft" }).click();
+  await expect(household).toHaveValue("5,000");
+  await save.click();
+  await expect(
+    editor.getByText(
+      "Observed cash-flow proposal is stale. Your draft is still here.",
+    ),
+  ).toBeVisible();
+  await expect(editor.getByText("Version 4", { exact: true })).toBeVisible();
+  await editor.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(household).toHaveValue("5,100");
+}
+
 export async function installBurnPlanSource(page: Page) {
   const example = createObservedBurnExample();
   const saved: PlanInputSave[] = [];
