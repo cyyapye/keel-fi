@@ -184,9 +184,21 @@ describe("provider browser session repository", () => {
     database = createTestDatabase();
     const d1 = new TestD1Database(database) as unknown as D1Database;
     const now = new Date("2026-08-26T12:00:00.000Z");
-    await new D1AngelListMacAgentRepository(d1, () => now).register(
+    const agent = new D1AngelListMacAgentRepository(d1, () => now);
+    await agent.register("synthetic-access-subject");
+    await agent.requestRun("synthetic-access-subject");
+    const failedRun = (await agent.lease("synthetic-access-subject")).run;
+    if (failedRun === null) throw new Error("Expected an AngelList run lease");
+    const failed = await agent.fail(
       "synthetic-access-subject",
+      failedRun.id,
+      failedRun.leaseToken,
+      { errorCode: "angellist_sign_in_required" },
     );
+    expect(failed).toMatchObject({
+      status: "needs_attention",
+      errorCode: "angellist_sign_in_required",
+    });
     const repository = new D1ProviderBrowserSessionRepository(
       d1,
       () => now,
@@ -250,6 +262,9 @@ describe("provider browser session repository", () => {
       repository.consume("synthetic-access-subject", requested.id),
     ).rejects.toMatchObject({ code: "session_not_ready" });
     await expect(
+      agent.getOverview("synthetic-access-subject"),
+    ).resolves.toEqual(failed);
+    await expect(
       repository.complete(
         "synthetic-access-subject",
         "angellist",
@@ -261,6 +276,13 @@ describe("provider browser session repository", () => {
       status: "connected",
       openedAt: now.toISOString(),
       connectedAt: now.toISOString(),
+    });
+    await expect(
+      agent.getOverview("synthetic-access-subject"),
+    ).resolves.toEqual({
+      ...failed,
+      status: "ready",
+      errorCode: null,
     });
 
     expect(

@@ -460,6 +460,29 @@ export class D1ProviderBrowserSessionRepository implements ProviderBrowserSessio
     );
     const timestamp = now.toISOString();
     await this.db.batch([
+      // A verified AngelList sign-in resolves that error before the next
+      // capture. Guard the write so cancellation or another completion wins.
+      ...(provider === "angellist"
+        ? [
+            this.db
+              .prepare(
+                `UPDATE angellist_mac_agents
+                 SET last_error_code = NULL, updated_at = ?
+                 WHERE household_id = ? AND last_error_code = 'angellist_sign_in_required'
+                   AND EXISTS (
+                     SELECT 1 FROM provider_browser_sessions
+                     WHERE id = ? AND household_id = ?
+                       AND provider = 'angellist' AND status = 'opened'
+                   )`,
+              )
+              .bind(
+                timestamp,
+                identity.household_id,
+                sessionId,
+                identity.household_id,
+              ),
+          ]
+        : []),
       this.db
         .prepare(
           `UPDATE provider_browser_sessions
