@@ -72,6 +72,13 @@ const records = [
     committedMinor: row.invested,
     realizedValueMinor: 0,
     instrumentType: "SPV interest",
+    positionValueContext: {
+      snapshotId: "snapshot_" + row.id,
+      currency: "USD",
+      providerValueState: row.value === null ? "not_reported" : "reported",
+      providerValueMinor: row.value,
+      acceptedAdjustment: null,
+    },
   }),
 );
 const positions = investmentHoldingsViewFor(records)

@@ -171,7 +171,14 @@ function ManualExample({ mode, route }: { mode: Mode; route: string }) {
           )}
           {input.valuation.state === "estimated" && (
             <DataItem
-              label="Your estimate"
+              label={
+                "Your estimate of remaining value · " +
+                {
+                  before_carry: "Before carry",
+                  after_carry: "After carry",
+                  unknown: "Carry unspecified",
+                }[input.valuation.carryStatus]
+              }
               value={
                 formatMoney(input.valuation.amountMinor) +
                 " · " +

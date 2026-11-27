@@ -201,6 +201,11 @@ test("a purchase correction preserves distributions and saved distributions relo
   await expect(page.getByText("$1,800.00", { exact: true })).toBeVisible();
   await expect(afterCarry).toContainText("$15,728.00");
   await capture(page, info, "investment-readback");
+  await page.getByRole("button", { name: "Calculation", exact: true }).click();
+  const calculation = page.locator(".holding-calculation");
+  await expect(calculation).toContainText("$10,440.00");
+  await expect(calculation).toContainText("$1,800.00");
+  await expect(calculation).toContainText("$1,152.00");
 });
 
 test("SPV fees and carry are reviewed before the accepted terms reopen on the same position", async ({

@@ -9,6 +9,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   DisclosureIndicator,
+  DataItem,
+  DataList,
   SectionHeader,
 } from "@keel/ui";
 import { PositionEconomicsEditor } from "../../apps/web/src/PositionEconomicsEditor";
@@ -83,6 +85,54 @@ function initialPurchase() {
 
 function readPurchase() {
   return readExample(receiptKey, PurchaseReceiptSchema, initialPurchase);
+}
+
+function InvestmentCalculation({
+  summary,
+}: {
+  summary: ReturnType<typeof holdingValueSummary>;
+}) {
+  const { beforeReturn, afterReturn, after, historical } = summary;
+  const performance = beforeReturn ?? afterReturn;
+  return (
+    <Collapsible className="holding-calculation">
+      <CollapsibleTrigger layout="inline">
+        Calculation <DisclosureIndicator />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <DataList layout="rows">
+          {performance?.costBasisMinor != null && (
+            <DataItem
+              label={
+                performance.costBasisSource === "reviewed_spv_estimate"
+                  ? "Estimated net capital"
+                  : "Net capital"
+              }
+              value={formatMoney(performance.costBasisMinor)}
+            />
+          )}
+          {historical.status === "available" && (
+            <DataItem
+              label="Distributions excluding capital refunds"
+              value={formatMoney(historical.netDistributionsMinor)}
+            />
+          )}
+          {after?.carryMinor != null && (
+            <DataItem
+              label="Estimated carry"
+              value={formatMoney(after.carryMinor)}
+            />
+          )}
+        </DataList>
+        {performance?.totalReturnPpm != null && (
+          <p className="holding-metadata">
+            Total return = (value + distributions excluding capital refunds −
+            net capital) ÷ net capital
+          </p>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 function InvestmentExample() {
@@ -193,6 +243,7 @@ function InvestmentExample() {
             )}
           </section>
         )}
+        {!readbackPending && <InvestmentCalculation summary={summary} />}
         <HoldingInvestment
           holding={holding}
           disabled={false}
