@@ -166,8 +166,11 @@ test("linked reports can supply value while a replacement stays historical", asy
   ).toBeVisible();
   await expect(section.getByText(/Supplies reported value/)).toBeVisible();
   await expect(
-    page.getByText("$15,600.00 · Tokenfolio", { exact: true }),
+    page.getByText("$15,600.00 · Tokenfolio · Sep 17, 2026", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /^Ownership, sources & history/ }),
+  ).toContainText("Sydecar · Sep 20, 2026");
   await expect(
     page.getByText("$6,000.00", { exact: true }).first(),
   ).toBeVisible();
@@ -184,6 +187,13 @@ test("a purchase correction preserves distributions and saved distributions relo
   await page
     .getByRole("textbox", { name: "Cash paid · $", exact: true })
     .fill("12000");
+  await page
+    .getByRole("button", { name: "Source details", exact: true })
+    .click();
+  await expect(
+    page.getByRole("textbox", { name: "Purchase source", exact: true }),
+  ).toHaveValue("Synthetic subscription");
+  await capture(page, info, "purchase-correction");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("$12,000.00", { exact: true })).toBeVisible();
   await expect(page.getByText("$1,500.00", { exact: true })).toBeVisible();
@@ -194,6 +204,7 @@ test("a purchase correction preserves distributions and saved distributions relo
   await expect(invested).toContainText("Net invested");
   await expect(invested).toContainText("$10,440.00");
   await expect(afterCarry).toContainText("$15,773.00");
+  await capture(page, info, "purchase-saved");
   await page
     .getByRole("button", { name: "Capture controls and source" })
     .click();
@@ -271,6 +282,24 @@ test("SPV fees and carry are reviewed before the accepted terms reopen on the sa
   await expect(preview).toContainText("3.0% · $3,000.00");
   await expect(preview).toContainText("$97,000.00");
   await expect(preview).toContainText("18.0%");
+  const timing = preview.getByText(
+    "Carry is recorded as a term now and applied only when a partial or full exit is accepted.",
+    { exact: true },
+  );
+  await expect(timing).toBeVisible();
+  const smallestLabel = await preview
+    .locator(":scope > div > span, :scope > p, :scope > small")
+    .evaluateAll((elements) => ({
+      size: Math.min(
+        ...elements.map((el) => parseFloat(getComputedStyle(el).fontSize)),
+      ),
+      supporting: parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--text-supporting",
+        ),
+      ),
+    }));
+  expect(smallestLabel.size).toBeGreaterThanOrEqual(smallestLabel.supporting);
   await capture(page, info, "terms-review");
   await preview.getByRole("button", { name: "Accept terms" }).click();
   await page.reload();

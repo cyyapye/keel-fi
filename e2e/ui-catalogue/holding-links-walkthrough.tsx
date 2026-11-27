@@ -26,12 +26,12 @@ import { formatDate, formatMoney } from "../../apps/web/src/format";
 import { investmentHoldingsViewFor } from "../investment-holdings-fixtures";
 import { MaintenanceControls } from "./holding-maintenance-controls";
 
-const observedAt = "2026-09-20T12:00:00.000Z";
 const records = [
   {
     id: "current",
     name: "Demo Orbit VII SPV",
     provider: "Sydecar",
+    observedOn: "2026-09-20",
     invested: 600_000,
     value: null,
   },
@@ -39,6 +39,7 @@ const records = [
     id: "source",
     name: "Demo Orbit Aerospace source",
     provider: "Tokenfolio",
+    observedOn: "2026-09-17",
     invested: 520_000,
     value: 1_560_000,
   },
@@ -46,6 +47,7 @@ const records = [
     id: "previous",
     name: "Demo Orbit V SPV",
     provider: "Sydecar",
+    observedOn: "2026-05-10",
     invested: 600_000,
     value: null,
   },
@@ -65,8 +67,8 @@ const records = [
     usableLiquidityMinor: null,
     sourceStatus: "verified",
     sourceLabel: row.provider,
-    effectiveDate: "2026-09-20",
-    retrievedAt: observedAt,
+    effectiveDate: row.observedOn,
+    retrievedAt: row.observedOn + "T12:00:00.000Z",
     confidencePpm: null,
     investedMinor: row.invested,
     committedMinor: row.invested,
@@ -138,7 +140,7 @@ function positionExample() {
 export function HoldingLinksWalkthrough() {
   const [actions, setActions] = useState(positionExample);
   const [valueSource, setValueSource] = useState(actions.selectedValue());
-  const supplier = records.find((row) => row.id === valueSource);
+  const supplier = positions.find((position) => position.id === valueSource);
   const [generation, setGeneration] = useState(0);
   return (
     <>
@@ -154,10 +156,12 @@ export function HoldingLinksWalkthrough() {
           <DataItem
             label="Administrator NAV"
             value={
-              supplier?.administratorNavMinor != null
-                ? formatMoney(supplier.administratorNavMinor) +
+              supplier?.snapshot.unrealizedValue.minor != null
+                ? formatMoney(supplier.snapshot.unrealizedValue.minor) +
                   " · " +
-                  supplier.sourceLabel
+                  supplier.source.label +
+                  " · " +
+                  formatDate(supplier.snapshot.observedAt)
                 : "Not reported"
             }
           />
@@ -174,7 +178,8 @@ export function HoldingLinksWalkthrough() {
             <span>
               <strong>Ownership, sources &amp; history</strong>
               <small>
-                Demo Family LLC · Sydecar · {formatDate(observedAt)}
+                Demo Family LLC · Sydecar ·{" "}
+                {formatDate(records[0]!.effectiveDate)}
               </small>
             </span>
             <DisclosureIndicator />
