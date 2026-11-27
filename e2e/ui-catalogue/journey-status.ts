@@ -41,6 +41,10 @@ const byId: Readonly<Record<string, StepStatus | undefined>> = {
     "Review one source and its effect on the planning baseline in Holdings.",
     "apps/web/src/PortfolioBaselineReconciliation.tsx",
   ),
+  "observed-burn": shipped(
+    "Prepare a runway draft in Scenarios, explicitly save it, and follow a later burn decision from Overview.",
+    "apps/web/src/PlanInputsEditor.tsx",
+  ),
   "cash-history": shipped(
     "Inspect an account’s recorded balance changes in Holdings.",
     "apps/web/src/CashHoldings.tsx",

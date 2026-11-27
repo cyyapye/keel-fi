@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import {
+  expectBurnPlanFollowUp,
+  installBurnPlanSource,
+} from "./observed-burn-journey";
+import { navigateToScreen } from "./navigation";
+
 const planState = {
   baseCashFlowPlanId: "cash_plan_fi_v1",
   baseForecastSnapshotId: "snap_fi_v3",
@@ -307,5 +313,27 @@ test(
     });
     await expectNoHorizontalOverflow(page);
     expect(disconnectRequests).toBe(0);
+  },
+);
+
+test(
+  "keeps the saved runway inputs when a later burn decision returns to Scenarios",
+  { tag: "@desktop-only" },
+  async ({ page }) => {
+    const example = await installBurnPlanSource(page);
+    await page.goto("/scenarios");
+    await expectBurnPlanFollowUp(page, async () => {
+      expect(example.saved).toEqual([
+        expect.objectContaining({
+          cashFlowProposalId: "demo-burn-aug",
+          baseForecastSnapshotVersion: 3,
+          householdBurnMonthlyMinor: 500_000,
+          businessBurnMonthlyMinor: 300_000,
+        }),
+      ]);
+      example.openLaterObservation();
+      await navigateToScreen(page, false, /Overview/);
+    });
+    expect(example.saved).toHaveLength(1);
   },
 );

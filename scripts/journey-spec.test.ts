@@ -110,6 +110,7 @@ it("covers all areas with bounded source-backed task paths and safe stable IDs",
   expect(ids).toEqual(
     expect.arrayContaining([
       "cash-history",
+      "observed-burn",
       "planning-overview",
       "evidence-watch",
       "obligations-proposal",
@@ -124,7 +125,9 @@ it("covers all areas with bounded source-backed task paths and safe stable IDs",
   ]);
   for (const [area] of areas) expect(covered.has(area)).toBe(true);
   for (const journey of taskJourneys) {
-    expect(journey.steps.length).toBeGreaterThan(journey.id === "cash" ? 0 : 1);
+    expect(journey.steps.length).toBeGreaterThan(
+      ["cash", "observed-burn"].includes(journey.id) ? 0 : 1,
+    );
     for (const step of journey.steps) {
       expect(step.id).toMatch(/^[a-z-]+$/);
       expect(readFileSync(step.source, "utf8").length).toBeGreaterThan(0);
