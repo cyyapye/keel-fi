@@ -1666,6 +1666,7 @@
     "scripts/provider-reconnect-access.test.ts :: authenticated reconnect admission > requires the exact signed user, application audience, issuer and unexpired JWT on HTTP",
     "scripts/provider-reconnect-access.test.ts :: authenticated reconnect admission > tears down sockets on cancellation and never admits a replay",
     "scripts/provider-reconnect-access.test.ts :: private named reconnect configuration > fails closed without configuration and rejects permissive files or symlinks",
+    "scripts/provider-reconnect-access.test.ts :: private named reconnect configuration > reports every provider and fails on deployed API origin drift",
     "scripts/provider-reconnect-d1-cost.test.ts :: keeps reconnect subject binding indexed across positive, empty, foreign and growing history",
     "scripts/public-company-match-d1-cost.test.ts :: bounds issuer recommendations across 120 holdings, tied mapping history and unrelated households",
     "scripts/public-company-worker-runtime.test.ts :: runs issuer lookup in Workers and rejects redirects before following them",

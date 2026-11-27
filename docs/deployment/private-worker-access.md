@@ -97,11 +97,27 @@ When moving machine access to a different API origin, update each provider's
 private reconnect configuration to the same origin before the next reconnect.
 The derived public hostname may remain unchanged (the agent hostname's `-agents`
 suffix is omitted); that alone does not establish a matching scope. Preserve the
-provider, audience, tunnel, file ownership and private modes. Check the existing
-configuration against the stored authorization without printing credentials,
-then verify a live browser reaches its ready state. Configuration is loaded for
-each reconnect, so this correction does not need a service restart or changes to
-polling, credentials or provider profiles.
+provider, audience, tunnel, file ownership and private modes. Configuration is
+loaded for each reconnect, so a correction takes effect on the next attempt.
+
+After provisioning or changing access, run the read-only check from the worker
+checkout as the Linux operator with sudo access. Pass the Keel **web origin**
+used to identify the installed services. Use a Node installation readable by
+each provider identity and an `nsenter` that supports `--env`.
+
+```sh
+sudo -v
+node --import tsx scripts/provider-reconnect-check.ts https://keel-preview.example.com
+```
+
+On Preview the standalone copy is
+`/usr/local/libexec/keel-provider-reconnect-check.mjs`. Pass it to the worker's
+Node executable with the same web origin.
+
+The check uses each active service's environment and provider identity to read
+the same machine authorization and reconnect configuration as a live attempt. It
+prints only the provider name and PASS or FAIL, and exits nonzero if any
+provider fails. Resolve any failure before testing that the live browser opens.
 
 Synthetic configuration shape (replace privately; never commit the populated
 configuration):
