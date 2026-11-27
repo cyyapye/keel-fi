@@ -10,7 +10,7 @@ screen name or selector fragment. After a repair, run `pnpm lint:css --prune`
 and commit the reduced inventory with the stylesheet. See the
 [type and spacing contract](../product/ui-library.md#type-and-spacing-hierarchy).
 
-Tracked declarations: 1136.
+Tracked declarations: 1135.
 
 - [App access (2)](#app-access)
 - [Cash accounts and baseline (107)](#cash-accounts-and-baseline)
@@ -29,7 +29,7 @@ Tracked declarations: 1136.
 - [Startup (4)](#startup)
 - [UI catalogue compositions and journey candidates (4)](#ui-catalogue-compositions-and-journey-candidates)
 - [UI catalogue foundations and walkthroughs (12)](#ui-catalogue-foundations-and-walkthroughs)
-- [UI catalogue planning journey (18)](#ui-catalogue-planning-journey)
+- [UI catalogue planning journey (17)](#ui-catalogue-planning-journey)
 
 ## App access
 
@@ -1270,14 +1270,13 @@ e2e/ui-catalogue/keel-ui-catalogue.css | .source-update-outcome .stat__value | f
 
 ## UI catalogue planning journey
 
-10 spacing, 8 typography.
+9 spacing, 8 typography.
 
 ```text
 e2e/ui-catalogue/keel-ui-candidates.css | .catalogue-planning .body | padding: 28px
 e2e/ui-catalogue/keel-ui-candidates.css | .catalogue-planning .brand | font-size: 24px
 e2e/ui-catalogue/keel-ui-candidates.css | .catalogue-planning .columns | gap: 36px
 e2e/ui-catalogue/keel-ui-candidates.css | .catalogue-planning .hint | margin: 28px 0 0
-e2e/ui-catalogue/keel-ui-candidates.css | .catalogue-planning details | margin-top: 28px
 e2e/ui-catalogue/keel-ui-candidates.css | .catalogue-planning nav .keel-link | padding: 10px
 e2e/ui-catalogue/keel-ui-candidates.css | .planning-fixed-facts strong | font-size: 16px
 e2e/ui-catalogue/keel-ui-candidates.css | .planning-fixed-facts strong | font-weight: 500
