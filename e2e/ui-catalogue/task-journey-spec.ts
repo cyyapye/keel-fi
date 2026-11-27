@@ -42,6 +42,44 @@ export const taskJourneys: TaskJourney[] = [
     ],
   },
   {
+    id: "baseline",
+    title: "Which holdings need a planning decision?",
+    areas: ["holdings"],
+    steps: [
+      {
+        id: "baseline-refresh",
+        title: "Routine refresh",
+        route: "/holdings",
+        source: "apps/web/src/App.tsx",
+        owner:
+          "Holdings loads the baseline and refreshes eligible accepted source changes.",
+        action:
+          "Open Holdings after a routine change to an established planning baseline.",
+        result:
+          "The update runs automatically. The baseline panel closes when no source needs review.",
+        context:
+          "This capture starts on the main Holdings view with a previously confirmed baseline.",
+        alternate:
+          "Retry automatic update rereads the baseline after a refresh failure.",
+      },
+      {
+        id: "baseline-exceptions",
+        title: "Review one source",
+        route: "/holdings",
+        source: "apps/web/src/PortfolioBaselineReconciliation.tsx",
+        owner:
+          "The Holdings planning baseline owns the source queue and selected decision.",
+        action:
+          "Review a possible overlap, compare its effect on the plan, then decide or defer.",
+        result:
+          "A saved decision applies to the selected source. Holdings rereads the outstanding sources.",
+        context: "Unresolved sources keep their previous planning treatment.",
+        alternate:
+          "A changed source rejects the stale decision. Reload Holdings and review the latest values before confirming.",
+      },
+    ],
+  },
+  {
     id: "planning",
     title: "How does a goal become a saved plan?",
     areas: ["overview", "goals", "scenarios", "forecasts"],

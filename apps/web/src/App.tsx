@@ -1,3 +1,9 @@
+import { readPlanningBaseline } from "./portfolio-baseline-refresh";
+import {
+  BaselineRefreshStatus,
+  PortfolioBaselineExceptions,
+  PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE,
+} from "./PortfolioBaselineReconciliation";
 import { holdingsExposureGroups } from "@keel/domain/exposure-read-model";
 import {
   holdingPositionPath,
@@ -190,6 +196,8 @@ import {
 } from "./app-navigation";
 import {
   formatPositionCurrency as formatCurrency,
+  dollarInputToMinorUnits,
+  minorUnitsToDollarInput,
   formatCompactMoney,
   formatDate,
   formatMoney,
@@ -5896,25 +5904,6 @@ function CashAccountsControl({
   );
 }
 
-function minorUnitsToDollarInput(value: number): string {
-  const minor = BigInt(value);
-  const dollars = (minor / 100n).toLocaleString("en-US");
-  const cents = (minor % 100n).toString().padStart(2, "0");
-  return `${dollars}.${cents}`;
-}
-
-function dollarInputToMinorUnits(value: string): number | null {
-  const normalized = value.trim().replaceAll(",", "");
-  const match = /^(\d+)(?:\.(\d{0,2}))?$/u.exec(normalized);
-  if (match === null) {
-    return null;
-  }
-  const whole = BigInt(match[1] ?? "0");
-  const fraction = (match[2] ?? "").padEnd(2, "0");
-  const minor = whole * 100n + BigInt(fraction.length === 0 ? "0" : fraction);
-  return minor <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(minor) : null;
-}
-
 type BaselineChangeValue = {
   valueMinor: number | null;
   valueState: "reported" | "locked" | "not_reported";
@@ -6048,7 +6037,6 @@ function portfolioBaselineRequiresCashOverlapReview(
 }
 
 const PORTFOLIO_ACCESS_DETAIL_PAGE_SIZE = 12;
-const PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE = 12;
 
 type PortfolioAccessDetailRow = {
   context: string;
@@ -6274,258 +6262,6 @@ function PortfolioAccessDetail({
   );
 }
 
-function PortfolioBaselineExceptions({
-  state,
-  onUpdated,
-}: {
-  state: PortfolioBaselineState;
-  onUpdated: () => Promise<void>;
-}) {
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [visibleCount, setVisibleCount] = useState(
-    PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE,
-  );
-  const [cashInput, setCashInput] = useState(
-    minorUnitsToDollarInput(state.suggestedOtherFiEligibleLiquidMinor),
-  );
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (selectedKey !== null) headingRef.current?.focus();
-  }, [selectedKey]);
-  const exceptions = state.exceptions ?? [];
-  const selected = exceptions.find((item) => item.key === selectedKey);
-  const explanations = {
-    removed:
-      "This source is no longer included in synced planning sources. Its previous value stays in your plan until you decide to remove it.",
-    unavailable:
-      "The latest source has no usable value. Your plan keeps its previous treatment until you decide otherwise.",
-    cash_overlap:
-      "This newly linked cash may already be included in cash held elsewhere. It stays outside your plan until you check for double counting.",
-    overlap:
-      "This new source appeared alongside a missing source in the same account or ownership scope. Review the missing source first if this is its replacement, or include it as a separate source.",
-  };
-  const reasonLabels = {
-    removed: "Source no longer included",
-    unavailable: "Value unavailable",
-    cash_overlap: "Possible cash overlap",
-    overlap: "Possible holding overlap",
-  };
-  const otherCash =
-    selected?.reason === "cash_overlap"
-      ? dollarInputToMinorUnits(cashInput)
-      : state.suggestedOtherFiEligibleLiquidMinor;
-  const proposedLiquid =
-    selected === undefined || otherCash === null
-      ? null
-      : addMinorUnits(
-          state.planning.currentFiEligibleLiquidMinor,
-          selected.fiEligibleChangeMinor,
-          otherCash,
-          -state.suggestedOtherFiEligibleLiquidMinor,
-        );
-  const apply = async () => {
-    if (
-      selected === undefined ||
-      otherCash === null ||
-      state.sourceRevision === null ||
-      state.baseForecastSnapshotId === null ||
-      state.baseForecastSnapshotVersion === null
-    )
-      return;
-    setWorking(true);
-    setError(null);
-    try {
-      await confirmPortfolioBaseline({
-        sourceRevision: state.sourceRevision,
-        baseForecastSnapshotId: state.baseForecastSnapshotId,
-        baseForecastSnapshotVersion: state.baseForecastSnapshotVersion,
-        otherFiEligibleLiquidMinor: otherCash,
-        duplicateReviewConfirmed: selected.reason === "overlap",
-        cashOverlapReviewConfirmed: true,
-        reviewedExceptionKeys: [selected.key],
-        changeNote:
-          `${reasonLabels[selected.reason]}: reviewed ${selected.name}.`.slice(
-            0,
-            500,
-          ),
-      });
-    } catch (failure) {
-      setError(
-        failure instanceof Error
-          ? failure.message
-          : "The decision could not be saved. Try again.",
-      );
-      setWorking(false);
-      return;
-    }
-    setSelectedKey(null);
-    try {
-      await onUpdated();
-    } catch {
-      setError(
-        "Your decision was saved, but the plan could not be reloaded. Refresh to see it.",
-      );
-    } finally {
-      setWorking(false);
-    }
-  };
-  return (
-    <section
-      className="portfolio-baseline-review"
-      aria-labelledby="baseline-exceptions-title"
-    >
-      <header className="portfolio-baseline-review__heading">
-        <p className="eyebrow">Planning baseline</p>
-        <h2 id="baseline-exceptions-title" ref={headingRef} tabIndex={-1}>
-          {selected === undefined
-            ? `${exceptions.length} ${exceptions.length === 1 ? "source needs" : "sources need"} your decision`
-            : selected.name}
-        </h2>
-        <p>
-          {selected === undefined
-            ? "Routine updates are applied automatically. These sources keep their previous planning treatment until you decide."
-            : explanations[selected.reason]}
-        </p>
-      </header>
-      {selected === undefined ? (
-        <div className="baseline-position-list">
-          {exceptions.slice(0, visibleCount).map((item) => (
-            <article key={item.key}>
-              <div>
-                <strong>{item.name}</strong>
-                <span>{item.context}</span>
-                <small>{reasonLabels[item.reason]}</small>
-              </div>
-              <Button
-                tone="secondary"
-                aria-label={`Review ${item.name}`}
-                onClick={() => {
-                  setSelectedKey(item.key);
-                  setCashInput(
-                    minorUnitsToDollarInput(
-                      state.suggestedOtherFiEligibleLiquidMinor,
-                    ),
-                  );
-                  setError(null);
-                }}
-              >
-                Review
-              </Button>
-            </article>
-          ))}
-          {visibleCount < exceptions.length && (
-            <Button
-              tone="quiet"
-              onClick={() =>
-                setVisibleCount(
-                  (count) => count + PORTFOLIO_BASELINE_CHANGE_PAGE_SIZE,
-                )
-              }
-            >
-              Show more
-            </Button>
-          )}
-        </div>
-      ) : (
-        <>
-          <p>{selected.context}</p>
-          <div className="baseline-liquid-composition">
-            <div className="baseline-liquid-composition__row">
-              <span>Currently used by the plan</span>
-              <strong>
-                {selected.previousValueMinor === null
-                  ? "No reported value included"
-                  : formatMoney(selected.previousValueMinor)}
-              </strong>
-            </div>
-            {selected.previousObservedAt !== null && (
-              <p>
-                Previous value as of {formatDate(selected.previousObservedAt)}
-              </p>
-            )}
-            <div className="baseline-liquid-composition__row">
-              <span>Latest source value</span>
-              <strong>
-                {selected.proposedValueMinor === null
-                  ? "Unavailable"
-                  : formatMoney(selected.proposedValueMinor)}
-              </strong>
-            </div>
-            {selected.reason === "cash_overlap" && (
-              <Field htmlFor="exception-other-cash" label="Cash held elsewhere">
-                <InputGroup prefix="$">
-                  <Input
-                    aria-label="Cash held elsewhere"
-                    id="exception-other-cash"
-                    inputMode="decimal"
-                    value={cashInput}
-                    onChange={(event) =>
-                      setCashInput(event.currentTarget.value)
-                    }
-                    aria-invalid={otherCash === null || undefined}
-                  />
-                </InputGroup>
-                <p>
-                  Reduce this amount if it already includes the newly linked
-                  cash.
-                </p>
-              </Field>
-            )}
-            <div className="baseline-liquid-composition__row">
-              <span>
-                {selected.reason === "removed"
-                  ? "Effect of removing this source"
-                  : "FI-eligible liquid after this decision"}
-              </span>
-              <strong>
-                {formatMoney(state.planning.currentFiEligibleLiquidMinor)} →{" "}
-                {proposedLiquid === null
-                  ? "Enter a valid amount"
-                  : formatMoney(proposedLiquid)}
-              </strong>
-            </div>
-          </div>
-          {selected.reason === "unavailable" && (
-            <p>
-              Excluding the unavailable value removes its contribution from this
-              plan. It does not record a sale or change the source holding.
-            </p>
-          )}
-          <ActionGroup as="footer" layout="split" mobileLayout="stack">
-            <Button
-              tone="quiet"
-              disabled={working}
-              onClick={() => setSelectedKey(null)}
-            >
-              Decide later
-            </Button>
-            {
-              <Button
-                tone="primary"
-                disabled={working || otherCash === null}
-                onClick={() => void apply()}
-              >
-                {working
-                  ? "Saving…"
-                  : selected.reason === "removed"
-                    ? "Remove from plan"
-                    : selected.reason === "unavailable"
-                      ? "Exclude unavailable value"
-                      : selected.reason === "overlap"
-                        ? "Include as separate source"
-                        : "Include cash with this amount"}
-              </Button>
-            }
-          </ActionGroup>
-        </>
-      )}
-      {error !== null && <Notice tone="error">{error}</Notice>}
-    </section>
-  );
-}
-
 function PortfolioBaselineSection({
   onConfirmed,
   refreshKey,
@@ -6550,26 +6286,22 @@ function PortfolioBaselineSection({
     onConfirmedRef.current = onConfirmed;
   }, [onConfirmed]);
 
-  const reload = useCallback(async (signal?: AbortSignal) => {
-    const next = await loadPortfolioBaseline(signal);
-    setState(next);
-    setError(null);
-    if (
-      next.status === "ready" &&
-      (next.automaticUpdateCount !== undefined
-        ? next.automaticUpdateCount > 0
-        : portfolioBaselineReviewReasons(next).length === 0)
-    ) {
-      const refreshed = await refreshPortfolioBaseline(signal);
-      setState(refreshed);
-      if (
-        refreshed.latestBaseline?.id !== next.latestBaseline?.id &&
-        !signal?.aborted
-      ) {
-        await onConfirmedRef.current();
-      }
-    }
-  }, []);
+  const reload = useCallback(
+    (signal?: AbortSignal) =>
+      readPlanningBaseline(
+        {
+          load: loadPortfolioBaseline,
+          refresh: refreshPortfolioBaseline,
+          display: (next) => {
+            setState(next);
+            setError(null);
+          },
+          onBaselineChanged: () => onConfirmedRef.current(),
+        },
+        signal,
+      ),
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -6731,26 +6463,19 @@ function PortfolioBaselineSection({
     state.status === "ready" &&
     (reviewReasons.length === 0 || (state.automaticUpdateCount ?? 0) > 0)
   ) {
-    return error === null ? (
-      <p role="status">Updating planning values…</p>
-    ) : (
-      <section className="portfolio-baseline portfolio-baseline--error">
-        <Notice tone="error">{error}</Notice>
-        <Button
-          onClick={() =>
-            void reload().catch((failure: unknown) =>
-              setError(
-                failure instanceof Error
-                  ? failure.message
-                  : "Planning values could not be refreshed.",
-              ),
-            )
-          }
-          tone="secondary"
-        >
-          Retry automatic update
-        </Button>
-      </section>
+    return (
+      <BaselineRefreshStatus
+        error={error}
+        onRetry={() =>
+          void reload().catch((failure: unknown) =>
+            setError(
+              failure instanceof Error
+                ? failure.message
+                : "Planning values could not be refreshed.",
+            ),
+          )
+        }
+      />
     );
   }
 
@@ -6758,6 +6483,7 @@ function PortfolioBaselineSection({
     return (
       <PortfolioBaselineExceptions
         state={state}
+        onConfirm={confirmPortfolioBaseline}
         onUpdated={async () => {
           await reload();
           await onConfirmed();

@@ -1,3 +1,15 @@
+import {
+  adjustOverlappingCash,
+  reviewUpdatedCash,
+} from "./portfolio-baseline-parity";
+import {
+  cashException,
+  removedException,
+  readyState,
+  confirmationResult,
+  automaticReadyState,
+  automaticConfirmationResult,
+} from "./portfolio-baseline-fixtures";
 import { expect, test, type Page } from "@playwright/test";
 
 import { routeHoldingsPage } from "./holdings-page-fixtures";
@@ -32,232 +44,6 @@ const investmentConnectionsState = {
   ],
   errorCode: null,
 };
-
-const readyStateWithoutChanges = {
-  status: "ready",
-  sourceRevision: "a".repeat(64),
-  observedAt: "2026-08-10T16:00:00.000Z",
-  baseForecastSnapshotId: "snap_fi_v3",
-  baseForecastSnapshotVersion: 3,
-  summary: {
-    positionCount: 3,
-    publicMarketValueMinor: 23_800_000,
-    privatePaperValueMinor: 12_500_000,
-    cashAccountCount: 2,
-    cashAccountValueMinor: 9_968_055,
-    unknownCashAccountCount: 0,
-    unknownValueCount: 1,
-    potentialDuplicateCount: 0,
-  },
-  positions: [
-    {
-      id: "holding_demo_robinhood",
-      positionName: "Synthetic Public Company",
-      ownerLabel: "Robinhood individual account",
-      sourceLabel: "Robinhood",
-      provider: "plaid_investments",
-      classification: "public_market",
-      valueMinor: 23_800_000,
-      valueState: "reported",
-      observedAt: "2026-08-10T16:00:00.000Z",
-      ticker: "SYN",
-      isCashPosition: false,
-      potentialDuplicate: false,
-      duplicateWith: [],
-    },
-    {
-      id: "holding_demo_spv",
-      positionName: "Synthetic Public Company",
-      ownerLabel: "Demo Family LLC",
-      sourceLabel: "AngelList",
-      provider: "angellist",
-      classification: "private_paper",
-      valueMinor: 12_500_000,
-      valueState: "reported",
-      observedAt: "2026-08-09T16:00:00.000Z",
-      ticker: null,
-      isCashPosition: false,
-      potentialDuplicate: false,
-      duplicateWith: [],
-    },
-    {
-      id: "holding_demo_locked",
-      positionName: "Lattice Grove Energy",
-      ownerLabel: "Demo Operator",
-      sourceLabel: "AngelList",
-      provider: "angellist",
-      classification: "private_paper",
-      valueMinor: null,
-      valueState: "locked",
-      observedAt: "2026-08-09T16:00:00.000Z",
-      ticker: null,
-      isCashPosition: false,
-      potentialDuplicate: false,
-      duplicateWith: [],
-    },
-  ],
-  cashAccounts: [
-    {
-      id: "cash_fact_checking",
-      institutionLabel: "Northstar Demo Bank",
-      accountLabel: "Everyday checking",
-      subtype: "checking",
-      valueMinor: 2_468_055,
-      valueState: "reported",
-      refreshKind: "live",
-      observedAt: "2026-08-14T16:00:00.000Z",
-    },
-    {
-      id: "cash_fact_savings",
-      institutionLabel: "Northstar Demo Bank",
-      accountLabel: "Reserve savings",
-      subtype: "savings",
-      valueMinor: 7_500_000,
-      valueState: "reported",
-      refreshKind: "live",
-      observedAt: "2026-08-14T16:00:00.000Z",
-    },
-  ],
-  planning: {
-    currentFiEligibleLiquidMinor: 182_500_000,
-    protectedCashFloorMinor: 10_300_000,
-    householdBurnMonthlyMinor: 2_850_000,
-    businessBurnMonthlyMinor: 1_250_000,
-    fiTargetMinor: 325_000_000,
-    p25FiveYearLiquidityMinor: 94_000_000,
-    p50FiveYearLiquidityMinor: 210_000_000,
-    p75FiveYearLiquidityMinor: 354_000_000,
-    forecastHorizonDate: "2031-12-31",
-  },
-  suggestedOtherFiEligibleLiquidMinor: 5_000_000,
-  currentImpact: {
-    fiEligibleLiquidMinor: 182_500_000,
-    fiEligibleChangeMinor: 0,
-    protectedRunwayMonths: 42,
-    fiGapMinor: 142_500_000,
-    lowerTotalAvailableMinor: 276_500_000,
-    middleTotalAvailableMinor: 392_500_000,
-    higherTotalAvailableMinor: 536_500_000,
-    probabilityCrossingFiPpm: 645_475,
-  },
-  latestBaseline: null,
-  hasSourceChanges: true,
-  hasCashAccountChanges: true,
-  requiresDuplicateReview: false,
-  requiresCashOverlapReview: true,
-  canConfirm: true,
-} as const;
-
-const readyState = {
-  ...readyStateWithoutChanges,
-  changes: {
-    positions: readyStateWithoutChanges.positions.map((current) => ({
-      changeType: "added" as const,
-      current,
-      previous: null,
-    })),
-    cashAccounts: readyStateWithoutChanges.cashAccounts.map((current) => ({
-      changeType: "added" as const,
-      current,
-      previous: null,
-    })),
-  },
-} as const;
-
-const confirmationResult = {
-  baseline: {
-    id: "baseline_synthetic",
-    sourceRevision: readyState.sourceRevision,
-    observedAt: readyState.observedAt,
-    summary: readyState.summary,
-    priorFiEligibleLiquidMinor: 182_500_000,
-    fiEligibleLiquidMinor: 38_768_055,
-    otherFiEligibleLiquidMinor: 5_000_000,
-    forecastSnapshotId: "snap_fi_v4",
-    forecastSnapshotVersion: 4,
-    goalVersion: 2,
-    changeNote: "Reviewed synced holdings for the FI plan.",
-    createdAt: "2026-08-13T19:00:00.000Z",
-    createdBy: "Demo Operator",
-  },
-  impact: {
-    fiEligibleLiquidMinor: 38_768_055,
-    fiEligibleChangeMinor: -143_731_945,
-    protectedRunwayMonths: 6,
-    fiGapMinor: 286_231_945,
-    lowerTotalAvailableMinor: 132_768_055,
-    middleTotalAvailableMinor: 248_768_055,
-    higherTotalAvailableMinor: 392_768_055,
-    probabilityCrossingFiPpm: 367_653,
-  },
-} as const;
-
-const automaticReadyState = {
-  ...readyState,
-  summary: {
-    ...readyState.summary,
-    cashAccountCount: 0,
-    cashAccountValueMinor: 0,
-    unknownCashAccountCount: 0,
-    potentialDuplicateCount: 0,
-  },
-  positions: readyState.positions.map((position) => ({
-    ...position,
-    potentialDuplicate: false,
-    duplicateWith: [],
-  })),
-  cashAccounts: [],
-  suggestedOtherFiEligibleLiquidMinor: 2_500_000,
-  latestBaseline: {
-    ...confirmationResult.baseline,
-    id: "baseline_synthetic_prior",
-    sourceRevision: "b".repeat(64),
-    summary: {
-      ...confirmationResult.baseline.summary,
-      cashAccountCount: 0,
-      cashAccountValueMinor: 0,
-      unknownCashAccountCount: 0,
-      potentialDuplicateCount: 0,
-    },
-    fiEligibleLiquidMinor: 26_300_000,
-    otherFiEligibleLiquidMinor: 2_500_000,
-    createdAt: "2026-08-10T19:00:00.000Z",
-  },
-  hasCashAccountChanges: false,
-  requiresDuplicateReview: false,
-  requiresCashOverlapReview: false,
-  changes: {
-    positions: [
-      {
-        changeType: "updated",
-        current: readyState.positions[0],
-        previous: {
-          valueMinor: 22_800_000,
-          valueState: "reported",
-          observedAt: "2026-08-08T16:00:00.000Z",
-        },
-      },
-    ],
-    cashAccounts: [],
-  },
-} as const;
-
-const automaticConfirmationResult = {
-  baseline: {
-    ...confirmationResult.baseline,
-    id: "baseline_synthetic_automatic",
-    summary: automaticReadyState.summary,
-    fiEligibleLiquidMinor: 26_300_000,
-    otherFiEligibleLiquidMinor: 2_500_000,
-    changeNote: "Accepted holdings refreshed automatically.",
-  },
-  impact: {
-    ...confirmationResult.impact,
-    fiEligibleLiquidMinor: 26_300_000,
-    fiEligibleChangeMinor: -156_200_000,
-    fiGapMinor: 298_700_000,
-  },
-} as const;
 
 const scalePositions = Array.from({ length: 120 }, (_, index) => ({
   id: `holding_scale_${index.toString().padStart(3, "0")}`,
@@ -794,28 +580,6 @@ test(
   { tag: "@mobile-only" },
   async ({ page }) => {
     const alphaFixture = await (await page.request.get("/api/alpha")).json();
-    const cashException = {
-      key: "cash:synthetic-new-cash",
-      kind: "cash",
-      name: "Synthetic reserve cash",
-      context: "Northstar Demo Bank · savings",
-      reason: "cash_overlap",
-      previousValueMinor: null,
-      proposedValueMinor: 500_000,
-      previousObservedAt: null,
-      fiEligibleChangeMinor: 500_000,
-    };
-    const removedException = {
-      key: "position:synthetic-removed",
-      kind: "position",
-      name: "Synthetic missing holding",
-      context: "Plaid Investments · Synthetic brokerage",
-      reason: "removed",
-      previousValueMinor: 100_000,
-      proposedValueMinor: null,
-      previousObservedAt: "2026-08-10T16:00:00.000Z",
-      fiEligibleChangeMinor: -100_000,
-    };
     let baselineState = {
       ...automaticReadyState,
       exceptions: [cashException, removedException],
@@ -858,9 +622,24 @@ test(
       const body = route.request().postDataJSON() as Record<string, unknown>;
       if (failNext) {
         failNext = false;
+        baselineState = {
+          ...baselineState,
+          sourceRevision: "e".repeat(64),
+          baseForecastSnapshotVersion: 6,
+          baseForecastSnapshotId: "synthetic-forecast-6",
+          planning: {
+            ...automaticReadyState.planning,
+            currentFiEligibleLiquidMinor: 26_400_000,
+          },
+        };
+      }
+      if (body.sourceRevision !== baselineState.sourceRevision) {
         await route.fulfill({
           status: 409,
-          json: { error: "The portfolio changed. Reload before saving." },
+          json: {
+            error:
+              "The portfolio or forecast changed. Review the latest baseline before confirming.",
+          },
         });
         return;
       }
@@ -896,15 +675,7 @@ test(
       "portfolio-baseline-exceptions.png",
       { animations: "disabled" },
     );
-    await page
-      .getByRole("button", { name: "Review Synthetic reserve cash" })
-      .click();
-    await page
-      .getByLabel("Cash held elsewhere", { exact: true })
-      .fill("20,000.00");
-    await expect(
-      page.getByText("$263,000.00 → $263,000.00", { exact: true }),
-    ).toBeVisible();
+    await adjustOverlappingCash(page);
     await expectNoHorizontalOverflow(page);
     await expect(page.locator(".portfolio-baseline-review")).toHaveScreenshot(
       "portfolio-baseline-exception-decision.png",
@@ -914,11 +685,14 @@ test(
       .getByRole("button", { name: "Include cash with this amount" })
       .click();
     await expect(
-      page.getByText("The portfolio changed. Reload before saving."),
+      page.getByText(
+        "The portfolio or forecast changed. Review the latest baseline before confirming.",
+      ),
     ).toBeVisible();
     await expect(
       page.getByLabel("Cash held elsewhere", { exact: true }),
     ).toHaveValue("20,000.00");
+    await reviewUpdatedCash(page);
     await page
       .getByRole("button", { name: "Include cash with this amount" })
       .click();
@@ -926,6 +700,8 @@ test(
       page.getByRole("heading", { name: "1 source needs your decision" }),
     ).toBeVisible();
     expect(decisions[0]).toMatchObject({
+      sourceRevision: "e".repeat(64),
+      baseForecastSnapshotVersion: 6,
       reviewedExceptionKeys: [cashException.key],
       otherFiEligibleLiquidMinor: 2_000_000,
     });

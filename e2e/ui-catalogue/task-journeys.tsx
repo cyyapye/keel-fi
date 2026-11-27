@@ -1,3 +1,4 @@
+import { BaselineWalkthrough } from "./baseline-walkthrough";
 import { CashHistoryWalkthrough } from "./cash-history-walkthrough";
 import { AppAccessWalkthrough } from "./app-access-walkthrough";
 import { SourceUpdatesWalkthrough } from "./source-updates-walkthrough";
@@ -28,12 +29,16 @@ export function TaskJourney({ stepId }: { stepId: string }) {
         actions={<TextLink href="#journeys">Return to Journeys</TextLink>}
       />
     );
-  if (journey.id === "cash") {
+  if (journey.id === "cash" || journey.id === "baseline") {
     return (
       <Screen>
         <TextLink href="#journeys">All journeys</TextLink>
         <SectionHeader title={journey.title} />
-        <CashHistoryWalkthrough />
+        {journey.id === "cash" ? (
+          <CashHistoryWalkthrough />
+        ) : (
+          <BaselineWalkthrough key={stepId} stepId={stepId} />
+        )}
       </Screen>
     );
   }

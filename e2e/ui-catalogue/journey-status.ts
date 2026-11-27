@@ -33,6 +33,14 @@ const simplifiedEvidence = proposal(
 );
 
 const byId: Readonly<Record<string, StepStatus | undefined>> = {
+  "baseline-refresh": shipped(
+    "Routine changes refresh the established planning baseline in Holdings.",
+    app,
+  ),
+  "baseline-exceptions": shipped(
+    "Review one source and its effect on the planning baseline in Holdings.",
+    "apps/web/src/PortfolioBaselineReconciliation.tsx",
+  ),
   "cash-history": shipped(
     "Inspect an account’s recorded balance changes in Holdings.",
     "apps/web/src/CashHoldings.tsx",
