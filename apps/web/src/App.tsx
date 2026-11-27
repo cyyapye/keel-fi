@@ -4061,6 +4061,7 @@ function AngelListMacAgentControl() {
   const [busyAction, setBusyAction] = useState<
     "copy" | "interval" | "run" | null
   >(null);
+  const awaitingReconnectStatus = useRef(false);
 
   const reload = useCallback(async () => {
     try {
@@ -4068,11 +4069,14 @@ function AngelListMacAgentControl() {
       setOverview(next);
       if (next.status !== "ready" && next.status !== "running") {
         setNotice(null);
+      } else if (awaitingReconnectStatus.current) {
+        setNotice(ANGELLIST_SIGN_IN_CONFIRMED_NOTICE);
       }
+      awaitingReconnectStatus.current = false;
       setError(null);
       return next;
     } catch {
-      setError("Keel could not check AngelList updates. Try again shortly.");
+      setError("Keel could not check AngelList updates.");
       return null;
     }
   }, []);
@@ -4164,14 +4168,11 @@ function AngelListMacAgentControl() {
   };
 
   const reconnectCompleted = useCallback(() => {
+    awaitingReconnectStatus.current = true;
     setOverview(null);
     setNotice(null);
     setError(null);
-    void reload().then((next) => {
-      if (next?.status === "ready" || next?.status === "running") {
-        setNotice(ANGELLIST_SIGN_IN_CONFIRMED_NOTICE);
-      }
-    });
+    void reload();
   }, [reload]);
 
   return (
@@ -4197,10 +4198,20 @@ function AngelListMacAgentControl() {
 
       <div className="provider-agent-row__action" aria-live="polite">
         {overview === null ? (
-          error === null && (
+          error === null ? (
             <span className="provider-agent-row__checking" role="status">
               Checking AngelList connection…
             </span>
+          ) : (
+            <Button
+              onClick={() => {
+                setError(null);
+                void reload();
+              }}
+              tone="secondary"
+            >
+              Check AngelList status again
+            </Button>
           )
         ) : setupRequired ? (
           <div className="provider-agent-row__setup">
