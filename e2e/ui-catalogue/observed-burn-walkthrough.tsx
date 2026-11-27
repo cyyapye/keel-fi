@@ -55,7 +55,6 @@ export function ObservedBurnWalkthrough() {
           <p className="catalogue-note">
             Capture context · Compare burn uses version {comparisonBase.source}.
             Plan inputs show the current saved version {comparisonBase.saved}.
-            Loading the earlier proposal leaves it as a draft.
           </p>
         )}
         {overview ? (
