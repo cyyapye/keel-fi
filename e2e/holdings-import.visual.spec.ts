@@ -1312,6 +1312,8 @@ test(
   async ({ page }) => {
     await page.clock.install({ time: new Date("2026-08-26T11:00:00.000Z") });
     let reconnectChecks = 0;
+    let reconnectStarts = 0;
+    let readbackAttempts = 0;
     let alphaChecks = 0;
     const sessionId = "22222222-2222-4222-8222-222222222222";
     let sessionStatus: "ready" | "opened" | "connected" = "ready";
@@ -1342,7 +1344,14 @@ test(
       await route.fulfill({ json: [] });
     });
     await page.route("**/api/automation/angellist/status", async (route) => {
-      if (sessionStatus === "connected") await readback;
+      if (sessionStatus === "connected") {
+        await readback;
+        readbackAttempts++;
+        if (readbackAttempts === 1) {
+          await route.fulfill({ status: 503 });
+          return;
+        }
+      }
       await route.fulfill({
         json: {
           version: 1,
@@ -1386,6 +1395,7 @@ test(
       "**/api/automation/provider-browser/angellist/reconnect",
       async (route) => {
         expect(route.request().method()).toBe("POST");
+        reconnectStarts++;
         // Start the session clock only after its initiating request reaches Keel.
         await page.clock.pauseAt(new Date("2026-08-26T12:00:00.000Z"));
         await route.fulfill({
@@ -1520,7 +1530,22 @@ test(
 
     agentStatus = "running";
     releaseReadback();
+    const retryStatus = angelList.getByRole("button", {
+      name: "Check AngelList status again",
+    });
+    await expect(retryStatus).toBeVisible();
+    await expect(successNotice).toHaveCount(0);
+    await expect(signInRequired).toHaveCount(0);
+    await expect(reconnect).toHaveCount(0);
+
+    await retryStatus.press("Enter");
     await expect(successNotice).toBeVisible();
+    const heading = angelList.getByRole("heading", { name: "AngelList" });
+    await expect(heading).toBeFocused();
+    await expect(heading).toHaveCSS("outline-style", "solid");
+    await expect(retryStatus).toHaveCount(0);
+    expect(reconnectStarts).toBe(1);
+    expect(readbackAttempts).toBe(2);
     await expect(angelList.getByText(/^Holdings updated /u)).toBeVisible();
     await expect(
       angelList.getByText("Update queued", { exact: true }),

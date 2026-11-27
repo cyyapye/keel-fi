@@ -3484,6 +3484,11 @@ h1,
   letter-spacing: -0.03em;
 }
 
+.provider-agent-row__heading h3[tabindex="-1"]:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
+}
+
 .provider-agent-row__action {
   display: grid;
   min-width: 0;
