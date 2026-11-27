@@ -88,7 +88,7 @@ export const taskJourneys: TaskJourney[] = [
   },
   {
     id: "evidence",
-    title: "Should this evidence change my plan?",
+    title: "What can I decide about this Watch report?",
     areas: ["watch", "evidence", "scenarios"],
     steps: [
       {
@@ -97,45 +97,47 @@ export const taskJourneys: TaskJourney[] = [
         route: "/watch",
         source: "apps/web/src/App.tsx",
         owner:
-          "Watch item View evidence / Review decision actions and App navigation wiring.",
-        action: "Choose View evidence or Review decision for a reported event.",
+          "PortfolioWatch joins the observation to its evidence event. WatchNewsRow opens that event.",
+        action:
+          "Choose Review decision on the financing report, or Details and View evidence on either update.",
         result:
-          "Evidence Inbox opens with an event query, for example /evidence?event=demo-event. The query focuses the relevant evidence.",
+          "The full Evidence Inbox opens and focuses the selected event, including after reloading its URL.",
         context:
-          "The event ID is route context. Returning to Watch does not promise restoration of its filters or scroll.",
+          "The event ID identifies the report. The observation ID identifies the separate personal read receipt.",
         alternate:
-          "An unavailable report is not accepted evidence. The walkthrough uses a synthetic event and never fetches a source.",
+          "Read news remains in All updates. An ordinary company update can be viewed without appearing in Decisions.",
       },
       {
         id: "evidence-review",
-        title: "Review evidence",
-        route: "/evidence?event=demo-event",
+        title: "Selected report",
+        route: "/evidence?event=evt_watch_harbor_series_c",
         source: "apps/web/src/App.tsx",
         owner:
-          "EvidenceCard pending/reviewable, showAcceptPreview, onReview and onApply.",
+          "EvidenceInbox focuses the matching card. EvidenceCard chooses actions from its claim and current status.",
         action:
-          "Inspect the source and impact preview, then distinguish Reject, Scenario only, Accept without applying, and Confirm & apply.",
+          "Inspect the source and reported terms. Reject, choose Scenario only, or open Accept evidence to preview and confirm.",
         result:
-          "Reject records rejection; Scenario only is not acceptance. Acceptance records a decision; application changes planning only when supported and explicitly applied.",
+          "Accepting the financing records reviewed company terms. A separate mapped financial report can also be applied to its named target.",
         context:
-          "A financing fact is not handled as an ordinary applicable planning update. Superseded reports are not reviewable as fresh evidence.",
+          "A company valuation has no holding impact calculation. Reviewing either report preserves the other report's status.",
         alternate:
-          "Accept without applying leaves application pending. For supported accepted, unapplied evidence, Apply accepted evidence is a later separate action.",
+          "Cancel closes the preview. Failed review stays in Evidence. An unavailable selected ID shows a notice alongside the remaining inbox.",
       },
       {
         id: "evidence-scenario",
-        title: "Scenario-only exploration",
+        title: "Scenario context",
         route: "/scenarios",
         source: "apps/web/src/App.tsx",
-        owner: "App scenario evidence context and Scenarios save workflow.",
+        owner:
+          "App records the scenario-only review, reloads data and passes the selected item to Scenarios.",
         action:
-          "Use Scenario only to explore the event in scenario context; save the scenario separately if desired.",
+          "Choose Scenario only on the report, then inspect or dismiss its context in Scenarios.",
         result:
-          "Exploration is not acceptance and not an automatic saved scenario. No production state is changed by these reference links.",
+          "The evidence has a scenario-only review decision. Saving a scenario version requires a separate action.",
         context:
-          "Scenario-only context is held in memory. No reload persistence or Watch filter restoration is promised.",
+          "The banner belongs to the current app session. Reloading clears that context while the recorded review remains.",
         alternate:
-          "Return to Evidence Inbox via main navigation to make an acceptance decision. A scenario save cannot stand in for evidence acceptance.",
+          "A failed review stays in Evidence. Returning through normal navigation opens the inbox without an event selection.",
       },
     ],
   },
