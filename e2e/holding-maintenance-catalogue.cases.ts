@@ -34,14 +34,39 @@ async function capture(page: Page, info: TestInfo, state: string) {
     )
     .toBe(true);
   if (process.env.KEEL_HOLDING_MAINTENANCE_CAPTURE) {
+    await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
-    await page.screenshot({
+    // A full-page screenshot measures the page before disabling animations.
+    // Let opening disclosures reach their final height first.
+    await expect
+      .poll(() =>
+        page
+          .locator('[data-slot="collapsible-content"]:not([hidden])')
+          .evaluateAll((panels) =>
+            panels.some(
+              (panel) =>
+                panel.hasAttribute("data-starting-style") ||
+                panel
+                  .getAnimations()
+                  .some((animation) => animation.playState === "running"),
+            ),
+          ),
+      )
+      .toBe(false);
+    const screenshot = await page.screenshot({
       path: info.outputPath(state + ".png"),
       fullPage: true,
       scale: "css",
       animations: "disabled",
       caret: "hide",
     });
+    const contentHeight = await page.evaluate(
+      () => document.documentElement.scrollHeight,
+    );
+    expect(
+      screenshot.readUInt32BE(20),
+      "PNG height covers the full form",
+    ).toBeGreaterThanOrEqual(contentHeight);
   }
 }
 

@@ -224,14 +224,6 @@ export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
         { error: "The investment changed. Reload before saving." },
         { status: 409 },
       );
-    if (change.expectedSnapshotId !== current.snapshotId)
-      return Response.json(
-        {
-          error:
-            "The position or purchase details changed. Reload and review again.",
-        },
-        { status: 409 },
-      );
     if (
       "distributionReview" in change &&
       change.distributionReview.coverage.throughDate >
@@ -256,6 +248,14 @@ export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
       if (current.details.distributionReview)
         details.distributionReview = current.details.distributionReview;
     }
+    if (change.expectedSnapshotId !== current.snapshotId)
+      return Response.json(
+        {
+          error:
+            "The position or purchase details changed. Reload and review again.",
+        },
+        { status: 409 },
+      );
     const next = PurchaseReceiptSchema.parse({
       ...current,
       id: crypto.randomUUID(),
@@ -264,7 +264,7 @@ export function HoldingCorrectionsWalkthrough({ terms }: { terms: boolean }) {
     });
     saveExample(receiptKey, next);
     failedReadback.current = distribution && outcome === outcomes[1];
-    return Response.json(next);
+    return Response.json(next, { status: 201 });
   };
   return (
     <>
