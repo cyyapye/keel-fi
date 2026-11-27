@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   ActionGroup,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  DisclosureIndicator,
   Checkbox,
   EmptyState,
   Field,
@@ -186,21 +190,25 @@ export function ObligationsWalkthrough({ stepId }: { stepId: string }) {
               : "Adds $2,400 in debt. The next payment is already in the plan, so no additional reserve."}
         </p>
       </section>
-      <details className="obligations-review-detail">
-        <summary>Review note and source</summary>
-        <Field label="Review note" htmlFor="obligation-demo-note">
-          <Input
-            id="obligation-demo-note"
-            maxLength={500}
-            value={draft.note}
-            disabled={busy}
-            onChange={(e) => update({ note: e.target.value })}
-          />
-        </Field>
-        <p className="catalogue-note">
-          Demo institution · reported 15 November 2026
-        </p>
-      </details>
+      <Collapsible className="obligations-review-detail">
+        <CollapsibleTrigger layout="inline">
+          Review note and source <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <Field label="Review note" htmlFor="obligation-demo-note">
+            <Input
+              id="obligation-demo-note"
+              maxLength={500}
+              value={draft.note}
+              disabled={busy}
+              onChange={(e) => update({ note: e.target.value })}
+            />
+          </Field>
+          <p className="catalogue-note">
+            Demo institution · reported 15 November 2026
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
       {!draft.note.trim() && (
         <FormMessage tone="error">Add a review note to apply.</FormMessage>
       )}
@@ -258,23 +266,27 @@ export function ObligationsWalkthrough({ stepId }: { stepId: string }) {
           )}
         </TabsContent>
       </Tabs>
-      <details className="obligations-prototype">
-        <summary>Prototype controls and source</summary>
-        <p className="catalogue-note">
-          Synthetic new-obligation example. No requests, payment, storage or
-          application writes. Choices persist through navigation in this
-          preview; reloading resets the demo. Source: Obligations.tsx, revision
-          06e63a7. Excluding an update would retain a previously accepted
-          obligation; this example has none.
-        </p>
-        <Button
-          tone="quiet"
-          disabled={busy || review !== null}
-          onClick={() => setFail(!fail)}
-        >
-          Fail next review: {fail ? "on" : "off"}
-        </Button>
-      </details>
+      <Collapsible className="obligations-prototype">
+        <CollapsibleTrigger layout="inline">
+          Prototype controls and source <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <p className="catalogue-note">
+            Synthetic new-obligation example. No requests, payment, storage or
+            application writes. Choices persist through navigation in this
+            preview; reloading resets the demo. Source: Obligations.tsx,
+            revision 06e63a7. Excluding an update would retain a previously
+            accepted obligation; this example has none.
+          </p>
+          <Button
+            tone="quiet"
+            disabled={busy || review !== null}
+            onClick={() => setFail(!fail)}
+          >
+            Fail next review: {fail ? "on" : "off"}
+          </Button>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

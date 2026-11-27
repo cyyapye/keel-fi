@@ -61,7 +61,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/web/src/**/*.tsx"],
+    files: ["apps/web/src/**/*.tsx", "e2e/ui-catalogue/**/*.tsx"],
     plugins: { "keel-ui": keelUi },
     rules: {
       "keel-ui/shared-controls": "error",

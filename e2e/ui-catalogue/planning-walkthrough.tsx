@@ -4,6 +4,10 @@ import {
   PageHeader,
   Badge,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  DisclosureIndicator,
   TextLink,
   Field,
   Input,
@@ -405,49 +409,58 @@ export function PlanningWalkthrough({ stepId }: { stepId: string }) {
           ))}
         </nav>
       </section>
-      <details className="planning-context">
-        <summary>Scope, source & demo controls</summary>
-        <p>
-          Local simulation only: edit the goal name, measure label and optional
-          target, add a required note and save. Saving stays in Goals. Scenarios
-          and History are deliberate main-navigation choices, not redirects. No
-          scenario editor, forecast calculation, restore or real writes.
-        </p>
-        <p>
-          Product route: {["/", "/goals", "/scenarios", "/history"][idx]}.
-          Source: App.tsx OverviewGoalHero / Goals / Scenarios / ForecastHistory
-          at 06e63a7. Screen excerpts use Keel’s goal hero, goal-edit grid,
-          preview, scenario summary and history rail. Fixed synthetic measured
-          runway is 9 months, separate from the goal target
-          (dashboard.protectedRunwayMonths). Label and target changes update the
-          goal preview and saved receipt only; scenario values stay fixed.
-          Nonnegative safe integer months or blank follows parseGoalInteger and
-          GoalDraftInputSchema. Fixed fabricated scenario values; no network,
-          storage or credentials. Other product fields are omitted.
-        </p>
-        <ActionGroup wrap>
-          <Button disabled={busy} onClick={() => F(!fail)} aria-pressed={fail}>
-            Fail next goal save: {fail ? "on" : "off"}
-          </Button>
-          <Button
-            disabled={busy}
-            tone="quiet"
-            onClick={() => {
-              N("Demo reserve goal");
-              M("Protected runway");
-              T("12");
-              Q("");
-              S(false);
-              R(null);
-              E("");
-              F(false);
-              go("overview");
-            }}
-          >
-            Reset demonstration
-          </Button>
-        </ActionGroup>
-      </details>
+      <Collapsible className="planning-context">
+        <CollapsibleTrigger layout="inline">
+          Scope, source & demo controls <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <p>
+            Local simulation only: edit the goal name, measure label and
+            optional target, add a required note and save. Saving stays in
+            Goals. Scenarios and History are deliberate main-navigation choices,
+            not redirects. No scenario editor, forecast calculation, restore or
+            real writes.
+          </p>
+          <p>
+            Product route: {["/", "/goals", "/scenarios", "/history"][idx]}.
+            Source: App.tsx OverviewGoalHero / Goals / Scenarios /
+            ForecastHistory at 06e63a7. Screen excerpts use Keel’s goal hero,
+            goal-edit grid, preview, scenario summary and history rail. Fixed
+            synthetic measured runway is 9 months, separate from the goal target
+            (dashboard.protectedRunwayMonths). Label and target changes update
+            the goal preview and saved receipt only; scenario values stay fixed.
+            Nonnegative safe integer months or blank follows parseGoalInteger
+            and GoalDraftInputSchema. Fixed fabricated scenario values; no
+            network, storage or credentials. Other product fields are omitted.
+          </p>
+          <ActionGroup wrap>
+            <Button
+              disabled={busy}
+              onClick={() => F(!fail)}
+              aria-pressed={fail}
+            >
+              Fail next goal save: {fail ? "on" : "off"}
+            </Button>
+            <Button
+              disabled={busy}
+              tone="quiet"
+              onClick={() => {
+                N("Demo reserve goal");
+                M("Protected runway");
+                T("12");
+                Q("");
+                S(false);
+                R(null);
+                E("");
+                F(false);
+                go("overview");
+              }}
+            >
+              Reset demonstration
+            </Button>
+          </ActionGroup>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

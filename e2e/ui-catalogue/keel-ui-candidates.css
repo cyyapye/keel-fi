@@ -503,13 +503,6 @@
   padding-top: 20px;
   border-top: 1px solid var(--line-soft);
 }
-.catalogue-planning details {
-  margin-top: 28px;
-}
-.catalogue-planning summary {
-  cursor: pointer;
-  min-height: 44px;
-}
 @media (max-width: 650px) {
   .catalogue-planning .body {
     padding: 20px;
@@ -595,10 +588,6 @@
   color: var(--muted);
   font-size: 13px;
   line-height: 1.6;
-}
-.planning-context summary {
-  min-height: 44px;
-  cursor: pointer;
 }
 .planning-polished .history-comparison {
   gap: 32px;

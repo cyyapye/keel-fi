@@ -50,7 +50,7 @@ export default {
         schema: [],
         messages: {
           native:
-            "Use @keel/ui instead of <{{name}}> in app consumers. See docs/product/ui-library.md.",
+            "Use @keel/ui instead of <{{name}}> in UI consumers. See docs/product/ui-library.md.",
         },
       },
       create(context) {

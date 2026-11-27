@@ -309,16 +309,37 @@ rows; it is not a production-scale proof.
 
 ## Verification and enforcement
 
+Both `make lint` and CI's `make lint-typecheck` run `pnpm lint:css` over CSS
+files in the web app, shared UI and executable catalogue. Use the theme's
+`--space-*` and `--text-*` tokens. Matching px values and rem equivalents at the
+16px design reference are accepted, as are zero spacing and auto margins. Checks
+cover gap, margin and padding (including logical sides), font size, weight,
+family, the font shorthand and local overrides of the theme tokens. The
+catalogue uses 400 for regular text, 600 for emphasis and 800 for field labels.
+Explicit Text variants and the catalogue's three named grouping examples also
+have role-specific checks. Rendered review still determines whether each screen
+chose the appropriate role and grouping.
+
+The [existing stylesheet inventory](../engineering/ui-style-debt.md) groups
+off-scale declarations by screen or shared component area. Some older display
+and control treatments need design review before changing them. Run
+`pnpm lint:css --report "Cash accounts"` for matching live file and line
+locations. New occurrences, changed values and moves to a different selector or
+breakpoint fail lint. Use `pnpm lint:css --prune` after a fix to remove resolved
+entries. Add a new shared treatment through the theme and its documented
+catalogue role.
+
 `make lint` enforces `keel-ui/shared-controls` and
-`keel-ui/no-inline-control-restyle` in `apps/web/src/**/*.tsx`. Native links,
-buttons, inputs, selects, textareas and disclosures belong in `@keel/ui`. Named,
-aliased and namespace imports from that library use its documented variants for
-appearance. Consumer inline styles may set explicit margins, grid/flex placement
-and widths; `ChartContainer` also accepts runtime height dimensions. Visual
-properties, opaque style objects and spreads inside the style object are
-rejected. Shared implementations retain their styling ownership. This is JSX
-enforcement: CSS selectors, forwarded prop spreads and app-local compositions
-still require the existing browser checks and rendered review.
+`keel-ui/no-inline-control-restyle` in `apps/web/src/**/*.tsx` and
+`e2e/ui-catalogue/**/*.tsx`, including journey and prototype consumers. Native
+links, buttons, inputs, selects, textareas and disclosures belong in `@keel/ui`.
+Named, aliased and namespace imports from that library use its documented
+variants for appearance. Consumer inline styles may set explicit margins,
+grid/flex placement and widths; `ChartContainer` also accepts runtime height
+dimensions. Visual properties, opaque style objects and spreads inside the style
+object are rejected. Shared implementations retain their styling ownership. This
+is JSX enforcement: CSS selectors, forwarded prop spreads and app-local
+compositions still require the existing browser checks and rendered review.
 
 The review profile tracks lint, dependency, bundler and browser configuration.
 Source roots include all regular files, including image/font assets and expected
@@ -370,6 +391,16 @@ shared component catalogue manifest. The first journey follows portfolio →
 company exposure → holding position → reported activity/tax lots → company.
 Adjacent product areas are orientation-only, not audited cross-area workflows.
 
+The heading on each journey step reports the status of the **product behavior
+shown**. `e2e/ui-catalogue/journey-status.ts` binds the step to its scope and
+the source used to check it. **Shipped** describes behavior in the merged app at
+the inspected revision. **Proposal** identifies a design that differs from the
+app. A mixed step names both the proposed treatment and the available behavior.
+Use **Approved for implementation** only with the user's approval of the exact
+product design and its recorded artifact hash. Approval to build a catalogue
+fixture applies only to that fixture. The initial assessment uses app revision
+`33ad9f3b`; it does not certify live account data or deployment.
+
 The Holdings total journey at `/ui/#journeys/holdings-total` counts each valued
 legal position once. It demonstrates a fund with undisclosed, partially
 disclosed and fully disclosed weights, a confirmed single-company SPV, and
@@ -386,11 +417,11 @@ application state. Current ownership, source-reported activity and remaining
 lots remain distinct. Unknown lots are not zero holdings. The reference's hash
 routes are not promises of production tab deep links or scroll restoration.
 
-When a PR changes an affected screen/action boundary, update the journey source
-reference and its trigger/result/context together, or explain why the reference
-is unchanged. Component references must resolve to existing example cards and
-have reverse journey links. Keep the reference-contract test and the lean
-catalogue round-trip regression current; reuse product journey tests for
+When a PR changes an affected screen/action boundary, update the step's status,
+source reference and its trigger/result/context together, or explain why the
+reference is unchanged. Component references must resolve to existing example
+cards and have reverse journey links. Keep the reference-contract test and the
+lean catalogue round-trip regression current; reuse product journey tests for
 financial semantics rather than duplicating them in the catalogue.
 
 The owner approved the exact synthetic Journeys v1 proposal on 2026-11-14,
@@ -436,13 +467,13 @@ product redirects and in-memory selections. These paths cover the nine major
 areas, not every possible product edge case.
 
 `task-journeys.tsx` reuses the approved task cards, ordered step navigation,
-inline source treatment and shared reference controls. Except for the approved
-Planning slice below, these are read-only walkthroughs, not simulated save or
-authorization forms. Their links only move between catalogue reference screens.
-There are no network requests, file-content reads, external links, writes,
-credentials or clipboard actions. Further interactive scenarios or redesigned
-flows still require exact-version design review. This reference expansion does
-not change production behavior or the separately approved manual-import example.
+inline source treatment and shared reference controls. Some walkthroughs
+simulate decisions in memory. Source reports, access grants and financial values
+are synthetic. Their links move between catalogue reference screens. There are
+no network requests, file-content reads, external links, writes, credentials or
+clipboard actions. Further interactive scenarios or redesigned flows still
+require exact-version design review. This reference expansion does not change
+production behavior or the separately approved manual-import example.
 
 For a source citation inside an expanded history entry, keep the citation inline
 with a differentiated Source heading and supporting evidence. The Collapsible

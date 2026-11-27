@@ -7,6 +7,10 @@ import {
   TabsTrigger,
   TabsContent,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  DisclosureIndicator,
   FormMessage,
   PageHeader,
   Panel,
@@ -204,23 +208,27 @@ export function EvidenceWalkthrough({ stepId }: { stepId: string }) {
       ) : (
         body
       )}
-      <details>
-        <summary>Prototype controls and source</summary>
-        <p className="catalogue-note">
-          Synthetic-only screen excerpts. No requests, storage, payment or
-          application writes. Source revision06e63a7:{" "}
-          {"App.tsx Watch and EvidenceCard"}. The route labels describe product
-          context; catalogue hashes are not product routes.
-        </p>
-        <Button tone="quiet" disabled={busy} onClick={() => F(!fail)}>
-          Fail next review: {fail ? "on" : "off"}
-        </Button>
-        <p className="catalogue-note">
-          {evidence
-            ? "Proposed pattern, not shipped: Apply and Ignore replace the production acceptance choices. Ignore is not acceptance or deletion. Leaving through navigation keeps pending reports unchanged. History retains pending, applied and ignored report states in memory until reload; no storage or external changes. Ordinary mapped, non-financing, non-superseded synthetic report demo-event. Watch remains a separate product feed."
-            : ""}
-        </p>
-      </details>
+      <Collapsible className="evidence-prototype">
+        <CollapsibleTrigger layout="inline">
+          Prototype controls and source <DisclosureIndicator />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <p className="catalogue-note">
+            Synthetic-only screen excerpts. No requests, storage, payment or
+            application writes. Source revision 06e63a7, App.tsx Watch and
+            EvidenceCard. Route labels identify the corresponding product
+            screen. Catalogue links stay in this walkthrough.
+          </p>
+          <Button tone="quiet" disabled={busy} onClick={() => F(!fail)}>
+            Fail next review: {fail ? "on" : "off"}
+          </Button>
+          <p className="catalogue-note">
+            {evidence
+              ? "Proposed pattern, not shipped: Apply and Ignore replace the production acceptance choices. Ignore is not acceptance or deletion. Leaving through navigation keeps pending reports unchanged. History retains pending, applied and ignored report states in memory until reload; no storage or external changes. Ordinary mapped, non-financing, non-superseded synthetic report demo-event. Watch remains a separate product feed."
+              : ""}
+          </p>
+        </CollapsibleContent>
+      </Collapsible>
     </section>
   );
 }

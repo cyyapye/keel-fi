@@ -123,7 +123,6 @@ export function IpoWatch({
   return (
     <Screen className="catalogue-stack">
       <TextLink href="#journeys">All journeys</TextLink>
-      <p className="catalogue-note">Proposed journey · Synthetic holdings</p>
       <SectionHeader
         title="Portfolio Watch"
         headingProps={{ ref: headingRef, tabIndex: -1 }}
