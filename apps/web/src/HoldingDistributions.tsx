@@ -25,14 +25,14 @@ type Editor = {
 };
 const ErrorSchema = z.object({ error: z.string() });
 export function HoldingDistributions({
-  request = fetch,
+  request: fetch = globalThis.fetch,
   holding,
   disabled,
   onAccepted,
   onEditingChange,
   onReadbackPendingChange,
 }: {
-  request?: typeof fetch;
+  request?: typeof globalThis.fetch;
   holding: Holding;
   disabled: boolean;
   onAccepted: () => Promise<void>;
@@ -122,7 +122,7 @@ export function HoldingDistributions({
     setEditor({ ...pending, phase: "saving", error: null });
     let accepted = false;
     try {
-      const response = await request(
+      const response = await fetch(
         `/api/investment-positions/${encodeURIComponent(holding.id)}/distributions`,
         {
           method: "POST",
