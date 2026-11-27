@@ -1,3 +1,4 @@
+import { CashHistoryWalkthrough } from "./cash-history-walkthrough";
 import { AppAccessWalkthrough } from "./app-access-walkthrough";
 import { SourceUpdatesWalkthrough } from "./source-updates-walkthrough";
 import { ObligationsWalkthrough } from "./obligations-walkthrough";
@@ -27,6 +28,15 @@ export function TaskJourney({ stepId }: { stepId: string }) {
         actions={<TextLink href="#journeys">Return to Journeys</TextLink>}
       />
     );
+  if (journey.id === "cash") {
+    return (
+      <Screen>
+        <TextLink href="#journeys">All journeys</TextLink>
+        <SectionHeader title={journey.title} />
+        <CashHistoryWalkthrough />
+      </Screen>
+    );
+  }
   const proposal = location.hash === "#journeys/" + evidenceProposalRoute;
   if (journey.id === "evidence") {
     return (

@@ -19,6 +19,29 @@ export type TaskJourney = {
 };
 export const taskJourneys: TaskJourney[] = [
   {
+    id: "cash",
+    title: "How has my cash balance changed?",
+    areas: ["holdings"],
+    steps: [
+      {
+        id: "cash-history",
+        title: "Recent and full account history",
+        route: "/holdings",
+        source: "apps/web/src/CashHoldings.tsx",
+        owner:
+          "The Cash section in Holdings owns the selected account, history pages and return focus.",
+        action:
+          "Expand an account and open its full history to inspect older balance changes.",
+        result:
+          "Recent history shows up to five changes. Full history shows exact amounts in pages of ten.",
+        context:
+          "History is read-only and scoped to the selected account and revision. Opening it stays within Holdings.",
+        alternate:
+          "A failed page keeps the last loaded entries. Try again loads the requested page. An empty history has its own state.",
+      },
+    ],
+  },
+  {
     id: "planning",
     title: "How does a goal become a saved plan?",
     areas: ["overview", "goals", "scenarios", "forecasts"],

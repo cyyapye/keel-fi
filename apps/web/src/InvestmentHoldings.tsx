@@ -81,6 +81,7 @@ import {
   createInvestmentReconnectLinkToken,
   disconnectInvestmentConnection,
   exchangeInvestmentPublicToken,
+  loadCashBalanceHistory,
   loadInvestmentConnections,
   loadPrivateExposureReviews,
   syncDueInvestmentHoldings,
@@ -3010,6 +3011,7 @@ export function InvestmentHoldings({
     <>
       <CashHoldingsView
         accounts={acceptedCashAccounts}
+        loadHistory={loadCashBalanceHistory}
         data={data}
         error={null}
         onShowSmallBalancesChange={onShowSmallBalancesChange}

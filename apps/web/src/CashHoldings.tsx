@@ -27,7 +27,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { loadCashBalanceHistory } from "./api";
+import type { loadCashBalanceHistory } from "./api";
 import type { HoldingsSearchMatches } from "./collection-search";
 import { formatDate } from "./format";
 import {
@@ -42,7 +42,10 @@ import {
 } from "./cash-holdings-model";
 import "./cash-holdings.css";
 
-type HistoryCache = Map<string, CashBalanceHistoryPage>;
+type HistoryCache = {
+  pages: Map<string, CashBalanceHistoryPage>;
+  load: typeof loadCashBalanceHistory;
+};
 type HistoryTarget = Pick<
   CashBalanceDisplay,
   "key" | "revision" | "kind" | "id"
@@ -68,9 +71,9 @@ async function readHistory(
   after?: string,
 ) {
   const key = historyKey(row, limit, after);
-  const cached = cache.get(key);
+  const cached = cache.pages.get(key);
   if (cached) return cached;
-  const result = await loadCashBalanceHistory(
+  const result = await cache.load(
     {
       kind: row.kind,
       id: row.id,
@@ -80,7 +83,7 @@ async function readHistory(
     },
     signal,
   );
-  if (!signal.aborted) cache.set(key, result);
+  if (!signal.aborted) cache.pages.set(key, result);
   return result;
 }
 function HistoryEntries({
@@ -139,7 +142,9 @@ function RecentHistory({
   onFullHistory: () => void;
 }) {
   const target = useHistoryTarget(row);
-  const [page, setPage] = useState(() => cache.get(historyKey(row, 5)) ?? null);
+  const [page, setPage] = useState(
+    () => cache.pages.get(historyKey(row, 5)) ?? null,
+  );
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const history = useRef<HTMLDivElement>(null);
@@ -386,6 +391,7 @@ function FullHistory({
 
 export function CashHoldingsView({
   accounts,
+  loadHistory,
   data,
   error,
   onShowSmallBalancesChange,
@@ -398,6 +404,7 @@ export function CashHoldingsView({
   onLoadMore,
 }: {
   accounts: readonly AcceptedCashAccount[];
+  loadHistory: typeof loadCashBalanceHistory;
   data: InvestmentHoldingsView;
   error: string | null;
   onShowSmallBalancesChange: (open: boolean) => void;
@@ -412,7 +419,10 @@ export function CashHoldingsView({
   const rows = useMemo(() => cashBalances(accounts, data), [accounts, data]);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [fullKey, setFullKey] = useState<string | null>(null);
-  const [cache] = useState<HistoryCache>(() => new Map());
+  const cache = useMemo<HistoryCache>(
+    () => ({ pages: new Map(), load: loadHistory }),
+    [loadHistory],
+  );
   const root = useRef<HTMLElement>(null);
   const returnKey = useRef<string | null>(null);
   const smallBalancesToggle = useRef<HTMLButtonElement>(null);

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { areas } from "./ui-catalogue/journey-spec";
 import {
   clinicReport,
@@ -2479,4 +2480,98 @@ test("a bookmarked GP estimate review enters the same IPO decision and retries w
   await expect(page.getByRole("option", { name: /IPO/u })).toHaveCount(1);
   await page.getByRole("option", { name: "Different GP marks" }).click();
   await expect(scenario).toHaveText("Different GP marks");
+});
+
+test("Cash history keeps the account and visible page through a failed read", async ({
+  page,
+}, testInfo) => {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/"))
+      requests.push(request.url());
+  });
+  await page.goto("/ui/#journeys/cash-history");
+  await expect(page.getByText("Shipped", { exact: true })).toBeVisible();
+  const cash = page.locator(".cash-holdings");
+  const savings = cash.getByRole("button", { name: /Robinhood.*Savings/ });
+  const full = cash.getByRole("button", { name: "View full history" });
+  const back = cash.getByRole("button", { name: "← Back to cash" });
+  const retry = cash.getByRole("button", { name: "Try again" });
+  const controls = page.getByRole("button", {
+    name: "Capture controls and source",
+  });
+  const choose = async (name: string) => {
+    await controls.click();
+    await page.getByRole("combobox", { name: "History example" }).click();
+    await page.getByRole("option", { name, exact: true }).click();
+    await controls.click();
+  };
+  const capture = async (state: string, area = cash) => {
+    const out = process.env.KEEL_CASH_JOURNEY_REVIEW_DIR;
+    if (!out) return;
+    await page.evaluate(() => document.fonts.ready);
+    if (state === "accounts")
+      await page.screenshot({
+        path: join(out, "entry-" + testInfo.project.name + ".png"),
+        scale: "css",
+        animations: "disabled",
+      });
+    await area.screenshot({
+      style: ".topbar, .mobile-nav { visibility: hidden !important; }",
+      path: join(out, state + "-" + testInfo.project.name + ".png"),
+      animations: "disabled",
+      scale: "css",
+    });
+  };
+  await expect(savings).toBeVisible();
+  await capture("accounts");
+  if (process.env.KEEL_CASH_JOURNEY_REVIEW_DIR) {
+    await controls.click();
+    await capture(
+      "controls",
+      page.locator('[data-slot="collapsible"]').filter({ has: controls }),
+    );
+    await controls.click();
+  }
+  await choose("Older page fails once");
+  await savings.press("Enter");
+  await expect(cash.getByText("Latest 5 of 12 entries")).toBeVisible();
+  await capture("recent");
+  await full.press("Enter");
+  await expect(back).toBeFocused();
+  await expect(cash.getByText("1–10 of 12 entries")).toBeVisible();
+  await expect(cash.getByText("$82,400.00", { exact: true })).toBeVisible();
+  await capture("full");
+  const older = cash.getByRole("button", { name: "Older", exact: true });
+  await older.click();
+  await expect(cash).toContainText(
+    "Older entries could not be loaded. Showing 1–10 of 12 entries.",
+  );
+  await capture("failure");
+  await retry.press("Enter");
+  await expect(cash.getByText("11–12 of 12 entries")).toBeVisible();
+  await expect(cash.getByText("First recorded balance")).toBeVisible();
+  await expect(older).toBeDisabled();
+  await back.press("Enter");
+  await expect(full).toBeFocused();
+  await savings.click();
+  await cash.getByRole("button", { name: /Capital One.*Checking/ }).click();
+  await expect(cash.getByText("First recorded balance")).toBeVisible();
+  await expect(cash.getByText("Latest 5 of 12 entries")).toHaveCount(0);
+  await choose("Recent history fails once");
+  await savings.click();
+  await expect(cash).toContainText("Balance history could not be loaded.");
+  await retry.click();
+  await expect(full).toBeFocused();
+  await expect(cash.getByText("Latest 5 of 12 entries")).toBeVisible();
+  await choose("No recorded history");
+  await savings.click();
+  await expect(cash.getByText("No recorded balance history.")).toBeVisible();
+  await capture("empty");
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+  expect(requests).toEqual([]);
 });
