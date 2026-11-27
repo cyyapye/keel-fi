@@ -104,6 +104,9 @@ export async function expectEditedBurnDraftKeepsItsOwnVersion(page: Page) {
       name: "Continue capture to the later Overview",
     }),
   ).toHaveCount(0);
+  await expect(
+    page.getByText(/Capture context · Compare burn uses version 3/),
+  ).toContainText("current saved version 4");
   await flow.getByRole("button", { name: "Load plan draft" }).click();
   await expect(household).toHaveValue("5,000");
   await save.click();
@@ -115,6 +118,21 @@ export async function expectEditedBurnDraftKeepsItsOwnVersion(page: Page) {
   await expect(editor.getByText("Version 4", { exact: true })).toBeVisible();
   await editor.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(household).toHaveValue("5,100");
+
+  await page.reload();
+  await flow.getByRole("button", { name: "Prepare plan draft" }).click();
+  await expect(household).toHaveValue("8,000");
+  await save.click();
+  const later = page.getByRole("button", {
+    name: "Continue capture to the later Overview",
+  });
+  await expect(later).toBeVisible();
+  await household.fill("10000");
+  await save.click();
+  await expect(editor.getByRole("status")).toHaveText(
+    "Plan saved with forecast version 5.",
+  );
+  await expect(later).toHaveCount(0);
 }
 
 export async function installBurnPlanSource(page: Page) {

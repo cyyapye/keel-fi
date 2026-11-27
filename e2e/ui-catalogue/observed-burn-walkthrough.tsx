@@ -38,6 +38,7 @@ export function ObservedBurnWalkthrough() {
   };
   const overview = screen === "overview";
   const area = overview ? "Overview" : "Scenarios";
+  const comparisonBase = example.comparisonBase();
   return (
     <section aria-label={area + " capture"} ref={screenRegion} tabIndex={-1}>
       <Screen>
@@ -50,6 +51,13 @@ export function ObservedBurnWalkthrough() {
           }
           descriptionPlacement="title-group"
         />
+        {!overview && comparisonBase && (
+          <p className="catalogue-note">
+            Capture context · Compare burn uses version {comparisonBase.source}.
+            Plan inputs show the current saved version {comparisonBase.saved}.
+            Loading the earlier proposal leaves it as a draft.
+          </p>
+        )}
         {overview ? (
           <PlanActualMonitoring
             requests={example.monitoringRequests}

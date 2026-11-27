@@ -170,7 +170,10 @@ export function createObservedBurnExample() {
   let report = august;
   let proposal: CashFlowProposal | null = proposalFor(report, plan);
   let reviewed: CashFlowProposal | null = null;
-  let augustProposalApplied = false;
+  let linkedAugustVersion: number | null = null;
+  const canOpenLaterObservation = () =>
+    report === november ||
+    linkedAugustVersion === plan.baseForecastSnapshotVersion;
   const cooldowns: PlanActualMonitoringInput["cooldowns"] = [];
   const cashFlow = (): CashFlowState => ({
     version: 1,
@@ -238,7 +241,14 @@ export function createObservedBurnExample() {
     });
   return {
     hasProposal: () => proposal !== null,
-    canOpenLaterObservation: () => augustProposalApplied,
+    canOpenLaterObservation,
+    comparisonBase: () =>
+      proposal && !samePlanBase(proposal.planning, plan)
+        ? {
+            source: proposal.planning.baseForecastSnapshotVersion,
+            saved: plan.baseForecastSnapshotVersion,
+          }
+        : null,
     cashFlowRequests: {
       loadCashFlow: () => Promise.resolve(cashFlow()),
       reviewCashFlow: (id: string, input: CashFlowReviewInput) =>
@@ -299,7 +309,7 @@ export function createObservedBurnExample() {
             impact: createPlanInputImpact(values, fiEligibleLiquidMinor),
           };
           if (proposal && input.cashFlowProposalId === proposal.id) {
-            if (report === august) augustProposalApplied = true;
+            if (report === august) linkedAugustVersion = version;
             proposal = null;
           }
           return {
@@ -312,7 +322,7 @@ export function createObservedBurnExample() {
     },
     openLaterObservation: () => {
       if (report === november) return;
-      if (!augustProposalApplied)
+      if (!canOpenLaterObservation())
         throw new Error(
           "Save the reviewed August proposal to continue the example.",
         );
