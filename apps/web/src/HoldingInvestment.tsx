@@ -264,6 +264,7 @@ function initialLot(holding: Holding): PurchaseLot {
 }
 
 export function HoldingInvestment({
+  request = fetch,
   holding,
   disabled,
   onAccepted,
@@ -277,6 +278,7 @@ export function HoldingInvestment({
   onAccepted: () => Promise<void>;
   onEditingChange: (editing: boolean) => void;
   onReadbackPendingChange: (pending: boolean) => void;
+  request?: typeof fetch;
   editorRef?: Ref<HoldingInvestmentHandle>;
   omitCashPaid?: boolean;
 }) {
@@ -409,7 +411,7 @@ export function HoldingInvestment({
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await request(
         `/api/investment-positions/${encodeURIComponent(holding.id)}/purchases`,
         {
           method: "POST",
@@ -840,6 +842,7 @@ export function HoldingInvestment({
         </>
       )}
       <HoldingDistributions
+        request={request}
         holding={holding}
         disabled={disabled || draft !== null}
         onAccepted={onAccepted}

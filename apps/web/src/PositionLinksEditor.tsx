@@ -78,7 +78,24 @@ function valueLabel(position: InvestmentPositionRecord) {
         position.snapshot.currency,
       );
 }
+type PositionLinkActions = {
+  load: typeof loadPositionLinks;
+  accept: typeof acceptPositionLink;
+  refresh: () => Promise<unknown>;
+  download: typeof downloadLegalEntityDocument;
+  sourceHref: (id: string) => string | undefined;
+};
+const positionLinkActions: PositionLinkActions = {
+  load: loadPositionLinks,
+  accept: acceptPositionLink,
+  refresh: refreshPortfolioBaseline,
+  download: downloadLegalEntityDocument,
+  sourceHref: (id: string): string | undefined =>
+    entityReviewUrl({ kind: "holding_position", id }, "investment"),
+};
+
 export function PositionLinksEditor({
+  actions = positionLinkActions,
   positionId,
   onAccepted,
   reviewEntry = false,
@@ -86,6 +103,7 @@ export function PositionLinksEditor({
   presentation = "disclosure",
   hasLinkedRecords = false,
 }: {
+  actions?: PositionLinkActions;
   positionId: string;
   reviewEntry?: boolean;
   initialOpen?: boolean;
@@ -172,7 +190,7 @@ export function PositionLinksEditor({
     setBusy(true);
     setError(null);
     try {
-      const blob = await downloadLegalEntityDocument(id);
+      const blob = await actions.download(id);
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -216,13 +234,13 @@ export function PositionLinksEditor({
     setBusy(true);
     setError(null);
     try {
-      receiveWorkspace(await loadPositionLinks());
+      receiveWorkspace(await actions.load());
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load records.");
     } finally {
       setBusy(false);
     }
-  }, [receiveWorkspace]);
+  }, [actions, receiveWorkspace]);
   useEffect(() => {
     if (!adding || sourceId) return;
     const picker = busy
@@ -250,7 +268,8 @@ export function PositionLinksEditor({
   useEffect(() => {
     if (!initialOpen) return;
     let active = true;
-    void loadPositionLinks()
+    void actions
+      .load()
       .then((loaded) => {
         if (!active) return;
         receiveWorkspace(loaded);
@@ -269,7 +288,7 @@ export function PositionLinksEditor({
     return () => {
       active = false;
     };
-  }, [initialOpen, receiveWorkspace]);
+  }, [actions, initialOpen, receiveWorkspace]);
   async function save(remove?: PositionLinkReceipt) {
     const member = remove
       ? workspace?.positions.find((p) => p.id === remove.sourcePositionId)
@@ -278,7 +297,7 @@ export function PositionLinksEditor({
     setBusy(true);
     setError(null);
     try {
-      await acceptPositionLink({
+      await actions.accept({
         sourcePositionId: member.id,
         targetPositionId: target.id,
         expectedSourceSnapshotId: member.snapshot.id,
@@ -303,7 +322,7 @@ export function PositionLinksEditor({
           (source?.sourceProvider === "manual" ? false : useSourceValue),
         note: "",
       });
-      const updated = await loadPositionLinks();
+      const updated = await actions.load();
       setWorkspace(updated);
       setSourceId("");
       setUseSourceValue(false);
@@ -323,7 +342,7 @@ export function PositionLinksEditor({
           inlineSection && !hasRemaining ? addAction : disclosure;
       }
       try {
-        await refreshPortfolioBaseline();
+        await actions.refresh();
       } catch {
         setError(
           "Link saved. Planning values could not be refreshed; use the planning baseline’s refresh action.",
@@ -436,6 +455,7 @@ export function PositionLinksEditor({
                 const member = workspace?.positions.find(
                   (p) => p.id === link.sourcePositionId,
                 );
+                const sourceHref = member && actions.sourceHref(member.id);
                 return (
                   <div key={link.id} className="position-link-record">
                     <strong>
@@ -457,14 +477,11 @@ export function PositionLinksEditor({
                           <DisclosureIndicator />
                         </CollapsibleTrigger>
                         <CollapsibleContent>
-                          <TextLink
-                            href={entityReviewUrl(
-                              { kind: "holding_position", id: member.id },
-                              "investment",
-                            )}
-                          >
-                            Review this source’s terms, purchases and events
-                          </TextLink>
+                          {sourceHref && (
+                            <TextLink href={sourceHref}>
+                              Review this source’s terms, purchases and events
+                            </TextLink>
+                          )}
                           <DataList>
                             <DataItem
                               label="Source terms"

@@ -78,6 +78,7 @@ const EconomicsValue = ({
   );
 
 export function PositionEconomicsEditor({
+  acceptTerms = acceptPositionEconomics,
   holding,
   onAccepted,
   presentation = "holding",
@@ -85,6 +86,7 @@ export function PositionEconomicsEditor({
   amountEditor,
   amountDetail,
 }: {
+  acceptTerms?: typeof acceptPositionEconomics;
   holding: Pick<
     Holding,
     "id" | "sourceLabel" | "positionEconomicsContext" | "purchaseContext"
@@ -299,7 +301,7 @@ export function PositionEconomicsEditor({
     setBusy(true);
     setError(null);
     try {
-      await acceptPositionEconomics(holding.id, parsedInput.data);
+      await acceptTerms(holding.id, parsedInput.data);
       await onAccepted();
       reset();
     } catch (caught: unknown) {
