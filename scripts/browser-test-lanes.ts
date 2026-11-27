@@ -67,14 +67,13 @@ export const BROWSER_TEST_LANES = {
   ],
   "stateful-a": [
     "app-access.spec.ts",
-    "carry-distributions.spec.ts",
     "cash-accounts.visual.spec.ts",
     "goals.visual.spec.ts",
-    "manual-holdings.visual.spec.ts",
     "observed-cash-flow.visual.spec.ts",
     "plan-actual-monitoring.visual.spec.ts",
     "provider-browser-lifecycle.spec.ts",
     "provider-legal-documents.spec.ts",
+    "ui-catalogue.visual.spec.ts",
   ],
   "stateful-b": [
     "cash-holdings.visual.spec.ts",
@@ -92,9 +91,10 @@ export const BROWSER_TEST_LANES = {
   ],
   "stateful-source": [
     "agreement-security.visual.spec.ts",
+    "carry-distributions.spec.ts",
+    "manual-holdings.visual.spec.ts",
     "public-source-updates.spec.ts",
     "provider-session.spec.ts",
-    "ui-catalogue.visual.spec.ts",
   ],
 } as const satisfies Record<string, readonly string[]>;
 
@@ -254,6 +254,7 @@ export function validateMockedBrowserSpecs(e2eDirectory: string): void {
     ...BROWSER_TEST_LANES["mocked-development"],
     ...BROWSER_TEST_LANES["stateful-a"],
     ...BROWSER_TEST_LANES["stateful-b"],
+    ...BROWSER_TEST_LANES["stateful-source"],
   ]);
   for (const file of Object.values(BROWSER_TEST_LANES).flat()) {
     const source = readFileSync(path.join(e2eDirectory, file), "utf8");
