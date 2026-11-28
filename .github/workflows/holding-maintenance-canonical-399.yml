@@ -1,0 +1,79 @@
+name: Render the holding economics reference for PR 399
+
+on:
+  push:
+    branches: [codex/holding-maintenance-canonical-399]
+    paths: [.github/workflows/holding-maintenance-canonical-399.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      KEEL_SCREENSHOT_MODE: canonical
+      KEEL_BROWSER_LANE: mocked
+      KEEL_E2E_ISOLATED: "1"
+      EXPECTED_REFERENCE: e2e/holdings-detail.visual.spec.ts-snapshots/holding-spv-economics-review-chromium-linux.png
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify the immutable source and runner
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/codex/holding-maintenance-canonical-399
+          test "$(git rev-parse HEAD^)" = 287a8e28e85c23dbd09af7e74906656cd76af84c
+          test "$(git diff --name-only HEAD^ HEAD)" = .github/workflows/holding-maintenance-canonical-399.yml
+          test "$(uname -m)" = x86_64
+          . /etc/os-release
+          test "$ID-$VERSION_ID" = ubuntu-24.04
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22.13.0
+      - name: Prepare the locked browser and production app
+        run: |
+          set -euo pipefail
+          make bootstrap-ci
+          pnpm exec playwright install-deps chromium
+          node --version
+          pnpm --version
+          pnpm exec playwright --version
+          pnpm --filter @keel/web build
+          mkdir -p .keel-local/e2e-lanes/mocked
+      - name: Verify the control, render the affected reference and replay
+        run: |
+          set -euo pipefail
+          spec=e2e/holdings-detail.visual.spec.ts
+          title='leads with the investment and opens a truthful holding detail'
+          for mode in changed none; do
+            pnpm exec playwright test "$spec" --project=chromium --grep "$title" --retries=0 --workers=1 --reporter=list --update-snapshots="$mode"
+            test "$(git diff --name-only)" = "$EXPECTED_REFERENCE"
+          done
+          python3 - <<'PY'
+          import hashlib, os, pathlib, struct
+          p = pathlib.Path(os.environ["EXPECTED_REFERENCE"])
+          assert p.is_file() and not p.is_symlink()
+          data = p.read_bytes()
+          assert data[:8] == b"\x89PNG\r\n\x1a\n" and len(data) < 2*1024*1024
+          assert struct.unpack(">II", data[16:24]) == (964, 1222)
+          print("Verified canonical PNG", hashlib.sha256(data).hexdigest(), len(data))
+          PY
+      - name: Retain the replayed reference on this verification branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/codex/holding-maintenance-canonical-399
+          git add -- "$EXPECTED_REFERENCE"
+          test "$(git diff --cached --name-only)" = "$EXPECTED_REFERENCE"
+          git -c user.name='Keel visual verification' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Render the canonical holding economics review reference'
+          git -c credential.helper= -c 'credential.helper=!gh auth git-credential' push origin HEAD:refs/heads/codex/holding-maintenance-canonical-399
